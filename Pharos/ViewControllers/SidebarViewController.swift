@@ -276,9 +276,8 @@ class SidebarViewController: NSViewController {
         browserContainer.isHidden = (navigator != .schema)
 
         // Only the Query Library and the Variables list hold things the user
-        // can create, and each has its own "+" menu.
-        filterBar.showsAddButton = (navigator == .library || navigator == .variables)
-        filterBar.configureAddMenu(for: navigator)
+        // can create, and each has its own "+".
+        filterBar.configureAddControl(for: navigator)
 
         // A pending debounce belongs to the navigator that is leaving; firing
         // it now would filter the incoming list with the outgoing list's text.

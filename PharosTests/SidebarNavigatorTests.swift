@@ -202,38 +202,60 @@ private func testFilterBar() {
     }
     expect(newFolders, 1, "New Folder fires its closure")
 
-    // The Variables navigator rebuilds the menu from index 1: the glyph item
-    // stays, one New Variable item replaces the two library items.
+    // The Variables navigator: a plain "+" that makes a variable on click.
+    // No menu — New Variable is the only thing it can do.
+    let variableButton = bar.newVariableButton
+    expectTrue(variableButton.isHidden, "the new-variable button is hidden by default")
+    expectFalse(variableButton is NSPopUpButton, "variables: the + is not a pull-down")
+    expectTrue(variableButton.menu == nil, "variables: the + has no menu")
+    expect(variableButton.accessibilityIdentifier(), "sidebar.filter.newVariable",
+           "new-variable button identifier")
+    expect(variableButton.accessibilityLabel() ?? "nil", "New Variable", "new-variable button AX label")
+    expect(Int(variableButton.bezelStyle.rawValue), Int(NSButton.BezelStyle.accessoryBarAction.rawValue),
+           "new-variable button is an accessory bar action")
+    expectTrue(variableButton.showsBorderOnlyWhileMouseInside, "new-variable button borders only on hover")
+    // The same glyph at the same size in both navigators, and bigger than
+    // the old 12 pt one.
+    let libraryGlyph = bar.addButton.menu?.items.first?.image?.size ?? .zero
+    let variableGlyph = variableButton.image?.size ?? .zero
+    expectTrue(variableGlyph == libraryGlyph, "both + glyphs are the same size")
+    let oldGlyph = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?
+        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: .medium))?.size ?? .zero
+    expectTrue(libraryGlyph.width > oldGlyph.width && libraryGlyph.height > oldGlyph.height,
+               "the + glyph is bigger than the old 12 pt one")
+
+    let libraryFieldX = bar.filterField.frame.minX
     var newVariables = 0
     bar.onNewVariable = { newVariables += 1 }
-    bar.configureAddMenu(for: .variables)
-    expect(bar.addButton.menu?.items.count ?? 0, 2, "variables: item 0 plus New Variable")
-    expectTrue(bar.addButton.menu?.items.first?.image != nil, "variables: item 0 still carries the plus image")
-    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Variable", "variables: the action is New Variable")
-    if let item = bar.addButton.menu?.items[1] {
-        _ = item.target?.perform(item.action, with: item)
-    }
-    expect(newVariables, 1, "New Variable fires its closure")
+    bar.configureAddControl(for: .variables)
+    window.contentView?.layoutSubtreeIfNeeded()
+    expectFalse(variableButton.isHidden, "variables: the new-variable button shows")
+    expectTrue(bar.addButton.isHidden, "variables: the library pull-down hides")
+    expect(bar.filterField.frame.minX, libraryFieldX, "variables: the field does not move")
+    variableButton.performClick(nil)
+    expect(newVariables, 1, "one click makes one variable")
     expect(newQueries, 1, "New Variable does not fire New Query")
+    expect(newFolders, 1, "New Variable does not fire New Folder")
+    expect(bar.addButton.menu?.items.count ?? 0, 3, "variables: the library menu is untouched")
 
-    // Back to the library: the two original items return.
-    bar.configureAddMenu(for: .library)
-    expect(bar.addButton.menu?.items.count ?? 0, 3, "library again: item 0 plus two real items")
+    // Back to the library: the pull-down returns with its two items.
+    bar.configureAddControl(for: .library)
+    expectFalse(bar.addButton.isHidden, "library again: the pull-down shows")
+    expectTrue(variableButton.isHidden, "library again: the new-variable button hides")
     expect(bar.addButton.menu?.items[1].title ?? "nil", "New Query", "library again: first action is New Query")
     expect(bar.addButton.menu?.items[2].title ?? "nil", "New Folder", "library again: second action is New Folder")
 
-    // Hiding the pull-down: the stack closes the gap so the field starts at
-    // the leading inset, as it must in the two navigators with nothing to add.
-    expectTrue(bar.showsAddButton, "the add button shows by default")
-    expectFalse(bar.addButton.isHidden, "the add button is visible by default")
-    let withButton = bar.filterField.frame.minX
-    bar.showsAddButton = false
-    expectTrue(bar.addButton.isHidden, "showsAddButton = false hides the pull-down")
-    window.contentView?.layoutSubtreeIfNeeded()
-    expectTrue(bar.filterField.frame.minX < withButton,
-               "the field moves leading when the pull-down goes")
-    bar.showsAddButton = true
-    expectFalse(bar.addButton.isHidden, "showsAddButton = true brings it back")
+    // Nothing to add: the stack closes the gap so the field starts at the
+    // leading inset, as it must in History and the Database Navigator.
+    for navigator in [Navigator.history, .schema] {
+        bar.configureAddControl(for: navigator)
+        window.contentView?.layoutSubtreeIfNeeded()
+        expectTrue(bar.addButton.isHidden && variableButton.isHidden,
+                   "\(navigator): no + shows")
+        expectTrue(bar.filterField.frame.minX < libraryFieldX,
+                   "\(navigator): the field moves leading when the + goes")
+    }
+    bar.configureAddControl(for: .library)
 
     // Typing reaches the owner through the real target/action.
     var texts: [String] = []
