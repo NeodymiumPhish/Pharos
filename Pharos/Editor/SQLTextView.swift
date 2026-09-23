@@ -972,12 +972,15 @@ class SQLTextView: NSTextView {
             super.insertNewline(sender)
             return
         }
-        // Auto-indent: match leading whitespace of current line
+        // Auto-indent: match the leading whitespace BEFORE the caret. Whitespace
+        // after it moves down with the split, so counting it too would indent
+        // the new line twice — with the caret inside a line's indent, every
+        // Return then pushed the caret one column right.
         let text = string as NSString
         let cursorLocation = selectedRange().location
-        let lineRange = text.lineRange(for: NSRange(location: cursorLocation, length: 0))
-        let currentLine = text.substring(with: lineRange)
-        let indent = currentLine.prefix(while: { $0 == " " || $0 == "\t" })
+        let lineStart = text.lineRange(for: NSRange(location: cursorLocation, length: 0)).location
+        let beforeCaret = text.substring(with: NSRange(location: lineStart, length: cursorLocation - lineStart))
+        let indent = beforeCaret.prefix(while: { $0 == " " || $0 == "\t" })
         super.insertNewline(sender)
         if !indent.isEmpty {
             insertText(String(indent), replacementRange: selectedRange())

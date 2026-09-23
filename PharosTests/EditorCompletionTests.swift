@@ -626,6 +626,42 @@ private func testTokenClicks() {
     expectTrue((moved.first?.rect.minX ?? 0) > user.rect.minX, "edit: the chip rect follows the text")
 }
 
+// MARK: - Return: auto-indent
+
+private func testAutoIndentReturn() {
+    // The caret inside a line's indent: only the whitespace before it is
+    // copied. Counting the whitespace after it as well (it moves down with the
+    // split) pushed the caret one column right on every Return.
+    do {
+        let e = Editor()
+        e.textView.string = ";\n "
+        e.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        e.key(36, "\r")
+        e.key(36, "\r")
+        e.key(36, "\r")
+        expectEqual(e.text, ";\n\n\n\n ", "return: caret before the indent adds no whitespace")
+        expectEqual(e.caret, 5, "return: caret stays at column 0")
+    }
+    do {
+        let e = Editor()
+        e.textView.string = "    x"
+        e.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        e.key(36, "\r")
+        expectEqual(e.text, "  \n    x", "return: mid-indent split keeps the line's indent")
+        expectEqual(e.caret, 5, "return: caret after the copied part of the indent")
+    }
+    do {
+        let e = Editor()
+        e.textView.string = "  SELECT"
+        e.textView.setSelectedRange(NSRange(location: 8, length: 0))
+        e.key(36, "\r")
+        expectEqual(e.text, "  SELECT\n  ", "return: end of an indented line copies its indent")
+        e.key(36, "\r")
+        expectEqual(e.text, "  SELECT\n  \n  ", "return: whitespace-only line keeps the same indent")
+        expectEqual(e.caret, 14, "return: caret at the end of the copied indent")
+    }
+}
+
 func runTests() {
     _ = NSApplication.shared
     testContext()
@@ -635,6 +671,7 @@ func runTests() {
     testTypedIntoEditor()
     testTokenRule()
     testTokenClicks()
+    testAutoIndentReturn()
     if failures == 0 { print("\nAll editor completion tests passed.") } else {
         print("\n\(failures) failure(s).")
         exit(1)
