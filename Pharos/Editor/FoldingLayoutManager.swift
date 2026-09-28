@@ -232,13 +232,16 @@ final class FoldingLayoutManager: NSLayoutManager {
             }
         }
 
-        // Then draw fold pills on top of anchor glyphs
+        // Then draw fold pills on top of anchor glyphs. A fold inside another
+        // fold is hidden with the rest of it: its pill would land on top of
+        // the outer fold's pill.
         guard !foldState.entries.isEmpty else { return }
 
         for entry in foldState.entries {
             let foldStart = entry.range.location
             // Only draw if the fold's anchor character is in the drawn range
-            guard foldStart >= charRange.location && foldStart < NSMaxRange(charRange) else { continue }
+            guard foldStart >= charRange.location && foldStart < NSMaxRange(charRange),
+                  !isInsideAnotherFold(entry) else { continue }
 
             // Get the glyph index for the anchor character
             let anchorGlyphRange = glyphRange(forCharacterRange: NSRange(location: foldStart, length: 1), actualCharacterRange: nil)
@@ -269,9 +272,12 @@ final class FoldingLayoutManager: NSLayoutManager {
         let charRange = characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
         var adjustedUsedRect = usedRect
 
+        // A fold inside another fold draws no pill (see drawGlyphs), so it
+        // reserves no width either.
         for entry in foldState.entries {
             let foldStart = entry.range.location
-            if foldStart >= charRange.location && foldStart < NSMaxRange(charRange) {
+            if foldStart >= charRange.location && foldStart < NSMaxRange(charRange),
+               !isInsideAnotherFold(entry) {
                 // Add pill width to the used rect so text after the fold accounts for it
                 let pillSize = measurePill(label: entry.placeholder)
                 // The fold hides many characters but only the anchor glyph remains.
@@ -339,36 +345,24 @@ final class FoldingLayoutManager: NSLayoutManager {
     // MARK: - Hit Testing
 
     /// Returns the fold entry if the given point (in text container coordinates) hits a pill.
+    ///
+    /// By the drawn pill alone. Asking which character is nearest the point
+    /// made the empty space to the right of a pill part of it: that character
+    /// is the fold's anchor or one of its hidden characters, so a click past
+    /// the pill unfolded instead of placing the caret.
     func foldEntry(at point: NSPoint, in textContainer: NSTextContainer) -> FoldEntry? {
-        guard !foldState.entries.isEmpty else { return nil }
-
-        let charIndex = characterIndex(for: point, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
-
-        // Check if the character is inside any fold range
-        if let entry = foldState.entry(containing: charIndex) {
-            return entry
+        foldState.entries.first { entry in
+            !isInsideAnotherFold(entry) && (pillRect(for: entry, in: textContainer)?.contains(point) ?? false)
         }
+    }
 
-        // Also check by visual bounds — the pill may extend beyond the anchor character
-        for entry in foldState.entries {
-            let foldStart = entry.range.location
-            let anchorGlyphRange = glyphRange(forCharacterRange: NSRange(location: foldStart, length: 1), actualCharacterRange: nil)
-            guard anchorGlyphRange.location != NSNotFound else { continue }
-
-            let lineFragRect = lineFragmentRect(forGlyphAt: anchorGlyphRange.location, effectiveRange: nil)
-            let glyphLocation = location(forGlyphAt: anchorGlyphRange.location)
-
-            let pillSize = measurePill(label: entry.placeholder)
-            let pillX = lineFragRect.origin.x + glyphLocation.x
-            let pillY = lineFragRect.origin.y + (lineFragRect.height - pillSize.height) / 2
-
-            let pillRect = NSRect(x: pillX, y: pillY, width: pillSize.width, height: pillSize.height)
-            if pillRect.contains(point) {
-                return entry
-            }
+    /// Whether `entry` sits inside another fold, where its pill is hidden.
+    func isInsideAnotherFold(_ entry: FoldEntry) -> Bool {
+        foldState.entries.contains { other in
+            other.id != entry.id
+                && NSLocationInRange(entry.range.location, other.range)
+                && entry.range.location != other.range.location
         }
-
-        return nil
     }
 
     /// Returns the bounding rect of a fold's pill in text container coordinates.

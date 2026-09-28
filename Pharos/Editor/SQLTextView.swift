@@ -127,7 +127,9 @@ class SQLTextView: NSTextView {
     /// Called when fold state changes (fold or unfold) so the host VC can re-sync gutter.
     var onFoldStateChanged: (() -> Void)?
 
-    /// Called when user clicks a fold placeholder to request unfold. Parameter is the fold entry UUID.
+    /// Called when the user asks to unfold one fold from the text: a click on
+    /// its pill, or ⌫ right after it / ⌦ right before it. Parameter is the
+    /// fold entry UUID. With no handler, the text view unfolds it itself.
     var onPlaceholderClicked: ((UUID) -> Void)?
 
     // MARK: Format-as-SQL-list paste offer
@@ -343,7 +345,7 @@ class SQLTextView: NSTextView {
         // token check: a token hidden inside the fold must not answer a
         // click meant for the pill.
         if let entry = foldPill(at: convert(event.locationInWindow, from: nil)) {
-            onPlaceholderClicked?(entry.id)
+            requestUnfold(entry)
             return
         }
 
@@ -369,6 +371,39 @@ class SQLTextView: NSTextView {
 
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+        if event.clickCount == 1, flags.isEmpty {
+            placeCaretAfterPill(ifClickedRightOf: convert(event.locationInWindow, from: nil))
+        }
+    }
+
+    /// A click in the empty space right of a pill lands on the fold's anchor —
+    /// BEFORE the pill, because the text past the anchor is hidden. The caret
+    /// belongs after the pill there, where End also puts it.
+    private func placeCaretAfterPill(ifClickedRightOf point: NSPoint) {
+        let caret = selectedRange()
+        guard caret.length == 0,
+              let foldingLM = layoutManager as? FoldingLayoutManager,
+              let textContainer,
+              let entry = foldState.entries.first(where: {
+                  $0.range.location == caret.location && !foldingLM.isInsideAnotherFold($0)
+              }),
+              let pill = foldingLM.pillRect(for: entry, in: textContainer)
+        else { return }
+        let origin = textContainerOrigin
+        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyph = foldingLM.glyphIndexForCharacter(at: entry.range.location)
+        let line = foldingLM.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        guard local.x >= pill.maxX, local.y >= line.minY, local.y < line.maxY else { return }
+        setSelectedRange(NSRange(location: NSMaxRange(entry.range), length: 0))
+    }
+
+    /// Unfold `entry` through the host, which also re-syncs the gutter.
+    private func requestUnfold(_ entry: FoldEntry) {
+        if let onPlaceholderClicked {
+            onPlaceholderClicked(entry.id)
+        } else {
+            unfold(id: entry.id)
+        }
     }
 
     /// A hand over each `{{name}}` chip and each fold pill: they are
@@ -413,7 +448,13 @@ class SQLTextView: NSTextView {
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
         pendingEditRange = affectedCharRange
         pendingReplacementLength = (replacementString as NSString?)?.length
-        return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+        let allowed = super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
+        if !allowed {
+            // No didChangeText follows a refused edit to clear these.
+            pendingEditRange = nil
+            pendingReplacementLength = nil
+        }
+        return allowed
     }
 
     override func didChangeText() {
@@ -436,6 +477,8 @@ class SQLTextView: NSTextView {
         }
         pendingEditRange = nil
         pendingReplacementLength = nil
+        // The edit set its selection while the fold ranges were stale.
+        snapSelectionOutOfFolds()
 
         // The text changed under any in-flight highlight pass: its spans were
         // computed for the OLD text and can now reach past the end of the new
@@ -570,7 +613,12 @@ class SQLTextView: NSTextView {
     }
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
-        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        // Between shouldChangeText and didChangeText the fold ranges still
+        // name the pre-edit text; didChangeText snaps once they are current.
+        let snapped = pendingEditRange == nil && !foldState.entries.isEmpty
+            ? Self.snapped(ranges, from: selectedRanges, folds: foldState.foldedCharacterRanges)
+            : ranges
+        super.setSelectedRanges(snapped, affinity: affinity, stillSelecting: stillSelecting)
         // Moving the caret away from the paste end abandons the offer.
         if let pending = pendingListPasteRange, !isApplyingSQLize {
             let expected = NSRange(location: pending.location + pending.length, length: 0)
@@ -850,6 +898,8 @@ class SQLTextView: NSTextView {
     }
 
     override func deleteBackward(_ sender: Any?) {
+        if unfoldInsteadOfDeleting(backward: true) { return }
+
         let cursor = selectedRange().location
         let text = self.string as NSString
 
@@ -895,6 +945,31 @@ class SQLTextView: NSTextView {
         }
 
         super.deleteBackward(sender)
+    }
+
+    override func deleteForward(_ sender: Any?) {
+        if unfoldInsteadOfDeleting(backward: false) { return }
+        super.deleteForward(sender)
+    }
+
+    override func deleteWordBackward(_ sender: Any?) {
+        if unfoldInsteadOfDeleting(backward: true) { return }
+        super.deleteWordBackward(sender)
+    }
+
+    override func deleteWordForward(_ sender: Any?) {
+        if unfoldInsteadOfDeleting(backward: false) { return }
+        super.deleteWordForward(sender)
+    }
+
+    /// Next to a pill, what a delete would remove is hidden — the fold's last
+    /// characters behind the caret, or its anchor (under the pill) ahead of
+    /// it. Unfold instead, so nothing goes that the user could not see.
+    /// Returns whether it did.
+    private func unfoldInsteadOfDeleting(backward: Bool) -> Bool {
+        guard let entry = pillBesideCaret(before: backward) else { return false }
+        requestUnfold(entry)
+        return true
     }
 
     override func insertTab(_ sender: Any?) {
@@ -997,7 +1072,69 @@ class SQLTextView: NSTextView {
         guard codeFoldingEnabled else { return nil }
         let entry = foldState.add(range: range, placeholder: placeholder)
         invalidateFoldLayout()
+        // A caret inside the new fold would be hidden, and typing would edit
+        // text nobody can see.
+        snapSelectionOutOfFolds()
         return entry
+    }
+
+    // MARK: - Caret Around Folds
+
+    /// Re-apply the selection so `setSelectedRanges` moves it out of folds.
+    private func snapSelectionOutOfFolds() {
+        guard !foldState.entries.isEmpty else { return }
+        setSelectedRanges(selectedRanges, affinity: selectionAffinity, stillSelecting: false)
+    }
+
+    /// `ranges` with no endpoint strictly inside a fold. A fold hides its
+    /// text (glyphs only — NSTextView does not know), so the arrow keys
+    /// otherwise walk through the hidden characters one by one with the caret
+    /// frozen after the pill, and ⌥→ or a fold around the caret leave it
+    /// hidden. The edges — before the pill (the fold's start) and after it
+    /// (its end) — are where the caret can be.
+    ///
+    /// A caret goes to the edge it was moving toward: back to the start when it
+    /// moved backward, else to the end. A selection grows to cover the whole
+    /// fold, except the end that is moving back toward a fixed start (⇧← over
+    /// a selected fold), which shrinks past it.
+    static func snapped(_ ranges: [NSValue], from old: [NSValue], folds: [NSRange]) -> [NSValue] {
+        let previous = old.count == ranges.count ? old.map(\.rangeValue) : []
+        return ranges.enumerated().map { index, value in
+            let range = value.rangeValue
+            let prior = index < previous.count ? previous[index] : nil
+            if range.length == 0 {
+                let backward = prior.map { $0.length == 0 && range.location < $0.location } ?? false
+                let caret = snap(range.location, folds: folds, toStart: backward)
+                return NSValue(range: NSRange(location: caret, length: 0))
+            }
+            let end = NSMaxRange(range)
+            let startShrinks = prior.map { NSMaxRange($0) == end && range.location > $0.location } ?? false
+            let endShrinks = prior.map { $0.location == range.location && end < NSMaxRange($0) } ?? false
+            let newStart = snap(range.location, folds: folds, toStart: !startShrinks)
+            let newEnd = snap(end, folds: folds, toStart: endShrinks)
+            return NSValue(range: NSRange(location: newStart, length: max(0, newEnd - newStart)))
+        }
+    }
+
+    /// `location` moved to the start or end of every fold it is strictly
+    /// inside — repeatedly, as a nested fold's edge lies inside the outer one.
+    private static func snap(_ location: Int, folds: [NSRange], toStart: Bool) -> Int {
+        var location = location
+        while let fold = folds.first(where: { location > $0.location && location < NSMaxRange($0) }) {
+            location = toStart ? fold.location : NSMaxRange(fold)
+        }
+        return location
+    }
+
+    /// The visible fold whose pill sits right before the caret (`before`) or
+    /// right after it, when there is a caret and no selection.
+    private func pillBesideCaret(before: Bool) -> FoldEntry? {
+        let caret = selectedRange()
+        guard caret.length == 0, let foldingLM = layoutManager as? FoldingLayoutManager else { return nil }
+        return foldState.entries.first { entry in
+            (before ? NSMaxRange(entry.range) : entry.range.location) == caret.location
+                && !foldingLM.isInsideAnotherFold(entry)
+        }
     }
 
     /// Unfold a specific fold by its UUID.
