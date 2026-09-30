@@ -1,7 +1,6 @@
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::{Column, Executor, Row, ValueRef};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -104,6 +103,84 @@ async fn reset_statement_timeout(conn: &mut sqlx::pool::PoolConnection<sqlx::Pos
     let _ = (&mut **conn)
         .execute(sqlx::raw_sql("RESET statement_timeout"))
         .await;
+}
+
+/// Stop a statement whose rows this client has stopped reading, and close its
+/// connection unread.
+///
+/// The simple protocol cannot ask for N rows: the server runs the statement to
+/// the end and sends every row. After the reader stops early (the row limit, or
+/// a cancel), ANY further use of the connection — a `RESET`, or sqlx's own ping
+/// when it goes back to the pool — first reads and discards the rest of the
+/// result, which takes as long as the whole statement. Measured 2026-09-30:
+/// 20,000 slow rows with a limit of 1,000 — row 1,001 was in by about 2 s, the
+/// call returned at 25–28 s, and a Cancel in between found no query, because
+/// the core had already unregistered it.
+///
+/// So cancel the statement on the server (it would otherwise keep scanning
+/// until its next send fails), then close the connection without reading.
+/// Both run in a task, off the caller's path. `backend_pid` must be THIS
+/// connection's: the task holds the connection, so nothing else can be
+/// running on that backend when the cancel lands.
+fn stop_unread_statement(
+    pool: sqlx::PgPool,
+    conn: sqlx::pool::PoolConnection<sqlx::Postgres>,
+    backend_pid: i32,
+) {
+    tokio::spawn(async move {
+        if backend_pid > 0 {
+            if let Err(e) = cancel_backend(&pool, backend_pid).await {
+                log::warn!("Could not cancel an unread statement on backend {}: {}", backend_pid, e);
+            }
+        }
+        let _ = conn.close().await;
+    });
+}
+
+/// `pg_cancel_backend(pid)` on an idle pool connection when one is free NOW,
+/// else on a one-off connection outside the pool. Never a pool wait: the
+/// caller holds a pool connection itself, so with every connection busy (a
+/// pool of one, at the least) a wait would last until the acquire timeout —
+/// found 2026-09-30, when a cancelled `pg_sleep` kept running on the server.
+async fn cancel_backend(pool: &sqlx::PgPool, backend_pid: i32) -> Result<(), String> {
+    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+    if let Some(mut idle) = pool.try_acquire() {
+        return (&mut *idle)
+            .execute(sqlx::raw_sql(&cancel_sql))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+    use sqlx::Connection;
+    let options = pool.connect_options();
+    let mut one_off = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        sqlx::PgConnection::connect_with(&options),
+    )
+    .await
+    .map_err(|_| "timed out opening a connection for the cancel".to_string())?
+    .map_err(|e| e.to_string())?;
+    let result = (&mut one_off).execute(sqlx::raw_sql(&cancel_sql)).await;
+    let _ = one_off.close().await;
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// The error a cancelled query returns. Swift shows its own text for a cancel,
+/// so this is only what the logs and a history row read.
+const QUERY_CANCELLED: &str = "Query was cancelled";
+
+/// `pool.acquire()`, abandoned the moment the query is cancelled. Without this
+/// a cancel pressed while every pool connection is busy waits out the acquire,
+/// and the query then runs as if nothing had been pressed.
+async fn acquire_or_cancel(
+    pool: &sqlx::PgPool,
+    cancel: &crate::state::QueryCancel,
+) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, String> {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(QUERY_CANCELLED.to_string()),
+        conn = pool.acquire() => conn.map_err(|e| e.to_string()),
+    }
 }
 
 /// Format a database error, preserving PostgreSQL's character position if available.
@@ -278,14 +355,40 @@ pub async fn execute_query(
     let start = Instant::now();
     let query_id = query_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
+    // Registered before anything that can wait — the pool acquire included —
+    // so a cancel always finds this query. Dropping `registered` unregisters.
+    let registered = state.register_query(query_id.clone());
+    let cancel = registered.cancel.clone();
+
     // Acquire a dedicated connection from the pool so that SET search_path
     // and the query run on the same connection
-    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+    let mut conn = acquire_or_cancel(&pool, &cancel).await?;
 
-    // Get the backend PID for this connection so we can cancel it later.
-    // Use raw_sql (simple protocol) and make it optional — non-PG servers
-    // like ClickHouse don't have pg_backend_pid(). If the call fails and
-    // kills the connection, re-acquire a fresh one.
+    // Apply the user's query timeout on this connection. Non-PG servers don't
+    // support it — re-acquire on failure (the failed SET may kill the connection).
+    if apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await.is_err() {
+        drop(conn);
+        conn = acquire_or_cancel(&pool, &cancel).await?;
+    }
+
+    // Set search_path if schema is specified. Non-PG servers like ClickHouse
+    // don't support this — silently skip on failure rather than blocking the query.
+    if let Some(ref schema_name) = schema {
+        if let Err(_) = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await {
+            // Connection may be dead — re-acquire
+            drop(conn);
+            conn = acquire_or_cancel(&pool, &cancel).await?;
+        }
+    }
+
+    // Get the backend PID for this connection so the statement can be
+    // cancelled on the server. Use raw_sql (simple protocol) and make it
+    // optional — non-PG servers like ClickHouse don't have pg_backend_pid().
+    // If the call fails and kills the connection, re-acquire a fresh one.
+    //
+    // This runs AFTER the two SETs above, because either of them can swap the
+    // connection: a PID read first would then name a connection that is back
+    // in the pool, and a cancel would stop whatever query ran on it next.
     let backend_pid: i32 = {
         let mut stream = sqlx::raw_sql("SELECT pg_backend_pid()").fetch(&mut *conn);
         match stream.next().await {
@@ -298,30 +401,16 @@ pub async fn execute_query(
                 drop(stream);
                 // Connection may be dead — re-acquire
                 drop(conn);
-                conn = pool.acquire().await.map_err(|e| e.to_string())?;
+                conn = acquire_or_cancel(&pool, &cancel).await?;
                 0
             }
         }
     };
 
-    // Register this query for potential cancellation
-    let cancelled = state.register_query(query_id.clone(), backend_pid);
-
-    // Apply the user's query timeout on this connection. Non-PG servers don't
-    // support it — re-acquire on failure (the failed SET may kill the connection).
-    if apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await.is_err() {
-        drop(conn);
-        conn = pool.acquire().await.map_err(|e| e.to_string())?;
-    }
-
-    // Set search_path if schema is specified. Non-PG servers like ClickHouse
-    // don't support this — silently skip on failure rather than blocking the query.
-    if let Some(ref schema_name) = schema {
-        if let Err(_) = set_search_path(&mut conn, schema_name, &search_path_suffix(state)).await {
-            // Connection may be dead — re-acquire
-            drop(conn);
-            conn = pool.acquire().await.map_err(|e| e.to_string())?;
-        }
+    // A cancel during the setup above: the statement was never sent.
+    if cancel.is_cancelled() {
+        reset_statement_timeout(&mut conn).await;
+        return Err(QUERY_CANCELLED.to_string());
     }
 
     // Use simple query protocol (text format) — PostgreSQL formats all values as text,
@@ -330,14 +419,21 @@ pub async fn execute_query(
     let mut rows: Vec<sqlx::postgres::PgRow> = Vec::with_capacity((limit + 1) as usize);
     let mut fetch_error: Option<String> = None;
 
-    while let Some(row_result) = stream.next().await {
-        // Check for cancellation
-        if cancelled.load(Ordering::SeqCst) {
-            drop(stream);
-            state.unregister_query(&query_id);
-            reset_statement_timeout(&mut conn).await;
-            return Err("Query was cancelled".to_string());
-        }
+    // Wait for the next row OR the cancel, whichever comes first, so a cancel
+    // stops the wait even while the server sends nothing.
+    let cancelled = cancel.cancelled();
+    tokio::pin!(cancelled);
+    let mut was_cancelled = false;
+    loop {
+        let next = tokio::select! {
+            biased;
+            _ = &mut cancelled => {
+                was_cancelled = true;
+                break;
+            }
+            next = stream.next() => next,
+        };
+        let Some(row_result) = next else { break };
 
         match row_result {
             Ok(row) => {
@@ -353,9 +449,18 @@ pub async fn execute_query(
         }
     }
 
+    // One row past the limit: the statement is still running on the server.
+    let has_more = rows.len() > limit as usize;
+
     drop(stream);
-    state.unregister_query(&query_id);
-    reset_statement_timeout(&mut conn).await;
+    drop(registered);
+    if was_cancelled {
+        stop_unread_statement(pool.clone(), conn, backend_pid);
+        return Err(QUERY_CANCELLED.to_string());
+    }
+    if !has_more {
+        reset_statement_timeout(&mut conn).await;
+    }
 
     if let Some(err) = fetch_error {
         return Err(err);
@@ -390,8 +495,6 @@ pub async fn execute_query(
     let first_row = &rows[0];
     let columns: Vec<ColumnDef> = pg_columns_to_defs(first_row.columns());
 
-    // Determine if there are more rows
-    let has_more = rows.len() > limit as usize;
     let row_limit = std::cmp::min(rows.len(), limit as usize);
 
     // Convert rows to JSON
@@ -412,7 +515,13 @@ pub async fn execute_query(
     // acquires one of its own for the catalogue read. The pool is small — see
     // max_connections in db::postgres — so keeping this one would let enough
     // concurrent queries hold every connection while each waits for one more.
-    drop(conn);
+    // A cut-off result's statement is still running, so its connection is
+    // closed instead (see `stop_unread_statement`).
+    if has_more {
+        stop_unread_statement(pool.clone(), conn, backend_pid);
+    } else {
+        drop(conn);
+    }
 
     let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
 
@@ -659,8 +768,9 @@ const SNAPSHOT_FETCH_CHUNK: i64 = 5_000;
 ///
 /// `has_more` is true when the statement has more rows than `max_rows`; the
 /// caller then shows the first `max_rows` and says so. Cancel works as for
-/// `execute_query`: the query is registered under `query_id`, and a
-/// `pg_cancel_backend` aborts the running FETCH, which rolls back.
+/// `execute_query`: the load is registered under `query_id` before it waits
+/// for a connection, and a cancel during a FETCH stops that FETCH on the
+/// server and closes the connection, which rolls the transaction back.
 ///
 /// `on_progress` is called once per FETCH chunk with the RUNNING TOTAL of rows
 /// held so far, so the caller can show a determinate bar instead of a spinner
@@ -682,7 +792,12 @@ pub async fn fetch_all_rows_snapshot(
 
     let start = Instant::now();
     let max_rows = max_rows.max(1);
-    let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
+
+    // Registered before the acquire, as in execute_query, so a cancel always
+    // finds this load. Dropping `registered` unregisters.
+    let registered = state.register_query(query_id.clone());
+    let cancel = registered.cancel.clone();
+    let mut conn = acquire_or_cancel(&pool, &cancel).await?;
 
     // Backend PID for cancellation, as in execute_query. A server without
     // pg_backend_pid() cannot run a cursor either, so a failure here is an
@@ -695,7 +810,6 @@ pub async fn fetch_all_rows_snapshot(
             None => return Err("Could not determine the backend PID".to_string()),
         }
     };
-    let cancelled = state.register_query(query_id.clone(), backend_pid);
 
     // The per-statement timeout applies to the DECLARE and to each FETCH.
     let _ = apply_statement_timeout(&mut conn, query_timeout_seconds(state)).await;
@@ -711,15 +825,15 @@ pub async fn fetch_all_rows_snapshot(
     );
     let statement = sql.trim().trim_end_matches(';').trim();
 
-    // Every failure path below rolls back, resets the timeout and unregisters.
-    // A macro, not a nested async fn: a helper borrowing `conn` and `state`
-    // gives the spawned future a lifetime the `Executor`/`Send` bounds on
-    // `ffi_spawn!` cannot prove ("implementation is not general enough").
+    // Every failure path below rolls back and resets the timeout (`registered`
+    // unregisters on return). A macro, not a nested async fn: a helper
+    // borrowing `conn` gives the spawned future a lifetime the
+    // `Executor`/`Send` bounds on `ffi_spawn!` cannot prove ("implementation
+    // is not general enough").
     macro_rules! abort {
         () => {{
             let _ = (&mut *conn).execute(sqlx::raw_sql("ROLLBACK")).await;
             reset_statement_timeout(&mut conn).await;
-            state.unregister_query(&query_id);
         }};
     }
 
@@ -731,10 +845,13 @@ pub async fn fetch_all_rows_snapshot(
 
     let mut rows: Vec<sqlx::postgres::PgRow> = Vec::new();
     let mut has_more = false;
+    // As in execute_query: a FETCH waits for its rows OR the cancel.
+    let cancelled = cancel.cancelled();
+    tokio::pin!(cancelled);
     loop {
-        if cancelled.load(Ordering::SeqCst) {
+        if cancel.is_cancelled() {
             abort!();
-            return Err("Query was cancelled".to_string());
+            return Err(QUERY_CANCELLED.to_string());
         }
         // Ask for one row past the cap so `has_more` is known without a
         // separate probe.
@@ -743,7 +860,17 @@ pub async fn fetch_all_rows_snapshot(
         let mut stream = sqlx::raw_sql(&fetch).fetch(&mut *conn);
         let mut got: i64 = 0;
         let mut fetch_error: Option<String> = None;
-        while let Some(row_result) = stream.next().await {
+        let mut was_cancelled = false;
+        loop {
+            let next = tokio::select! {
+                biased;
+                _ = &mut cancelled => {
+                    was_cancelled = true;
+                    break;
+                }
+                next = stream.next() => next,
+            };
+            let Some(row_result) = next else { break };
             match row_result {
                 Ok(row) => {
                     got += 1;
@@ -756,10 +883,17 @@ pub async fn fetch_all_rows_snapshot(
             }
         }
         drop(stream);
+        if was_cancelled {
+            // The FETCH is still running: stop it and close the connection,
+            // which also ends the transaction on the server.
+            drop(registered);
+            stop_unread_statement(pool.clone(), conn, backend_pid);
+            return Err(QUERY_CANCELLED.to_string());
+        }
         if let Some(err) = fetch_error {
-            let was_cancelled = cancelled.load(Ordering::SeqCst);
+            let cancelled_meanwhile = cancel.is_cancelled();
             abort!();
-            return Err(if was_cancelled { "Query was cancelled".to_string() } else { err });
+            return Err(if cancelled_meanwhile { QUERY_CANCELLED.to_string() } else { err });
         }
         // The cap is applied BEFORE the progress report, so the caller is never
         // told about a row the result does not keep.
@@ -790,7 +924,7 @@ pub async fn fetch_all_rows_snapshot(
         return Err(format_db_error(&e));
     }
     reset_statement_timeout(&mut conn).await;
-    state.unregister_query(&query_id);
+    drop(registered);
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -922,41 +1056,28 @@ pub struct ExecuteResult {
     pub history_entry_id: Option<String>,
 }
 
-/// Cancel a running query
+/// Cancel a running query.
+///
+/// This only raises the query's cancel signal. The query's own task waits on
+/// that signal at every step that can take long — the pool acquire, each row —
+/// so it stops at once: before its SQL is sent it never sends it, and after,
+/// it cancels the statement on the server and closes the connection
+/// (`stop_unread_statement`). Sending `pg_cancel_backend` from here instead
+/// needed a free pool connection, and could land before the SQL reached the
+/// server, where it cancels nothing.
+///
+/// Returns true when the query was still running. `connection_id` is kept for
+/// the FFI signature; the query id alone names the query.
 pub async fn cancel_query(
-    connection_id: String,
+    _connection_id: String,
     query_id: String,
     state: &AppState,
 ) -> Result<bool, String> {
-    // Get the pool to send the cancel command
-    let pool = state.require_pool(&connection_id)?;
-
-    // Get the backend PID for the query we want to cancel
-    let backend_pid = state
-        .get_query_backend_pid(&query_id)
-        .ok_or_else(|| format!("Query not found: {}", query_id))?;
-
-    // Mark the query as cancelled
-    state.mark_query_cancelled(&query_id);
-
-    // Send cancel signal to PostgreSQL (pg_cancel_backend is PG-specific)
-    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-    let cancelled: bool = {
-        let mut stream = sqlx::raw_sql(&cancel_sql).fetch(&pool);
-        match stream.next().await {
-            Some(Ok(row)) => {
-                let val = row.try_get::<bool, _>(0).unwrap_or(false);
-                drop(stream);
-                val
-            }
-            _ => {
-                drop(stream);
-                false
-            }
-        }
-    };
-
-    Ok(cancelled)
+    if state.mark_query_cancelled(&query_id) {
+        Ok(true)
+    } else {
+        Err(format!("Query not found: {}", query_id))
+    }
 }
 
 /// Result of SQL validation
@@ -2063,7 +2184,7 @@ mod live_query_identity_tests {
 
             // Nothing left registered.
             for id in ["snap-100000", "snap-5000", "snap-12000", "snap-100"] {
-                assert!(state.get_query_backend_pid(id).is_none(), "{} unregistered", id);
+                assert!(!state.is_query_registered(id), "{} unregistered", id);
             }
         });
     }
@@ -2292,5 +2413,291 @@ mod read_only_tag_tests {
                 "code {code:?} must not be tagged"
             );
         }
+    }
+}
+
+/// Live test of Cancel: a running query stops when `cancel_query` is called.
+///
+///   cargo test --release live_cancel -- --ignored --nocapture
+#[cfg(test)]
+mod live_cancel_tests {
+    use super::{cancel_query, execute_query, fetch_all_rows_snapshot, QUERY_CANCELLED};
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::Row;
+    use std::time::{Duration, Instant};
+
+    const DEFAULT_URL: &str = "postgres://nfinn@localhost:5432/nfinn";
+    const CONN: &str = "live-cancel-test";
+
+    /// A result cut at the row limit comes back when the limit is reached, not
+    /// when the server finishes the statement — and the server stops it.
+    ///
+    /// Before 2026-09-30 the core read the rest of the result to run `RESET`
+    /// on the same connection: this call took 25–28 s, not about 2 s, and a
+    /// Cancel in that time found no query (the core had already unregistered it).
+    #[test]
+    #[ignore = "needs a live PostgreSQL (uses pg_sleep only)"]
+    fn live_truncated_result_returns_at_the_limit_and_stops_the_statement() {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| panic!("cannot connect to {}: {}", url, e));
+            let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+            state.add_pool(CONN.to_string(), pool.clone());
+
+            // 20,000 slow rows: row 1,001 is in after about 2 s, the last
+            // after 25 s or more. The marker names this statement in
+            // pg_stat_activity.
+            let sql = "SELECT g, pg_sleep(0.0005) AS pharos_truncation_marker \
+                       FROM generate_series(1, 20000) g";
+            let start = Instant::now();
+            let result = execute_query(
+                CONN.to_string(), sql.to_string(), Some("q-trunc".to_string()),
+                Some(1000), Some("public".to_string()), None, &state,
+            )
+            .await
+            .expect("the query succeeds");
+            let took = start.elapsed();
+            eprintln!("truncated result in {:?}", took);
+            assert_eq!(result.rows.len(), 1000);
+            assert!(result.has_more, "the limit cut the result");
+            assert!(took < Duration::from_secs(3), "returned at the limit, took {:?}", took);
+
+            // The server stops the statement: no backend is still running it.
+            let mut still_running = i64::MAX;
+            for _ in 0..20 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let row = sqlx::raw_sql(
+                    "SELECT count(*)::int8 FROM pg_stat_activity \
+                     WHERE state = 'active' AND query LIKE '%pharos_truncation_marker%' \
+                     AND pid <> pg_backend_pid()",
+                )
+                .fetch_one(&pool)
+                .await
+                .expect("pg_stat_activity");
+                still_running = row.try_get::<i64, _>(0).expect("count");
+                if still_running == 0 {
+                    break;
+                }
+            }
+            assert_eq!(still_running, 0, "the server stopped the cut-off statement");
+
+            // The pool is usable afterwards.
+            let after = execute_query(CONN.to_string(), "SELECT 41 + 1 AS x".to_string(), None, None, None, None, &state)
+                .await
+                .expect("the pool is usable after a cut-off result");
+            assert_eq!(after.rows[0][0], serde_json::json!("42"));
+            assert!(!state.is_query_registered("q-trunc"), "unregistered");
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (uses pg_sleep only)"]
+    fn live_cancel_stops_a_running_select() {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let pool = PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url)
+                .await
+                .unwrap_or_else(|e| panic!("cannot connect to {}: {}", url, e));
+            let state: &'static AppState =
+                Box::leak(Box::new(AppState::new(SqliteConnection::open_in_memory().expect("sqlite"))));
+            state.add_pool(CONN.to_string(), pool);
+
+            let start = Instant::now();
+            let run = tokio::spawn(execute_query(
+                CONN.to_string(),
+                "SELECT pg_sleep(8)".to_string(),
+                Some("q1".to_string()),
+                None,
+                Some("public".to_string()),
+                None,
+                state,
+            ));
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            let cancelled = cancel_query(CONN.to_string(), "q1".to_string(), state).await;
+            eprintln!("cancel_query -> {:?} at {:?}", cancelled, start.elapsed());
+            let result = run.await.expect("join");
+            eprintln!("execute_query -> {:?} at {:?}", result.as_ref().map(|r| r.row_count), start.elapsed());
+            assert_eq!(cancelled, Ok(true), "pg_cancel_backend reached the backend");
+            assert!(result.is_err(), "a cancelled query is an error, not a result");
+            assert!(start.elapsed() < Duration::from_secs(4), "the query stopped early");
+        });
+    }
+    /// A pool of `size` and a `'static` state holding it (a spawned query
+    /// borrows the state).
+    async fn leaked_state(size: u32) -> (&'static AppState, sqlx::PgPool) {
+        let url = std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(size)
+            .acquire_timeout(Duration::from_secs(20))
+            .connect(&url)
+            .await
+            .unwrap_or_else(|e| panic!("cannot connect to {}: {}", url, e));
+        let state: &'static AppState =
+            Box::leak(Box::new(AppState::new(SqliteConnection::open_in_memory().expect("sqlite"))));
+        state.add_pool(CONN.to_string(), pool.clone());
+        (state, pool)
+    }
+
+    /// How many backends other than the caller's are running a statement that
+    /// contains `marker`, polled until none are (or two seconds pass).
+    async fn active_with(pool: &sqlx::PgPool, marker: &str) -> i64 {
+        let sql = format!(
+            "SELECT count(*)::int8 FROM pg_stat_activity WHERE state = 'active' \
+             AND query LIKE '%{}%' AND query NOT LIKE '%pg_stat_activity%'",
+            marker
+        );
+        let mut n = i64::MAX;
+        for _ in 0..20 {
+            let row = sqlx::raw_sql(&sql).fetch_one(pool).await.expect("pg_stat_activity");
+            n = row.try_get::<i64, _>(0).expect("count");
+            if n == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        n
+    }
+
+    /// A cancel pressed while the query waits for a pool connection stops it,
+    /// and its SQL never runs. Before 2026-09-30 the query was not registered
+    /// until it had a connection, so the cancel got "Query not found" and the
+    /// query ran once a connection came free.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (creates one sequence)"]
+    fn live_cancel_while_waiting_for_a_connection_never_runs_the_sql() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let (state, pool) = leaked_state(1).await;
+            let mut held = pool.acquire().await.expect("hold the only connection");
+            use sqlx::Executor;
+            (&mut *held)
+                .execute(sqlx::raw_sql(
+                    "CREATE SEQUENCE IF NOT EXISTS pharos_cancel_probe_seq; \
+                     SELECT setval('pharos_cancel_probe_seq', 1, false)",
+                ))
+                .await
+                .expect("probe sequence");
+
+            let sql = "SELECT nextval('pharos_cancel_probe_seq') AS n";
+            let run = tokio::spawn(execute_query(
+                CONN.to_string(), sql.to_string(), Some("q-wait".to_string()),
+                None, Some("public".to_string()), None, state,
+            ));
+            let load = tokio::spawn(fetch_all_rows_snapshot(
+                CONN.to_string(), sql.to_string(), "q-wait-load".to_string(),
+                100, Some("public".to_string()), state, |_| {},
+            ));
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            assert!(state.is_query_registered("q-wait"), "registered while it waits");
+            assert!(state.is_query_registered("q-wait-load"), "registered while it waits");
+
+            let start = Instant::now();
+            assert_eq!(cancel_query(CONN.to_string(), "q-wait".to_string(), state).await, Ok(true));
+            assert_eq!(cancel_query(CONN.to_string(), "q-wait-load".to_string(), state).await, Ok(true));
+            let result = run.await.expect("join");
+            let loaded = load.await.expect("join");
+            eprintln!("both stopped {:?} after the cancel", start.elapsed());
+            assert_eq!(result.err().as_deref(), Some(QUERY_CANCELLED));
+            assert_eq!(loaded.err().as_deref(), Some(QUERY_CANCELLED));
+            assert!(start.elapsed() < Duration::from_secs(1), "stopped without a connection");
+
+            // Free the connection: nothing queued runs the SQL.
+            drop(held);
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let row = sqlx::raw_sql("SELECT is_called FROM pharos_cancel_probe_seq")
+                .fetch_one(&pool)
+                .await
+                .expect("read sequence");
+            assert!(!row.try_get::<bool, _>(0).expect("is_called"), "the cancelled SQL never ran");
+            assert!(!state.is_query_registered("q-wait") && !state.is_query_registered("q-wait-load"));
+        });
+    }
+
+    /// A cancel stops the query, on the client and on the server, when no
+    /// pool connection is free for the server-side cancel: in a pool of one,
+    /// the cancelled query holds the only connection. Found 2026-09-30 in the
+    /// app: the query stopped, but its `pg_sleep` kept running on the server
+    /// while the cancel waited for a pool connection.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (uses pg_sleep only)"]
+    fn live_cancel_stops_the_server_when_no_pool_connection_is_free() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let (state, pool) = leaked_state(1).await;
+            let run = tokio::spawn(execute_query(
+                CONN.to_string(), "SELECT pg_sleep(8) AS pharos_busy_pool_marker".to_string(),
+                Some("q-busy".to_string()), None, None, None, state,
+            ));
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let start = Instant::now();
+            assert_eq!(cancel_query(CONN.to_string(), "q-busy".to_string(), state).await, Ok(true));
+            let result = run.await.expect("join");
+            eprintln!("stopped {:?} after the cancel", start.elapsed());
+            assert_eq!(result.err().as_deref(), Some(QUERY_CANCELLED));
+            assert!(start.elapsed() < Duration::from_millis(500), "the wait stopped at once");
+
+            // Checked on a connection outside the pool: the pool's one
+            // connection is the cancelled query's until it is closed.
+            use sqlx::Connection;
+            let mut watcher = sqlx::PgConnection::connect_with(&pool.connect_options())
+                .await
+                .expect("watcher connection");
+            let mut still_running = i64::MAX;
+            for _ in 0..20 {
+                let row = sqlx::raw_sql(
+                    "SELECT count(*)::int8 FROM pg_stat_activity WHERE state = 'active' \
+                     AND query LIKE '%pharos_busy_pool_marker%' AND query NOT LIKE '%pg_stat_activity%'",
+                )
+                .fetch_one(&mut watcher)
+                .await
+                .expect("pg_stat_activity");
+                still_running = row.try_get::<i64, _>(0).expect("count");
+                if still_running == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            assert_eq!(still_running, 0, "the server stopped it within 2 s");
+            assert!(start.elapsed() < Duration::from_secs(3));
+        });
+    }
+
+    /// Load All: a cancel during a long FETCH stops it at once, and the
+    /// server stops the FETCH.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (uses pg_sleep only)"]
+    fn live_cancel_stops_a_load_all_fetch() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let (state, pool) = leaked_state(3).await;
+            // One FETCH chunk of these takes well over a second.
+            let sql = "SELECT g, pg_sleep(0.002) AS pharos_load_all_marker FROM generate_series(1, 20000) g";
+            let load = tokio::spawn(fetch_all_rows_snapshot(
+                CONN.to_string(), sql.to_string(), "q-load".to_string(),
+                100_000, None, state, |_| {},
+            ));
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            let start = Instant::now();
+            assert_eq!(cancel_query(CONN.to_string(), "q-load".to_string(), state).await, Ok(true));
+            let loaded = load.await.expect("join");
+            eprintln!("load stopped {:?} after the cancel", start.elapsed());
+            assert_eq!(loaded.err().as_deref(), Some(QUERY_CANCELLED));
+            assert!(start.elapsed() < Duration::from_millis(500), "the FETCH wait stopped at once");
+            assert_eq!(active_with(&pool, "pharos_load_all_marker").await, 0, "the server stopped it");
+            assert!(!state.is_query_registered("q-load"));
+        });
     }
 }

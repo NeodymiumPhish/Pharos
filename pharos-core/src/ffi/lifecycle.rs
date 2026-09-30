@@ -1,6 +1,5 @@
 use std::ffi::CString;
 use std::os::raw::c_char;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use sqlx::PgPool;
@@ -118,7 +117,7 @@ pub extern "C" fn pharos_shutdown() {
     {
         let queries = state.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         for q in queries.values() {
-            q.cancelled.store(true, Ordering::SeqCst);
+            q.cancel.cancel();
         }
     }
 

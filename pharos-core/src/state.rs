@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use sqlx::PgPool;
 use rusqlite::Connection as SqliteConnection;
@@ -8,12 +8,55 @@ use rusqlite::Connection as SqliteConnection;
 use crate::db::ssh_tunnel::SshTunnel;
 use crate::models::{AppSettings, ConnectionConfig, TableKeyInfo};
 
+/// A running query's cancel signal: a flag that can be read at any time AND
+/// awaited. `cancelled()` returns at once when the cancel came first, so a
+/// cancel that lands between two waits is never lost.
+pub struct QueryCancel {
+    signal: tokio::sync::watch::Sender<bool>,
+}
+
+impl QueryCancel {
+    fn new() -> Self {
+        Self { signal: tokio::sync::watch::Sender::new(false) }
+    }
+
+    pub fn cancel(&self) {
+        self.signal.send_replace(true);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        *self.signal.borrow()
+    }
+
+    /// Resolves once `cancel` has been called.
+    pub async fn cancelled(&self) {
+        let mut receiver = self.signal.subscribe();
+        // An Err means the sender is gone, which cannot happen while `self`
+        // is borrowed; it is not a cancel, so wait forever rather than fire.
+        if receiver.wait_for(|cancelled| *cancelled).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 /// Represents a running query that can be cancelled
 pub struct RunningQuery {
-    /// The PostgreSQL backend PID for this query
-    pub backend_pid: i32,
-    /// Flag to signal cancellation
-    pub cancelled: Arc<AtomicBool>,
+    pub cancel: Arc<QueryCancel>,
+}
+
+/// A query's place in `AppState::running_queries`, held for as long as the
+/// query can be cancelled. Dropping it unregisters the query, so every return
+/// path — `?` included — unregisters.
+pub struct RegisteredQuery<'a> {
+    state: &'a AppState,
+    query_id: String,
+    pub cancel: Arc<QueryCancel>,
+}
+
+impl Drop for RegisteredQuery<'_> {
+    fn drop(&mut self) {
+        self.state.unregister_query(&self.query_id);
+    }
 }
 
 /// Application state managed by Tauri
@@ -353,16 +396,13 @@ impl AppState {
         configs.remove(connection_id)
     }
 
-    /// Register a running query
-    pub fn register_query(&self, query_id: String, backend_pid: i32) -> Arc<AtomicBool> {
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let running_query = RunningQuery {
-            backend_pid,
-            cancelled: cancelled.clone(),
-        };
+    /// Register a running query. Call it before the query waits for anything
+    /// (a pool connection included), so a cancel always finds it.
+    pub fn register_query(&self, query_id: String) -> RegisteredQuery<'_> {
+        let cancel = Arc::new(QueryCancel::new());
         let mut queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
-        queries.insert(query_id, running_query);
-        cancelled
+        queries.insert(query_id.clone(), RunningQuery { cancel: cancel.clone() });
+        RegisteredQuery { state: self, query_id, cancel }
     }
 
     /// Unregister a running query
@@ -371,10 +411,10 @@ impl AppState {
         queries.remove(query_id);
     }
 
-    /// Get a running query's backend PID
-    pub fn get_query_backend_pid(&self, query_id: &str) -> Option<i32> {
+    /// Whether a query is registered (can still be cancelled).
+    pub fn is_query_registered(&self, query_id: &str) -> bool {
         let queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
-        queries.get(query_id).map(|q| q.backend_pid)
+        queries.contains_key(query_id)
     }
 
     /// Get the set of tables denied ANALYZE for a connection+schema
@@ -442,7 +482,7 @@ impl AppState {
     pub fn mark_query_cancelled(&self, query_id: &str) -> bool {
         let queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(query) = queries.get(query_id) {
-            query.cancelled.store(true, Ordering::SeqCst);
+            query.cancel.cancel();
             true
         } else {
             false
