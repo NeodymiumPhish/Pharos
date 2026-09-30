@@ -1931,7 +1931,7 @@ class ContentViewController: NSViewController {
                     }
                 } else {
                     let result = try await PharosCore.executeStatement(
-                        connectionId: connectionId, sql: sql, schema: tabSchema
+                        connectionId: connectionId, sql: sql, queryId: queryId, schema: tabSchema
                     )
                     await MainActor.run {
                         self.session.updateTab(id: tabId) { tab in

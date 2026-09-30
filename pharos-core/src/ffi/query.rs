@@ -190,10 +190,12 @@ pub extern "C" fn pharos_execute_query(
 }
 
 /// Execute a statement (INSERT/UPDATE/DELETE). Returns JSON ExecuteResult via callback.
+/// `query_id` (nullable) makes it cancellable through `pharos_cancel_query`.
 #[no_mangle]
 pub extern "C" fn pharos_execute_statement(
     connection_id: *const c_char,
     sql: *const c_char,
+    query_id: *const c_char,
     schema: *const c_char,
     callback: AsyncCallback,
     context: *mut std::ffi::c_void,
@@ -201,12 +203,13 @@ pub extern "C" fn pharos_execute_statement(
     let state = app_state();
     let conn_id = unsafe { c_str_to_string(connection_id) };
     let sql_str = unsafe { c_str_to_string(sql) };
+    let qid = unsafe { c_str_to_option(query_id) };
     let schema_str = unsafe { c_str_to_option(schema) };
 
     let ctx = context as usize;
     ffi_spawn!(callback, context, async move {
 
-        match crate::commands::execute_statement(conn_id, sql_str, schema_str, state).await {
+        match crate::commands::execute_statement(conn_id, sql_str, qid, schema_str, state).await {
             Ok(result) => {
                 let json = serde_json::to_string(&result).unwrap_or_default();
                 callback_ok(callback, ctx, &json);

@@ -179,10 +179,12 @@ void pharos_execute_query(const char *connection_id,
 
 /**
  * Execute a statement (INSERT/UPDATE/DELETE). Returns JSON ExecuteResult via callback.
+ * `query_id` (nullable) makes it cancellable through `pharos_cancel_query`.
  */
 
 void pharos_execute_statement(const char *connection_id,
                               const char *sql,
+                              const char *query_id,
                               const char *schema,
                               AsyncCallback callback,
                               void *context);

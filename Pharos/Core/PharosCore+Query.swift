@@ -47,13 +47,21 @@ extension PharosCore {
         }
     }
 
-    /// Execute a statement (INSERT/UPDATE/DELETE).
-    static func executeStatement(connectionId: String, sql: String, schema: String? = nil) async throws -> ExecuteResult {
+    /// Execute a statement (INSERT/UPDATE/DELETE). Cancellable through
+    /// `queryId`, as `executeQuery` is.
+    static func executeStatement(
+        connectionId: String,
+        sql: String,
+        queryId: String? = nil,
+        schema: String? = nil
+    ) async throws -> ExecuteResult {
         return try await withAsyncCallback { callback, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
-                    withOptionalCString(schema) { cSchema in
-                        pharos_execute_statement(cConn, cSql, cSchema, callback, context)
+                    withOptionalCString(queryId) { cQid in
+                        withOptionalCString(schema) { cSchema in
+                            pharos_execute_statement(cConn, cSql, cQid, cSchema, callback, context)
+                        }
                     }
                 }
             }
