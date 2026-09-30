@@ -180,6 +180,7 @@
 		7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D48095594419F14207C82F /* SQLFoldingParser.swift */; };
 		7D25B7B3E9EB6125DEAF8395 /* SchemaPopUpButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */; };
 		7DB7C60CF312CF9E8EBC7140 /* CompletionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92E74684F85A0F7FE8A63987 /* CompletionResolver.swift */; };
+		7E1BEFC9BB71030E69AB4527 /* RunControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C57F0525388507241EA774 /* RunControl.swift */; };
 		7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C0E80717841FF454B8D378 /* DrillCoverage.swift */; };
 		806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */; };
 		8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */; };
@@ -254,6 +255,7 @@
 		AA85FF8401AA3168DE75F249 /* SQLOrderStability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */; };
 		AB4FF098324AD58A9D3A42EA /* GeneratedContentLabelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B984A8C698677E5EC07C83EF /* GeneratedContentLabelView.swift */; };
 		AB6A1A4BA0E10D2FBEF86887 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2842DA42F9D759036177BC /* AppDelegate.swift */; };
+		AB8B991F8DC7164FAF3512F6 /* RunControlState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AAD67E03F9884A8FB303F0 /* RunControlState.swift */; };
 		ABC59F560A2FE279D883466F /* SettingsSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9389401FF1FEE1ACFA9432A0 /* SettingsSplitViewController.swift */; };
 		AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */; };
 		ACF2CD9A55853B329D46FFF3 /* ErrorExplanationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54101B9C807A769AD63E25B /* ErrorExplanationView.swift */; };
@@ -370,6 +372,7 @@
 		0342B30CED9DFBE4F336C345 /* ResultTabContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTabContextMenu.swift; sourceTree = "<group>"; };
 		03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Connection.swift"; sourceTree = "<group>"; };
 		04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowUpdateSQLBuilder.swift; sourceTree = "<group>"; };
+		04C57F0525388507241EA774 /* RunControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunControl.swift; sourceTree = "<group>"; };
 		04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanViewVC.swift; sourceTree = "<group>"; };
 		06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCellSelection.swift; sourceTree = "<group>"; };
 		0807907A5831AFFE3ECBCA62 /* ColumnProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnProfile.swift; sourceTree = "<group>"; };
@@ -576,6 +579,7 @@
 		A3979604AF599EDCF7C0B789 /* SettingsDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDetailVC.swift; sourceTree = "<group>"; };
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A51B7E42D0E3720183013836 /* VariableValuePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValuePreview.swift; sourceTree = "<group>"; };
+		A5AAD67E03F9884A8FB303F0 /* RunControlState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunControlState.swift; sourceTree = "<group>"; };
 		A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestructiveSQLScanner.swift; sourceTree = "<group>"; };
 		A6D3955E9601CF2414F57DFA /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
@@ -1040,6 +1044,7 @@
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
 				04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */,
 				660F536C895497044AF79E8C /* RuleKey.swift */,
+				A5AAD67E03F9884A8FB303F0 /* RunControlState.swift */,
 				D809169AEDF8481975797949 /* RunScopeResolver.swift */,
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */,
@@ -1225,6 +1230,7 @@
 				0D48E245AD5CBC1E4598E7AD /* ResultTabBar.swift */,
 				0342B30CED9DFBE4F336C345 /* ResultTabContextMenu.swift */,
 				9A5256AA5FF55087B89C5B04 /* ResultTabRowCell.swift */,
+				04C57F0525388507241EA774 /* RunControl.swift */,
 				E96C6665DAA0DA6F127AEC96 /* SavedQueryCellView.swift */,
 				58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
@@ -1557,6 +1563,8 @@
 				09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */,
 				440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */,
 				4DBF8F6F44E2BFEBB112BCCE /* RuleKey.swift in Sources */,
+				7E1BEFC9BB71030E69AB4527 /* RunControl.swift in Sources */,
+				AB8B991F8DC7164FAF3512F6 /* RunControlState.swift in Sources */,
 				E6DFE0BD85CF8C2654F875F8 /* RunScopeResolver.swift in Sources */,
 				BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */,
 				168A481957ED3B4BE106A90E /* RustScalarError.swift in Sources */,

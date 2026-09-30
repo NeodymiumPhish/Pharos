@@ -2255,14 +2255,7 @@ class ContentViewController: NSViewController {
 
     /// Format an elapsed-time interval as `M:SS` or `H:MM:SS` for runs ≥ 1 hour.
     static func formatElapsed(_ seconds: CFTimeInterval) -> String {
-        let total = max(0, Int(seconds))
-        let hours = total / 3600
-        let mins = (total % 3600) / 60
-        let secs = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, mins, secs)
-        }
-        return String(format: "%d:%02d", mins, secs)
+        DurationText.clock(seconds: seconds)
     }
 
     // MARK: - Result Tab Management
@@ -2841,6 +2834,14 @@ class ContentViewController: NSViewController {
         cancelledQueryIds.insert(id)
         Task {
             _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: id)
+        }
+    }
+
+    /// Cancel every in-flight query in the active tab (Cancel All, ⌥⌘.).
+    func cancelAllQueries() {
+        guard let tab = session.activeTab else { return }
+        for query in tab.runningQueries {
+            cancelQuery(id: query.id)
         }
     }
 
@@ -4682,6 +4683,10 @@ extension ContentViewController {
         cancelQuery()
     }
 
+    @objc func menuCancelAllQueries(_: Any?) {
+        cancelAllQueries()
+    }
+
     @objc func menuRunAllQueries(_: Any?) {
         runAllSegments()
     }
@@ -4999,6 +5004,7 @@ extension ContentViewController: NSMenuItemValidation {
         }
         if menuItem.action == #selector(menuRunQuery(_:)) { return canRunQuery }
         if menuItem.action == #selector(menuCancelQuery(_:)) { return canCancelQuery }
+        if menuItem.action == #selector(menuCancelAllQueries(_:)) { return canCancelQuery }
         if menuItem.action == #selector(menuRunAllQueries(_:)) { return canRunQuery }
         // Both explain items need exactly what Run needs: a connected tab.
         // Whether the statement itself can be explained is the server's answer,

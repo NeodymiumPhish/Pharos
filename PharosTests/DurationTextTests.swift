@@ -47,7 +47,16 @@ private func testHoursTierExactWholeHourDropsMinutes() {
     expect(DurationText.short(milliseconds: 3_600_000, locale: enUS), "1h", "an exact whole hour has no minutes term")
 }
 
+private func testClock() {
+    expect(DurationText.clock(seconds: 0), "0:00", "the clock starts at 0:00")
+    expect(DurationText.clock(seconds: 174.9), "2:54", "the clock drops fractions of a second")
+    expect(DurationText.clock(seconds: 3599), "59:59", "under an hour it is M:SS")
+    expect(DurationText.clock(seconds: 3600 + 62), "1:01:02", "from an hour it is H:MM:SS")
+    expect(DurationText.clock(seconds: -3), "0:00", "a negative interval reads 0:00")
+}
+
 func runTests() {
+    testClock()
     testMillisecondsTier()
     testSecondsTierOneDecimal()
     testMinutesTier()

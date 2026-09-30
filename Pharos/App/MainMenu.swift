@@ -160,6 +160,9 @@ enum MainMenu {
         cancelItem.keyEquivalentModifierMask = [.command]
         cancelItem.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
 
+        let cancelAllItem = queryMenu.addItem(withTitle: String(localized: "Cancel All Queries"), action: #selector(ContentViewController.menuCancelAllQueries(_:)), keyEquivalent: ".")
+        cancelAllItem.keyEquivalentModifierMask = [.command, .option]
+
         queryMenu.addItem(.separator())
 
         // ⌘E is Edit > Find > Use Selection for Find, the only other "e" in the

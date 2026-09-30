@@ -4,8 +4,8 @@ import Combine
 extension NSToolbarItem.Identifier {
     static let pharosConnection = NSToolbarItem.Identifier("PharosConnection")
     static let pharosSchema = NSToolbarItem.Identifier("PharosSchema")
-    static let pharosRunQuery = NSToolbarItem.Identifier("PharosRunQuery")
-    static let pharosCancelQuery = NSToolbarItem.Identifier("PharosCancelQuery")
+    /// Run | Cancel, one transport control (`RunControl`).
+    static let pharosRunControl = NSToolbarItem.Identifier("PharosRunControl")
     static let pharosFilterSidebar = NSToolbarItem.Identifier("PharosFilterSidebar")
     static let pharosFormatSQL = NSToolbarItem.Identifier("PharosFormatSQL")
     static let pharosNewTab = NSToolbarItem.Identifier("PharosNewTab")
@@ -14,22 +14,22 @@ extension NSToolbarItem.Identifier {
     static let pharosNavigator = NavigatorToolbarGroup.identifier
 }
 
-/// A toolbar item with a custom view whose enabled state comes from a closure.
-/// `NSToolbar` validates image items through their target, but leaves
-/// view items alone; this override closes that gap so the Cancel button
-/// greys out like a menu item would.
+/// A toolbar item with a custom view that re-reads its state when the toolbar
+/// validates. `NSToolbar` validates image items through their target, but
+/// leaves view items alone; this override closes that gap so the Run | Cancel
+/// control's segments grey out like menu items would.
 private final class ValidatingViewToolbarItem: NSToolbarItem {
-    var isEnabledProvider: (() -> Bool)?
+    var onValidate: (() -> Void)?
 
     override func validate() {
-        isEnabled = isEnabledProvider?() ?? true
+        onValidate?()
     }
 }
 
 /// Delegate and state driver for the main window's `NSToolbar`.
 ///
 /// Default set, left to right: navigator group | tracking separator |
-/// connection pull-down, schema pull-down, Run, Cancel | flexible space |
+/// connection pull-down, schema pull-down, Run | Cancel | flexible space |
 /// tracking separator | flexible space | inspector toggle. The inspector
 /// toggle holds the window's right edge whether the inspector is open or
 /// closed. The navigator group stands where the
@@ -40,10 +40,13 @@ private final class ValidatingViewToolbarItem: NSToolbarItem {
 /// database, this schema"; both follow the active tab. (Measured 2026-09-17: an
 /// `NSToolbarItemGroup` of two view-based items gives each its own glass
 /// platter, with the same 8pt gap as two separate items — a group would buy
-/// nothing but a shared Customize Toolbar… entry.) Run is the one prominent
-/// item and carries a badge with the count of running queries on the active
-/// tab. Every item here has a menu command or an editor-side equivalent; the
-/// toolbar adds nothing that cannot be reached another way.
+/// nothing but a shared Customize Toolbar… entry.) Run and Cancel are ONE
+/// transport control (`RunControl`, a segmented control in one view item, so
+/// one platter — measured 2026-09-30). While queries run on the active tab its
+/// Cancel glyph pulses in the accent colour, as the tab dot and the gutter band
+/// do; Cancel stops the one query, or lists them when several run. Every item
+/// here has a menu command or an editor-side equivalent; the toolbar adds
+/// nothing that cannot be reached another way.
 ///
 /// The user can customize the toolbar (View > Customize Toolbar…). The
 /// allowed-but-not-default items are the sidebar filter field, Format SQL,
@@ -65,8 +68,6 @@ final class MainToolbarController: NSObject {
     /// One toolbar per window; the items are created on demand and kept
     /// weakly so state updates reach the live ones.
     private weak var toolbar: NSToolbar?
-    private weak var runItem: NSToolbarItem?
-    private weak var cancelItem: NSToolbarItem?
     private weak var navigatorItem: NSToolbarItemGroup?
 
     private let connectionButton = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -76,7 +77,7 @@ final class MainToolbarController: NSObject {
     private let schemaSpinner = NSProgressIndicator()
     private var schemaPopover: NSPopover?
     private var schemaPopoverCloseObserver: NSObjectProtocol?
-    private let cancelButton = NSButton()
+    private let runControl = RunControl(frame: .zero)
     private var runningQueriesPopover: NSPopover?
     private var runningQueriesPopoverCloseObserver: NSObjectProtocol?
 
@@ -86,7 +87,7 @@ final class MainToolbarController: NSObject {
         super.init()
         configureConnectionButton()
         configureSchemaButton()
-        configureCancelButton()
+        configureRunControl()
         subscribe()
         // ⌥⌘1/2/3 go straight to the sidebar; this is how the group hears about
         // them. Weak, or the sidebar (owned by the window) would keep this
@@ -108,14 +109,15 @@ final class MainToolbarController: NSObject {
 
     /// Installs a customizable toolbar on `window` with this object as delegate.
     func install(on window: NSWindow) {
-        // "PharosToolbar3", not "PharosToolbar2". `autosavesConfiguration` is
+        // "PharosToolbar4", not "PharosToolbar3". `autosavesConfiguration` is
         // on, and AppKit reconciles a saved configuration by DROPPING unknown
         // identifiers, never by adding new default ones — so a window that had
-        // saved the old set would never show the schema pull-down (as, one
-        // bump earlier, it would never have shown the navigator group). The
-        // new name costs one reset of the user's own toolbar customisation,
-        // display mode and size mode.
-        let toolbar = NSToolbar(identifier: "PharosToolbar3")
+        // saved the old set would lose Run and Cancel altogether when their two
+        // items became the one Run | Cancel control (as, one bump earlier, it
+        // would never have shown the schema pull-down). The new name costs one
+        // reset of the user's own toolbar customisation, display mode and size
+        // mode.
+        let toolbar = NSToolbar(identifier: "PharosToolbar4")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -127,7 +129,7 @@ final class MainToolbarController: NSObject {
     // MARK: - State
 
     private func subscribe() {
-        // Tabs: the run badge and the connection title follow the active tab.
+        // Tabs: the run control and the connection title follow the active tab.
         // Dedup on the fields read here so a keystroke (which republishes
         // the tabs) does not rebuild the menu.
         session.tabsSettled
@@ -176,27 +178,24 @@ final class MainToolbarController: NSObject {
     private var tabSchemaName: String? { activeTab?.schemaName }
 
     private func updateRunState() {
-        let count = activeTab?.runningQueries.count ?? 0
-        runItem?.badge = count > 0 ? .count(count) : nil
-        cancelButton.toolTip = count > 1
-            ? String(localized: "\(count) queries running — click to manage")
-            : String(localized: "Cancel Query (⌘.)")
+        runControl.update(canRun: contentVC?.canRunQuery ?? false,
+                          runningCount: activeTab?.runningQueries.count ?? 0)
     }
 
     // MARK: - Actions
 
-    @objc private func runTapped(_ sender: Any?) {
-        contentVC?.menuRunQuery(sender)
+    private func runTapped() {
+        contentVC?.menuRunQuery(nil)
     }
 
-    @objc private func cancelTapped(_ sender: Any?) {
-        let running = activeTab?.runningQueries ?? []
-        switch running.count {
-        case 0:
+    private func cancelTapped() {
+        updateRunState()
+        switch runControl.state.cancelAction {
+        case .none:
             return
-        case 1:
-            contentVC?.menuCancelQuery(sender)
-        default:
+        case .cancelOne:
+            contentVC?.menuCancelQuery(nil)
+        case .showList:
             showRunningQueriesPopover()
         }
     }
@@ -215,7 +214,7 @@ final class MainToolbarController: NSObject {
         let popover = NSPopover()
         popover.contentViewController = vc
         popover.behavior = .transient
-        popover.show(relativeTo: cancelButton.bounds, of: cancelButton, preferredEdge: .minY)
+        popover.show(relativeTo: runControl.cancelSegmentRect, of: runControl, preferredEdge: .minY)
         runningQueriesPopover = popover
 
         if let existing = runningQueriesPopoverCloseObserver {
@@ -526,21 +525,15 @@ final class MainToolbarController: NSObject {
         group.selectedIndex = sidebarVC.currentNavigator.rawValue
     }
 
-    // MARK: - Cancel button
+    // MARK: - Run | Cancel
 
-    private func configureCancelButton() {
-        cancelButton.bezelStyle = .toolbar
-        // Run beside it is prominent; a second bezel at rest made the pair
-        // read as two equal calls to action. The bezel comes back under the
-        // pointer, so the target is still visible when it matters.
-        cancelButton.showsBorderOnlyWhileMouseInside = true
-        cancelButton.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: String(localized: "Cancel Query"))
-        cancelButton.imagePosition = .imageOnly
-        cancelButton.target = self
-        cancelButton.action = #selector(cancelTapped(_:))
-        cancelButton.toolTip = String(localized: "Cancel Query (⌘.)")
-        cancelButton.setAccessibilityLabel(String(localized: "Cancel Query"))
-        cancelButton.setAccessibilityIdentifier("toolbar.cancel")
+    private func configureRunControl() {
+        runControl.onPress = { [weak self] segment in
+            switch segment {
+            case .run: self?.runTapped()
+            case .cancel: self?.cancelTapped()
+            }
+        }
     }
 }
 
@@ -590,31 +583,24 @@ extension MainToolbarController: NSToolbarDelegate {
             if flag { refreshSchemaButton() }
             return item
 
-        case .pharosRunQuery:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = String(localized: "Run")
-            item.paletteLabel = String(localized: "Run Query")
-            item.toolTip = String(localized: "Run Query (⌘↩)")
-            item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: String(localized: "Run Query"))
-            item.isBordered = true
-            item.style = .prominent
-            item.target = self
-            item.action = #selector(runTapped(_:))
-            item.visibilityPriority = .high
-            if flag {
-                runItem = item
-                updateRunState()
-            }
-            return item
-
-        case .pharosCancelQuery:
+        case .pharosRunControl:
             let item = ValidatingViewToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = String(localized: "Cancel")
-            item.paletteLabel = String(localized: "Cancel Query")
-            item.view = cancelButton
-            item.isEnabledProvider = { [weak self] in self?.contentVC?.canCancelQuery ?? false }
+            item.label = String(localized: "Run")
+            item.paletteLabel = String(localized: "Run and Cancel")
+            item.view = runControl
+            item.onValidate = { [weak self] in self?.updateRunState() }
             item.visibilityPriority = .high
-            if flag { cancelItem = item }
+            // Text-only mode and the overflow menu: the two commands, through
+            // the responder chain, so the Query menu's validation applies.
+            let menu = NSMenu()
+            menu.addItem(withTitle: String(localized: "Run Query"),
+                         action: #selector(ContentViewController.menuRunQuery(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Cancel Query"),
+                         action: #selector(ContentViewController.menuCancelQuery(_:)), keyEquivalent: "")
+            let menuForm = NSMenuItem(title: String(localized: "Run"), action: nil, keyEquivalent: "")
+            menuForm.submenu = menu
+            item.menuFormRepresentation = menuForm
+            if flag { updateRunState() }
             return item
 
         case .pharosFilterSidebar:
@@ -672,8 +658,7 @@ extension MainToolbarController: NSToolbarDelegate {
             .sidebarTrackingSeparator,
             .pharosConnection,
             .pharosSchema,
-            .pharosRunQuery,
-            .pharosCancelQuery,
+            .pharosRunControl,
             .flexibleSpace,
             .inspectorTrackingSeparator,
             // The separator is pinned to the inspector's divider, so a second
@@ -696,8 +681,7 @@ extension MainToolbarController: NSToolbarDelegate {
             .sidebarTrackingSeparator,
             .pharosConnection,
             .pharosSchema,
-            .pharosRunQuery,
-            .pharosCancelQuery,
+            .pharosRunControl,
             .pharosFilterSidebar,
             .pharosFormatSQL,
             .pharosNewTab,
@@ -710,21 +694,14 @@ extension MainToolbarController: NSToolbarDelegate {
     }
 }
 
-// MARK: - NSToolbarItemValidation
-
-extension MainToolbarController: NSToolbarItemValidation {
-    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
-        switch item.itemIdentifier {
-        case .pharosRunQuery: return contentVC?.canRunQuery ?? false
-        default: return true
-        }
-    }
-}
-
 // MARK: - RunningQueriesPopoverDelegate
 
 extension MainToolbarController: RunningQueriesPopoverDelegate {
     func runningQueriesPopover(_ vc: RunningQueriesPopoverVC, didRequestCancelQueryId id: String) {
         contentVC?.cancelQuery(id: id)
+    }
+
+    func runningQueriesPopoverDidRequestCancelAll(_ vc: RunningQueriesPopoverVC) {
+        contentVC?.cancelAllQueries()
     }
 }

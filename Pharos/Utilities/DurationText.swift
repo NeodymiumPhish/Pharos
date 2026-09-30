@@ -35,6 +35,20 @@ enum DurationText {
         return remainingMinutes > 0 ? "\(hours)h \(remainingMinutes)m" : "\(hours)h"
     }
 
+    /// A running clock: "M:SS", or "H:MM:SS" from one hour. For time that is
+    /// still passing (the running-queries list, the "Already running" toast),
+    /// where `short` would jump between units every second.
+    static func clock(seconds: Double) -> String {
+        let total = max(0, Int(seconds))
+        let hours = total / 3600
+        let mins = (total % 3600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
+    }
+
     private static func number(_ value: Double, fractionDigits: Int, locale: Locale) -> String {
         let formatter = NumberFormatter()
         formatter.locale = locale

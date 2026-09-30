@@ -34,7 +34,7 @@ Each result tab is color-matched to its source statement's bar in the editor gut
 
 Queries run concurrently — starting a second statement doesn't wait for the first. While queries run:
 
-- The toolbar **Run** button shows a **badge with the count** of running queries, and the **Cancel** button next to it becomes enabled. With one running, Cancel stops it; with several, Cancel opens a popover listing each in-flight query with its elapsed time and a per-query cancel button.
+- The toolbar's **Run | Cancel** control (one capsule, play and stop) shows it: the **stop glyph pulses in your accent colour** for as long as anything runs in the tab, in step with the tab's dot and the gutter bar. With one query running, stop cancels it. With several, stop opens a list of the in-flight queries: where each is in the editor (Line / Lines), the start of its statement, its elapsed time and its own cancel button, and a **Cancel All** button under them. **Query ▸ Cancel All Queries** (Cmd+Opt+.) does the same from the keyboard.
 - Each running statement's gutter bar **pulses** until its query completes.
 - Re-running SQL that is already in flight is skipped, with a toast pointing at the running query.
 

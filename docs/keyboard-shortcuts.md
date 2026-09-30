@@ -66,6 +66,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Run Query (statement under cursor) | Cmd+Return |
 | Run All Queries | Cmd+Opt+Return |
 | Cancel Query | Cmd+. |
+| Cancel All Queries | Cmd+Opt+. |
 | Explain Query | Cmd+Shift+E |
 | Explain Analyze Query | Cmd+Opt+Shift+E |
 | Format SQL | Ctrl+I |

@@ -1,9 +1,9 @@
 import AppKit
 import Combine
 
-/// Delegate for popover row actions. The owning `EditorPaneVC` forwards
-/// cancel requests to its own delegate so the `ContentViewController`
-/// stays the single owner of cancellation logic.
+/// Delegate for popover row actions. `MainToolbarController` conforms and
+/// forwards each request to the `ContentViewController`, which stays the
+/// single owner of cancellation logic.
 /// `@MainActor`: a UI delegate, called from the popover's own view code, and
 /// its one conformer (`MainToolbarController`) is main-actor isolated. Without
 /// this the conformance crosses into main-actor code, which is a data race in
@@ -11,10 +11,17 @@ import Combine
 @MainActor
 protocol RunningQueriesPopoverDelegate: AnyObject {
     func runningQueriesPopover(_ vc: RunningQueriesPopoverVC, didRequestCancelQueryId id: String)
+    /// Cancel All: every query the list shows.
+    func runningQueriesPopoverDidRequestCancelAll(_ vc: RunningQueriesPopoverVC)
 }
 
-/// Popover content showing one row per in-flight query for a tab.
+/// Popover content showing one row per in-flight query for a tab: where it is
+/// in the editor, the start of its statement, how long it has run, and its own
+/// cancel button; with two or more, a Cancel All button under the rows.
 final class RunningQueriesPopoverVC: NSViewController {
+
+    /// The popover's width. Wide enough for a useful start of a statement.
+    static let width: CGFloat = 300
 
     weak var delegate: RunningQueriesPopoverDelegate?
 
@@ -25,8 +32,12 @@ final class RunningQueriesPopoverVC: NSViewController {
 
     private let headerLabel = NSTextField(labelWithString: "")
     private let stackView = NSStackView()
+    private let cancelAllButton = NSButton()
     private var rowsById: [String: RunningQueryRow] = [:]
     private var orderedIds: [String] = []
+    private var stackBottom: NSLayoutConstraint?
+    private var buttonTop: NSLayoutConstraint?
+    private var buttonBottom: NSLayoutConstraint?
 
     init(session: WindowSession, tabId: String) {
         self.session = session
@@ -55,8 +66,19 @@ final class RunningQueriesPopoverVC: NSViewController {
         stackView.alignment = .leading
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
+        cancelAllButton.title = String(localized: "Cancel All")
+        cancelAllButton.bezelStyle = .push
+        cancelAllButton.controlSize = .small
+        cancelAllButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        cancelAllButton.target = self
+        cancelAllButton.action = #selector(cancelAllTapped)
+        cancelAllButton.setAccessibilityIdentifier("runningQueries.cancelAll")
+        cancelAllButton.translatesAutoresizingMaskIntoConstraints = false
+        cancelAllButton.isHidden = true
+
         root.addSubview(headerLabel)
         root.addSubview(stackView)
+        root.addSubview(cancelAllButton)
 
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
@@ -66,10 +88,17 @@ final class RunningQueriesPopoverVC: NSViewController {
             stackView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 6),
             stackView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
             stackView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
-            stackView.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
 
-            root.widthAnchor.constraint(equalToConstant: 260),
+            cancelAllButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+
+            root.widthAnchor.constraint(equalToConstant: Self.width),
         ])
+        // The bottom edge follows the Cancel All button when it shows, the
+        // rows when it does not.
+        stackBottom = stackView.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8)
+        buttonTop = cancelAllButton.topAnchor.constraint(equalTo: stackView.bottomAnchor, constant: 8)
+        buttonBottom = cancelAllButton.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -10)
+        stackBottom?.isActive = true
 
         self.view = root
     }
@@ -104,7 +133,7 @@ final class RunningQueriesPopoverVC: NSViewController {
         guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         let now = CACurrentMediaTime()
         for q in tab.runningQueries {
-            rowsById[q.id]?.setElapsed(ContentViewController.formatElapsed(now - q.startTime))
+            rowsById[q.id]?.setElapsed(DurationText.clock(seconds: now - q.startTime))
         }
     }
 
@@ -116,10 +145,11 @@ final class RunningQueriesPopoverVC: NSViewController {
         let queries = tab.runningQueries.sorted { $0.startTime < $1.startTime }
 
         switch queries.count {
-        case 0:  headerLabel.stringValue = "No queries running"
-        case 1:  headerLabel.stringValue = "1 query running"
-        default: headerLabel.stringValue = "\(queries.count) queries running"
+        case 0:  headerLabel.stringValue = String(localized: "No queries running")
+        case 1:  headerLabel.stringValue = String(localized: "1 query running")
+        default: headerLabel.stringValue = String(localized: "\(queries.count) queries running")
         }
+        setCancelAllVisible(queries.count > 1)
 
         let now = CACurrentMediaTime()
         let presentIds = Set(queries.map { $0.id })
@@ -141,7 +171,7 @@ final class RunningQueriesPopoverVC: NSViewController {
         // Add rows for new queries, in startTime order.
         for q in queries where rowsById[q.id] == nil {
             let row = RunningQueryRow(query: q,
-                                      elapsed: ContentViewController.formatElapsed(now - q.startTime)) { [weak self] id in
+                                      elapsed: DurationText.clock(seconds: now - q.startTime)) { [weak self] id in
                 guard let self else { return }
                 self.rowsById[id]?.markCancelling()
                 self.delegate?.runningQueriesPopover(self, didRequestCancelQueryId: id)
@@ -151,7 +181,7 @@ final class RunningQueriesPopoverVC: NSViewController {
             // A RunningQueryRow states no width of its own — its label is
             // pinned to its leading edge and its cancel button to its trailing
             // edge, which only reads correctly at the stack's full width. The
-            // stack's own width is fixed (the popover is 260pt), so a row
+            // stack's own width is fixed (`RunningQueriesPopoverVC.width`), so a row
             // measures full width today either way; this says the requirement
             // rather than inheriting it from that.
             row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
@@ -159,35 +189,71 @@ final class RunningQueriesPopoverVC: NSViewController {
         }
     }
 
+    /// The rows in list order, and whether Cancel All shows (for tests).
+    var rows: [RunningQueryRow] { orderedIds.compactMap { rowsById[$0] } }
+    var isCancelAllVisible: Bool { !cancelAllButton.isHidden }
+    /// Press Cancel All, as a click does.
+    func pressCancelAll() { cancelAllButton.performClick(nil) }
+
+    private func setCancelAllVisible(_ visible: Bool) {
+        guard cancelAllButton.isHidden == visible else { return }
+        cancelAllButton.isHidden = !visible
+        stackBottom?.isActive = !visible
+        buttonTop?.isActive = visible
+        buttonBottom?.isActive = visible
+    }
+
+    @objc private func cancelAllTapped() {
+        for row in rowsById.values { row.markCancelling() }
+        cancelAllButton.isEnabled = false
+        delegate?.runningQueriesPopoverDidRequestCancelAll(self)
+    }
+
     private func dismissPopover() {
         self.dismiss(nil)
     }
 }
 
-/// Single popover row: "Lines X–Y" left, "M:SS" right, cancel button trailing.
-private final class RunningQueryRow: NSView {
+/// Single popover row: "Lines X–Y" left, "M:SS" right, cancel button trailing,
+/// and under them the start of the statement on one line.
+final class RunningQueryRow: NSView {
 
     private let queryId: String
     private let onCancel: (String) -> Void
     private let elapsedLabel = NSTextField(labelWithString: "")
     private let linesLabel: NSTextField
+    /// The start of the statement, one line, cut at the end.
+    let previewLabel: NSTextField
     private let cancelButton = NSButton()
     private let iconConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
-    private var isCancelling = false
+    private(set) var isCancelling = false
 
     init(query: RunningQuery, elapsed: String, onCancel: @escaping (String) -> Void) {
         self.queryId = query.id
         self.onCancel = onCancel
         let linesText: String
         if query.segmentIndex == -1 {
-            linesText = "Direct SQL"
+            linesText = String(localized: "Direct SQL")
         } else if query.lineRange.lowerBound == query.lineRange.upperBound {
-            linesText = "Line \(query.lineRange.lowerBound)"
+            linesText = String(localized: "Line \(query.lineRange.lowerBound)")
         } else {
-            linesText = "Lines \(query.lineRange.lowerBound)–\(query.lineRange.upperBound)"
+            linesText = String(localized: "Lines \(query.lineRange.lowerBound)–\(query.lineRange.upperBound)")
         }
         self.linesLabel = NSTextField(labelWithString: linesText)
+        // `normalizedSQL` is already one line (whitespace runs collapsed).
+        // DisplayEscape keeps a bidi override or a control character in the
+        // statement from rearranging the row.
+        self.previewLabel = NSTextField(labelWithString: DisplayEscape.escaped(query.normalizedSQL))
         super.init(frame: .zero)
+
+        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        previewLabel.textColor = .secondaryLabelColor
+        previewLabel.lineBreakMode = .byTruncatingTail
+        previewLabel.maximumNumberOfLines = 1
+        previewLabel.cell?.truncatesLastVisibleLine = true
+        previewLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        previewLabel.translatesAutoresizingMaskIntoConstraints = false
+        previewLabel.setAccessibilityLabel(query.normalizedSQL)
 
         linesLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         linesLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -199,7 +265,8 @@ private final class RunningQueryRow: NSView {
         cancelButton.bezelStyle = .recessed
         cancelButton.isBordered = false
         cancelButton.title = ""
-        cancelButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Cancel")?
+        cancelButton.image = NSImage(systemSymbolName: "xmark.circle.fill",
+                                     accessibilityDescription: String(localized: "Cancel"))?
             .withSymbolConfiguration(iconConfig)
         cancelButton.contentTintColor = .systemRed
         cancelButton.refusesFirstResponder = true
@@ -211,14 +278,19 @@ private final class RunningQueryRow: NSView {
         addSubview(linesLabel)
         addSubview(elapsedLabel)
         addSubview(cancelButton)
+        addSubview(previewLabel)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 22),
+            heightAnchor.constraint(equalToConstant: 36),
             linesLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            linesLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            linesLabel.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+
+            previewLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            previewLabel.topAnchor.constraint(equalTo: linesLabel.bottomAnchor, constant: 2),
+            previewLabel.trailingAnchor.constraint(lessThanOrEqualTo: cancelButton.leadingAnchor, constant: -8),
 
             elapsedLabel.trailingAnchor.constraint(equalTo: cancelButton.leadingAnchor, constant: -8),
-            elapsedLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            elapsedLabel.centerYAnchor.constraint(equalTo: linesLabel.centerYAnchor),
 
             cancelButton.trailingAnchor.constraint(equalTo: trailingAnchor),
             cancelButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -236,7 +308,8 @@ private final class RunningQueryRow: NSView {
     func markCancelling() {
         guard !isCancelling else { return }
         isCancelling = true
-        cancelButton.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Cancelled")?
+        cancelButton.image = NSImage(systemSymbolName: "checkmark.circle.fill",
+                                     accessibilityDescription: String(localized: "Cancelled"))?
             .withSymbolConfiguration(iconConfig)
         cancelButton.contentTintColor = .tertiaryLabelColor
         cancelButton.isEnabled = false

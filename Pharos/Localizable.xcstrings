@@ -89,6 +89,9 @@
         }
       }
     },
+    "%lld queries running" : {
+
+    },
     "%lld queries running — click to manage" : {
 
     },
@@ -149,6 +152,9 @@
 
     },
     "0 keeps them for as long as the maximum lifetime allows." : {
+
+    },
+    "1 query running" : {
 
     },
     "1,000 only" : {
@@ -451,6 +457,15 @@
 
     },
     "Cancel" : {
+
+    },
+    "Cancel %lld Queries" : {
+
+    },
+    "Cancel All" : {
+
+    },
+    "Cancel All Queries" : {
 
     },
     "Cancel Query" : {
@@ -803,6 +818,9 @@
 
     },
     "Dimmed" : {
+
+    },
+    "Direct SQL" : {
 
     },
     "Disable" : {
@@ -1369,6 +1387,19 @@
     "Limit the rows View contents fetches" : {
 
     },
+    "Line %lld" : {
+
+    },
+    "Lines %lld–%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Lines %1$lld–%2$lld"
+          }
+        }
+      }
+    },
     "Links" : {
 
     },
@@ -1568,6 +1599,9 @@
 
     },
     "No file selected" : {
+
+    },
+    "No queries running" : {
 
     },
     "No quotes" : {
@@ -2171,6 +2205,9 @@
 
     },
     "Run a query to see its rows here." : {
+
+    },
+    "Run and Cancel" : {
 
     },
     "Run destructive query?" : {
