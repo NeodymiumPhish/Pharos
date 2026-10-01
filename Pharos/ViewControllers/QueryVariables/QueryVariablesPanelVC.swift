@@ -418,8 +418,9 @@ final class QueryVariablesPanelVC: NSViewController {
     /// Open the variable called `name` — the last one with that name, which
     /// is the one a run uses — without moving the keyboard focus. When no
     /// variable has the name, append one that does, open it, and put the
-    /// caret in its value field so the value can be typed at once. The
-    /// editor's `{{` completion lands here.
+    /// caret in its value field so the value can be typed at once. A click on
+    /// a `{{name}}` token in the editor lands here, and so does the `{{`
+    /// list's new-variable row.
     func openVariable(named name: String) {
         let existing = variables.last(where: { $0.name == name })
         if let existing, detailVC?.variable.id == existing.id { return }

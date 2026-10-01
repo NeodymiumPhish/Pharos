@@ -322,7 +322,7 @@ private func testTypedIntoEditor() {
         expectEqual(e.text, "SELECT {{user_id}}", "editor: Tab writes the top row (prefix match, list order)")
         expectEqual(e.caret, 18, "editor: the caret lands after }}")
         expectTrue(!e.shown, "editor: the list closes on accept")
-        expectEqual(e.chosen, ["user_id"], "editor: accept reports the chosen name")
+        expectEqual(e.chosen, [], "editor: accepting an existing variable opens nothing")
     }
     // Down moves the selection.
     do {
@@ -331,7 +331,7 @@ private func testTypedIntoEditor() {
         e.down()
         e.tab()
         expectEqual(e.text, "{{user}}", "editor: Down + Tab takes the second row")
-        expectEqual(e.chosen, ["user"], "editor: the second row's name is reported")
+        expectEqual(e.chosen, [], "editor: the second row is an existing variable too, so nothing opens")
     }
     // Unknown name: Tab creates it.
     do {
@@ -342,7 +342,7 @@ private func testTypedIntoEditor() {
         e.tab()
         expectEqual(e.text, "WHERE d = '{{zone}}'", "editor: Tab keeps the text for a new name")
         expectEqual(e.caret, 19, "editor: caret after }} for a new name")
-        expectEqual(e.chosen, ["zone"], "editor: the new name is reported")
+        expectEqual(e.chosen, ["zone"], "editor: a new name is reported, so the sidebar can create it")
     }
     // `}` steps over, and closes the list without choosing.
     do {

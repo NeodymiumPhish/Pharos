@@ -187,8 +187,9 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     }
 
     /// Show the Variables navigator open on the variable called `name`, or on
-    /// a new variable with that name, ready for its value. The editor's `{{`
-    /// completion calls this when a row is accepted.
+    /// a new variable with that name, ready for its value. The editor calls
+    /// this when a `{{name}}` token is clicked, and when the `{{` list's
+    /// new-variable row is accepted.
     func revealVariable(named name: String) {
         revealNavigator(.variables)
         sidebarVC.variablesPanel.openVariable(named: name)

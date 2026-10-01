@@ -44,6 +44,8 @@ The navigator is a two-level list and detail, similar to Settings on iOS:
 
 To add a variable, open the **+** pull-down beside the sidebar's filter field and choose **New Variable**; the new row opens at the detail level with its name field focused. The **Filter** field along the bottom of the sidebar narrows the list to rows whose name **or value** contains the text (case-insensitive), so you can find a variable by the value you remember typing into it.
 
+In the editor, typing **`{{`** opens a list of the variables, filtered as you type the name. Choosing a variable only writes `{{name}}` — the sidebar stays where it is. When no variable has the name you typed, the last row creates one: choosing it writes the token **and** opens the new variable here with its value field focused. Click a `{{name}}` token in the editor at any time to open that variable.
+
 Because the list is shared, an edit made in one window appears at once in every other window's sidebar, and every editor's highlighting follows it.
 
 ## Types and Substitution

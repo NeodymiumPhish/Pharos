@@ -56,8 +56,11 @@ class SQLCompletionProvider: NSObject {
     /// The app-wide query variables, in list order. The `{{` list offers these.
     var variables: [VariableEntry] = []
 
-    /// Called after a `{{` row is accepted and `{{name}}` is written, with
-    /// the name. The owner opens (or creates) that variable in the sidebar.
+    /// Called after the `{{` list's NEW-variable row is accepted and
+    /// `{{name}}` is written, with the name. The owner creates that variable
+    /// in the sidebar, ready for its value. Accepting an existing variable
+    /// only writes the token: opening it each time took the sidebar away
+    /// from whatever it showed, which the user found intrusive (2026-10-01).
     var onVariableChosen: ((String) -> Void)?
 
     /// The `{{` token the list is completing; nil while it shows the SQL list.
@@ -413,7 +416,7 @@ class SQLCompletionProvider: NSObject {
     }
 
     /// Write `{{name}}` over the token, put the caret after it, and report
-    /// the name.
+    /// the name when the row made a new variable.
     private func acceptVariable(_ completion: Completion, in textView: SQLTextView) {
         // Read the token again: the caret can move without an edit (the
         // arrow keys), so the context from the last keystroke can be stale.
@@ -426,7 +429,9 @@ class SQLCompletionProvider: NSObject {
         let name = completion.insertText
         textView.insertText(name + "}}", replacementRange: context.replaceRange)
         dismiss()
-        onVariableChosen?(name)
+        if completion.kind == .newVariable {
+            onVariableChosen?(name)
+        }
     }
 
     @objc private func tableClicked() {
