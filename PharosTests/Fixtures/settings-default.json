@@ -144,7 +144,7 @@
     "notifyWhenBackgroundTab": true,
     "restoreOpenTabs": true,
     "runScope": "statementAtCursor",
-    "showCancelledQueryDialog": true,
+    "showCancelledQueryDialog": false,
     "timeoutSeconds": 300
   },
   "results": {

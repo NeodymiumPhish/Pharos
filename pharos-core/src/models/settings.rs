@@ -304,7 +304,10 @@ fn default_confirm_destructive() -> bool { true }
 fn default_notify_when_app_inactive() -> bool { true }
 fn default_notify_when_background_tab() -> bool { true }
 fn default_notify_min_duration_seconds() -> u32 { 5 }
-fn default_show_cancelled_query_dialog() -> bool { true }
+/// Off since 2026-09-30: a cancel is the user's own doing, and the query
+/// stopping (the stop glyph goes quiet, the history reads "cancelled") says
+/// enough. The failure is still recorded on the tab.
+fn default_show_cancelled_query_dialog() -> bool { false }
 fn default_restore_open_tabs() -> bool { true }
 
 impl Default for QuerySettings {
@@ -1264,7 +1267,7 @@ pub(crate) mod fixture {
                     notify_when_app_inactive: false,
                     notify_when_background_tab: false,
                     notify_min_duration_seconds: 6,
-                    show_cancelled_query_dialog: false,
+                    show_cancelled_query_dialog: true,
                     restore_open_tabs: false,
                     run_scope: RunScope::WholeBuffer,
                     destructive_confirmations: DestructiveConfirmations {
@@ -1537,7 +1540,7 @@ mod tests {
         }"#;
         let parsed: QuerySettings = serde_json::from_str(json).expect("old settings must still parse");
         assert_eq!(parsed.default_limit, 500);
-        assert!(parsed.show_cancelled_query_dialog, "the field defaults to true");
+        assert!(!parsed.show_cancelled_query_dialog, "the field defaults to false");
     }
 
     /// Settings stored before this field existed must still load, and the

@@ -668,7 +668,7 @@ class ContentViewController: NSViewController {
         )
 
         errorPresenter.showCancelledDialog = { [weak self] in
-            self?.stateManager.settings.query.showCancelledQueryDialog ?? true
+            self?.stateManager.settings.query.showCancelledQueryDialog ?? false
         }
         errorPresenter.failureAlertStyle = { [weak self] in
             self?.stateManager.settings.query.failureAlertStyle ?? .sheet

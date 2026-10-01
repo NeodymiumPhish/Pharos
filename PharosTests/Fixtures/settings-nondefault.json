@@ -137,7 +137,7 @@
     "notifyWhenBackgroundTab": false,
     "restoreOpenTabs": false,
     "runScope": "wholeBuffer",
-    "showCancelledQueryDialog": false,
+    "showCancelledQueryDialog": true,
     "timeoutSeconds": 301
   },
   "results": {

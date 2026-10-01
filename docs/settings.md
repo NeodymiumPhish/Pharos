@@ -176,7 +176,7 @@ These three are the only settings the **Format** button reads. They do not touch
 | DROP, ALTER, TRUNCATE, DELETE, UPDATE, INSERT, GRANT and REVOKE | On/Off each | On | Which kinds still ask, while the switch above is on. A keyword Pharos learns later always asks until it is given a switch of its own, so a new kind can never run unannounced. These do not affect **Explain Analyze**, which refuses a destructive statement outright rather than confirming it. |
 | When a query fails | Open the error sheet, Show a banner, Post a notification, Say nothing | Open the error sheet | How loudly a failure interrupts. The failure is recorded on its tab whatever this says, and the tab's error badge always opens the full list. |
 | Open the error sheet on | The first failure, The second failure, Never | The second failure | The second failure is what Pharos has always done: the first one gets an inline banner instead, so the editor stays usable. |
-| Show details when you cancel a query | On/Off | On | Opens the error sheet for a query you cancelled. The failure is recorded on its tab either way. |
+| Show details when you cancel a query | On/Off | Off | Opens the error sheet for a query you cancelled. The failure is recorded on its tab either way. |
 
 ## Results Pane
 

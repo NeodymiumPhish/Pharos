@@ -332,8 +332,8 @@ struct QuerySettings: Codable, Equatable {
     var notifyWhenBackgroundTab: Bool = true
     var notifyMinDurationSeconds: UInt32 = 5
     /// Whether a query the user cancelled opens the error sheet. The failure is
-    /// recorded on its tab either way.
-    var showCancelledQueryDialog: Bool = true
+    /// recorded on its tab either way. Off by default (the core's default).
+    var showCancelledQueryDialog: Bool = false
     /// Whether the tabs open at quit are put back at the next launch.
     var restoreOpenTabs: Bool = true
 
