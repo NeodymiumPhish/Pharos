@@ -213,7 +213,9 @@ pub async fn delete_connection(
     connection_id: String,
     state: &AppState,
 ) -> Result<(), String> {
-    // Disconnect if connected
+    // Disconnect if connected: the tabs' own connections first.
+    super::tab_session::close_sessions_for_connection(state, &connection_id).await;
+    state.forget_session_options(&connection_id);
     if let Some(pool) = state.remove_pool(&connection_id) {
         pool.close().await;
     }
@@ -386,6 +388,7 @@ pub async fn connect_postgres(
         Ok(pool) => {
             let latency = start.elapsed().as_millis() as u64;
             state.add_pool(connection_id.clone(), pool);
+            state.set_session_options(&connection_id, session.clone());
             if let Some(tunnel) = tunnel {
                 state.add_tunnel(connection_id.clone(), tunnel);
             }
@@ -465,6 +468,10 @@ pub async fn disconnect_postgres(
     connection_id: String,
     state: &AppState,
 ) -> Result<(), String> {
+    // The tabs' own connections go first: each rolls back its open
+    // transaction while the tunnel still carries it.
+    super::tab_session::close_sessions_for_connection(state, &connection_id).await;
+    state.forget_session_options(&connection_id);
     if let Some(pool) = state.remove_pool(&connection_id) {
         pool.close().await;
     }

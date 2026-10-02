@@ -1334,50 +1334,60 @@ pub async fn validate_sql(
                 error: None,
             })
         }
-        Err(e) => {
-            let error_msg = e.to_string();
+        Err(e) => Ok(validation_failure(&e, &sql, prefix_len, leading_whitespace_len)),
+    }
+}
 
-            // Extract position directly from PgDatabaseError (e.to_string() drops it)
-            let raw_position = if let sqlx::Error::Database(ref db_err) = e {
-                if let Some(pg_err) = db_err.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
-                    if let Some(sqlx::postgres::PgErrorPosition::Original(pos)) = pg_err.position() {
-                        Some(pos as usize)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+/// The validation result for a failed `PREPARE`: the server's message, and
+/// its error position moved back over the `PREPARE … AS ` prefix and forward
+/// over the leading whitespace that was trimmed.
+pub(crate) fn validation_failure(
+    e: &sqlx::Error,
+    sql: &str,
+    prefix_len: usize,
+    leading_whitespace_len: usize,
+) -> ValidationResult {
+    let error_msg = e.to_string();
+
+    // Extract position directly from PgDatabaseError (e.to_string() drops it)
+    let raw_position = if let sqlx::Error::Database(db_err) = e {
+        if let Some(pg_err) = db_err.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
+            if let Some(sqlx::postgres::PgErrorPosition::Original(pos)) = pg_err.position() {
+                Some(pos as usize)
             } else {
                 None
-            };
-
-            // Adjust position: subtract PREPARE prefix, add back leading whitespace
-            let position = raw_position.map(|p| {
-                if p > prefix_len {
-                    (p - prefix_len) + leading_whitespace_len
-                } else {
-                    1
-                }
-            });
-
-            let (line, column) = if let Some(pos) = position {
-                let (l, c) = char_position_to_line_col(&sql, pos);
-                (Some(l), Some(c))
-            } else {
-                (None, None)
-            };
-
-            Ok(ValidationResult {
-                valid: false,
-                error: Some(ValidationError {
-                    message: clean_error_message(&error_msg),
-                    position,
-                    line,
-                    column,
-                }),
-            })
+            }
+        } else {
+            None
         }
+    } else {
+        None
+    };
+
+    // Adjust position: subtract PREPARE prefix, add back leading whitespace
+    let position = raw_position.map(|p| {
+        if p > prefix_len {
+            (p - prefix_len) + leading_whitespace_len
+        } else {
+            1
+        }
+    });
+
+    let (line, column) = if let Some(pos) = position {
+        let (l, c) = char_position_to_line_col(sql, pos);
+        (Some(l), Some(c))
+    } else {
+        (None, None)
+    };
+
+    ValidationResult {
+        valid: false,
+        error: Some(ValidationError {
+            message: clean_error_message(&error_msg),
+            position,
+            line,
+            column,
+        }),
     }
 }
 

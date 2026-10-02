@@ -121,6 +121,11 @@ pub struct AppState {
     /// Set by `reap_dead_tunnel`, read by `require_pool`, cleared when the
     /// connection is connected again, disconnected or deleted.
     pub tunnel_failures: Mutex<HashMap<String, String>>,
+    /// Each editor tab's own connection, by tab id (`commands::tab_session`).
+    pub tab_sessions: Mutex<crate::commands::tab_session::TabSessionMap>,
+    /// The session options each pool was opened with, so a tab's own
+    /// connection gets the same `TimeZone` / `DateStyle` setup.
+    pub session_options: Mutex<HashMap<String, crate::db::postgres::SessionOptions>>,
 }
 
 /// What a refused write says. The same sentence the front end shows for the
@@ -143,6 +148,8 @@ impl AppState {
             import_progress: Mutex::new(HashMap::new()),
             tunnels: Mutex::new(HashMap::new()),
             tunnel_failures: Mutex::new(HashMap::new()),
+            tab_sessions: Mutex::new(HashMap::new()),
+            session_options: Mutex::new(HashMap::new()),
         }
     }
 
@@ -331,6 +338,7 @@ impl AppState {
         let reason = tunnel.exit_reason();
         log::warn!("The SSH tunnel for {} stopped: {}", connection_id, reason);
 
+        self.drop_tab_sessions(connection_id);
         self.connections
             .lock()
             .unwrap_or_else(|e| e.into_inner())

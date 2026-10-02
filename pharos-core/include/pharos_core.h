@@ -488,6 +488,86 @@ void pharos_generate_table_ddl(const char *connection_id,
                                void *context);
 
 /**
+ * Run a card's row-returning statement on its tab's connection.
+ * Request: `{sessionId, connectionId, schema?, queryId?, sql, limit?, source?, aux?}`.
+ * Result: QueryResult JSON plus `session`.
+ */
+ void pharos_session_execute_query(const char *request_json, AsyncCallback callback, void *context);
+
+/**
+ * Run a card's other statement on its tab's connection. Same request as
+ * `pharos_session_execute_query`; result: ExecuteResult JSON plus `session`.
+ */
+
+void pharos_session_execute_statement(const char *request_json,
+                                      AsyncCallback callback,
+                                      void *context);
+
+/**
+ * Load More on the tab's connection.
+ * Request: `{sessionId, connectionId, schema?, queryId?, sql, limit, offset}`.
+ */
+
+void pharos_session_fetch_more_rows(const char *request_json,
+                                    AsyncCallback callback,
+                                    void *context);
+
+/**
+ * Load All on the tab's connection.
+ * Request: `{sessionId, connectionId, schema?, queryId?, sql, maxRows}`.
+ */
+
+void pharos_session_fetch_all_rows(const char *request_json,
+                                   ProgressCallback progress,
+                                   AsyncCallback callback,
+                                   void *context);
+
+/**
+ * Explain a card on the tab's connection.
+ * Request: `{sessionId, connectionId, schema?, queryId?, sql, analyze}`.
+ * Result: `{plan, session}`, the plan being PostgreSQL's FORMAT JSON text.
+ */
+ void pharos_session_explain(const char *request_json, AsyncCallback callback, void *context);
+
+/**
+ * Validate a card on the tab's connection; never waits behind a run.
+ * Request: `{sessionId, connectionId, schema?, sql}`. Result: ValidationResult.
+ */
+ void pharos_session_validate_sql(const char *request_json, AsyncCallback callback, void *context);
+
+/**
+ * Cell edits on the tab's connection.
+ * Request: `{sessionId, connectionId, schema?, queryId?, request: RowUpdateRequest}`.
+ * Result: RowUpdateResult plus `inTransaction` and `session`.
+ */
+
+void pharos_session_apply_row_updates(const char *request_json,
+                                      AsyncCallback callback,
+                                      void *context);
+
+/**
+ * The banner's Commit / Roll Back. Request: `{sessionId, commit}`.
+ * Result: `{committed, rolledBack, session}`.
+ */
+
+void pharos_session_end_transaction(const char *request_json,
+                                    AsyncCallback callback,
+                                    void *context);
+
+/**
+ * Close a tab's connection: an open transaction is rolled back, never
+ * committed. Result: `{closed, hadOpenTransaction, rolledBack}`, or `null`
+ * when the tab had no connection.
+ */
+ void pharos_tab_session_close(const char *session_id, AsyncCallback callback, void *context);
+
+/**
+ * A tab connection's last report (synchronous). Returns the report JSON, or
+ * `null` when the tab has no connection. Caller must free.
+ */
+ char *pharos_tab_session_state(const char *session_id);
+
+/**
  * Clone a table. `json` is JSON-encoded CloneTableOptions.
  */
 

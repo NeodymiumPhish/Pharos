@@ -121,6 +121,13 @@ pub extern "C" fn pharos_shutdown() {
         }
     }
 
+    // The editor tabs' own connections close first, each rolling back an
+    // open transaction (never a commit), while pools and tunnels still run.
+    let _ = runtime.block_on(crate::commands::tab_session::close_all_tab_sessions(
+        state,
+        SHUTDOWN_PER_POOL_BUDGET,
+    ));
+
     // Drain the pool map so dropped pools are released even on timeout.
     let pools: Vec<PgPool> = {
         let mut conns = state.connections.lock().unwrap_or_else(|e| e.into_inner());

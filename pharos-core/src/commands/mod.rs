@@ -11,6 +11,7 @@ pub mod saved_query;
 pub mod cards;
 pub mod session;
 pub mod sql_lexer;
+pub mod tab_session;
 pub mod settings;
 pub mod table;
 pub mod tag;
