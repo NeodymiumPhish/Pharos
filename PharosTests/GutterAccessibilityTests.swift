@@ -1,14 +1,14 @@
 // Standalone test runner for LineNumberGutter's accessibility container — no
-// Xcode project or test target involvement. The gutter paints its run
-// buttons, fold chevrons and error markers itself, so there is no subview for
+// Xcode project or test target involvement. The gutter paints its fold
+// chevrons and error markers itself, so there is no subview for
 // VoiceOver to find: it publishes one NSAccessibilityElement per control
 // instead. These tests build a real gutter over a real text view inside a
 // headless (never-shown) NSWindow, so the layout manager lays text out and
 // the frames measured here are the frames VoiceOver would get.
 //
 // Compiled with LineNumberGutter.swift, AccessibilityDisplay.swift,
-// SQLSegmentParser.swift, SQLFoldingParser.swift, SQLLexer.swift and
-// PulseClock.swift by scripts/test-gutter-accessibility.sh.
+// SQLFoldingParser.swift, SQLLexer.swift and the rest of the file list in
+// scripts/test-gutter-accessibility.sh.
 import AppKit
 
 private var failures = 0
@@ -81,14 +81,6 @@ private func makeHostedGutter() -> (window: NSWindow, gutter: LineNumberGutter, 
     return (window, gutter, textView)
 }
 
-private func makeSegment(index: Int, startLine: Int, endLine: Int) -> SQLSegment {
-    SQLSegment(
-        index: index, sql: "select \(index)",
-        range: NSRange(location: 0, length: 1),
-        startLine: startLine, endLine: endLine
-    )
-}
-
 private func makeFoldRegion(startLine: Int, endLine: Int, collapsed: Bool) -> SQLFoldRegion {
     var region = SQLFoldRegion(
         startLine: startLine, endLine: endLine,
@@ -117,13 +109,7 @@ func runTests() {
     let (window, gutter, _) = makeHostedGutter()
     _ = window
 
-    // Three statements, one fold region, one error.
-    let segments = [
-        makeSegment(index: 0, startLine: 1, endLine: 1),
-        makeSegment(index: 1, startLine: 2, endLine: 6),
-        makeSegment(index: 2, startLine: 6, endLine: 6),
-    ]
-    gutter.setSegments(segments, activeIndex: 0)
+    // One fold region, one error.
     gutter.setFoldRegions([makeFoldRegion(startLine: 3, endLine: 6, collapsed: false)])
     gutter.setErrors([4: "relation \"t\" does not exist"])
 
@@ -144,22 +130,21 @@ func runTests() {
 
     // --- Children: count and roles ---
     let kids = children(of: gutter)
-    expectEqual(kids.count, 5, "child count = 3 run + 1 fold + 1 error")
+    expectEqual(kids.count, 2, "child count = 1 fold + 1 error")
 
-    let runs = kids.filter { role($0) == NSAccessibility.Role.button.rawValue }
     let folds = kids.filter { role($0) == NSAccessibility.Role.disclosureTriangle.rawValue }
     let errorKids = kids.filter { role($0) == NSAccessibility.Role.image.rawValue }
-    expectEqual(runs.count, 3, "three run buttons")
+    expectEqual(kids.filter { role($0) == NSAccessibility.Role.button.rawValue }.count, 0,
+                "no run buttons — a card's own Run button runs its statement")
     expectTrue(kids.allSatisfy { $0.isAccessibilityEnabled() },
                "every child is enabled — VoiceOver will not press a disabled control")
     expectEqual(folds.count, 1, "one fold chevron")
     expectEqual(errorKids.count, 1, "one error marker")
 
     // --- Labels ---
-    expectEqual(label(runs[0]), "Run line 1", "single-line segment reads as one line")
-    expectEqual(label(runs[1]), "Run lines 2\u{2013}6", "multi-line segment reads as a range")
     expectEqual(label(folds[0]), "Fold lines 3\u{2013}6", "fold label")
     expectEqual(label(errorKids[0]), "Error on line 4", "error label")
+    expectTrue(kids.first === folds[0], "children read top to bottom: fold (line 3) before error (line 4)")
 
     // --- Error value carries the message ---
     expectEqual((errorKids[0].accessibilityValue() as? String) ?? "(none)",
@@ -197,24 +182,16 @@ func runTests() {
     expectTrue(allInside, "every child frame lies inside the gutter, in screen space")
 
     // --- Hit testing returns the child under the point ---
-    let runFrame = children(of: gutter)
-        .first { role($0) == NSAccessibility.Role.button.rawValue }!
+    let foldFrame = children(of: gutter)
+        .first { role($0) == NSAccessibility.Role.disclosureTriangle.rawValue }!
         .accessibilityFrame()
-    let hit = gutter.accessibilityHitTest(NSPoint(x: runFrame.midX, y: runFrame.midY))
+    let hit = gutter.accessibilityHitTest(NSPoint(x: foldFrame.midX, y: foldFrame.midY))
     expectTrue((hit as? LineNumberGutter.GutterElement) != nil, "hit test finds a child")
-    expectEqual(label((hit as? LineNumberGutter.GutterElement)!), "Run line 1",
+    expectEqual(label((hit as? LineNumberGutter.GutterElement)!), "Fold lines 3\u{2013}6",
                 "hit test finds the right child")
     let miss = gutter.accessibilityHitTest(NSPoint(x: gutterOnScreen.maxX + 500,
                                                    y: gutterOnScreen.maxY + 500))
     expectTrue((miss as? LineNumberGutter) === gutter, "hit test off every child returns the gutter")
-
-    // --- Pressing a run child runs the right segment ---
-    var ran: SQLSegment?
-    gutter.onRunSegment = { ran = $0 }
-    let secondRun = children(of: gutter)
-        .first { label($0) == "Run lines 2\u{2013}6" }!
-    expectTrue(secondRun.accessibilityPerformPress(), "run press reports handled")
-    expectEqual(ran?.index ?? -1, 1, "run press fires onRunSegment with the right segment")
 
     // --- Pressing a fold child toggles that region ---
     var toggled: Int?
@@ -225,24 +202,29 @@ func runTests() {
     expectEqual(toggled ?? -1, 0, "fold press fires onToggleFold with the region index")
 
     // --- Identity survives a redraw; stale keys are dropped ---
-    let runsBefore = children(of: gutter).filter { role($0) == NSAccessibility.Role.button.rawValue }
+    let isFold = { (el: LineNumberGutter.GutterElement) in
+        role(el) == NSAccessibility.Role.disclosureTriangle.rawValue
+    }
+    let foldBefore = children(of: gutter).first(where: isFold)
     gutter.clearErrors()
     let after = children(of: gutter)
     expectEqual(after.filter { role($0) == NSAccessibility.Role.image.rawValue }.count, 0,
                 "clearErrors drops the error child")
-    let runsAfter = after.filter { role($0) == NSAccessibility.Role.button.rawValue }
-    expectEqual(runsAfter.count, 3, "run children survive clearErrors")
-    var sameObjects = true
-    for (before, afterEl) in zip(runsBefore, runsAfter) where before !== afterEl {
-        sameObjects = false
-    }
-    expectTrue(sameObjects, "the same segment index keeps the same element object")
+    let foldsAfter = after.filter(isFold)
+    expectEqual(foldsAfter.count, 1, "the fold child survives clearErrors")
+    expectTrue(foldsAfter.first === foldBefore, "the same fold index keeps the same element object")
 
-    // Dropping a segment drops its element, and the survivors keep identity.
-    gutter.setSegments(Array(segments.prefix(2)), activeIndex: 0)
-    let trimmed = children(of: gutter).filter { role($0) == NSAccessibility.Role.button.rawValue }
-    expectEqual(trimmed.count, 2, "removing a segment removes its run child")
-    expectTrue(trimmed.first === runsAfter.first, "surviving segment keeps its element object")
+    // Dropping a fold region drops its element, and the survivors keep identity.
+    gutter.setFoldRegions([
+        makeFoldRegion(startLine: 3, endLine: 6, collapsed: false),
+        makeFoldRegion(startLine: 4, endLine: 5, collapsed: false),
+    ])
+    let twoFolds = children(of: gutter).filter(isFold)
+    expectEqual(twoFolds.count, 2, "a second fold region adds a second fold child")
+    gutter.setFoldRegions([makeFoldRegion(startLine: 3, endLine: 6, collapsed: false)])
+    let trimmed = children(of: gutter).filter(isFold)
+    expectEqual(trimmed.count, 1, "removing a fold region removes its child")
+    expectTrue(trimmed.first === foldBefore, "the surviving fold region keeps its element object")
 
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) test(s) failed")
     exit(failures == 0 ? 0 : 1)

@@ -1,13 +1,11 @@
 import AppKit
-import Combine
 
 /// Standalone line number gutter drawn as a plain NSView beside the scroll view.
 /// Unlike the previous NSRulerView implementation, this view lives *outside* the
 /// NSScrollView hierarchy, which avoids the system-injected NSVisualEffectView
 /// that macOS 26 attaches to ruler infrastructure (causing washed-out text).
 ///
-/// Also draws SQL segment bars (similar to Xcode's source control change bars)
-/// to visually delineate individual SQL statements, with a hoverable run button.
+/// Also draws fold chevrons and error markers beside the numbers.
 class LineNumberGutter: NSView {
 
     private weak var textView: NSTextView?
@@ -34,61 +32,6 @@ class LineNumberGutter: NSView {
 
     /// The line number containing the insertion point (1-based), used to highlight the active line number.
     private var currentLine: Int = 0
-
-    // MARK: - Segment Bar State
-
-    /// Parsed SQL segments for the current editor text.
-    private var segments: [SQLSegment] = []
-
-    /// Index of the segment the cursor is currently inside (nil if none).
-    private var activeSegmentIndex: Int?
-
-    /// Maps segment index → color (set when a result tab is created for that segment).
-    private var segmentColors: [Int: NSColor] = [:]
-
-    /// Index of the segment currently being hovered (nil if none).
-    private var hoveredSegmentIndex: Int?
-
-    /// The segment whose cross-fade is running, and how far it has run:
-    /// 0 = line numbers, 1 = the play glyph. ONE value, not a dictionary —
-    /// only one segment can be under the pointer, and when the pointer leaves
-    /// that same segment has to keep fading back rather than popping.
-    private(set) var fadeSegmentIndex: Int?
-    private(set) var hoverProgress: CGFloat = 0
-    private var hoverLastTick: CFTimeInterval = 0
-    private var hoverSubscription: AnyCancellable?
-
-    /// Cross-fade duration. Short: this is a pointer affordance, not a
-    /// transition the user waits on.
-    private static let hoverFadeDuration: CFTimeInterval = 0.16
-
-    /// Whether to skip the cross-fade and show its end state at once.
-    ///
-    /// Read from `AccessibilityDisplay`, not from `PulseClock`, although both
-    /// carry the flag: this view already observes `AccessibilityDisplay.didChange`
-    /// to repaint, and that type is the one a test can override.
-    private var reduceMotion: Bool {
-        MainActor.assumeIsolated { AccessibilityDisplay.shared.reduceMotion }
-    }
-
-    /// The band rects painted by the last `draw`, newest first in paint order.
-    /// Hit-testing, the cursor rects and the run action ALL read these, so the
-    /// three cannot disagree with what is on screen — and so a click below the
-    /// end of a short document hits nothing, instead of being clamped onto the
-    /// last line by `lineNumber(at:)`.
-    ///
-    /// Internal, not private, as a test seam:
-    /// PharosTests/GutterSegmentBandTests.swift reads the geometry that was
-    /// actually painted rather than re-deriving it.
-    private(set) var paintedBands: [(index: Int, rect: NSRect)] = []
-
-    /// The band armed by `mouseDown`, fired only if `mouseUp` lands in it.
-    /// A press-and-drag-away must not run a statement: the band is a large
-    /// target, and running is not undoable.
-    private var armedSegmentIndex: Int?
-
-    /// Callback fired when the user clicks the run button on a segment bar.
-    var onRunSegment: ((SQLSegment) -> Void)?
 
     // MARK: - Fold Chevron State
 
@@ -129,89 +72,44 @@ class LineNumberGutter: NSView {
     /// Horizontal metrics — everything that decides how wide the gutter is and
     /// where inside it the line numbers sit.
     ///
-    /// The SQL editor's gutter carries two extra columns beside the numbers: a
-    /// fold-chevron column on the left (drawn at x = 3, 14 pt wide) and a
-    /// segment-bar column on the right. A host that never calls
-    /// `setFoldRegions` or `setSegments` has neither, and reserving space for
-    /// them is dead width — which matters in a narrow sidebar, where every
-    /// point taken by the gutter is a point of value text the user cannot see.
+    /// The SQL editor's gutter carries an extra column left of the numbers:
+    /// the fold-chevron column (drawn at x = 3, 14 pt wide), which the error
+    /// marker shares. A host that never calls `setFoldRegions` has no use for
+    /// it, and reserving space for it is dead width — which matters in a
+    /// narrow sidebar, where every point taken by the gutter is a point of
+    /// value text the user cannot see.
     struct Metrics {
-        /// Space left of the line numbers — the fold-chevron column, and the
-        /// leading edge of the segment band.
+        /// Space left of the line numbers — the fold-chevron column.
         var leadingPadding: CGFloat
         /// Space right of the line numbers.
         var numberTrailingPadding: CGFloat
-        /// Whether this gutter draws segment bands at all.
-        var drawsSegmentBands: Bool
         /// Width floor in digits, so the gutter does not twitch narrower on a
         /// one- or two-line document and wider on the next keystroke.
         var minimumDigits: Int
 
-        /// The main SQL editor: fold chevrons and segment bands.
+        /// The main SQL editor: fold chevrons and error markers.
         ///
-        /// `leadingPadding` is where the band starts, and it must clear the
-        /// error marker's hit box — see `errorHitWidth`.
+        /// `leadingPadding` must clear the error marker's hit box, or the
+        /// numbers would crowd it — see `errorHitWidth`.
         static let sqlEditor = Metrics(
             leadingPadding: errorHitWidth, numberTrailingPadding: 4,
-            drawsSegmentBands: true, minimumDigits: 3)
+            minimumDigits: 3)
 
-        /// The variables panel's value editor: no chevrons, no segment bands,
-        /// and a two-digit floor — a variable value that runs past 99 lines is
-        /// not what this editor is for.
+        /// The variables panel's value editor: no chevrons, and a two-digit
+        /// floor — a variable value that runs past 99 lines is not what this
+        /// editor is for.
         static let compact = Metrics(
             leadingPadding: 4, numberTrailingPadding: 5,
-            drawsSegmentBands: false, minimumDigits: 2)
+            minimumDigits: 2)
     }
 
-    /// Width of the error marker's hit box, and therefore where the segment
-    /// band may start. Derived in one place: the band used to begin at a
+    /// Width of the error marker's hit box, and therefore the SQL editor's
+    /// leading padding. Derived in one place: the padding used to be a
     /// hard-coded 16 that happened to equal this, and nudging either number
-    /// alone would have made error markers unhoverable with no test failing.
+    /// alone would have let the two drift apart with no test failing.
     static let errorHitWidth: CGFloat = errorMarkerSize + 6
 
-    /// A `var`, not a `let`: `drawsSegmentBands` is a user setting
-    /// (Settings ▸ Editor ▸ Show run buttons in the gutter), so the static
-    /// `Metrics.sqlEditor` is only the STARTING point — the host tells this
-    /// gutter what to draw through `setDrawsSegmentBands`.
-    private var metrics: Metrics
-
-    /// Turn the statement bands, and the run glyph they carry, on or off.
-    ///
-    /// Hit-testing, the cursor rects and the run action all read
-    /// `paintedBands`, which stays empty while this is off, so nothing is left
-    /// clickable once the bands stop being drawn.
-    func setDrawsSegmentBands(_ draws: Bool) {
-        guard metrics.drawsSegmentBands != draws else { return }
-        metrics.drawsSegmentBands = draws
-        if !draws {
-            paintedBands = []
-            armedSegmentIndex = nil
-        }
-        window?.invalidateCursorRects(for: self)
-        needsDisplay = true
-    }
-
-    // MARK: - Pulse State
-
-    /// Set of segment indices currently executing (-1 = full-editor phantom, >= 0 = specific segment).
-    private var runningSegmentIndices: Set<Int> = []   // includes -1 for phantom/direct-SQL
-
-    /// Per-index fade-out state, keyed by segment index (including -1 for phantom).
-    private var fadeOutStates: [Int: FadeState] = [:]
-
-    private struct FadeState {
-        let startAlpha: CGFloat
-        let endTime: CFTimeInterval
-    }
-
-    /// Subscription to PulseClock while pulsing (including fade-out).
-    private var pulseSubscription: AnyCancellable?
-
-    /// Current pulse value [0, 1] read from PulseClock.
-    private var pulseValue: CGFloat = 1.0
-
-    /// Duration of the completion fade-out, in seconds.
-    private let fadeOutDuration: CFTimeInterval = 0.25
+    private let metrics: Metrics
 
     private var gutterTrackingArea: NSTrackingArea?
 
@@ -355,141 +253,6 @@ class LineNumberGutter: NSView {
         needsDisplay = true
     }
 
-    /// Update the segment data. Called by the host VC when text changes or cursor moves.
-    func setSegments(_ newSegments: [SQLSegment], activeIndex: Int?) {
-        segments = newSegments
-        activeSegmentIndex = activeIndex
-        // Drop orphan fade-out entries that no longer correspond to a real segment.
-        let validIndices = Set(segments.indices).union([-1])
-        fadeOutStates = fadeOutStates.filter { validIndices.contains($0.key) }
-        window?.invalidateCursorRects(for: self)
-        needsDisplay = true
-        accessibilityStructureDidChange()
-    }
-
-    /// Set the currently-executing segment indices.
-    /// - Empty set = idle (stops pulsing with a fade-out per removed index)
-    /// - Contains -1 = full-editor phantom (pulses the entire gutter bar)
-    /// - Contains >= 0 = specific segments pulse in unison
-    func setRunningSegmentIndices(_ indices: Set<Int>) {
-        let removed = runningSegmentIndices.subtracting(indices)
-        for idx in removed {
-            fadeOutStates[idx] = FadeState(
-                startAlpha: currentPulseAlpha(),
-                endTime: CACurrentMediaTime() + fadeOutDuration
-            )
-        }
-        runningSegmentIndices = indices
-        if !indices.isEmpty {
-            if pulseSubscription == nil {
-                pulseSubscription = Self.composedPulseSubscription { [weak self] v in
-                    self?.pulseValue = v
-                    self?.needsDisplay = true
-                }
-            }
-        } else if fadeOutStates.isEmpty {
-            pulseSubscription = nil
-        }
-        needsDisplay = true
-    }
-
-    /// Compose a `PulseClock` subscription that retains the `observe()` token
-    /// alongside the `sink` cancellable, so cancelling one cancels both.
-    private static func composedPulseSubscription(
-        onValue: @escaping (CGFloat) -> Void
-    ) -> AnyCancellable {
-        let token = PulseClock.shared.observe()
-        let sub = PulseClock.shared.value.sink(receiveValue: onValue)
-        return AnyCancellable {
-            sub.cancel()
-            token.cancel()
-        }
-    }
-
-    /// The segment that owns a line, or nil. First wins: `select 1; select 2;`
-    /// parses to two segments that both start AND end on line 1, so draw,
-    /// cursor rects and hit-testing must all pick the same one or the band
-    /// would show one statement's colour and the click run the other's.
-    func segmentIndex(owningLine line: Int) -> Int? {
-        segments.firstIndex { line >= $0.startLine && line <= $0.endLine }
-    }
-
-    /// The band under a point, from what was actually painted.
-    /// Internal as a test seam — see `paintedBands`.
-    func bandIndex(at point: NSPoint) -> Int? {
-        paintedBands.first { $0.rect.contains(point) }?.index
-    }
-
-    /// Move the hover cross-fade to `index`, starting or stopping the ticker.
-    /// Internal as a test seam: a headless suite has no pointer to move.
-    func setHovered(_ index: Int?) {
-        guard index != hoveredSegmentIndex else { return }
-        hoveredSegmentIndex = index
-        if let index {
-            // A different segment takes the fade over from wherever the last
-            // one had got to, so sweeping along the gutter does not restart
-            // from black each time.
-            if fadeSegmentIndex != index {
-                fadeSegmentIndex = index
-                hoverProgress = 0
-            }
-        }
-        hoverLastTick = CACurrentMediaTime()
-        if reduceMotion {
-            // Reduce Motion: no cross-fade, just the end state.
-            hoverProgress = (index == nil) ? 0 : 1
-            if index == nil { fadeSegmentIndex = nil }
-            hoverSubscription = nil
-        } else if hoverSubscription == nil {
-            // PulseClock is the display-link-paced ticker this view already
-            // uses; its value is ignored here, only its cadence is wanted.
-            hoverSubscription = Self.composedPulseSubscription { [weak self] _ in
-                self?.needsDisplay = true
-            }
-        }
-        needsDisplay = true
-    }
-
-    /// Advance the cross-fade to now, and stop the ticker once it has settled.
-    /// Internal as a test seam.
-    func advanceHoverFade() {
-        guard fadeSegmentIndex != nil else { return }
-        let now = CACurrentMediaTime()
-        let target: CGFloat = (hoveredSegmentIndex != nil
-                               && hoveredSegmentIndex == fadeSegmentIndex) ? 1 : 0
-        if reduceMotion {
-            hoverProgress = target
-        } else {
-            let step = CGFloat((now - hoverLastTick) / Self.hoverFadeDuration)
-            hoverProgress = target > hoverProgress
-                ? min(target, hoverProgress + step)
-                : max(target, hoverProgress - step)
-        }
-        hoverLastTick = now
-        if hoverProgress <= 0, target == 0 {
-            fadeSegmentIndex = nil
-            hoverSubscription = nil
-        } else if hoverProgress >= 1, target == 1 {
-            hoverSubscription = nil
-        }
-    }
-
-    /// Set the color for a segment (e.g., after a result tab is created).
-    func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
-        if let color {
-            segmentColors[index] = color
-        } else {
-            segmentColors.removeValue(forKey: index)
-        }
-        needsDisplay = true
-    }
-
-    /// Clear all segment result colors.
-    func clearSegmentColors() {
-        segmentColors.removeAll()
-        needsDisplay = true
-    }
-
     /// Update the fold regions for chevron display.
     func setFoldRegions(_ regions: [SQLFoldRegion]) {
         foldRegions = regions
@@ -569,8 +332,7 @@ class LineNumberGutter: NSView {
     /// that rect lands entirely above the text and
     /// `glyphRange(forBoundingRect:)` collapses to almost nothing. The line
     /// numbers then stop partway down the editor and leave unnumbered rows
-    /// below them — and, from the same walk, the segment bars stop with them.
-    /// Real coordinate conversion asks AppKit which text is on screen, so it
+    /// below them. Real coordinate conversion asks AppKit which text is on screen, so it
     /// holds however the scroll view's geometry ended up.
     private func visibleTextContainerRect() -> NSRect? {
         guard let textView, let scrollView else { return nil }
@@ -714,13 +476,6 @@ class LineNumberGutter: NSView {
             lineNum += 1
             charIndex = NSMaxRange(lineRange)
         }
-
-        // Segment bands: the rects the last draw actually painted. Walking the
-        // lines again to re-derive them would drift, because this walk has no
-        // fold-skip branch and `draw` does.
-        for band in paintedBands {
-            addCursorRect(band.rect, cursor: .pointingHand)
-        }
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -738,16 +493,10 @@ class LineNumberGutter: NSView {
         }
 
         updateErrorHover(at: point)
-
-        // The band, from what was painted — never from `lineNumber(at:)`,
-        // which clamps a point below the text onto the last line.
-        setHovered(bandIndex(at: point))
     }
 
     override func mouseExited(with event: NSEvent) {
         mouseInGutter = false
-        setHovered(nil)
-        armedSegmentIndex = nil
         hoveredErrorLine = nil
         cancelPopoverOpen()
         scheduleErrorPopoverClose()
@@ -774,27 +523,7 @@ class LineNumberGutter: NSView {
             return
         }
 
-        // Arm the band, but do not run yet. The band is a large target and
-        // running a statement cannot be undone, so this follows ordinary
-        // button semantics: press, and the user can still drag off to cancel.
-        guard let idx = bandIndex(at: point), idx < segments.count else {
-            armedSegmentIndex = nil
-            super.mouseDown(with: event)
-            return
-        }
-        armedSegmentIndex = idx
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard let armed = armedSegmentIndex else {
-            super.mouseUp(with: event)
-            return
-        }
-        armedSegmentIndex = nil
-        // Only when the release lands on the same band the press armed.
-        guard bandIndex(at: point) == armed, armed < segments.count else { return }
-        onRunSegment?(segments[armed])
+        super.mouseDown(with: event)
     }
 
     /// Map a point (in gutter coordinates) to a 1-based line number. The
@@ -1040,10 +769,9 @@ class LineNumberGutter: NSView {
 
     /// One visible line's geometry, measured once and painted later.
     ///
-    /// The band has to paint UNDER the numbers but needs the same geometry, so
-    /// the walk that used to draw as it measured is now a measurement pass
-    /// only. The baseline comes with it, so the paint pass never has to touch
-    /// the layout manager again.
+    /// The walk over the visible text is a measurement pass only, and the
+    /// paint pass reads what it recorded. The baseline comes with it, so the
+    /// paint pass never has to touch the layout manager again.
     private struct VisibleLine {
         let line: Int
         let y: CGFloat
@@ -1076,12 +804,8 @@ class LineNumberGutter: NSView {
         let numberBaseline = layoutManager.defaultBaselineOffset(for: numberFont)
         let numberX = desiredWidth - metrics.numberTrailingPadding
         func drawNumber(_ lineNumber: Int, lineTop y: CGFloat, lineHeight: CGFloat,
-                        textBaseline: CGFloat, alpha: CGFloat) {
-            guard alpha > 0.01 else { return }
-            var attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
-            if alpha < 1, let color = attrs[.foregroundColor] as? NSColor {
-                attrs[.foregroundColor] = color.withAlphaComponent(color.alphaComponent * alpha)
-            }
+                        textBaseline: CGFloat) {
+            let attrs = (lineNumber == currentLine) ? activeAttributes : normalAttributes
             let attrString = NSAttributedString(string: "\(lineNumber)", attributes: attrs)
             let stringSize = attrString.size()
             // Baseline of the text line, in gutter coordinates, minus the
@@ -1094,10 +818,7 @@ class LineNumberGutter: NSView {
         }
 
         // Visible range in the text view — see `visibleTextContainerRect()`.
-        guard let visibleCharRange = visibleCharacterRange() else {
-            paintedBands = []
-            return
-        }
+        guard let visibleCharRange = visibleCharacterRange() else { return }
 
         // Starting line number: O(log N) lookup into the cached lineStarts
         // instead of an O(N) per-redraw walk via enumerateSubstrings.
@@ -1159,8 +880,6 @@ class LineNumberGutter: NSView {
         // visible range never reaches it and the walk above never sees it — a
         // fresh tab showed no "1", and the caret's last line had no number. The
         // layout manager keeps that line's geometry in `extraLineFragmentRect`.
-        // It joins the same array rather than being drawn on its own, so a band
-        // that reaches the last line is not cut short.
         if lineNumber == lineStarts.count,
            text.length == 0 || text.character(at: text.length - 1) == 0x0A,
            !layoutManager.extraLineFragmentRect.isEmpty,
@@ -1171,16 +890,7 @@ class LineNumberGutter: NSView {
                 baseline: layoutManager.defaultBaselineOffset(for: textView.font ?? numberFont)))
         }
 
-        advanceHoverFade()
-
-        // BANDS — under the numbers.
-        paintedBands = []
-        if metrics.drawsSegmentBands {
-            drawSegmentBands(visibleLines)
-        }
-
-        // PAINT PASS — markers, chevrons and numbers, over the bands.
-        let fadingSegment = fadeSegmentIndex
+        // PAINT PASS — markers, chevrons and numbers.
         for entry in visibleLines {
             // Error indicator — a red dot normally, a red exclamation-mark
             // symbol when the user asked not to be told things by colour
@@ -1201,153 +911,8 @@ class LineNumberGutter: NSView {
                 }
             }
 
-            // A hovered statement's numbers fade out as its play glyph fades
-            // in. Only that statement's — every other number stays readable.
-            var alpha: CGFloat = 1
-            if let fadingSegment, hoverProgress > 0,
-               segmentIndex(owningLine: entry.line) == fadingSegment {
-                alpha = 1 - hoverProgress
-            }
             drawNumber(entry.line, lineTop: entry.y, lineHeight: entry.height,
-                       textBaseline: entry.baseline, alpha: alpha)
-        }
-
-        // The play glyph, last, so it sits over the numbers it replaces.
-        if let fadingSegment, hoverProgress > 0,
-           let band = paintedBands.first(where: { $0.index == fadingSegment }) {
-            drawRunGlyph(in: band.rect, alpha: hoverProgress)
-        }
-
-        // Drive fade-out redraws. Pulse subscription stops in setRunningSegmentIndices
-        // when indices clear; fade-out redraws keep ticking until all fades expire.
-        if !fadeOutStates.isEmpty {
-            DispatchQueue.main.async { [weak self] in self?.needsDisplay = true }
-        }
-    }
-
-    /// Paint one band per statement that reaches the visible range, recording
-    /// each rect in `paintedBands` so hit-testing and the cursor rects read the
-    /// same geometry that is on screen.
-    private func drawSegmentBands(_ visibleLines: [VisibleLine]) {
-        guard let firstVisible = visibleLines.first,
-              let lastVisible = visibleLines.last else { return }
-
-        let bandX = metrics.leadingPadding
-        let bandWidth = max(desiredWidth - bandX - 2, 4)
-        let now = CACurrentMediaTime()
-        let differentiate = MainActor.assumeIsolated {
-            AccessibilityDisplay.shared.differentiateWithoutColor
-        }
-
-        func bandRect(from startLine: Int, to endLine: Int) -> NSRect? {
-            // NEAREST visible entries, never exact lookups: a collapsed fold
-            // removes a statement's own start or end line from the list, and an
-            // exact lookup then dropped the whole band — the statement lost its
-            // colour the moment a fold inside it closed.
-            guard let startEntry = visibleLines.first(where: { $0.line >= startLine }),
-                  let endEntry = visibleLines.last(where: { $0.line <= endLine }),
-                  startEntry.line <= endEntry.line else { return nil }
-            let top = startEntry.y + 2
-            let bottom = endEntry.y + endEntry.height - 2
-            return NSRect(x: bandX, y: top, width: bandWidth, height: max(bottom - top, 4))
-        }
-
-        for (segIdx, segment) in segments.enumerated() {
-            guard segment.endLine >= firstVisible.line,
-                  segment.startLine <= lastVisible.line,
-                  let rect = bandRect(from: segment.startLine, to: segment.endLine) else { continue }
-
-            let hue = bandHue(for: segIdx)
-            let alpha = bandAlpha(for: segIdx, now: now)
-            hue.withAlphaComponent(alpha).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-
-            // Under "Differentiate without colour" a result tab's identity
-            // cannot be its hue. Mark the band with the same shape the tab bar
-            // and the result dots use for that colour.
-            if differentiate, let tabColor = segmentColors[segIdx] {
-                let size: CGFloat = 6
-                let glyph = NSRect(x: rect.minX + 2, y: rect.minY + 3, width: size, height: size)
-                MarkerShape.fill(index: MarkerShape.index(for: tabColor), in: glyph,
-                                 color: NSColor.secondaryLabelColor)
-            }
-
-            paintedBands.append((index: segIdx, rect: rect))
-        }
-
-        // Phantom band for direct-SQL execution (segmentIndex == -1): the whole
-        // visible range. Not recorded in `paintedBands` — there is no statement
-        // to run from it.
-        if runningSegmentIndices.contains(-1) || fadeOutStates[-1] != nil,
-           let rect = bandRect(from: firstVisible.line, to: lastVisible.line) {
-            NSColor.controlAccentColor.withAlphaComponent(bandAlpha(for: -1, now: now)).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-        }
-    }
-
-    /// The band's hue. Alpha is decided separately, by `bandAlpha`.
-    private func bandHue(for segIdx: Int) -> NSColor {
-        if runningSegmentIndices.contains(segIdx) || fadeOutStates[segIdx] != nil {
-            return .controlAccentColor
-        }
-        return defaultBarColor(for: segIdx)
-    }
-
-    /// The band's alpha, off the shared `ContrastInk` ladder.
-    private func bandAlpha(for segIdx: Int, now: CFTimeInterval) -> CGFloat {
-        let ink = MainActor.assumeIsolated { () -> (CGFloat, CGFloat, CGFloat, CGFloat, CGFloat) in
-            (ContrastInk.segmentBandAlpha(.idle),
-             ContrastInk.segmentBandAlpha(.active),
-             ContrastInk.segmentBandAlpha(.hovered),
-             ContrastInk.segmentBandAlpha(.running),
-             ContrastInk.segmentBandPulseSwing)
-        }
-        let (idle, active, hovered, running, swing) = ink
-
-        let resting: CGFloat = (segmentColors[segIdx] != nil || segIdx == activeSegmentIndex)
-            ? active : idle
-
-        if runningSegmentIndices.contains(segIdx) {
-            return running + swing * pulseValue
-        }
-        if let fade = fadeOutStates[segIdx] {
-            let remaining = fade.endTime - now
-            if remaining > 0 {
-                let progress = CGFloat(1.0 - (remaining / fadeOutDuration))
-                // Settle INTO the resting alpha rather than fading to nothing:
-                // a band that vanished and reappeared read as a flicker.
-                return fade.startAlpha + (resting - fade.startAlpha) * progress
-            }
-            fadeOutStates.removeValue(forKey: segIdx)
-        }
-        if segIdx == fadeSegmentIndex, hoverProgress > 0 {
-            return resting + (hovered - resting) * hoverProgress
-        }
-        return resting
-    }
-
-    /// The alpha a running band is showing right now — the snapshot a band
-    /// fades from when its statement finishes.
-    ///
-    /// The old 0.55 + 0.45 × pulse belonged to a 4pt stripe. Behind the line
-    /// numbers that range washes them out for as long as the query runs, so
-    /// the band rides a much smaller swing on a lower base. `ErrorBadgeButton`
-    /// keeps the original range; the divergence is recorded in
-    /// docs/superpowers/specs/2026-04-21-query-running-animation-design.md.
-    private func currentPulseAlpha() -> CGFloat {
-        MainActor.assumeIsolated {
-            ContrastInk.segmentBandAlpha(.running) + ContrastInk.segmentBandPulseSwing * pulseValue
-        }
-    }
-
-    /// Fallback bar color: result-tab color first, then active-segment highlight, then idle tertiary.
-    private func defaultBarColor(for segIdx: Int) -> NSColor {
-        if let resultColor = segmentColors[segIdx] {
-            return resultColor
-        } else if segIdx == activeSegmentIndex {
-            return NSColor.controlAccentColor
-        } else {
-            return NSColor.tertiaryLabelColor.withAlphaComponent(0.35)
+                       textBaseline: entry.baseline)
         }
     }
 
@@ -1421,45 +986,10 @@ class LineNumberGutter: NSView {
         chevron.fill()
     }
 
-    /// Draw a small play triangle button overlaying the segment bar.
-    /// The play triangle a hovered band fades in, centred in the band.
-    ///
-    /// Centred in the band AS PAINTED — which is the visible slice, clamped to
-    /// the scroll position — not in the statement's full extent. A 300-line
-    /// statement would otherwise put its glyph far off screen, or 15 lines from
-    /// the pointer. The accessibility element stays on the start line instead;
-    /// see `runButtonFrame(forLine:)`.
-    private func drawRunGlyph(in bandRect: NSRect, alpha: CGFloat) {
-        let size = Self.runGlyphSize
-        let rect = NSRect(
-            x: bandRect.midX - size / 2,
-            y: bandRect.midY - size / 2,
-            width: size, height: size
-        )
-
-        let triangleInset: CGFloat = 3
-        let left = rect.minX + triangleInset + 1
-        let right = rect.maxX - triangleInset + 1
-        let top = rect.minY + triangleInset
-        let bottom = rect.maxY - triangleInset
-
-        let triangle = NSBezierPath()
-        triangle.move(to: NSPoint(x: left, y: top))
-        triangle.line(to: NSPoint(x: right, y: (top + bottom) / 2))
-        triangle.line(to: NSPoint(x: left, y: bottom))
-        triangle.close()
-
-        NSColor.controlAccentColor.withAlphaComponent(min(max(alpha, 0), 1)).setFill()
-        triangle.fill()
-    }
-
-    /// Size of the play glyph, and of the run button's accessibility frame.
-    private static let runGlyphSize: CGFloat = 14
-
     // MARK: - Accessibility
 
-    /// A gutter control as VoiceOver sees it. The gutter paints its run
-    /// buttons, fold chevrons and error markers itself, so there is no
+    /// A gutter control as VoiceOver sees it. The gutter paints its fold
+    /// chevrons and error markers itself, so there is no
     /// subview for the accessibility system to find — one of these stands in
     /// for each of them, carrying the action to run when the user presses it.
     final class GutterElement: NSAccessibilityElement {
@@ -1473,14 +1003,14 @@ class LineNumberGutter: NSView {
         }
     }
 
-    /// Cached child elements, keyed by what they stand for ("run-2",
-    /// "fold-0", "error-7"). VoiceOver holds on to the element it is focused
+    /// Cached child elements, keyed by what they stand for ("fold-0",
+    /// "error-7"). VoiceOver holds on to the element it is focused
     /// on, so the SAME object has to come back for the same control across
     /// redraws — a fresh element per call would drop focus on every keystroke.
     private var cachedAccessibilityElements: [String: GutterElement] = [:]
 
     /// Tell the accessibility system the set of controls changed. Called when
-    /// segments, fold regions or errors move.
+    /// fold regions or errors move.
     private func accessibilityStructureDidChange() {
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }
@@ -1513,7 +1043,7 @@ class LineNumberGutter: NSView {
     @discardableResult
     func rebuildAccessibilityElements() -> [GutterElement] {
         // (line, column order, element) so the list reads top-to-bottom and,
-        // within a line, left-to-right: chevron, error marker, run button.
+        // within a line, left-to-right: chevron, then error marker.
         var ordered: [(line: Int, column: Int, element: GutterElement)] = []
         var live = Set<String>()
 
@@ -1554,27 +1084,13 @@ class LineNumberGutter: NSView {
             ordered.append((line, 1, element))
         }
 
-        for (idx, segment) in segments.enumerated() {
-            let key = "run-\(idx)"
-            live.insert(key)
-            let element = cachedElement(forKey: key, role: .button)
-            element.setAccessibilityLabel(Self.rangeLabel("Run", segment.startLine, segment.endLine))
-            element.onPress = { [weak self] in
-                guard let self, idx < self.segments.count else { return false }
-                self.onRunSegment?(self.segments[idx])
-                return true
-            }
-            apply(frame: runButtonFrame(forLine: segment.startLine), to: element)
-            ordered.append((segment.startLine, 2, element))
-        }
-
         cachedAccessibilityElements = cachedAccessibilityElements.filter { live.contains($0.key) }
 
         ordered.sort { ($0.line, $0.column) < ($1.line, $1.column) }
         return ordered.map(\.element)
     }
 
-    /// "Run lines 3–7" / "Run line 3" — a one-line statement should not be
+    /// "Fold lines 3–7" / "Fold line 3" — a one-line range should not be
     /// read out as a range of itself.
     private static func rangeLabel(_ verb: String, _ startLine: Int, _ endLine: Int) -> String {
         startLine == endLine
@@ -1590,8 +1106,8 @@ class LineNumberGutter: NSView {
         element.setAccessibilityRole(role)
         element.setAccessibilityParent(self)
         // NSAccessibilityElement starts out disabled, and VoiceOver will not
-        // press a disabled control — measured on the live app, where the run
-        // buttons first came back as AXEnabled = false.
+        // press a disabled control — measured on the live app, where the
+        // gutter's controls first came back as AXEnabled = false.
         element.setAccessibilityEnabled(true)
         cachedAccessibilityElements[key] = element
         return element
@@ -1626,24 +1142,5 @@ class LineNumberGutter: NSView {
         let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
         guard let y = gutterY(forTextContainerRect: fragment) else { return nil }
         return NSRect(x: 0, y: y, width: max(bounds.width, desiredWidth), height: fragment.height)
-    }
-
-    /// The gutter-space rect of a segment's run control, for accessibility.
-    ///
-    /// Deliberately NOT the band. Two things depend on it staying small and on
-    /// the start line: `rebuildAccessibilityElements` sorts children by
-    /// (line, column) and `accessibilityHitTest` returns the first frame
-    /// containing the point, so a frame spanning lines 2–6 would swallow an
-    /// error marker on line 4; and VoiceOver wants a frame that does not move
-    /// under it while the pointer roams. The painted glyph follows the eye
-    /// instead — see `drawRunGlyph`.
-    private func runButtonFrame(forLine line: Int) -> NSRect? {
-        guard let lineFrame = lineFrame(forLine: line) else { return nil }
-        let size = Self.runGlyphSize
-        let bandX = metrics.leadingPadding
-        let bandWidth = max(desiredWidth - bandX - 2, 4)
-        let gutterWidth = max(bounds.width, desiredWidth)
-        let x = min(bandX + bandWidth / 2 - size / 2, gutterWidth - size)
-        return NSRect(x: max(0, x), y: lineFrame.origin.y + 1, width: size, height: size)
     }
 }

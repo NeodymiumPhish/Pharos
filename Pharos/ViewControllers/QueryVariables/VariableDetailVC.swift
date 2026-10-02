@@ -242,11 +242,11 @@ final class VariableDetailVC: NSViewController {
 
         nameField.nextKeyView = valueTextView
 
-        // `.compact`: this editor never calls `setSegments` or
-        // `setFoldRegions`, so the segment-bar and fold-chevron columns the
-        // SQL editor's gutter reserves would be permanently empty here — and
-        // this panel is narrow enough that the width they take is width the
-        // value itself needs. See `LineNumberGutter.Metrics`.
+        // `.compact`: this editor never calls `setFoldRegions`, so the
+        // fold-chevron column the SQL editor's gutter reserves would be
+        // permanently empty here — and this panel is narrow enough that the
+        // width it takes is width the value itself needs. See
+        // `LineNumberGutter.Metrics`.
         let gutterView = LineNumberGutter(
             textView: valueTextView, scrollView: scrollView, metrics: .compact)
         gutterView.onWidthChange = { [weak self] in self?.view.needsLayout = true }

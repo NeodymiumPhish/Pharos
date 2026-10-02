@@ -455,10 +455,6 @@ class SQLEditorController: NSViewController {
             recalculateFoldRegions()
         }
 
-        // A card is one statement: no statement bands, no run glyphs. The
-        // card's own Run button runs it.
-        gutter?.setDrawsSegmentBands(false)
-
         // Line numbers — toggle gutter visibility and re-layout
         gutter?.isHidden = !editor.lineNumbers
         layoutGutterAndScrollView()
