@@ -2,6 +2,8 @@ use sqlx::postgres::types::Oid;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Executor, PgPool, Row, ValueRef};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionMechanism, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
@@ -161,7 +163,7 @@ fn should_retry_without_tls(mode: SslMode, err: &sqlx::Error) -> bool {
 /// after the connect. Three reasons, and each of them was a defect:
 ///
 ///  * A `SET` on one acquired connection reaches ONE of the five in the pool.
-///    The existing idle-in-transaction guard below does exactly that, so four
+///    The old idle-in-transaction guard did exactly that, so four
 ///    connections out of five never had it.
 ///  * A startup value becomes the session's RESET value, so `RESET ALL` — or
 ///    a `DISCARD ALL` from a pooler — returns to what the user asked for
@@ -357,8 +359,9 @@ pub fn startup_gucs(options: &SessionOptions) -> Vec<(&'static str, String)> {
 /// replaces, which reached one connection of five. The one property it
 /// cannot have is the startup packet's: `RESET TimeZone` returns to sqlx's
 /// `UTC`, not to the user's value, because the reset value is whatever the
-/// startup packet carried. Nothing in Pharos issues `RESET ALL` or
-/// `DISCARD ALL`, and the live tests pin both halves of this.
+/// startup packet carried. That is why the reset on release
+/// (`release_reset_sql`) runs these statements again after its `RESET ALL`,
+/// and the live tests pin both halves of this.
 ///
 /// Values are single-quoted with `''` doubling, so a value can never end the
 /// literal and start a statement.
@@ -406,6 +409,38 @@ fn escape_option_value(value: &str) -> String {
 #[cfg(test)]
 mod session_options_tests {
     use super::*;
+
+    /// The reset's ORDER is the part a live test cannot see go wrong one
+    /// statement at a time: the probe must be first (it reads the state the
+    /// user left), the authorization must reset before `RESET ALL`, and the
+    /// per-connection `SET`s must come after it, or `RESET ALL` undoes them.
+    #[test]
+    fn the_release_reset_probes_first_and_sets_the_session_again_after_reset_all() {
+        let session = SessionOptions {
+            time_zone: Some("Asia/Tokyo".to_string()),
+            ..Default::default()
+        };
+        let sql = release_reset_sql(&session);
+        let statements: Vec<&str> = sql.split("; ").collect();
+        assert_eq!(statements[0], "SELECT statement_timestamp() = transaction_timestamp()");
+        let at = |s: &str| statements.iter().position(|x| *x == s).unwrap_or_else(|| panic!("{s} missing"));
+        assert!(at("SET SESSION AUTHORIZATION DEFAULT") < at("RESET ALL"));
+        assert!(at("RESET ALL") < at("SET TimeZone = 'Asia/Tokyo'"));
+        for s in ["CLOSE ALL", "UNLISTEN *", "SELECT pg_advisory_unlock_all()", "DISCARD TEMP", "DISCARD SEQUENCES"] {
+            at(s);
+        }
+    }
+
+    /// The statements that must NEVER be in it: the two that delete sqlx's
+    /// cached prepared statements, and a `ROLLBACK`, which outside a
+    /// transaction makes the server log a WARNING for every released query.
+    #[test]
+    fn the_release_reset_leaves_sqlx_statements_alone_and_logs_nothing() {
+        let sql = release_reset_sql(&SessionOptions::default()).to_uppercase();
+        for banned in ["DISCARD ALL", "DEALLOCATE", "DISCARD PLANS", "ROLLBACK"] {
+            assert!(!sql.contains(banned), "{banned} in the release reset");
+        }
+    }
 
     /// The default asks for nothing at all, so a connection made with no
     /// settings changed is byte-identical to what the app sent before.
@@ -556,16 +591,128 @@ fn pool_options(tuning: &PoolTuning, budget: Duration) -> PgPoolOptions {
         .max_lifetime(tuning.max_lifetime)
 }
 
-/// `pool_options`, plus the per-connection `SET`s sqlx forces on us. A
-/// failure here fails the ACQUIRE with the server's message, which is the
-/// same place a bad startup value would surface.
+/// What a connection is sent when it goes back to the pool, as ONE simple
+/// query (one round trip).
+///
+/// User SQL runs on whichever pooled connection is free, and the session state
+/// it leaves — a `SET`, a `SET ROLE`, an open transaction, a temp table, a
+/// `LISTEN`, a session advisory lock — would otherwise reach the next query
+/// that gets that connection, from any tab. An open transaction is the one
+/// that hurts other users of the server: it keeps its row locks.
+///
+/// The statements are `DISCARD ALL`'s list, less `DEALLOCATE ALL` and
+/// `DISCARD PLANS`, plus a probe and the per-connection `SET`s:
+///
+///  * The first statement is a probe, not a reset: in the first statement of
+///    a query, `statement_timestamp()` equals `transaction_timestamp()` unless
+///    an explicit transaction block was already open. An open block is not
+///    rolled back here — the connection is closed instead (see
+///    `keep_after_reset`), which rolls it back on the server. A `ROLLBACK`
+///    would be shorter to write, but outside a transaction it is a WARNING,
+///    and the server logs a WARNING for every query that releases.
+///  * `SET SESSION AUTHORIZATION DEFAULT` comes before `RESET ALL` because
+///    `RESET ALL` does not reset the role or the session authorization
+///    (measured on PostgreSQL 16: `current_user` stays as `SET ROLE` left it).
+///    Any user may run the `DEFAULT` form.
+///  * `session_setup_sql` comes after `RESET ALL`, because `RESET ALL`
+///    returns TimeZone and DateStyle to sqlx's startup values. The startup
+///    GUCs (`startup_gucs`) need nothing: they ARE the reset values.
+///  * Not `DEALLOCATE ALL` (nor `DISCARD ALL`, which includes it): sqlx
+///    caches prepared statements per connection, and the next cached query
+///    on this connection would fail with "prepared statement does not exist".
+///    `DISCARD PLANS` is left out as well; nothing here needs it.
+///
+/// After the probe, the statements run in the query's implicit transaction:
+/// they commit together, and the first failure stops the rest.
+fn release_reset_sql(session: &SessionOptions) -> String {
+    let mut statements = vec![
+        "SELECT statement_timestamp() = transaction_timestamp()".to_string(),
+        "CLOSE ALL".to_string(),
+        "SET SESSION AUTHORIZATION DEFAULT".to_string(),
+        "RESET ALL".to_string(),
+    ];
+    statements.extend(session_setup_sql(session));
+    statements.extend(
+        ["UNLISTEN *", "SELECT pg_advisory_unlock_all()", "DISCARD TEMP", "DISCARD SEQUENCES"]
+            .map(String::from),
+    );
+    statements.join("; ")
+}
+
+/// SQLSTATEs that mean "this server does not have that statement": feature
+/// not supported, syntax error, undefined function, undefined object. A
+/// PostgreSQL-compatible server (ClickHouse, CockroachDB) answers the reset
+/// with one of these.
+const RESET_NOT_SUPPORTED: [&str; 4] = ["0A000", "42601", "42883", "42704"];
+
+/// The `after_release` decision, from what the reset returned: true keeps the
+/// connection, false closes it.
+///
+/// Closed: a connection returned inside a transaction block (the server rolls
+/// the transaction back and frees its locks when the session ends), and a
+/// connection the reset failed on. sqlx opens a new one when the pool next
+/// needs it.
+///
+/// A server that does not support the reset is noted in `unsupported`, and
+/// from then on its connections go back unreset — what every connection did
+/// before this hook. The alternative, closing every connection after every
+/// query, would make the server authenticate a new session for each query.
+///
+/// A plain function over the result rather than an `async fn` that borrows the
+/// connection: sqlx's `Executor` bound rejects the latter inside the hook.
+fn keep_after_reset(
+    outcome: Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>,
+    unsupported: &AtomicBool,
+) -> bool {
+    match outcome {
+        Ok(rows) => {
+            let outside_a_transaction = rows.first().and_then(|r| r.try_get::<bool, _>(0).ok());
+            if outside_a_transaction != Some(true) {
+                log::info!("A connection came back inside an open transaction; closing it to roll the transaction back");
+            }
+            outside_a_transaction == Some(true)
+        }
+        Err(sqlx::Error::Database(e)) if e.code().is_some_and(|c| RESET_NOT_SUPPORTED.contains(&c.as_ref())) => {
+            log::warn!(
+                "This server does not accept the session reset ({}). Connections go back to the pool without it.",
+                e
+            );
+            unsupported.store(true, Ordering::Relaxed);
+            false
+        }
+        Err(e) => {
+            // 25P02 (the connection came back in a FAILED transaction) lands
+            // here, and so does any other failure: close, never reuse.
+            log::debug!("Closing a connection the session reset failed on: {}", e);
+            false
+        }
+    }
+}
+
+/// `pool_options`, plus the per-connection `SET`s sqlx forces on us, plus the
+/// reset each connection gets when it goes back to the pool
+/// (`release_reset_sql`). A failure in the `SET`s fails the ACQUIRE with the
+/// server's message, which is the same place a bad startup value would
+/// surface.
 fn pool_options_with_session(
     tuning: &PoolTuning,
     budget: Duration,
     session: &SessionOptions,
 ) -> PgPoolOptions {
     let statements = session_setup_sql(session);
-    let base = pool_options(tuning, budget);
+    let reset_sql: Arc<str> = release_reset_sql(session).into();
+    let unsupported = Arc::new(AtomicBool::new(false));
+    let base = pool_options(tuning, budget).after_release(move |conn, _meta| {
+        let reset_sql = reset_sql.clone();
+        let unsupported = unsupported.clone();
+        Box::pin(async move {
+            if unsupported.load(Ordering::Relaxed) {
+                return Ok(true);
+            }
+            let outcome = conn.fetch_all(sqlx::raw_sql(&reset_sql)).await;
+            Ok(keep_after_reset(outcome, &unsupported))
+        })
+    });
     if statements.is_empty() {
         return base;
     }
@@ -652,28 +799,12 @@ pub async fn create_pool_with(
     session: &SessionOptions,
     tuning: &PoolTuning,
 ) -> Result<PgPool, sqlx::Error> {
+    // The idle-in-transaction guard is a startup GUC (`startup_gucs`), on
+    // every connection, and 0 leaves it off. There used to be a fallback
+    // here that SET '30s' on one connection when the guard was 0; the reset
+    // on release (`release_reset_sql`) would undo that SET at the first
+    // release, and it contradicted "0 turns it off" in any case.
     let (pool, _mode_used) = connect_with_prefer_fallback(config, tuning, session).await?;
-
-    // Try to set a session-level idle-in-transaction guard. This is
-    // PostgreSQL-specific and will fail (and may kill the connection) on
-    // non-PG servers like ClickHouse, so we run it after pool creation on a
-    // separate connection rather than in after_connect where a failure
-    // poisons every connection. The query timeout is applied per query on
-    // the executing connection (see commands/query.rs), not here.
-    // Only when the startup packet carried nothing. With `options` set, the
-    // guard is a startup GUC on EVERY connection in the pool; this `SET`
-    // reaches exactly one of the five, which is why it is a fallback and not
-    // the mechanism.
-    if session.idle_in_transaction_ms == 0 {
-        if let Ok(mut conn) = pool.acquire().await {
-            let _ = (&mut *conn)
-                .execute(sqlx::raw_sql(
-                    "SET idle_in_transaction_session_timeout = '30s'",
-                ))
-                .await;
-        }
-    }
-
     Ok(pool)
 }
 
@@ -2428,9 +2559,9 @@ mod live_session_options_tests {
     /// `IntervalStyle` travels in the STARTUP packet, so it is the session's
     /// reset value and `RESET` returns to it. `TimeZone` is applied by
     /// `after_connect`, so its reset value is still sqlx's `UTC` — the one
-    /// property the startup packet has that a `SET` cannot. Nothing in
-    /// Pharos issues `RESET ALL` or `DISCARD ALL`, which is why this is a
-    /// documented caveat and not a defect.
+    /// property the startup packet has that a `SET` cannot. Within one
+    /// session this is a documented caveat; across releases the reset on
+    /// release applies the zone again (`live_pool_reset_keeps_the_configured_time_zone`).
     #[test]
     #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
     fn live_reset_behaviour_differs_for_the_two_paths() {

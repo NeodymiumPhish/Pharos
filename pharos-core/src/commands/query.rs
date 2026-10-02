@@ -2922,3 +2922,249 @@ mod live_cancel_tests {
         });
     }
 }
+
+/// Live tests: a pooled connection goes back to the pool with NOTHING left
+/// from the user's SQL. `cargo test` skips them; run them with
+///
+///   cargo test --lib live_pool_reset -- --ignored --nocapture
+///
+/// Each test makes the pool through `create_pool_with` — the hook under test
+/// lives in the pool options — with ONE connection, so the second run MUST
+/// get the connection the first run used, or a new one when the hook closed it.
+#[cfg(test)]
+mod live_pool_reset_tests {
+    use super::{execute_query, QueryResult};
+    use crate::db::postgres::{create_pool_with, PoolTuning, SessionOptions};
+    use crate::models::{ConnectionConfig, SslMode};
+    use crate::state::AppState;
+    use rusqlite::Connection as SqliteConnection;
+    use sqlx::Connection;
+
+    const CONN: &str = "live-pool-reset-test";
+
+    fn env_or(key: &str, fallback: &str) -> String {
+        std::env::var(key).unwrap_or_else(|_| fallback.to_string())
+    }
+
+    fn live_config() -> ConnectionConfig {
+        ConnectionConfig {
+            id: CONN.to_string(),
+            name: CONN.to_string(),
+            host: env_or("PHAROS_TEST_PG_HOST", "localhost"),
+            port: env_or("PHAROS_TEST_PG_PORT", "5432").parse().unwrap_or(5432),
+            database: env_or("PHAROS_TEST_PG_DB", "nfinn"),
+            username: env_or("PHAROS_TEST_PG_USER", "nfinn"),
+            password: std::env::var("PHAROS_TEST_PG_PASSWORD").unwrap_or_default(),
+            ssl_mode: SslMode::Prefer,
+            color: None,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+        }
+    }
+
+    /// A one-connection pool registered in a fresh state, made the way the
+    /// app makes it.
+    async fn one_connection_state(session: &SessionOptions) -> AppState {
+        let tuning = PoolTuning { max_connections: 1, ..PoolTuning::default() };
+        let pool = create_pool_with(&live_config(), session, &tuning)
+            .await
+            .expect("connect to the live server");
+        let state = AppState::new(SqliteConnection::open_in_memory().expect("sqlite"));
+        state.add_pool(CONN.to_string(), pool);
+        state
+    }
+
+    /// A plain connection OUTSIDE the pool: "another user" of the server.
+    async fn other_user() -> sqlx::PgConnection {
+        let c = live_config();
+        let opts = sqlx::postgres::PgConnectOptions::new()
+            .host(&c.host)
+            .port(c.port)
+            .database(&c.database)
+            .username(&c.username)
+            .password(&c.password);
+        sqlx::PgConnection::connect_with(&opts).await.expect("second connection")
+    }
+
+    async fn run(state: &AppState, sql: &str) -> Result<QueryResult, String> {
+        execute_query(CONN.to_string(), sql.to_string(), None, None, None, None, state).await
+    }
+
+    /// The one value of a one-row, one-column result, as the text it crossed in.
+    async fn scalar(state: &AppState, sql: &str) -> String {
+        let result = run(state, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        result.rows[0][0].as_str().expect("text value").to_string()
+    }
+
+    fn block_on<F: std::future::Future<Output = ()>>(f: F) {
+        tokio::runtime::Runtime::new().expect("tokio runtime").block_on(f);
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_a_set_does_not_reach_the_next_run() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let before = scalar(&state, "SHOW work_mem").await;
+            run(&state, "SET work_mem = '77MB'").await.expect("SET");
+            assert_eq!(scalar(&state, "SHOW work_mem").await, before, "work_mem leaked");
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_a_role_switch_does_not_reach_the_next_run() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let me = scalar(&state, "SELECT session_user::text").await;
+            run(&state, "SET ROLE pg_monitor").await.expect("SET ROLE");
+            assert_eq!(scalar(&state, "SELECT current_user::text").await, me, "SET ROLE leaked");
+        });
+    }
+
+    /// Needs a superuser (Postgres.app's default user is one).
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432, as a superuser"]
+    fn live_pool_reset_a_session_authorization_does_not_reach_the_next_run() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let me = scalar(&state, "SELECT session_user::text").await;
+            run(&state, "SET SESSION AUTHORIZATION pg_monitor").await.expect("SET SESSION AUTHORIZATION");
+            assert_eq!(
+                scalar(&state, "SELECT session_user::text || '/' || current_user::text").await,
+                format!("{me}/{me}"),
+                "SET SESSION AUTHORIZATION leaked"
+            );
+        });
+    }
+
+    /// The open transaction is the one that hurts OTHER users: it holds its
+    /// row locks. After the run ends, another connection must be able to take
+    /// the same row lock at once.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_an_open_transaction_ends_and_frees_its_locks() {
+        block_on(async {
+            let mut other = other_user().await;
+            sqlx::raw_sql(
+                "DROP TABLE IF EXISTS public.pharos_pool_reset_probe; \
+                 CREATE TABLE public.pharos_pool_reset_probe (id int PRIMARY KEY, v int); \
+                 INSERT INTO public.pharos_pool_reset_probe VALUES (1, 0);",
+            )
+            .execute(&mut other)
+            .await
+            .expect("make the probe table");
+
+            let state = one_connection_state(&SessionOptions::default()).await;
+            // ONE run opens the transaction and makes an uncommitted change.
+            // RETURNING, so the run has rows: a run with none is described
+            // with the extended protocol, which fails on two statements and
+            // ABORTS the transaction — a different state from the one a user
+            // leaves, and one sqlx's own release ping already closes.
+            run(&state, "BEGIN; UPDATE public.pharos_pool_reset_probe SET v = 1 WHERE id = 1 RETURNING v")
+                .await
+                .expect("BEGIN; UPDATE");
+            // The next run is not inside the first run's transaction.
+            let savepoint = run(&state, "SAVEPOINT pharos_probe").await;
+            // Another user can lock the row at once (NOWAIT fails with 55P03
+            // while the leaked transaction still holds it), and the UPDATE
+            // never committed. One statement, so its implicit transaction
+            // ends with it, error or not.
+            let locked = sqlx::raw_sql(
+                "SELECT v FROM public.pharos_pool_reset_probe WHERE id = 1 FOR UPDATE NOWAIT",
+            )
+            .execute(&mut other)
+            .await;
+            let v: (i32,) = sqlx::query_as("SELECT v FROM public.pharos_pool_reset_probe WHERE id = 1")
+                .fetch_one(&mut other)
+                .await
+                .expect("read v");
+            sqlx::raw_sql("DROP TABLE public.pharos_pool_reset_probe")
+                .execute(&mut other)
+                .await
+                .expect("drop the probe table");
+
+            assert!(savepoint.is_err(), "the next run was still inside the open transaction");
+            assert!(locked.is_ok(), "another user could not lock the row: {:?}", locked.err());
+            assert_eq!(v.0, 0, "the uncommitted UPDATE must not survive");
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_a_temp_table_does_not_reach_the_next_run() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            run(&state, "CREATE TEMP TABLE pharos_leak_probe (x int)").await.expect("CREATE TEMP");
+            assert!(run(&state, "SELECT * FROM pharos_leak_probe").await.is_err(), "temp table leaked");
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_a_listen_does_not_reach_the_next_run() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            run(&state, "LISTEN pharos_probe").await.expect("LISTEN");
+            assert_eq!(scalar(&state, "SELECT count(*) FROM pg_listening_channels()").await, "0", "LISTEN leaked");
+        });
+    }
+
+    /// A session advisory lock blocks every other client that asks for the
+    /// same key, so it must not outlive the run that took it.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_an_advisory_lock_is_released() {
+        block_on(async {
+            const KEY: i64 = 7_316_200_042;
+            let state = one_connection_state(&SessionOptions::default()).await;
+            run(&state, &format!("SELECT pg_advisory_lock({KEY})")).await.expect("lock");
+            // A trip through the pool, so the release has happened.
+            scalar(&state, "SELECT 1").await;
+            let mut other = other_user().await;
+            let got: (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
+                .bind(KEY)
+                .fetch_one(&mut other)
+                .await
+                .expect("try lock");
+            let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(KEY).execute(&mut other).await;
+            assert!(got.0, "the advisory lock leaked: another user could not take it");
+        });
+    }
+
+    /// `RESET ALL` returns TimeZone to sqlx's `UTC`, not to the user's zone,
+    /// because the zone is applied by `after_connect`. The reset must apply
+    /// it again.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_keeps_the_configured_time_zone() {
+        block_on(async {
+            let session = SessionOptions {
+                time_zone: Some("America/Chicago".to_string()),
+                ..Default::default()
+            };
+            let state = one_connection_state(&session).await;
+            run(&state, "SET TimeZone = 'UTC'").await.expect("SET TimeZone");
+            assert_eq!(scalar(&state, "SHOW TimeZone").await, "America/Chicago");
+        });
+    }
+
+    /// A read-only connection stays read-only: a user `SET` that turns it
+    /// off must not reach the next run.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_pool_reset_keeps_a_read_only_connection_read_only() {
+        block_on(async {
+            let session = SessionOptions { read_only: true, ..Default::default() };
+            let state = one_connection_state(&session).await;
+            run(&state, "SET default_transaction_read_only = off").await.expect("SET");
+            assert_eq!(scalar(&state, "SHOW default_transaction_read_only").await, "on");
+        });
+    }
+}
