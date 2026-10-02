@@ -548,6 +548,8 @@ final class AddCardButton: NSButton {
         contentTintColor = .secondaryLabelColor
         toolTip = String(localized: "New Query Card (⌃⌘N)")
         setAccessibilityIdentifier("editor.cards.add")
+        // The symbol's own name ("add") would otherwise be the description.
+        setAccessibilityLabel(String(localized: "New Query Card"))
     }
 
     override func draw(_ dirtyRect: NSRect) {

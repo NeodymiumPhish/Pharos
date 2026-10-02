@@ -1,6 +1,6 @@
 {
-  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.Z4yi9G/Pharos.app",
-  "captured_at": "2026-09-30T20:59:02+00:00",
+  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.Bub4au/Pharos.app",
+  "captured_at": "2026-10-02T23:41:33+00:00",
   "tree": {
     "children": [
       {
@@ -227,88 +227,169 @@
                         "title": ""
                       },
                       {
-                        "description": "Result Tabs",
+                        "description": "New Query Card",
+                        "frame": {
+                          "h": 26,
+                          "w": 26,
+                          "x": -941,
+                          "y": -311
+                        },
+                        "identifier": "editor.newCard",
+                        "role": "AXButton",
+                        "title": ""
+                      },
+                      {
+                        "description": "Collapse All Cards",
                         "frame": {
                           "h": 26,
                           "w": 26,
                           "x": -153,
                           "y": -311
                         },
+                        "identifier": "editor.collapseAll",
                         "role": "AXButton",
                         "title": ""
                       },
                       {
-                        "description": "Line gutter",
+                        "children": [
+                          {
+                            "description": "Search",
+                            "frame": {
+                              "h": 20,
+                              "w": 15,
+                              "x": -317,
+                              "y": -308
+                            },
+                            "role": "AXButton",
+                            "title": ""
+                          }
+                        ],
+                        "frame": {
+                          "h": 22,
+                          "w": 162,
+                          "x": -321,
+                          "y": -309
+                        },
+                        "identifier": "editor.filterCards",
+                        "role": "AXTextField",
+                        "subrole": "AXSearchField",
+                        "value": ""
+                      },
+                      {
+                        "children": [
+                          {
+                            "children": [
+                              {
+                                "frame": {
+                                  "h": 18,
+                                  "w": 91,
+                                  "x": -996,
+                                  "y": -264
+                                },
+                                "identifier": "editor.card.1.name",
+                                "role": "AXStaticText",
+                                "value": "Untitled query"
+                              },
+                              {
+                                "frame": {
+                                  "h": 20,
+                                  "w": 58,
+                                  "x": -901,
+                                  "y": -265
+                                },
+                                "role": "AXStaticText",
+                                "value": "Not run"
+                              },
+                              {
+                                "description": "Run",
+                                "frame": {
+                                  "h": 26,
+                                  "w": 37,
+                                  "x": -218,
+                                  "y": -268
+                                },
+                                "identifier": "editor.card.1.run",
+                                "role": "AXButton",
+                                "title": ""
+                              },
+                              {
+                                "description": "More",
+                                "frame": {
+                                  "h": 26,
+                                  "w": 40,
+                                  "x": -179,
+                                  "y": -268
+                                },
+                                "identifier": "editor.card.1.more",
+                                "role": "AXButton",
+                                "title": ""
+                              },
+                              {
+                                "description": "Line gutter",
+                                "frame": {
+                                  "h": 33,
+                                  "w": 42.68,
+                                  "x": -1024,
+                                  "y": -237
+                                },
+                                "identifier": "editor.card.1.gutter",
+                                "role": "AXGroup"
+                              },
+                              {
+                                "children": [
+                                  {
+                                    "frame": {
+                                      "h": 33,
+                                      "w": 848,
+                                      "x": -981.32,
+                                      "y": -237
+                                    },
+                                    "identifier": "editor.card.1.text",
+                                    "role": "AXTextArea",
+                                    "value": ""
+                                  }
+                                ],
+                                "frame": {
+                                  "h": 33,
+                                  "w": 848.32,
+                                  "x": -981.32,
+                                  "y": -237
+                                },
+                                "role": "AXScrollArea"
+                              }
+                            ],
+                            "description": "Card 1, Untitled query, not run",
+                            "frame": {
+                              "h": 68,
+                              "w": 896,
+                              "x": -1028,
+                              "y": -272
+                            },
+                            "identifier": "editor.card.1",
+                            "role": "AXGroup"
+                          },
+                          {
+                            "description": "New Query Card",
+                            "frame": {
+                              "h": 34,
+                              "w": 898,
+                              "x": -1029,
+                              "y": -195
+                            },
+                            "identifier": "editor.cards.add",
+                            "role": "AXButton",
+                            "title": "New Query Card"
+                          }
+                        ],
+                        "description": "Query cards",
                         "frame": {
                           "h": 389,
-                          "w": 42.68,
+                          "w": 920,
                           "x": -1040,
                           "y": -284
                         },
-                        "identifier": "editor.gutter",
-                        "role": "AXGroup"
-                      },
-                      {
-                        "children": [
-                          {
-                            "frame": {
-                              "h": 389,
-                              "w": 652,
-                              "x": -997.32,
-                              "y": -284
-                            },
-                            "identifier": "editor.text",
-                            "role": "AXTextArea",
-                            "value": ""
-                          }
-                        ],
-                        "frame": {
-                          "h": 389,
-                          "w": 652.32,
-                          "x": -997.32,
-                          "y": -284
-                        },
+                        "identifier": "editor.cards",
                         "role": "AXScrollArea"
-                      },
-                      {
-                        "frame": {
-                          "h": 16,
-                          "w": 43,
-                          "x": -331,
-                          "y": -279
-                        },
-                        "role": "AXStaticText",
-                        "value": "Results"
-                      },
-                      {
-                        "children": [
-                          {
-                            "frame": {
-                              "h": 365,
-                              "w": 221,
-                              "x": -340,
-                              "y": -259
-                            },
-                            "role": "AXTable"
-                          }
-                        ],
-                        "frame": {
-                          "h": 363,
-                          "w": 219,
-                          "x": -339,
-                          "y": -258
-                        },
-                        "role": "AXScrollArea"
-                      },
-                      {
-                        "frame": {
-                          "h": 17,
-                          "w": 60,
-                          "x": -260,
-                          "y": -247
-                        },
-                        "role": "AXStaticText",
-                        "value": "No results"
                       },
                       {
                         "enabled": false,
@@ -337,10 +418,24 @@
                           },
                           {
                             "description": "Chart",
+                            "enabled": false,
                             "frame": {
                               "h": 24,
-                              "w": 59,
+                              "w": 58,
                               "x": -981,
+                              "y": 110
+                            },
+                            "role": "AXRadioButton",
+                            "subrole": "AXSegment",
+                            "value": 0
+                          },
+                          {
+                            "description": "Plan",
+                            "enabled": false,
+                            "frame": {
+                              "h": 24,
+                              "w": 51,
+                              "x": -923,
                               "y": 110
                             },
                             "role": "AXRadioButton",
@@ -350,7 +445,7 @@
                         ],
                         "frame": {
                           "h": 26,
-                          "w": 110,
+                          "w": 160,
                           "x": -1033,
                           "y": 108
                         },
@@ -361,7 +456,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": -923,
+                          "x": -873,
                           "y": 106
                         },
                         "role": "AXButton",
@@ -372,7 +467,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": -893,
+                          "x": -843,
                           "y": 106
                         },
                         "role": "AXButton",
@@ -383,7 +478,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": -863,
+                          "x": -813,
                           "y": 106
                         },
                         "role": "AXButton",
@@ -394,7 +489,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": -833,
+                          "x": -783,
                           "y": 106
                         },
                         "role": "AXButton",
@@ -743,7 +838,7 @@
         "X": -1320,
         "Y": -396
       },
-      "number": 4066
+      "number": 16422
     }
   ]
 }
