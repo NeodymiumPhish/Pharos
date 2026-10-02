@@ -57,12 +57,12 @@ fn search_path_suffix(state: &AppState) -> String {
 }
 
 pub(crate) async fn set_search_path(
-    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     schema_name: &str,
     suffix: &str,
 ) -> Result<(), String> {
     let set_sql = search_path_sql(schema_name, suffix)?;
-    (&mut **conn).execute(sqlx::raw_sql(&set_sql))
+    (&mut *conn).execute(sqlx::raw_sql(&set_sql))
         .await
         .map_err(|e| format!("Failed to set schema: {}", e))?;
     Ok(())
@@ -87,20 +87,20 @@ fn query_timeout_seconds(state: &AppState) -> u32 {
 /// returns Err on servers that don't support it (e.g. ClickHouse), where the
 /// caller should re-acquire since the failed SET may have killed the connection.
 async fn apply_statement_timeout(
-    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     timeout_seconds: u32,
 ) -> Result<(), sqlx::Error> {
     let ms = (timeout_seconds as u64).saturating_mul(1000);
     let set_sql = format!("SET statement_timeout = {}", ms);
-    (&mut **conn).execute(sqlx::raw_sql(&set_sql)).await?;
+    (&mut *conn).execute(sqlx::raw_sql(&set_sql)).await?;
     Ok(())
 }
 
 /// Reset statement_timeout before the connection returns to the pool so that
 /// metadata queries and background ANALYZE on reused connections aren't capped
 /// by the per-query timeout.
-async fn reset_statement_timeout(conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>) {
-    let _ = (&mut **conn)
+async fn reset_statement_timeout(conn: &mut sqlx::PgConnection) {
+    let _ = (&mut *conn)
         .execute(sqlx::raw_sql("RESET statement_timeout"))
         .await;
 }
@@ -143,8 +143,8 @@ enum RunLeft {
 /// Not for a cut-off result (`has_more`): its statement is still sending, and
 /// its connection is closed instead, which rolls any block back on the server.
 /// Nothing is committed on that path, so there is nothing to warn about.
-async fn finish_user_sql(conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>) -> RunLeft {
-    let probe = (&mut **conn)
+async fn finish_user_sql(conn: &mut sqlx::PgConnection) -> RunLeft {
+    let probe = (&mut *conn)
         .fetch_all(sqlx::raw_sql(
             "SELECT statement_timestamp() = transaction_timestamp(); RESET statement_timeout",
         ))
@@ -162,7 +162,7 @@ async fn finish_user_sql(conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>) 
         }
     };
     if left != RunLeft::Clean {
-        let _ = (&mut **conn).execute(sqlx::raw_sql("ROLLBACK")).await;
+        let _ = (&mut *conn).execute(sqlx::raw_sql("ROLLBACK")).await;
     }
     left
 }
@@ -238,7 +238,7 @@ const CANCEL_ATTEMPTS: u32 = 5;
 /// ("canceling statement", SQLSTATE 57014). Either way it is over. The ping is
 /// pinned and never dropped half-read, so a timeout only pauses it.
 async fn cancel_until_ended<F, Fut>(
-    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     wait: std::time::Duration,
     send_cancel: F,
 ) -> bool
@@ -247,7 +247,7 @@ where
     Fut: std::future::Future<Output = ()>,
 {
     use sqlx::Connection;
-    let ended = (&mut **conn).ping();
+    let ended = (&mut *conn).ping();
     tokio::pin!(ended);
     for _ in 0..CANCEL_ATTEMPTS {
         send_cancel().await;
@@ -460,6 +460,180 @@ async fn build_row_identity(
     ))
 }
 
+/// What reading a statement's rows ended with.
+struct ReadOutcome {
+    rows: Vec<sqlx::postgres::PgRow>,
+    /// The statement's error, formatted for the user.
+    error: Option<String>,
+    cancelled: bool,
+}
+
+/// Run `sql` and read up to `limit + 1` rows, stopping at once on a cancel —
+/// even while the server sends nothing.
+///
+/// The simple query protocol (text format): PostgreSQL formats every value as
+/// text, so arrays arrive as {1,2,3}, timestamps as 2024-01-15 12:34:56, etc.
+///
+/// Leaves the connection as the read left it. After a cancel, or a cut one row
+/// past the limit, the statement may still be sending: the caller decides
+/// whether to stop it and close the connection (the pool) or keep it.
+async fn read_rows_with_cancel(
+    conn: &mut sqlx::PgConnection,
+    sql: &str,
+    limit: u32,
+    cancel: &crate::state::QueryCancel,
+) -> ReadOutcome {
+    let mut stream = sqlx::raw_sql(sql).fetch(&mut *conn);
+    let mut rows: Vec<sqlx::postgres::PgRow> = Vec::with_capacity((limit + 1) as usize);
+    let mut error: Option<String> = None;
+
+    let cancelled_signal = cancel.cancelled();
+    tokio::pin!(cancelled_signal);
+    let mut cancelled = false;
+    loop {
+        let next = tokio::select! {
+            biased;
+            _ = &mut cancelled_signal => {
+                cancelled = true;
+                break;
+            }
+            next = stream.next() => next,
+        };
+        let Some(row_result) = next else { break };
+
+        match row_result {
+            Ok(row) => {
+                rows.push(row);
+                if rows.len() > limit as usize {
+                    break;
+                }
+            }
+            Err(e) => {
+                error = Some(format_db_error(&e));
+                break;
+            }
+        }
+    }
+    ReadOutcome { rows, error, cancelled }
+}
+
+/// The first `take` rows as JSON arrays of text values, in column order.
+fn rows_to_json(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: usize) -> Vec<serde_json::Value> {
+    rows.into_iter()
+        .take(take)
+        .map(|row| {
+            let values: Vec<serde_json::Value> = columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| extract_value(&row, i, &col.data_type))
+                .collect();
+            serde_json::Value::Array(values)
+        })
+        .collect()
+}
+
+/// The history row for one successful run, with a fresh id.
+#[allow(clippy::too_many_arguments)]
+fn history_entry(
+    state: &AppState,
+    connection_id: &str,
+    sql: &str,
+    schema: &Option<String>,
+    source: Option<String>,
+    row_count: i64,
+    execution_time_ms: u64,
+    column_count: Option<i64>,
+) -> QueryHistoryEntry {
+    let connection_name = state
+        .get_config(connection_id)
+        .map(|c| c.name)
+        .unwrap_or_else(|| connection_id.to_string());
+    QueryHistoryEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        connection_id: connection_id.to_string(),
+        connection_name,
+        sql: sql.to_string(),
+        row_count: Some(row_count),
+        execution_time_ms: execution_time_ms as i64,
+        executed_at: chrono::Utc::now().to_rfc3339(),
+        has_results: false, // Set by DB on load
+        schema: schema.clone(),
+        column_count,
+        table_names: extract_table_names_for_history(sql),
+        source,
+        status: crate::models::HISTORY_STATUS_OK.to_string(),
+        error_message: None,
+    }
+}
+
+/// A result's cached blobs: columns, rows and the identity block, as JSON text.
+type ResultCache = (String, String, Option<String>);
+
+/// The blobs to cache for a result, or None for an empty result or one over
+/// the per-result cap (10 MB of uncompressed JSON). Built by the caller rather
+/// than in the blocking task, so the task owns plain text and the row tree is
+/// moved into the result once, not cloned.
+fn result_cache(
+    columns: &[ColumnDef],
+    json_rows: &[serde_json::Value],
+    row_identity: Option<&RowIdentity>,
+) -> Option<ResultCache> {
+    if json_rows.is_empty() {
+        return None;
+    }
+    let columns_json = serde_json::to_string(columns).unwrap_or_default();
+    let rows_json = serde_json::to_string(json_rows).unwrap_or_default();
+    let identity_json = row_identity.and_then(|id| serde_json::to_string(id).ok());
+    if columns_json.len() + rows_json.len() < 10_000_000 {
+        Some((columns_json, rows_json, identity_json))
+    } else {
+        None
+    }
+}
+
+/// Save a run to query history. The ROW is inserted now, synchronously: Swift
+/// attaches `history_entry_id` to a workspace the moment the callback fires,
+/// so the id must already exist. The cached result blobs are attached by a
+/// blocking task afterwards — the gzip and the blob write are the only part
+/// of the path whose cost grows with the result, and the caller does not need
+/// them to show the grid.
+fn record_history(state: &AppState, entry: &QueryHistoryEntry, cache: Option<ResultCache>) {
+    let inserted = match state.metadata_db.lock() {
+        Ok(db) => match sqlite::save_query_history_with_policy(
+            &db,
+            entry,
+            None,
+            None,
+            None,
+            history_prune_policy(state),
+        ) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("Failed to save query history: {}", e);
+                false
+            }
+        },
+        Err(_) => false,
+    };
+
+    if let (true, Some((columns_json, rows_json, identity_json))) = (inserted, cache) {
+        let db = Arc::clone(&state.metadata_db);
+        let entry_id = entry.id.clone();
+        tokio::task::spawn_blocking(move || {
+            let Ok(db) = db.lock() else { return };
+            if let Err(e) = sqlite::attach_query_history_result(
+                &db,
+                &entry_id,
+                &columns_json,
+                &rows_json,
+                identity_json.as_deref(),
+            ) {
+                log::warn!("Failed to cache query history result: {}", e);
+            }
+        });
+    }
+}
+
 /// Execute a SQL query and return results
 pub async fn execute_query(
     connection_id: String,
@@ -534,46 +708,10 @@ pub async fn execute_query(
         return Err(QUERY_CANCELLED.to_string());
     }
 
-    // Use simple query protocol (text format) — PostgreSQL formats all values as text,
-    // so we get arrays as {1,2,3}, timestamps as 2024-01-15 12:34:56, etc.
-    let mut stream = sqlx::raw_sql(&sql).fetch(&mut *conn);
-    let mut rows: Vec<sqlx::postgres::PgRow> = Vec::with_capacity((limit + 1) as usize);
-    let mut fetch_error: Option<String> = None;
-
-    // Wait for the next row OR the cancel, whichever comes first, so a cancel
-    // stops the wait even while the server sends nothing.
-    let cancelled = cancel.cancelled();
-    tokio::pin!(cancelled);
-    let mut was_cancelled = false;
-    loop {
-        let next = tokio::select! {
-            biased;
-            _ = &mut cancelled => {
-                was_cancelled = true;
-                break;
-            }
-            next = stream.next() => next,
-        };
-        let Some(row_result) = next else { break };
-
-        match row_result {
-            Ok(row) => {
-                rows.push(row);
-                if rows.len() > limit as usize {
-                    break;
-                }
-            }
-            Err(e) => {
-                fetch_error = Some(format_db_error(&e));
-                break;
-            }
-        }
-    }
-
+    let ReadOutcome { rows, error: fetch_error, cancelled: was_cancelled } =
+        read_rows_with_cancel(&mut conn, &sql, limit, &cancel).await;
     // One row past the limit: the statement is still running on the server.
     let has_more = rows.len() > limit as usize;
-
-    drop(stream);
     drop(registered);
     if was_cancelled {
         stop_unread_statement(pool.clone(), conn, backend_pid);
@@ -619,19 +757,7 @@ pub async fn execute_query(
 
     let row_limit = std::cmp::min(rows.len(), limit as usize);
 
-    // Convert rows to JSON
-    let json_rows: Vec<serde_json::Value> = rows
-        .into_iter()
-        .take(row_limit)
-        .map(|row| {
-            let values: Vec<serde_json::Value> = columns
-                .iter()
-                .enumerate()
-                .map(|(i, col)| extract_value(&row, i, &col.data_type))
-                .collect();
-            serde_json::Value::Array(values)
-        })
-        .collect();
+    let json_rows = rows_to_json(rows, &columns, row_limit);
 
     // Return this connection to the pool BEFORE the identity block, which
     // acquires one of its own for the catalogue read. The pool is small — see
@@ -653,84 +779,12 @@ pub async fn execute_query(
     // blocking task afterwards — the gzip and the blob write are the only part
     // of this path whose cost grows with the result, and the caller does not
     // need them to show the grid.
-    let history_id = uuid::Uuid::new_v4().to_string();
-    {
-        let connection_name = state
-            .get_config(&connection_id)
-            .map(|c| c.name)
-            .unwrap_or_else(|| connection_id.clone());
-        let table_names = extract_table_names_for_history(&sql);
-        let entry = QueryHistoryEntry {
-            id: history_id.clone(),
-            connection_id: connection_id.clone(),
-            connection_name,
-            sql: sql.clone(),
-            row_count: Some(row_limit as i64),
-            execution_time_ms: execution_time_ms as i64,
-            executed_at: chrono::Utc::now().to_rfc3339(),
-            has_results: false, // Set by DB on load
-            schema: schema.clone(),
-            column_count: Some(columns.len() as i64),
-            table_names,
-            source: source.clone(),
-            status: crate::models::HISTORY_STATUS_OK.to_string(),
-            error_message: None,
-        };
-
-        // Serialize results for caching (skip if too large). The strings are
-        // built here rather than in the task so the task owns plain text and
-        // the row tree is moved into the result once, not cloned.
-        let result_data = if !json_rows.is_empty() {
-            let columns_json = serde_json::to_string(&columns).unwrap_or_default();
-            let rows_json = serde_json::to_string(&json_rows).unwrap_or_default();
-            let identity_json = row_identity
-                .as_ref()
-                .and_then(|id| serde_json::to_string(id).ok());
-            // per-result cache cap: 10 MB uncompressed serialized JSON
-            if columns_json.len() + rows_json.len() < 10_000_000 {
-                Some((columns_json, rows_json, identity_json))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let inserted = match state.metadata_db.lock() {
-            Ok(db) => match sqlite::save_query_history_with_policy(
-                &db,
-                &entry,
-                None,
-                None,
-                None,
-                history_prune_policy(state),
-            ) {
-                Ok(()) => true,
-                Err(e) => {
-                    log::warn!("Failed to save query history: {}", e);
-                    false
-                }
-            },
-            Err(_) => false,
-        };
-
-        if let (true, Some((columns_json, rows_json, identity_json))) = (inserted, result_data) {
-            let db = Arc::clone(&state.metadata_db);
-            let entry_id = history_id.clone();
-            tokio::task::spawn_blocking(move || {
-                let Ok(db) = db.lock() else { return };
-                if let Err(e) = sqlite::attach_query_history_result(
-                    &db,
-                    &entry_id,
-                    &columns_json,
-                    &rows_json,
-                    identity_json.as_deref(),
-                ) {
-                    log::warn!("Failed to cache query history result: {}", e);
-                }
-            });
-        }
-    }
+    let entry = history_entry(
+        state, &connection_id, &sql, &schema, source.clone(),
+        row_limit as i64, execution_time_ms, Some(columns.len() as i64),
+    );
+    let history_id = entry.id.clone();
+    record_history(state, &entry, result_cache(&columns, &json_rows, row_identity.as_ref()));
 
     Ok(QueryResult {
         columns,
@@ -839,18 +893,7 @@ pub async fn fetch_more_rows(
     let has_more = rows.len() > limit as usize;
     let row_limit = std::cmp::min(rows.len(), limit as usize);
 
-    let json_rows: Vec<serde_json::Value> = rows
-        .into_iter()
-        .take(row_limit)
-        .map(|row| {
-            let values: Vec<serde_json::Value> = columns
-                .iter()
-                .enumerate()
-                .map(|(i, col)| extract_value(&row, i, &col.data_type))
-                .collect();
-            serde_json::Value::Array(values)
-        })
-        .collect();
+    let json_rows = rows_to_json(rows, &columns, row_limit);
 
     // As in execute_query: release this connection before the catalogue read
     // acquires one of its own.
@@ -1063,17 +1106,7 @@ pub async fn fetch_all_rows_snapshot(
     }
 
     let columns: Vec<ColumnDef> = pg_columns_to_defs(rows[0].columns());
-    let json_rows: Vec<serde_json::Value> = rows
-        .into_iter()
-        .map(|row| {
-            let values: Vec<serde_json::Value> = columns
-                .iter()
-                .enumerate()
-                .map(|(i, col)| extract_value(&row, i, &col.data_type))
-                .collect();
-            serde_json::Value::Array(values)
-        })
-        .collect();
+    let json_rows = rows_to_json(rows, &columns, usize::MAX);
     let row_count = json_rows.len();
 
     // Release this connection before the identity block acquires one of its own.
@@ -1182,37 +1215,12 @@ pub async fn execute_statement(
     let rows_affected = result.rows_affected();
 
     // Auto-save to query history (fire-and-forget, no results for statements)
-    let statement_history_id = uuid::Uuid::new_v4().to_string();
-    {
-        let connection_name = state
-            .get_config(&connection_id)
-            .map(|c| c.name)
-            .unwrap_or_else(|| connection_id.clone());
-        let table_names = extract_table_names_for_history(&sql);
-        let entry = QueryHistoryEntry {
-            id: statement_history_id.clone(),
-            connection_id: connection_id.clone(),
-            connection_name,
-            sql: sql.clone(),
-            row_count: Some(rows_affected as i64),
-            execution_time_ms: execution_time_ms as i64,
-            executed_at: chrono::Utc::now().to_rfc3339(),
-            has_results: false,
-            schema: schema.clone(),
-            column_count: None,
-            table_names,
-            source: None,
-            status: crate::models::HISTORY_STATUS_OK.to_string(),
-            error_message: None,
-        };
-        if let Ok(db) = state.metadata_db.lock() {
-            if let Err(e) = sqlite::save_query_history_with_policy(
-                &db, &entry, None, None, None, history_prune_policy(state),
-            ) {
-                log::warn!("Failed to save query history: {}", e);
-            }
-        }
-    }
+    let entry = history_entry(
+        state, &connection_id, &sql, &schema, None,
+        rows_affected as i64, execution_time_ms, None,
+    );
+    let statement_history_id = entry.id.clone();
+    record_history(state, &entry, None);
 
     Ok(ExecuteResult {
         rows_affected,

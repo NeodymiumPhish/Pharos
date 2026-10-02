@@ -240,7 +240,7 @@ enum MainMenu {
         viewMenu.addItem(.separator())
 
         // One step each, same clamp and save path as a trackpad pinch on the
-        // editor (QueryEditorVC.handleMagnification) — the keyboard
+        // editor (SQLEditorController.handleMagnification) — the keyboard
         // equivalent a gesture with no key equivalent would otherwise lack.
         let increaseFontItem = viewMenu.addItem(
             withTitle: String(localized: "Increase Editor Font"),

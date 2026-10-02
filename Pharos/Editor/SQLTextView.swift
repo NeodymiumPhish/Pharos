@@ -30,7 +30,7 @@ class SQLTextView: NSTextView {
     //
     // Every one of these defaults to what this view did before the setting
     // existed, so a host that never sets them behaves exactly as before.
-    // `QueryEditorVC.applySettings(_:)` pushes the stored values in.
+    // `SQLEditorController.applySettings(_:)` pushes the stored values in.
 
     /// Tab writes `tabSize` spaces. Off writes one tab character.
     var insertSpacesForTab: Bool = true

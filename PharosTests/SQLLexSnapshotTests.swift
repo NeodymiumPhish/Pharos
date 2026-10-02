@@ -19,7 +19,31 @@ func runTests() {
 
     let c = SQLLexSnapshot.shared(for: sql + " ")
     expect(c !== a, "different text builds a new snapshot")
-    expect(SQLLexSnapshot.shared(for: sql) !== a, "the cache holds one entry, so the old text rebuilds")
+    // Query cards: several editors' texts take turns. Each must stay cached.
+    expect(SQLLexSnapshot.shared(for: sql) === a, "two texts in turn: the first is still cached")
+    expect(SQLLexSnapshot.shared(for: sql + " ") === c, "two texts in turn: the second is still cached")
+
+    // Entry limit: the least recently used text goes first.
+    SQLLexSnapshot.clearCache()
+    let first = SQLLexSnapshot.shared(for: "SELECT 0")
+    for i in 1..<SQLLexSnapshot.cacheCapacity { _ = SQLLexSnapshot.shared(for: "SELECT \(i)") }
+    expect(SQLLexSnapshot.shared(for: "SELECT 0") === first, "a full cache still holds its oldest entry")
+    // "SELECT 0" is now the most recent; "SELECT 1" is the least recent.
+    let one = SQLLexSnapshot.shared(for: "SELECT 1")
+    _ = SQLLexSnapshot.shared(for: "SELECT 0")
+    _ = SQLLexSnapshot.shared(for: "SELECT overflow")
+    expect(SQLLexSnapshot.shared(for: "SELECT 0") === first, "a recently used entry survives an overflow")
+    expect(SQLLexSnapshot.shared(for: "SELECT 1") === one, "the entry used just before the overflow survives too")
+    expect(SQLLexSnapshot.cachedCount == SQLLexSnapshot.cacheCapacity, "the cache never holds more than its capacity", "got \(SQLLexSnapshot.cachedCount)")
+
+    // Size limit: large texts push out older entries, but the newest always stays.
+    SQLLexSnapshot.clearCache()
+    let small = SQLLexSnapshot.shared(for: "SELECT small")
+    let huge = String(repeating: "x", count: SQLLexSnapshot.maxCachedLength)
+    let hugeSnap = SQLLexSnapshot.shared(for: huge)
+    expect(SQLLexSnapshot.shared(for: huge) === hugeSnap, "a text at the size limit is still cached")
+    expect(SQLLexSnapshot.shared(for: "SELECT small") !== small, "the size limit pushed out the older entry")
+    SQLLexSnapshot.clearCache()
 
     expect(a.length == Array(sql.utf16).count, "length is the UTF-16 count")
     expect(a.lineStarts == [0, 19, 27], "line starts are the offsets after each newline", "got \(a.lineStarts)")

@@ -30,7 +30,7 @@ protocol EditorPaneDelegate: AnyObject {
 /// (`WindowSession.referencedVariableNames`) and highlights the defined names.
 class EditorPaneVC: NSViewController {
 
-    let editorVC: QueryEditorVC
+    let editorVC: SQLEditorController
     private(set) var paneTabBar: PaneTabBar!
 
     // Editor toolbar (below tab bar)
@@ -108,7 +108,7 @@ class EditorPaneVC: NSViewController {
 
     init(session: WindowSession) {
         self.session = session
-        self.editorVC = QueryEditorVC(session: session)
+        self.editorVC = SQLEditorController()
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -167,14 +167,21 @@ class EditorPaneVC: NSViewController {
             guard let self else { return }
             self.delegate?.editorPane(self, didRequestRunSegment: segment)
         }
-        editorVC.onTextEdited = { [weak self] in
+        editorVC.onTextEdited = { [weak self] tabId, text in
             guard let self else { return }
+            // Every keystroke goes into the tab: session restore, the
+            // workspace snapshot, save and the unsaved-work check read it.
+            self.session.updateTab(id: tabId) { tab in
+                tab.sql = text
+                tab.isDirty = true
+            }
             self.delegate?.editorPaneDidEditText(self)
             // Adding or removing a `{{token}}` changes which variables are
             // referenced, and therefore which rows the sidebar's Variables
             // navigator flags.
             self.scheduleReferencedNamesScan()
         }
+        editorVC.validationConnectionId = { [weak self] in self?.session.activeConnectionId }
         editorVC.onVariableChosen = { [weak self] name in
             guard let self else { return }
             self.delegate?.editorPane(self, didChooseVariable: name)
@@ -413,20 +420,20 @@ class EditorPaneVC: NSViewController {
 
     private func tabChanged(from oldTabId: String?, to newTabId: String?) {
         // Save cursor position of old tab
-        if let oldTabId, editorVC.tabId == oldTabId {
+        if let oldTabId, editorVC.documentId == oldTabId {
             let cursorPos = editorVC.getCursorPosition()
             session.updateTab(id: oldTabId) { $0.cursorPosition = cursorPos }
         }
 
         guard let newTabId,
               let tab = session.tabs.first(where: { $0.id == newTabId }) else {
-            editorVC.tabId = nil
+            editorVC.documentId = nil
             editorVC.setSQL("")
             syncResultTabsPanel()
             return
         }
 
-        editorVC.tabId = newTabId
+        editorVC.documentId = newTabId
         editorVC.setSQL(tab.sql)
         editorVC.setCursorPosition(tab.cursorPosition)
         editorVC.clearErrorMarkers()
@@ -478,7 +485,7 @@ class EditorPaneVC: NSViewController {
         editorVC.stepFontSize(by: delta)
     }
 
-    /// `range` is in document coordinates — see `QueryEditorVC.markError(range:)`.
+    /// `range` is in document coordinates — see `SQLEditorController.markError(range:)`.
     func markError(range: NSRange, message: String? = nil) {
         editorVC.markError(range: range, message: message)
     }
@@ -510,7 +517,7 @@ class EditorPaneVC: NSViewController {
 
     /// Save the current tab's cursor position.
     func saveCurrentTabState() {
-        guard let tabId = editorVC.tabId else { return }
+        guard let tabId = editorVC.documentId else { return }
         let cursorPos = editorVC.getCursorPosition()
         session.updateTab(id: tabId) { $0.cursorPosition = cursorPos }
     }

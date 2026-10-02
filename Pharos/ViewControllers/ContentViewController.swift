@@ -4540,7 +4540,7 @@ extension ContentViewController {
     ///
     /// Works for ANY tab, not only the one on screen: the SQL comes from the
     /// editor for the visible tab and from the tab's own `sql` otherwise, and
-    /// `QueryEditorVC.textDidChange` writes every keystroke into the tab, so a
+    /// `EditorPaneVC` writes every keystroke into the tab (`onTextEdited`), so a
     /// background tab's `sql` is current. That is what lets the close and quit
     /// warnings save tabs the user is not looking at.
     ///

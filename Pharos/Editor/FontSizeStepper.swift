@@ -1,7 +1,7 @@
 import Foundation
 
 /// Pure arithmetic for turning a trackpad pinch (or a keyboard step) into an
-/// editor font size. No AppKit — kept separate from `QueryEditorVC` so the
+/// editor font size. No AppKit — kept separate from `SQLEditorController` so the
 /// magnification → steps → clamped-size math is unit-testable standalone
 /// (`scripts/test-font-size-stepper.sh`).
 enum FontSizeStepper {

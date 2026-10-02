@@ -191,7 +191,7 @@ private func testMarkGoesOnATabSwitch() {
     view.setSelectedRange(NSRange(location: 0, length: 0))
     view.insertDraft("SELECT 1 FROM t;")
 
-    // What `QueryEditorVC.setSQL` calls when the pane shows another tab: the
+    // What `SQLEditorController.setSQL` calls when the pane shows another tab: the
     // marked range names characters in text that is about to be replaced.
     view.clearDraftHighlight()
     expect(view.draftRange == nil, "a tab switch clears the mark")

@@ -200,7 +200,7 @@ final class VariableDetailVC: NSViewController {
         headerSeparator.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
         // Value editor: text view + the app's line-number gutter, laid out by
-        // frames inside `editorContainer` exactly as QueryEditorVC does it.
+        // frames inside `editorContainer` exactly as SQLEditorController does it.
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true

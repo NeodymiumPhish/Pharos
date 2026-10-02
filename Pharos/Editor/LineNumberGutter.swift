@@ -231,7 +231,11 @@ class LineNumberGutter: NSView {
     /// pass) on every keystroke that doesn't cross a power-of-ten boundary.
     private var lastDigitCount: Int = 0
 
-    init(textView: NSTextView, scrollView: NSScrollView, metrics: Metrics = .sqlEditor) {
+    /// `accessibilityIdentifier` names this gutter for UI tests and
+    /// accessibility walks. Each query card passes its own; the default is the
+    /// name the single-editor layout has always used.
+    init(textView: NSTextView, scrollView: NSScrollView, metrics: Metrics = .sqlEditor,
+         accessibilityIdentifier: String = "editor.gutter") {
         self.textView = textView
         self.scrollView = scrollView
         self.metrics = metrics
@@ -259,7 +263,7 @@ class LineNumberGutter: NSView {
             name: AccessibilityDisplay.didChange, object: nil
         )
 
-        setAccessibilityIdentifier("editor.gutter")
+        setAccessibilityIdentifier(accessibilityIdentifier)
 
         rebuildLineStarts()
         // Resolve the width from `metrics` now rather than leaving the stored

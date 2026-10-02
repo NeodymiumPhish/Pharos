@@ -133,6 +133,14 @@ func runTests() {
                 NSAccessibility.Role.group.rawValue, "gutter.role is group")
     expectEqual(gutter.accessibilityLabel() ?? "(none)", "Line gutter", "gutter.label")
     expectEqual(gutter.accessibilityIdentifier(), "editor.gutter", "gutter.identifier")
+    // Each query card's gutter is named for its card, so an accessibility
+    // walk can tell many gutters apart.
+    let cardScroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+    let cardText = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+    cardScroll.documentView = cardText
+    let cardGutter = LineNumberGutter(textView: cardText, scrollView: cardScroll,
+                                      accessibilityIdentifier: "editor.card.3.gutter")
+    expectEqual(cardGutter.accessibilityIdentifier(), "editor.card.3.gutter", "gutter.identifier.custom")
 
     // --- Children: count and roles ---
     let kids = children(of: gutter)

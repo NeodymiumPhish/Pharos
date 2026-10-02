@@ -1799,14 +1799,14 @@ private func testGutterLineNumberAlignsWithTextLine() {
 /// last detail is *the* discriminator. Assigning the identical `(4, 8)`
 /// inset from outside, after construction (as this test's first draft did,
 /// and as the resizing/scroller flags genuinely are assigned externally by
-/// `QueryEditorVC.loadView`) never reproduced defect 3's symptom, in a
+/// `SQLEditorController.loadView`) never reproduced defect 3's symptom, in a
 /// subclass or not. Setting it inside init — which is genuinely how
 /// `SQLTextView` and `VariableValueTextView` (the view that actually hit
 /// this bug) both do it — reproduces it every time. That means `SQLTextView`
 /// sits in the exact same risk class as `VariableValueTextView`,
 /// independently of anything specific to the variables panel. This class
 /// exists so a test can stand in for `SQLTextView` without pulling in its
-/// `FoldingLayoutManager`, syntax highlighting, or any of `QueryEditorVC`'s
+/// `FoldingLayoutManager`, syntax highlighting, or any of `SQLEditorController`'s
 /// dependency graph.
 private final class SQLEditorStyleTextView: NSTextView {
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -1834,7 +1834,7 @@ private final class SQLEditorStyleTextView: NSTextView {
 /// Hosts `SQLEditorStyleTextView` with the SQL editor's own configuration on
 /// top of that shared construction shape — not horizontally resizable,
 /// width-tracking container, vertical-only scroller, all assigned
-/// externally exactly as `QueryEditorVC.loadView` assigns them (only the
+/// externally exactly as `SQLEditorController.loadView` assigns them (only the
 /// inset is internal — see `SQLEditorStyleTextView.commonInit()`). Uses
 /// `makeKeyAndOrderFront` + `displayIfNeeded()` rather than the other
 /// harnesses' `orderFrontRegardless()` + `layoutSubtreeIfNeeded()` —

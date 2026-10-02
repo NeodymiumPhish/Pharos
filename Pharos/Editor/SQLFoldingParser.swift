@@ -26,7 +26,7 @@ struct SQLFoldRegion {
     let kind: FoldKind
     /// Whether the region is currently collapsed.
     var isCollapsed: Bool = false
-    /// UUID of the FoldEntry in FoldState when collapsed (set by QueryEditorVC on rebuild).
+    /// UUID of the FoldEntry in FoldState when collapsed (set by SQLEditorController on rebuild).
     var foldEntryId: UUID? = nil
 }
 

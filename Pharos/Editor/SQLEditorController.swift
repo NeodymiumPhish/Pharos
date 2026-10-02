@@ -1,19 +1,25 @@
 import AppKit
 import Combine
 
-/// Manages the SQL editor text view with line numbers, syntax highlighting,
-/// and query execution. One instance per tab, swapped by ContentViewController.
-class QueryEditorVC: NSViewController {
+/// One SQL editor: the text view with its gutter, syntax highlighting,
+/// folds, completion, live validation and error markers.
+///
+/// It knows nothing about where its text is stored. The owner shows a
+/// document with `documentId` + `setSQL`, receives each user edit through
+/// `onTextEdited`, and says which connection live validation checks against
+/// through `validationConnectionId`. `EditorPaneVC` owns one today and swaps
+/// the text on a tab switch; query cards will own one per card on screen and
+/// share one completion provider between them.
+class SQLEditorController: NSViewController {
 
     let textView = SQLTextView()
-    let completionProvider = SQLCompletionProvider()
+    let completionProvider: SQLCompletionProvider
     private var scrollView: NSScrollView!
     private var gutter: LineNumberGutter?
-    let session: WindowSession
     private let stateManager = AppStateManager.shared
 
-    init(session: WindowSession) {
-        self.session = session
+    init(completionProvider: SQLCompletionProvider = SQLCompletionProvider()) {
+        self.completionProvider = completionProvider
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -29,8 +35,12 @@ class QueryEditorVC: NSViewController {
     private var highlightOverlay: NSView?
     private var highlightFadeTask: Task<Void, Never>?
 
-    /// The tab ID this editor is associated with.
-    var tabId: String?
+    /// The document this editor shows (an editor tab's id today). nil while it
+    /// shows nothing: user edits are then not reported.
+    var documentId: String?
+
+    /// The connection live validation checks the text against; nil skips it.
+    var validationConnectionId: () -> String? = { nil }
 
     /// Current parsed SQL segments.
     private(set) var segments: [SQLSegment] = []
@@ -41,8 +51,9 @@ class QueryEditorVC: NSViewController {
     /// Callback fired when the user clicks the gutter run button on a segment.
     var onRunSegment: ((SQLSegment) -> Void)?
 
-    /// Callback fired when editor text changes (for result tab staleness tracking).
-    var onTextEdited: (() -> Void)?
+    /// Fired after each user edit (not after `setSQL`) with the document's id
+    /// and its whole text. The owner stores the text where it lives.
+    var onTextEdited: ((_ documentId: String, _ text: String) -> Void)?
 
     /// Callback fired when a `{{` completion row is accepted, or a `{{name}}`
     /// token in the text is clicked, with the variable's name. It may not
@@ -301,9 +312,7 @@ class QueryEditorVC: NSViewController {
         tables: [String: [TableInfo]],
         columnsByTable: [String: [ColumnInfo]]
     ) {
-        completionProvider.schemas = schemas
-        completionProvider.tables = tables
-        completionProvider.columnsByTable = columnsByTable
+        completionProvider.updateMetadata(schemas: schemas, tables: tables, columnsByTable: columnsByTable)
     }
 
     // MARK: - Error Markers
@@ -745,18 +754,13 @@ class QueryEditorVC: NSViewController {
     // MARK: - Text Changes
 
     private func textDidChange(_ newText: String) {
-        guard let tabId else { return }
+        guard let documentId else { return }
 
         // Clear any execution error markers when user starts typing
         clearErrorMarkers()
 
         // FoldState.adjustForEdit (called from SQLTextView.didChangeText) automatically
         // removes folds that overlap the edit and shifts folds after it.
-
-        session.updateTab(id: tabId) { tab in
-            tab.sql = self.textView.string
-            tab.isDirty = true
-        }
 
         // Recalculate SQL segments
         recalculateSegments()
@@ -769,8 +773,9 @@ class QueryEditorVC: NSViewController {
             self.recalculateFoldRegions()
         }
 
-        // Notify for result tab staleness
-        onTextEdited?()
+        // The owner stores the text first, then reacts to the edit (result tab
+        // staleness, the referenced-variables scan).
+        onTextEdited?(documentId, textView.string)
 
         // Debounced validation
         validationTask?.cancel()
@@ -782,7 +787,7 @@ class QueryEditorVC: NSViewController {
     }
 
     private func validateSQL(_ sql: String) async {
-        guard let connectionId = session.activeConnectionId,
+        guard let connectionId = validationConnectionId(),
               stateManager.status(for: connectionId) == .connected,
               !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             await MainActor.run { self.clearErrorMarkers() }
@@ -829,7 +834,7 @@ class QueryEditorVC: NSViewController {
 
 // MARK: - SQLTextViewCompletionDelegate
 
-extension QueryEditorVC: SQLTextViewCompletionDelegate {
+extension SQLEditorController: SQLTextViewCompletionDelegate {
 
     var isCompletionShown: Bool { completionProvider.isShown }
 

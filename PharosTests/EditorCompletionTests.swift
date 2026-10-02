@@ -228,7 +228,7 @@ private func testResolver() {
 
 // MARK: - Typed into the real editor
 
-/// Mirrors QueryEditorVC's delegate extension, and counts triggers.
+/// Mirrors SQLEditorController's delegate extension, and counts triggers.
 private final class Host: SQLTextViewCompletionDelegate {
     let provider = SQLCompletionProvider()
     var triggers = 0
@@ -306,6 +306,70 @@ private final class Editor {
     var caret: Int { textView.selectedRange().location }
     var shown: Bool { host.provider.isShown }
     var visible: [String] { host.provider.visibleCompletionsForTesting.map(\.insertText) }
+}
+
+/// A delegate that forwards to a provider it does not own: what each query
+/// card's editor does with the one provider of its window.
+private final class SharedHost: SQLTextViewCompletionDelegate {
+    let provider: SQLCompletionProvider
+    unowned var textView: SQLTextView
+    var isCompletionShown: Bool { provider.isShown }
+    func triggerCompletion() { provider.showCompletions(for: textView) }
+    func updateCompletion() { provider.showCompletions(for: textView) }
+    func dismissCompletion() { provider.dismiss() }
+    func completionMoveUp() -> Bool { guard provider.isShown else { return false }; provider.moveUp(); return true }
+    func completionMoveDown() -> Bool { guard provider.isShown else { return false }; provider.moveDown(); return true }
+    func acceptCompletion() -> Bool { guard provider.isShown else { return false }; provider.acceptSelected(); return true }
+    init(textView: SQLTextView, provider: SQLCompletionProvider) { self.textView = textView; self.provider = provider }
+}
+
+private func testSharedProvider() {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+    let a = SQLTextView(), b = SQLTextView()
+    a.frame = NSRect(x: 0, y: 200, width: 600, height: 200)
+    b.frame = NSRect(x: 0, y: 0, width: 600, height: 200)
+    root.addSubview(a); root.addSubview(b)
+    window.contentView = root
+    window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+    window.orderFrontRegardless()
+
+    let provider = SQLCompletionProvider()
+    let before = provider.catalogRebuildCountForTesting
+    provider.updateMetadata(
+        schemas: [],
+        tables: ["public": [table("users", "public")]],
+        columnsByTable: ["public.users": [column("id", "integer", pk: true)]])
+    expectEqual(provider.catalogRebuildCountForTesting - before, 1, "shared: one metadata update rebuilds the catalog once")
+    provider.variables = [.init(name: "user_id", preview: "v")]
+    provider.attachTo(a)
+    let hostA = SharedHost(textView: a, provider: provider)
+    let hostB = SharedHost(textView: b, provider: provider)
+    a.completionDelegate = hostA
+    b.completionDelegate = hostB
+
+    func type(_ s: String, into v: SQLTextView) {
+        window.makeFirstResponder(v)
+        for ch in s { v.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0)) }
+    }
+    func tab(_ v: SQLTextView) {
+        let event = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil,
+            characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48)!
+        v.keyDown(with: event)
+    }
+
+    // The list opens for A, then the user moves to B and types there.
+    type("{{us", into: a)
+    expectTrue(provider.isShown, "shared: the list opens for the first editor")
+    type("{{us", into: b)
+    expectTrue(provider.isShown, "shared: the list opens for the second editor")
+    tab(b)
+    expectEqual(b.string, "{{user_id}}", "shared: accepting writes into the editor the list was shown for")
+    expectEqual(a.string, "{{us}}", "shared: the first editor is not touched")
+    _ = (hostA, hostB)
 }
 
 private func testTypedIntoEditor() {
@@ -669,6 +733,7 @@ func runTests() {
     testBracePairing()
     testResolver()
     testTypedIntoEditor()
+    testSharedProvider()
     testTokenRule()
     testTokenClicks()
     testAutoIndentReturn()

@@ -41,11 +41,11 @@ private final class Editor {
         window.contentView = textView
         window.makeFirstResponder(textView)
         textView.string = sql
-        // What QueryEditorVC does with a pill click.
+        // What SQLEditorController does with a pill click.
         textView.onPlaceholderClicked = { [unowned self] in self.textView.unfold(id: $0) }
     }
 
-    /// Fold the region of `kind` with QueryEditorVC.toggleFold's range math.
+    /// Fold the region of `kind` with SQLEditorController.toggleFold's range math.
     @discardableResult
     func fold(_ kind: FoldKind, placeholder: String = " \u{25B8} 4 lines ") -> NSRange {
         let region = SQLFoldingParser.parse(textView.string).first { $0.kind == kind }!

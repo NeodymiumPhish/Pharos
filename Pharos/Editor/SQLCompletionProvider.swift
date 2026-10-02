@@ -74,14 +74,30 @@ class SQLCompletionProvider: NSObject {
     /// catalog snapshot the resolver reads, so the per-keystroke path does
     /// no conversion.
     var schemas: [SchemaInfo] = [] {
-        didSet { rebuildCatalog() }
+        didSet { if !isUpdatingMetadata { rebuildCatalog() } }
     }
     var tables: [String: [TableInfo]] = [:] {
-        didSet { rebuildCatalog() }
+        didSet { if !isUpdatingMetadata { rebuildCatalog() } }
     }
     var columnsByTable: [String: [ColumnInfo]] = [:] {
-        didSet { rebuildCatalog() }
+        didSet { if !isUpdatingMetadata { rebuildCatalog() } }
     }
+
+    /// Set all three at once and rebuild the catalog once. One metadata push
+    /// through the three setters rebuilt it three times.
+    func updateMetadata(schemas: [SchemaInfo], tables: [String: [TableInfo]], columnsByTable: [String: [ColumnInfo]]) {
+        isUpdatingMetadata = true
+        self.schemas = schemas
+        self.tables = tables
+        self.columnsByTable = columnsByTable
+        isUpdatingMetadata = false
+        rebuildCatalog()
+    }
+
+    private var isUpdatingMetadata = false
+
+    /// How many times the catalog was rebuilt. For tests.
+    private(set) var catalogRebuildCountForTesting = 0
 
     /// Where an unqualified table is looked for first: the toolbar's schema,
     /// or the connection's default. nil means `public` alone.
@@ -95,6 +111,7 @@ class SQLCompletionProvider: NSObject {
     private var catalog = CompletionResolver.Catalog()
 
     private func rebuildCatalog() {
+        catalogRebuildCountForTesting += 1
         var built = CompletionResolver.Catalog()
         built.schemas = schemas.map(\.name)
         for (schema, list) in tables {
@@ -205,6 +222,14 @@ class SQLCompletionProvider: NSObject {
     }
 
     func showCompletions(for textView: SQLTextView) {
+        // One provider serves every query card's editor in a window. The list
+        // belongs to the editor that asked last: a list still open for another
+        // editor closes, so it opens again under this caret, and an accept
+        // writes into this editor.
+        if textView !== self.textView {
+            dismiss()
+            self.textView = textView
+        }
         let text = textView.string as NSString
         let cursor = min(textView.selectedRange().location, text.length)
 

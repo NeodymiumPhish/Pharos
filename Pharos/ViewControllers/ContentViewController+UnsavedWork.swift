@@ -20,7 +20,7 @@ extension ContentViewController {
             hasSavedQuery: tab.savedQueryId != nil,
             hasFile: tab.sourceURL != nil,
             // `tab.sql` is current for every tab, not only the visible one:
-            // `QueryEditorVC.textDidChange` writes each keystroke into it.
+            // `EditorPaneVC` writes each keystroke into it (`onTextEdited`).
             isEmpty: tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 

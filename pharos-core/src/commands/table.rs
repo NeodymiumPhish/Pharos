@@ -965,7 +965,7 @@ pub async fn export_query(
 /// there is no 5000 hidden in here for a setting to disagree with.
 #[allow(clippy::too_many_arguments)]
 async fn stream_export(
-    conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     base_sql: &str,
     file_path: &str,
     format: &ExportFormat,
@@ -1010,7 +1010,7 @@ async fn stream_export(
             base_sql, batch_size, offset
         );
 
-        let mut stream = sqlx::query(&wrapped_sql).fetch(&mut **conn);
+        let mut stream = sqlx::query(&wrapped_sql).fetch(&mut *conn);
         let mut batch: Vec<sqlx::postgres::PgRow> = Vec::with_capacity(batch_size as usize);
 
         while let Some(row_result) = stream.next().await {

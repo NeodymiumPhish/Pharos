@@ -29,7 +29,7 @@ final class VariableValueTextView: NSTextView {
     /// container does not — it leaves `textStorage`, `layoutManager` and
     /// `textContainer` all nil, and the view then silently discards every
     /// assignment to `string`. Sizing (`isVerticallyResizable`, `minSize`,
-    /// `maxSize`) stays with the host, matching `QueryEditorVC`.
+    /// `maxSize`) stays with the host, matching `SQLEditorController`.
     convenience init() {
         let storage = NSTextStorage()
         // The disclosing layout manager, not a stock one: a value is data that
