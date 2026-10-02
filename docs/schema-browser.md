@@ -96,8 +96,8 @@ Right-click any node in the schema tree for context-specific actions.
 
 | Action | Description |
 |--------|-------------|
-| View All Contents | Runs `SELECT * FROM "schema"."table"` in the current tab |
-| View Contents (Limit…) | Submenu with preset limits: 10, 100, 1,000, 10,000 |
+| View All Contents | Runs `SELECT * FROM "schema"."table"` as a new [query card](query-editor.md#query-cards) in the current tab |
+| View Contents (Limit…) | Submenu with preset limits: 10, 100, 1,000, 10,000; runs as a new card in the current tab |
 | Copy Table Name | Copies the bare table name to the clipboard |
 | Paste Name to Query Editor | Inserts the quoted, schema-qualified name into the active editor |
 | View Table DDL… | Opens the [DDL sheet](table-operations.md#view-table-ddl), which also contains Clone Table |

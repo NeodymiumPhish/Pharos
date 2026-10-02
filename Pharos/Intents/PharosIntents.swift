@@ -125,7 +125,7 @@ struct RunSavedQueryIntent: AppIntent {
     static var title: LocalizedStringResource = "Run Saved Query"
 
     static var description = IntentDescription(
-        "Opens one of your saved queries in Pharos, runs it, and hands back the rows as a CSV file.",
+        "Opens one of your saved queries in Pharos, runs its cards in order, and hands back the last card's rows as a CSV file.",
         categoryName: "Queries"
     )
 
@@ -174,18 +174,25 @@ struct RunSavedQueryIntent: AppIntent {
         // store, and it is the same cached blob a reopened workspace restores.
         let before = Set(Self.recentHistoryIds(connectionId: connectionId))
 
-        // Run through the editor's own Run command, so the variable
-        // substitution, the segment parsing and the destructive-SQL
-        // confirmation all apply exactly as they do for a keystroke.
-        try await MainActor.run {
+        // A saved query is a tab of cards: run them all, in order, through
+        // the editor's own Run All command, so the variable substitution and
+        // the destructive-SQL confirmation apply exactly as for a keystroke.
+        let tabId = try await MainActor.run { () -> String in
             let content = try PharosIntentBridge.contentViewController()
-            content.menuRunQuery(nil)
+            guard let tab = content.session.activeTab else { throw PharosIntentError.unknownSavedQuery }
+            content.menuRunAllQueries(nil)
+            return tab.id
         }
 
+        // The file is the LAST card's result: wait until Run All is over.
         var landed: QueryHistoryEntry?
         let deadline = Date().addingTimeInterval(Self.resultTimeout)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 250_000_000)
+            let busy = await MainActor.run {
+                (try? PharosIntentBridge.contentViewController())?.hasRunsInProgress(inTab: tabId) ?? false
+            }
+            if busy { continue }
             let entries = (try? PharosCore.loadQueryHistory(
                 filter: QueryHistoryFilter(connectionId: connectionId, limit: 60)
             )) ?? []

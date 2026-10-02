@@ -4,6 +4,18 @@ import Combine
 /// The flipped document view of the card stack.
 private final class CardStackDocumentView: NSView {
     override var isFlipped: Bool { true }
+
+    /// VoiceOver reads the cards top to bottom. Subviews are in the order
+    /// they were added, so a new version added below an older card would
+    /// otherwise be read last (found in the live check, 2026-10-02).
+    override func accessibilityChildren() -> [Any]? {
+        guard let children = super.accessibilityChildren() else { return nil }
+        return children.enumerated().sorted { a, b in
+            let ya = (a.element as? NSView)?.frame.minY ?? .greatestFiniteMagnitude
+            let yb = (b.element as? NSView)?.frame.minY ?? .greatestFiniteMagnitude
+            return ya == yb ? a.offset < b.offset : ya < yb
+        }.map(\.element)
+    }
 }
 
 /// One editor tab's query cards, top to bottom, in one scroll view.

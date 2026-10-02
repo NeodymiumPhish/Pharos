@@ -59,7 +59,7 @@ Four types, chosen from the detail level's type popup. When you run the query, e
 | Number | Validated as numeric, inserted bare | `42.5` → `42.5` |
 | Bool | One of three values — `True`, `False`, or `NULL`, chosen from a segmented control rather than typed — normalized to lowercase `true`/`false` or the SQL keyword `NULL` | `False` → `false` |
 
-Substitution happens at execution time — the editor text always keeps the `{{token}}` form. It is also applied to **EXPLAIN**, when exporting a query as a SQL file, and when copying or sharing a saved query's SQL.
+Substitution happens at execution time — the editor text always keeps the `{{token}}` form. A locked [query card](query-editor.md#versions) run again with different values counts as edited, so it makes a new version. It is also applied to **EXPLAIN**, when exporting a query as a SQL file, and when copying or sharing a saved query's SQL.
 
 ## Duplicate Names
 

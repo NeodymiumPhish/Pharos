@@ -18,40 +18,113 @@ nav_order: 7
 
 ## Overview
 
-Pharos executes SQL against the editor tab's active connection and shows the output in the results area below the editor, with one [result tab](results-grid.md#result-tabs) per statement. Multiple queries can run concurrently, each statement gets its own result tab, and long-running queries can notify you when they finish.
+Pharos runs the SQL of a [query card](query-editor.md#query-cards) against the editor tab's active connection and shows the output in the results area below the editor. Each card owns its own results. Each editor tab has its [own database connection](#one-connection-per-editor-tab), so the cards of a tab run one at a time, in order, and share session state the way psql does. Tabs run at the same time as each other, and long-running queries can notify you when they finish.
 
-## Running Queries
+## Running Cards
 
-The editor splits your SQL into individual statements. There are three ways to run:
+- **Cmd+Return** (or **Query > Run Card**, or the card's **Run** button) runs the **focused card**.
+- **Cmd+Shift+Return** (**Query > Run and Replace Results**) runs the focused card and replaces its results in place, even after an edit. A plain run after an edit keeps the old results in a locked card and makes a new version (see [Versions](query-editor.md#versions)).
+- **Cmd+Opt+Return** (**Query > Run All Cards**) runs the tab's cards in order, one at a time. Run All stops at the first failure, and a message offers to continue.
 
-- **Cmd+Return** (or **Query > Run Query**) runs the **statement under the cursor** and opens a result tab for it. If nothing parses as a statement, the entire editor text is sent as one batch.
-- **Gutter bands** — each statement has a coloured band behind its line numbers; hover it to turn it into a run button, and click to run that statement.
-- **Run All Queries** — **Query > Run All Queries** (**Cmd+Opt+Return**): runs every statement, up to 3 at a time, in order. Run All pauses if you switch away from the tab and resumes when you return.
+With **⌘↩ runs** set to **The selection, else the statement** in [Settings > Query](settings.md#query-pane), a selection inside a card runs as a new, generated card below it. The card you selected from does not change.
 
-Each result tab is color-matched to its source statement's bar in the editor gutter, so you can always tell which result came from which SQL.
+When a run ends, its results take over the results area. To keep looking at other results while cards run, turn off **Show new results automatically** in [Settings > Results](settings.md#results-pane). A card's **View Results** button always shows that card's results (see [Card Results](results-grid.md#card-results)).
 
-## Concurrent Execution
+## Running Several Queries
 
-Queries run concurrently — starting a second statement doesn't wait for the first. While queries run:
+The cards of one tab run on the tab's one connection, so they run one at a time: a card you run while another card of the same tab runs waits for it. Running a card that is already running or waiting does nothing. Cards in different tabs run at the same time. While queries run:
 
-- The toolbar's **Run | Cancel** control (one capsule, play and stop) shows it: the **stop glyph pulses in your accent colour** for as long as anything runs in the tab, in step with the tab's dot and the gutter bar. With one query running, stop cancels it. With several, stop opens a list of the in-flight queries: where each is in the editor (Line / Lines), the start of its statement, its elapsed time and its own cancel button, and a **Cancel All** button under them. **Query ▸ Cancel All Queries** (Cmd+Opt+.) does the same from the keyboard.
-- Each running statement's gutter bar **pulses** until its query completes.
-- Re-running SQL that is already in flight is skipped, with a toast pointing at the running query.
+- The toolbar's **Run | Cancel** control (one capsule, play and stop) shows it: the **stop glyph pulses in your accent colour** for as long as anything runs in the tab, in step with the tab's dot. With one query running, stop cancels it. With several, stop opens a list of the in-flight queries: the start of each one's SQL, its elapsed time and its own cancel button, and a **Cancel All** button under them. **Query ▸ Cancel All Queries** (Cmd+Opt+.) does the same from the keyboard.
+- The running card shows **Cancel** in its name row until its query completes.
 
+## One Connection per Editor Tab
+
+Each editor tab gets its **own PostgreSQL connection**, opened at the tab's first run. All of the tab's cards run on it, in order. So these work across several cards, as they do in psql:
+
+- `SET` statements
+- temporary tables
+- prepared statements
+- a `BEGIN` … `COMMIT` spread over several cards (see [Transactions](#transactions))
+
+Before, each run used any connection from a shared pool, and Pharos reset that connection after the run.
+
+What Pharos keeps on a tab connection:
+
+- **Row limit.** Rows are read through a cursor, so a result cut at the [row limit](#row-limit-and-load-more) keeps the tab's connection and its settings. A data-modifying `WITH` query still runs to completion — all of its rows are written — even if only the first page is shown.
+- **Query timeout.** Pharos keeps the [query timeout](#query-timeout) itself on a tab connection, so your own `SET statement_timeout` stays in force.
+- **Search path.** The schema pull-down changes `search_path` only when you pick another schema, so your own `SET search_path` stays in force until then.
+
+**Load More**, **Load All**, **Explain**, chart aggregation, validation and cell edits run on the tab's connection when it has one. So they see its temporary tables and uncommitted rows, and they never end or break your transaction.
+
+Refused on a tab connection:
+
+- psql meta-commands (such as `\set`), which Pharos shows as cards but does not run;
+- `COPY … FROM STDIN` and `COPY … TO STDOUT`. Use [Import](table-operations.md) and [Export](data-export.md) instead.
+
+### Limits and shared connections
+
+**Editor tab connections per server** in [Settings > Connections](settings.md#connections-pane) sets how many tab connections one server may hold (default 8; 0 is no limit). When a server already has that many, a card runs on a shared connection, and Pharos says once that `SET`, temporary tables and transactions do not carry from card to card. A server that cannot hold a tab connection (some PostgreSQL-compatible servers) also falls back to shared connections.
+
+{: .warning }
+PgBouncer in **transaction pooling** mode cannot keep session state between statements, and Pharos cannot detect it. `SET`, temporary tables and transactions over several cards do not work through it. Use session pooling, or connect directly, for multi-card transactions.
+
+### A reset connection
+
+If the tab's connection is lost — the Mac slept, the network dropped, the server restarted, or the idle limit ended it — the next run opens a new one. A banner above the cards says that the connection was reset, and that its settings, temporary tables and any open transaction are gone. Pharos never sends a statement again that was in flight when the connection was lost.
+
+## Transactions
+
+Pharos does **not** end a transaction that you leave open. Run `BEGIN` in one card, and the cards after it run inside that transaction until you commit or roll back.
+
+### The transaction banner
+
+While a transaction is open, a banner above the cards says "Transaction open for *time*". It counts down the server's idle limit, and has **Roll Back** and **Commit** buttons.
+
+After an error inside the transaction, the banner says that the transaction failed and offers only **Roll Back**. As in psql, only `ROLLBACK` works in a failed transaction.
+
+### Savepoints
+
+Inside an open transaction, each card runs inside a savepoint:
+
+- **Cancel** or a timeout undoes only that card. The transaction stays open.
+- An SQL error leaves the transaction failed.
+
+### Cell edits
+
+[Cell edits](results-grid.md#editing-cells) that you apply while a transaction is open become part of it. They are saved when you **Commit**, and a message says so.
+
+### The idle limit
+
+**Idle transaction timeout for query cards** in [Settings > Connections](settings.md#connections-pane) sets how long a tab's transaction may sit idle (default 600 seconds; 0 turns it off). When the time passes, the server ends the tab's connection, and the next run [opens a new one](#a-reset-connection).
+
+### Closing with an open transaction
+
+These ask first while a tab has a transaction open:
+
+- closing the tab or its window — **Roll Back and Close**;
+- quitting Pharos — **Roll Back and Quit**;
+- disconnecting — **Roll Back and Disconnect**;
+- switching the tab to another connection.
+
+Each also offers **Cancel**. Pharos always rolls back, and never commits for you. To keep the changes, cancel and use **Commit** in the tab.
+
+## Read-only Connections
+
+On a [read-only connection](connections.md#read-only-connections), Pharos refuses statements that turn read-only off, such as `SET default_transaction_read_only` and `BEGIN READ WRITE`. If a card manages to turn read-only off, Pharos turns it back on.
 
 ## A lost connection
 
 When a query fails because the **connection** is gone — the server closed it, the SSH tunnel stopped, the socket broke — the connection moves to **Error** in the toolbar and the Database Navigator, and **Connect** becomes available again. Before this, a failed query never changed a connection's status, so a dead tunnel kept a green glyph and Connect appeared to do nothing until you pressed Disconnect first.
 
-A statement timeout and a query you cancelled are **not** a lost connection. Those kill the statement, not the session, and the pool is still good, so the connection stays connected.
+A statement timeout and a query you cancelled are **not** a lost connection. Those kill the statement, not the session, so the connection stays connected.
 
 ## Cancelling
 
-Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use the running-queries popover to cancel a specific one. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side.
+Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use the card's **Cancel** button or the running-queries popover to cancel a specific one. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side. Inside an open transaction, a cancel undoes only that card (see [Savepoints](#savepoints)).
 
 ## Explain
 
-**Cmd+Shift+E** (**Query > Explain Query**) asks PostgreSQL how it intends to run the statement under the cursor — the same statement **Cmd+Return** would run, with query variables substituted — and opens the answer as a result tab named "Plan …".
+**Cmd+Shift+E** (**Query > Explain Query**) asks PostgreSQL how it intends to run the focused card's statement — the same statement **Cmd+Return** would run, with query variables substituted — and shows the answer in that card's **Plan** view. Explain adds no card.
 
 The plan is a tree. Each row shows the node (its type, and the relation or index it reads), the estimated rows, the cost range, and a bar giving that node's share of the whole plan. The tree opens fully expanded with the heaviest node already selected, so the first thing you see is where the work goes. A row's tooltip shows its filter, index condition, or hash condition. **Copy Plan JSON** puts the server's own `EXPLAIN (FORMAT JSON)` output on the clipboard for another tool.
 
@@ -60,7 +133,9 @@ The plan is a tree. Each row shows the node (its type, and the relation or index
 {: .warning }
 Explain Analyze *executes* the statement. Pharos runs it inside a transaction it always rolls back, so an `INSERT` or `UPDATE` explained this way leaves nothing behind — but a statement containing `DROP`, `DELETE`, or `TRUNCATE` is refused outright rather than confirmed, because a rollback cannot undo the locks and the effect on concurrent sessions. Use Explain Query for those.
 
-Plan tabs behave like any other result tab — select, rename, close — with two differences: the Grid/Chart toggle is hidden (a plan is neither), and a plan is not recorded in [query history](query-history.md) or restored with a workspace. Ask for it again; it costs nothing on the plain form.
+On a tab with an open transaction, Explain and Explain Analyze run on the tab's connection and do not end or break the transaction.
+
+The plan is a view of the card's results: switch between it and the results with the **Grid | Chart | Plan** control in the result action bar (see [Card Results](results-grid.md#card-results)). Explaining a card never locks it or makes a new version. A plan is not recorded in [query history](query-history.md) or restored with a workspace. Ask for it again; it costs nothing on the plain form.
 
 Explain works on one statement at a time. Selecting a script reports "Explain one statement at a time" rather than silently explaining only its first statement.
 
@@ -71,14 +146,14 @@ Explain works on one statement at a time. Selecting a script reports "Explain on
 
 ## Row Limit and Load More
 
-Data queries return up to the **Row Limit** setting per page (default 1,000). When more rows exist, the status text notes "(more available)" and a **Load More Rows** bar appears below the grid. Loading more appends rows and re-applies any active sort and filters. [Charts](charts.md) offer a separate "Load all rows" shortcut, and server-side chart aggregation avoids loading rows entirely.
+Data queries return up to the **Row Limit** setting per page (default 1,000). When more rows exist, the status text notes "(more available)" and a **Load More Rows** bar appears below the grid. Loading more appends rows and re-applies any active sort and filters. On a tab connection, rows are read through a cursor, so a result cut at the limit keeps the connection and its settings (see [One Connection per Editor Tab](#one-connection-per-editor-tab)). [Charts](charts.md) offer a separate "Load all rows" shortcut, and server-side chart aggregation avoids loading rows entirely.
 
 {: .tip }
 You can change the row limit in [Settings](settings.md) under the Query tab.
 
 ## Query Timeout
 
-Each query runs with a server-side timeout (PostgreSQL's `statement_timeout`), set from the **Timeout** setting (default 300 seconds). A query that exceeds it is cancelled by the server and reports a "canceling statement due to statement timeout" error. Adjust the timeout in [Settings](settings.md) to suit your workload.
+Each query runs with a timeout, set from the **Statement timeout** setting (default 300 seconds). On a shared connection, Pharos applies it as PostgreSQL's `statement_timeout`: a query that exceeds it is cancelled by the server and reports a "canceling statement due to statement timeout" error. On a tab connection, Pharos keeps the timeout itself and cancels the query when the time passes, so a `SET statement_timeout` of your own stays in force on that connection. Inside an open transaction, a timeout undoes only that card (see [Savepoints](#savepoints)). Adjust the timeout in [Settings > Query](settings.md#query-pane) to suit your workload.
 
 ## Destructive Query Confirmation
 
@@ -92,7 +167,7 @@ Separately, the Dock icon shows a badge counting how many queries finished while
 
 ## Error Handling
 
-When a query fails, the PostgreSQL error message is displayed in the results area. If the error includes a character position, the editor underlines the location in red to help you find the problem.
+When a query fails, the PostgreSQL error message is displayed in the results area. If the error includes a character position, the card underlines the location in red to help you find the problem.
 
 The first failure you have not read appears as a one-line banner above the results, not as a dialog: the editor stays usable behind it. The banner carries **Go to Error** (move the editor to the failing text), **Details…** (open the full error sheet on that entry) and a close button. If a second failure arrives while the first is still unread, the error sheet opens as before — at that point there is a list to read rather than a single message. Switching editor tabs takes the banner away; the tab's error button still holds every failure.
 

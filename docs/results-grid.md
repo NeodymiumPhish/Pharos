@@ -18,29 +18,30 @@ nav_order: 8
 
 ## Overview
 
-The results grid displays query output in a native table below the SQL editor. It supports type-aware sorting, cell and row selection, inline find with highlighting, [column filters](column-filters.md), and copy/export in multiple formats. Every result lives in its own **result tab**, and any result can be flipped to a [chart](charts.md).
+The results grid displays query output in a native table below the SQL editor. It supports type-aware sorting, cell and row selection, inline find with highlighting, [column filters](column-filters.md), and copy/export in multiple formats. Every result belongs to the [query card](query-editor.md#query-cards) that produced it, and any result can be flipped to a [chart](charts.md).
 
-## Result Tabs
+## Card Results
 
-Each executed statement gets its own result tab, labeled with the statement's line range and the table it touches (e.g., "L1-3: users"), or a preview of the SQL. Each tab's colored dot matches the statement's bar in the editor gutter.
+The results area shows **one card's results at a time**. A header above them shows:
 
-- **Select** a tab to show its result; its source lines are highlighted in the editor, and the tab's grid state (sort, filters, column widths, scroll position, selection) is restored exactly.
-- **Close** a tab with its ✕ button or right-click > **Close**.
-- Right-click > **View SQL Query** shows the exact SQL that produced the result.
-- Right-click > **Rename…** gives the result a name of your own — useful once several tabs read "L4-9: orders" and the line range no longer tells them apart. The name is saved with the result, so [reopening the workspace](query-history.md) brings it back, and the same name appears for that result in the Results History preview list. Leave the field empty to restore the name taken from the query, which then follows the statement again as you edit the SQL.
-- If you edit the SQL a result came from, the tab dims to indicate it is **stale** — the result no longer matches the current editor text. Selecting a stale tab still shows its result, but no longer highlights lines in the editor, because the statement has moved.
+- the card's color swatch;
+- the card's name and version;
+- the metadata of the run: when it ran, how long it took, and how many rows it returned;
+- **Go to Card**, which scrolls the cards to the one these results belong to.
 
-### Where the tabs appear
+The view control at the front of the result action bar is **Grid | Chart | Plan**. **Plan** shows the card's query plan after **Explain** (Cmd+Shift+E) or **Explain Analyze** (Cmd+Opt+Shift+E); see [Explain](query-execution.md#explain).
 
-Two layouts are available, chosen by **Show result tabs in a vertical panel, not a horizontal bar** in [Settings > General](settings.md#general-tab). Only one is ever shown.
+### Choosing whose results are on screen
 
-**Vertical panel (default).** Result tabs list down a panel at the right edge of the editor. Each row shows the colored dot, the label, and the result's size as rows×columns. This is the layout to prefer when you run many statements in one tab: a long list scrolls in place instead of pushing tabs off the edge of the window.
+- Click a card's **View Results** button to show its results. The button then reads **Showing Results · N rows** and is filled. So you can look at one card's results while you type in another.
+- **Ctrl+Tab** / **Ctrl+Shift+Tab** (**View > Show Results of Next Card** / **Show Results of Previous Card**) show the results of the next or previous card that has results.
+- When a run ends, its results take over the results area. Turn off **Show new results automatically** in [Settings > Results](settings.md#results-pane) to keep the results you are looking at.
 
-- Toggle the panel per editor tab with the **Result Tabs** button at the right of the editor toolbar. Your last choice becomes the default for new tabs.
-- Drag the panel's left edge to resize it. The width survives a relaunch. The panel keeps the width you chose while the editor has room to give, down to about 200pt of editor. Below that the panel gives way, but never below its own minimum width. Your chosen width is never overwritten, so it comes back when the window widens.
-- Collapsing the panel hides the result tabs. The grid keeps showing the current result, and a new query still shows its own result.
+Showing a card's results again restores its grid state (sort, filters, column widths, scroll position, selection) exactly.
 
-**Horizontal bar.** Result tabs run along a bar between the action bar and the results grid. With many results the bar scrolls sideways.
+### The result limit
+
+**Results kept per tab** in [Settings > Results](settings.md#results-pane) sets how many cards of one editor tab hold their results in memory. Over the limit, Pharos removes the **oldest results you have not looked at**, and says so. The card stays and says **Results removed**: run it again to get them back.
 
 ## Column Headers
 
@@ -98,7 +99,7 @@ An empty field means the **empty string**. For a **NULL**, right-click the cell 
 
 **Pending marks.** A cell holding an uncommitted change shows the value that *will* be written, with a 2pt accent rule down its leading edge; with **Differentiate Without Color** on, the text is italic as well. A screen reader reads the cell as `edited, was <old value>`. A pending NULL draws as the italic `NULL` the grid already uses.
 
-Nothing is written to the database at this point. Pending changes stay with their result tab, survive sorting, filtering and **Load More**, and are kept when you switch result tabs and come back.
+Nothing is written to the database at this point. Pending changes stay with their card's results, survive sorting, filtering and **Load More**, and are kept when you show another card's results and come back.
 
 **Review Changes.** While anything is pending, a bar above the action bar reads `3 changes in public.users` with two buttons:
 
@@ -110,6 +111,8 @@ Nothing is written to the database at this point. Pending changes stay with thei
 **The rollback rule.** Each row's `UPDATE` must match **exactly one** row. Nought means the row is gone or its key changed; more than one means the key is not unique after all. Either way the **whole transaction is rolled back** and nothing is written, and the message names the row of the request that failed. The `WHERE` clause also carries the value as it was loaded (`AND "email" IS NOT DISTINCT FROM 'old'`), so if someone else changed that column since the query ran, the row matches nothing and the same rollback happens — your changes are kept and you can look again.
 
 After a successful apply the rows are re-read from the server, so what is on screen is what the table holds, including anything a trigger or a default changed on the way in. The write appears in [Query History](query-history.md) like any other statement. There is **no undo** for an applied change.
+
+**In an open transaction.** Cell edits run on the tab's connection when it has one. Edits applied while the tab has a [transaction open](query-execution.md#transactions) become part of that transaction: they are saved when you **Commit**, and a message says so.
 
 ## Find in Results
 
@@ -135,13 +138,13 @@ A long load reports its progress: the bar shows a progress indicator, a running 
 
 ## Empty States
 
-The grid says which kind of empty it is. **No Results** — with a **Run Query** button — means the tab has not run anything yet. **No Rows** means a query did run and returned nothing.
+The grid says which kind of empty it is. **No Results** — with a **Run Query** button — means there are no results to show yet. **No Rows** means a query did run and returned nothing.
 
 ## Pin Results
 
 Click the **pin** button in the action bar to keep the current result visible while you switch editor tabs. The button turns orange and shows the pinned result's name.
 
-The pin releases as soon as you ask the grid to show something else: selecting any result tab, or running a query in any tab. A query that finishes in a **background** tab does not release it — that result is deposited into its own tab without touching the grid, so the pinned rows stay on screen.
+The pin releases as soon as you ask the grid to show something else: showing any card's results, or running a query in any tab. A query that finishes in a **background** tab does not release it — that result stays with its card without touching the grid, so the pinned rows stay on screen.
 
 ## Editor and Results toggles
 

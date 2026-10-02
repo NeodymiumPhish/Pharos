@@ -4700,6 +4700,12 @@ extension ContentViewController {
         cancelAllQueries()
     }
 
+    /// Whether a tab still has a card running or waiting to run (Run All).
+    func hasRunsInProgress(inTab tabId: String) -> Bool {
+        guard let queue = runQueues[tabId] else { return false }
+        return queue.running != nil || !queue.waiting.isEmpty
+    }
+
     @objc func menuRunAllQueries(_: Any?) {
         runAllCards()
     }

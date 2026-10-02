@@ -23,11 +23,11 @@ nav_order: 17
 | Settings… | Cmd+, |
 | Settings: previous pane | Cmd+[ |
 | Settings: next pane | Cmd+] |
-
-The app's own **Settings ▸ Shortcuts** pane lists every one of these at run time, with a search field. To change one, use **System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ App Shortcuts** and enter the menu command's exact title.
 | Hide Pharos | Cmd+H |
 | Hide Others | Cmd+Opt+H |
 | Quit Pharos | Cmd+Q |
+
+The app's own **Settings ▸ Shortcuts** pane lists every one of these at run time, with a search field. To change one, use **System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ App Shortcuts** and enter the menu command's exact title.
 
 ## File
 
@@ -48,11 +48,11 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 
 | Action | Shortcut |
 |--------|----------|
-| Undo | Cmd+Z |
+| Undo (also adding, deleting or renaming a card) | Cmd+Z |
 | Redo | Cmd+Shift+Z |
 | Cut / Copy / Paste | Cmd+X / Cmd+C / Cmd+V |
 | Select All | Cmd+A |
-| Find… | Cmd+F |
+| Find… (all cards of the tab, or the results grid when it has focus) | Cmd+F |
 | Find Next | Cmd+G |
 | Find Previous | Cmd+Shift+G |
 | Use Selection for Find | Cmd+E |
@@ -63,13 +63,17 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 
 | Action | Shortcut |
 |--------|----------|
-| Run Query (statement under cursor) | Cmd+Return |
-| Run All Queries | Cmd+Opt+Return |
+| Run Card (the focused card) | Cmd+Return |
+| Run and Replace Results | Cmd+Shift+Return |
+| Run All Cards | Cmd+Opt+Return |
 | Cancel Query | Cmd+. |
 | Cancel All Queries | Cmd+Opt+. |
 | Explain Query | Cmd+Shift+E |
 | Explain Analyze Query | Cmd+Opt+Shift+E |
 | Format SQL | Ctrl+I |
+| New Card | Ctrl+Cmd+N |
+| Previous Card | Ctrl+Cmd+Up |
+| Next Card | Ctrl+Cmd+Down |
 
 ## View
 
@@ -85,8 +89,8 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 | Show Next Tab | Cmd+Shift+] |
 | Show Previous Tab | Cmd+Shift+[ |
-| Show Next Result Tab | Ctrl+Tab |
-| Show Previous Result Tab | Ctrl+Shift+Tab |
+| Show Results of Next Card | Ctrl+Tab |
+| Show Results of Previous Card | Ctrl+Shift+Tab |
 | Increase Editor Font | Cmd++ |
 | Decrease Editor Font | Cmd+- |
 

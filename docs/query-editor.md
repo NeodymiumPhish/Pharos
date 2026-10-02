@@ -18,13 +18,72 @@ nav_order: 5
 
 ## Overview
 
-The query editor is a native text view providing SQL editing with syntax highlighting, auto-completion, bracket matching, code folding, [query variables](query-variables.md), and multiple tabs. It occupies the top portion of the content area, above the results.
+The query editor provides SQL editing with syntax highlighting, auto-completion, bracket matching, code folding, [query variables](query-variables.md), and multiple tabs. Each editor tab is a stack of **[query cards](#query-cards)**, one statement per card. The editor occupies the top portion of the content area, above the results.
 
 ## Editor Toolbar
 
-The editor toolbar holds: **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…), and — pinned to the right — the **Result Tabs** toggle. The **navigator selector** (a grouped set of four icons over the sidebar), the **connection** pull-down, the **schema** pull-down beside it and the **Run | Cancel** control live in the window toolbar above (see [Query Execution](query-execution.md)); the connection and schema pull-downs both follow the active tab, so the pair reads as "this database, this schema"; choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar holds: **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The **navigator selector** (a grouped set of four icons over the sidebar), the **connection** pull-down, the **schema** pull-down beside it and the **Run | Cancel** control live in the window toolbar above (see [Query Execution](query-execution.md)); the connection and schema pull-downs both follow the active tab, so the pair reads as "this database, this schema"; choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
-The Result Tabs toggle opens a panel docked to the right of the editor text. It remembers its state per editor tab, and your last choice becomes the default for new tabs. [Query variables](query-variables.md) are edited in the sidebar's **Variables** navigator, not in a panel here. The Result Tabs toggle is hidden when [Settings](settings.md#general-tab) is set to show result tabs on a horizontal bar instead. See [Result Tabs](results-grid.md#where-the-tabs-appear).
+[Query variables](query-variables.md) are edited in the sidebar's **Variables** navigator, not in the editor.
+
+## Query Cards
+
+Each editor tab is a stack of query cards. A card holds **one statement** and owns that statement's results. The results area below the editor shows one card's results at a time (see [Results Grid](results-grid.md#card-results)).
+
+### The name row
+
+Each card has a name row above its SQL. From left to right it shows:
+
+- the card's **name** — click it to rename the card inline, or choose **Rename…** from the card's **⋯** menu or its right-click menu. A card with no name reads "Untitled query";
+- a **version chip** (v2, v3…) when the card has [earlier versions](#versions);
+- the **metadata** of its last run: when it ran, how long it took, and how many rows it returned;
+- a large **View Results** button. It reads **Showing Results · N rows**, and is filled, while that card's results are on screen;
+- **Run**, and **Run and Replace Results** (shown only after you edit a card that has results);
+- **Cancel**, while the card runs;
+- the **⋯** menu.
+
+With [Apple Intelligence](apple-intelligence.md#suggest-a-name) on, a card with no name gets a suggested name at its first run. A name you type always wins.
+
+### Size and scrolling
+
+A card grows to fit its text, so you never scroll inside a card vertically: only the stack scrolls. With **Wrap long lines** off (the default, in [Settings > Editor](settings.md#editor-pane)), a long line makes the card scroll sideways on its own.
+
+### Versions
+
+Running a card that has results **after you edited it** keeps the old results:
+
+- The old card is **locked** with its SQL and its results.
+- The edited SQL goes into a **new version card** below it (v2, v3…), and that card runs.
+- Older versions fold into one row above the newest ("2 earlier versions of *name*"). Click the row to show them.
+
+A run with no edit replaces the card's results in place. A failed or cancelled run never locks the card; the next run tries again in place. **Run and Replace Results** (**Cmd+Shift+Return**) replaces the results in place even after an edit, and makes no new version.
+
+"Edited" compares the SQL **after** `{{variable}}` substitution. So a locked card run again with different [variable](query-variables.md) values also makes a new version.
+
+### Adding, moving between and deleting cards
+
+- **New Card** (**Ctrl+Cmd+N**, **Query > New Card**, or the toolbar button) adds a card.
+- **Ctrl+Cmd+Up** / **Ctrl+Cmd+Down** (**Query > Previous Card** / **Next Card**) move the focus to the previous or next card.
+- **Query > Collapse All Cards** / **Expand All Cards**, or the toolbar button, collapses or expands every card.
+- **Cmd+Z** undoes adding, deleting or renaming a card. Because of this, deleting a card asks no confirmation.
+
+Other actions also add a card to the active tab:
+
+- Select part of a card's SQL and press **Cmd+Return**: with **⌘↩ runs** set to **The selection, else the statement** in [Settings > Query](settings.md#query-pane), the selection runs as a new, generated card (see [Running Cards](query-execution.md#running-cards)).
+- **View All Contents** and **View Contents (Limit…)** in the [schema browser](schema-browser.md#table-context-menu), and the drill-down of a server-aggregated [chart](charts.md#committing-a-selection), add a new card.
+- A draft from **Describe the query…** goes into the focused card when it is empty, otherwise into a new card (see [Draft SQL](apple-intelligence.md#draft-sql)).
+
+### Filtering cards
+
+Type in the **Filter Cards** field in the editor toolbar to show only the cards whose name or SQL contains the text. The filter is cleared when you switch tabs.
+
+### Find
+
+With a card focused, **Edit > Find** (**Cmd+F**, **Cmd+G**, **Cmd+Shift+G**, **Cmd+E**) searches **all cards** of the tab, with one find bar at the top of the cards. To find in the results instead, click into the grid first (see [Find in Results](results-grid.md#find-in-results)).
+
+### VoiceOver
+
+A **Query Cards** rotor moves card by card.
 
 ## Syntax Highlighting
 
@@ -60,7 +119,10 @@ Suggestions come from the connected database's schema metadata: schema, table, a
 ## Opening and Saving SQL Files
 
 - **File > Open…** (**Cmd+O**) opens `.sql` or plain-text files in new tabs; you can also double-click SQL files in Finder, drop them on the Dock icon, or **drop them onto the editor** — each file opens in its own new tab. Files over 50 MB prompt before opening.
+- Opening a file splits it into **one card per statement**. A `-- name: X` comment line gives the card below it the name X.
+- psql meta-commands (such as `\set …`) and the data of a `COPY … FROM STDIN` become cards that Pharos shows but does not run.
 - A tab opened from a file stays linked to it: **Cmd+S** writes straight back to the file, and the tab shows a dirty indicator for unsaved edits.
+- Saving writes each card as a `-- name: X` line followed by its statement. Locked [earlier versions](#versions) are kept as comments (`-- version: 1 locked`), so psql runs only the current versions and nothing is lost.
 - **File > Export Query as SQL File…** (**Cmd+Opt+S**) saves any tab's SQL to a new `.sql` file (with [query variables](query-variables.md) rendered into the output).
 
 ## The "Run in Pharos" Service
@@ -78,13 +140,15 @@ Pharos supports multiple editor tabs. The **+** button at the right of the tab b
 | Reopen Closed Tab | Cmd+Shift+T |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 
-Double-click a tab to rename it. Each tab keeps its own SQL text, connection, and results; [query variables](query-variables.md) are shared by every tab. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
+Double-click a tab to rename it. Each tab keeps its own cards, connection, and results, and gets its own [database connection](query-execution.md#one-connection-per-editor-tab); [query variables](query-variables.md) are shared by every tab. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
 
 ## Windows
 
 **File > New Window** (**Cmd+N**) opens a second main window. Each window has its own tabs, its own connection and its own results, so you can put two databases side by side. A new window starts with one empty tab bound to the connection the front window was using; it does not copy that window's tabs.
 
 **Cmd+W** closes the tab, **Cmd+Shift+W** closes the window. Closing a window cancels the queries that window started.
+
+A tab with an open transaction asks before it closes, and so does a window or Pharos itself: **Roll Back and Close** (or **Roll Back and Quit**) or **Cancel**. Pharos always rolls back and never commits for you. See [Transactions](query-execution.md#transactions).
 
 ### Unsaved changes
 
@@ -98,7 +162,7 @@ A tab bound to a saved query or to a file always counts as unsaved once you edit
 
 Windows tab together the way the system does everywhere else. **Window > Merge All Windows** makes one window with a tab for each; **Window > Move Tab to New Window** takes one back out. Whether **Cmd+N** opens a window or a tab follows your own setting in **System Settings > Desktop & Dock > Prefer tabs when opening documents**.
 
-Pharos reopens the windows you left open, each at the size and position you left it, with the same tabs and the same tab selected. Turn this off in [Settings > Query](settings.md) with **Restore open tabs**.
+Pharos reopens the windows you left open, each at the size and position you left it, with the same tabs and the same tab selected. Turn this off in [Settings > General](settings.md#general-pane) with **Restore open tabs**.
 
 ## Indentation
 
@@ -134,14 +198,10 @@ Click the fold indicator in the line-number gutter to collapse or expand a regio
 
 ## Format SQL
 
-Press **Ctrl+I**, choose **Query > Format SQL**, or click the toolbar Format button to format the SQL in the active tab.
-
-## Statements and the Gutter
-
-The editor parses the buffer into individual SQL statements ("segments"). Each statement gets a **coloured band behind its line numbers** in the gutter, spanning exactly the lines it covers, in the same colour as its [result tab](results-grid.md#result-tabs). Hovering a band fades that statement's line numbers out and a **play button** in; clicking the band runs the statement. While a statement runs, its band pulses. See [Query Execution](query-execution.md) for run semantics.
+Press **Ctrl+I**, choose **Query > Format SQL**, or click the toolbar Format button to format the SQL in the focused card.
 
 ## Error Markers
 
-When a query fails with a PostgreSQL error that includes a character position, the editor underlines the error location in red and marks the line in the gutter.
+When a query fails with a PostgreSQL error that includes a character position, the card underlines the error location in red and marks the line in its line-number gutter.
 
 **The message is on the marker.** Hover the gutter marker for a moment — or click it — and a popover opens beside it with the failure text in full, wrapped and selectable, plus a **Go to Error** button that puts the caret on the offending SQL and scrolls it into view. Move the pointer away and the popover closes itself; you have a moment to travel into it and press the button. With VoiceOver, the marker is a control on the line ("Error on line 4") and pressing it opens the same popover.

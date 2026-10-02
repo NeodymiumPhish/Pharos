@@ -34,6 +34,7 @@ final class CardResultsHeaderView: NSView {
         goToCardButton.action = #selector(goToCard)
         goToCardButton.toolTip = String(localized: "Scroll the cards to the one these results belong to")
         goToCardButton.setAccessibilityIdentifier("results.goToCard")
+        goToCardButton.setAccessibilityLabel(String(localized: "Go to Card"))
 
         swatch.translatesAutoresizingMaskIntoConstraints = false
         let row = NSStackView(views: [swatch, titleLabel, metaLabel, NSView(), goToCardButton])

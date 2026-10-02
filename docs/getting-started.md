@@ -59,7 +59,7 @@ Building from source requires Xcode and a Rust toolchain installed via [rustup](
 The Pharos window has three panes:
 
 - **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with four navigators, switched by the grouped selector in the window toolbar above it, level with the window buttons (or from **View > Navigators**, **Cmd+Opt+1/2/3/4**). Pressing the icon that is already selected hides the sidebar; pressing it again brings it back. The four navigators are: **Query Library** (saved queries), **Variables** (the app-wide `{{name}}` values), **Results History** (workspaces and past queries), and **Database Navigator** (the schema browser). A **Filter** field along the BOTTOM of the sidebar narrows whichever navigator is showing — **Cmd+Opt+J** puts the caret in it, and each navigator remembers its own filter text. A **+** pull-down sits beside the field in the Query Library (**New Query**, **New Folder**) and in Variables (**New Variable**).
-- **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid or chart) and its action bar.
+- **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid, chart or plan) and its action bar. Each editor tab is a stack of [query cards](query-editor.md#query-cards), one statement per card.
 - **Inspector** (right, toggle with **Cmd+Opt+I**) — row details, selection statistics, and schema object details. Collapsed by default.
 
 Connections are chosen **per editor tab** from the connection pull-down in the window toolbar — there is no global connection selector.
@@ -82,9 +82,10 @@ Then, in the window toolbar, open the **connection pull-down** and choose your c
 
 ## Running Your First Query
 
-1. Type a query in the editor, for example `SELECT * FROM my_table LIMIT 100;`
-2. Press **Cmd+Return** to run the statement under the cursor
+1. Type a query in the card, for example `SELECT * FROM my_table LIMIT 100;`
+2. Press **Cmd+Return** to run the card
 3. Results appear in the grid below — sort, filter, [chart](charts.md), or [export](data-export.md) them from the action bar
+4. Press **Ctrl+Cmd+N** to add a new card for your next query
 
 ## Next Steps
 

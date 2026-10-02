@@ -18,7 +18,7 @@ nav_order: 13
 
 ## Overview
 
-The **Query Library** is the first navigator of the sidebar (the folder icon of the navigator selector in the window toolbar; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries. `{{name}}` placeholders stay in the saved SQL and are filled from the app-wide [query variables](query-variables.md) whenever the query is run, copied, shared or exported.
+The **Query Library** is the first navigator of the sidebar (the folder icon of the navigator selector in the window toolbar; **View > Navigators > Query Library**, **Cmd+Opt+1**). It holds a persistent library of SQL queries, organized into folders, so you can build and reuse a collection of frequently used queries. A saved query is a whole editor tab of [query cards](query-editor.md#query-cards), with all of their versions. `{{name}}` placeholders stay in the saved SQL and are filled from the app-wide [query variables](query-variables.md) whenever the query is run, copied, shared or exported.
 
 ## An Empty Library
 
@@ -28,6 +28,7 @@ Before you have saved anything, the panel shows **No Saved Queries** — "Save a
 
 - Press **Cmd+S** (**File > Save Query…**). If the tab is already linked to a saved query, it updates in place silently; if the tab is backed by a `.sql` file, the file is written instead; otherwise a save sheet appears asking for a **Name** and a **Folder** ("No Folder", an existing folder, or "New Folder…").
 - **Save As…** in the editor toolbar's Save dropdown always opens the save sheet, creating a new saved query from the current tab.
+- A save keeps every card of the tab, including locked [earlier versions](query-editor.md#versions).
 - Saving with a name that already exists offers **Replace All / Keep Both / Cancel**.
 
 A single click on a query previews its SQL in the [Inspector](inspector.md) (open it with **Cmd+Opt+I**), so you can read a query before opening it; a double-click opens it in a tab.
@@ -40,7 +41,9 @@ Queries can be organized into folders; folders are listed alphabetically, follow
 
 ## Opening a Saved Query
 
-Double-click a saved query to open it in a new editor tab. If it's already open in a tab, Pharos switches to that tab instead of creating a duplicate. Hovering over a query shows a tooltip preview of its SQL.
+Double-click a saved query to open it in a new editor tab, with all of its cards. If it's already open in a tab, Pharos switches to that tab instead of creating a duplicate. Hovering over a query shows a tooltip preview of its SQL.
+
+With **On double-click** set to **Open in a tab and run it** in [Settings > Library & History](settings.md#library--history-pane), the query opens and then runs **Run All Cards**: its cards run in order, one at a time, and the run stops at the first failure.
 
 ## Context Menus
 

@@ -78,6 +78,10 @@ The buttons that write — **Import CSV…**, **Clone Table…** and the results
 grid's inline editing — are refused before they start, with the same sentence,
 so nothing is half-done before the refusal arrives.
 
+On an editor tab's own connection, Pharos also refuses statements that turn
+read-only off, and turns read-only back on if a card manages to turn it off —
+see [Read-only Connections](query-execution.md#read-only-connections).
+
 Two things this is not:
 
 - It is **not** a permission. A read-only connection is a client-side session

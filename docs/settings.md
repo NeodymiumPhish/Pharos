@@ -30,7 +30,7 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its result tabs; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
+| Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit, in the same order and with the same tab active. A tab that had run a query comes back as its [workspace](query-history.md), with its cards and their results; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
 | Restore window positions | On/Off | On | Puts a restored window back where it was. Off still restores the tabs and lets macOS place the window, which is what you want after your displays change. Only applies while **Restore open tabs** is on. |
 | Autosave the session | Every 10 seconds, Every 30 seconds, Every minute, Off | Every 30 seconds | How often the open tabs are written down. **Off still saves at quit**, so turning it off does not lose the session. |
 | Warn before closing unsaved tabs | On/Off | On | Asks before closing a tab, closing a window or quitting Pharos when a tab has edits that have not been written back. **Save** writes each one back to its saved query or its file and then closes; **Don't Save** closes and loses the edits; **Cancel** leaves everything as it was. A tab bound to a [saved query](saved-queries.md) or to a file always counts. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text. An empty tab never counts. Off is exactly what Pharos did before this setting existed: no warning at all. |
@@ -47,7 +47,6 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 | NULL display | NULL, null, (null), — (em dash), ∅ (empty set) | NULL | How NULLs render in the grid and Inspector. |
 | Boolean display | TRUE/FALSE, true/false, t/f, Yes/No, 1/0, ✓/✗ | TRUE/FALSE | How booleans render throughout the app. |
 | NULL style | Italic, Dimmed, Plain | Italic | How a NULL is set apart from a real value in the grid. **Differentiate Without Color** (System Settings ▸ Accessibility ▸ Display) keeps the italic face whatever this says, because a colour-only difference is no difference with that option on. |
-| Show result tabs in a vertical panel | On/Off | On | Lists [result tabs](results-grid.md#result-tabs) down a panel at the right edge of the editor, instead of along a bar above the results grid. The two never show together. |
 | Always show scroll bars | On/Off | Off | Off follows the system's **Show scroll bars** preference (System Settings ▸ Appearance), so the editor and the results grid show scroll bars only while scrolling, or always, as the rest of your Mac does. On pins classic scroll bars on both, so a wide result always shows how much of it is off screen. |
 
 ## Navigator Pane
@@ -93,7 +92,7 @@ the [Results History](query-history.md) navigator.
 |---------|---------|---------|-------------|
 | Default folder | Any folder name, or empty | *(empty)* | The folder the Save Query sheet opens on. Empty opens on **No Folder**, which is what the sheet has always done. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and **New Folder…** still makes one. |
 | Order queries by | Folder, then name; Name; Recently updated | Folder, then name | Folder, then name is the grouped tree with a row per folder, then the unfiled queries. Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden. Recently updated puts the newest first and breaks a tie by name. |
-| On double-click | Open in a tab, Open in a tab and run it | Open in a tab | Open in a tab and run it runs the query as soon as its tab is there. A tab with no connection opens the query and stops. The context menu's **Open in Tab** always just opens, whichever this says. |
+| On double-click | Open in a tab, Open in a tab and run it | Open in a tab | Open in a tab and run it runs the query's cards with **Run All Cards** as soon as its tab is there. A tab with no connection opens the query and stops. The context menu's **Open in Tab** always just opens, whichever this says. |
 
 ### History
 
@@ -126,10 +125,9 @@ before the setting existed, so nothing changes until you touch a control.
 | Indent new lines automatically | On/Off | On | Return copies the leading whitespace of the line you are leaving. |
 | Close brackets automatically | On/Off | On | Typing `(` or `[` also writes the closer, and Backspace over an empty pair takes both away. Typing straight before existing text never pairs. Typing an opener with text selected wraps the selection. |
 | Close quotes automatically | On/Off | On | The same for `'`. An apostrophe typed after a letter is left alone. |
-| Wrap long lines | On/Off | Off | Soft-wrap long lines. |
+| Wrap long lines | On/Off | Off | Soft-wrap long lines. Off, a [query card](query-editor.md#size-and-scrolling) with a long line scrolls sideways on its own. |
 | Show line numbers | On/Off | On | Line numbers in the editor gutter. |
 | Highlight the current line | On/Off | On | A faint wash behind the line holding the caret. The band follows the line as laid out, so a collapsed fold above it never moves it off. |
-| Show run buttons in the gutter | On/Off | On | The band beside each statement, and the play glyph it shows on hover. Off leaves the band unclickable as well as undrawn; **⌘↩** still runs the statement at the cursor. |
 | Allow code folding | On/Off | On | The chevrons that collapse a CTE, a subquery, a `CASE` or a `BEGIN` block. Turning this off opens everything that is folded, so no text stays hidden behind a switch you have just turned off. |
 | Minimum lines to fold | 2–50 | 3 | A shorter region gets no chevron. Used only while code folding is on. |
 
@@ -169,9 +167,9 @@ These three are the only settings the **Format** button reads. They do not touch
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| ⌘↩ runs | The statement at the cursor, The selection else the statement, The whole editor | The statement at the cursor | What **Cmd+Return** sends. The statement at the cursor is what Pharos has always run. With the second, a selection wins and a whitespace-only selection falls back to the statement. **Run All Queries** always runs every statement, whatever this says. |
+| ⌘↩ runs | The statement at the cursor, The selection, else the statement, The whole editor | The statement at the cursor | **Cmd+Return** runs the focused [query card](query-editor.md#query-cards). With **The selection, else the statement**, a selection inside the card runs as a new card below it, and a whitespace-only selection falls back to the whole card. The other two choices run the whole focused card. **Run All Cards** always runs every card, whatever this says. |
 | Row limit | 1–100,000 | 1,000 | Rows returned per query page; use [Load More](query-execution.md#row-limit-and-load-more) for additional pages. |
-| Statement timeout | 1–3,600 seconds | 300 | Maximum time a query may run before PostgreSQL cancels it (applied as `statement_timeout` per query). |
+| Statement timeout | 1–3,600 seconds | 300 | Maximum time a query may run before it is cancelled. On a shared connection it is applied as `statement_timeout` per query; on an editor tab's own connection Pharos keeps it itself, so your own `SET statement_timeout` stays in force. See [Query Timeout](query-execution.md#query-timeout). |
 | Confirm queries that change the database | On/Off | On | Confirmation dialog before destructive [schema browser operations](table-operations.md#destructive-operations) and before running SQL containing DROP, DELETE, TRUNCATE, UPDATE, ALTER, INSERT or GRANT from the editor. |
 | DROP, ALTER, TRUNCATE, DELETE, UPDATE, INSERT, GRANT and REVOKE | On/Off each | On | Which kinds still ask, while the switch above is on. A keyword Pharos learns later always asks until it is given a switch of its own, so a new kind can never run unannounced. These do not affect **Explain Analyze**, which refuses a destructive statement outright rather than confirming it. |
 | When a query fails | Open the error sheet, Show a banner, Post a notification, Say nothing | Open the error sheet | How loudly a failure interrupts. The failure is recorded on its tab whatever this says, and the tab's error badge always opens the full list. |
@@ -250,12 +248,12 @@ engine — a separate path these settings do not reach at all. So a grid showing
 |---------|---------|---------|-------------|
 | Allow editing cells in the grid | On/Off | On | Off makes every result read-only. An [edit](results-grid.md#editing-cells) is never written until you review and apply it, whichever this says. |
 
-### Result tabs
+### Query cards
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Maximum result tabs | 0–50 | 0 | Per editor tab. Reaching the limit closes the oldest result you have not looked at and have not renamed, and says so; a result you have viewed or named is never taken away. 0 keeps them all. |
-| Open new tabs with the result-tabs panel | On/Off | On | The value a *new* editor tab starts from. Toggling the panel in a tab also sets this. Only used while Appearance ▸ **Show result tabs in a vertical panel** is on. |
+| Results kept per tab | 0–50 | 0 | The most [query cards](query-editor.md#query-cards) in one editor tab that hold their results in memory. Over the limit, the oldest results you have not looked at are removed, and Pharos says so. The card stays and says **Results removed**; run it again to get them back. 0 keeps them all. |
+| Show new results automatically | On/Off | On | When a card's run ends, its results take over the results area. Off keeps the results you are looking at; a card's **View Results** button shows its results. See [Card Results](results-grid.md#card-results). |
 
 ## Notifications Pane
 
@@ -290,7 +288,7 @@ one. Nothing here sends anything anywhere.
 | Summarise query plans | On/Off | On | The generated sentence above an `EXPLAIN` result. The plan tree itself is not generated and is always shown. |
 | Suggest charts | On/Off | On | Whether **Suggest chart** asks the model. Off, the button stays and applies the chart Pharos recommends for these columns from the column shapes alone. |
 | Suggest names | On/Off | On | Fills the name field in the **Save Query** sheet and in the two rename dialogs with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
-| Name tabs automatically | On/Off | On | Renames an editor tab still called "Query 1" from its SQL the first time it runs. A tab you have named yourself is never touched. |
+| Name tabs automatically | On/Off | On | Renames an editor tab still called "Query 1" from its SQL the first time it runs, and gives a query card with no name a suggested name at its first run. A tab or card you have named yourself is never touched. |
 
 ### Feedback
 
@@ -389,7 +387,9 @@ certificate — live in the [Connections Manager](connections.md), not here.
 | Application name | Free text | Empty | What Pharos calls itself to the server — the `application_name` column of `pg_stat_activity`, and the name in the server log. Empty sends `Pharos` and the version number. |
 | Time zone | Server default, or any time zone this Mac knows | Server default | The `TimeZone` every session asks for, which is what a `timestamp with time zone` is displayed in. **Server default** leaves the server's own alone, which is what Pharos did before this setting existed. A connection can override it in the Connections Manager. |
 | Search path after the schema | Free text, comma separated | `public` | What follows the chosen schema in `search_path`, so an unqualified name can still find an object outside that schema. Empty means the chosen schema and nothing else. Every element is quoted, so `$user` works the way PostgreSQL writes it. |
-| Idle transaction timeout | 0–86,400 seconds | 30 | `idle_in_transaction_session_timeout`: how long the server lets a transaction of yours sit open and idle before it ends the session, so a forgotten transaction cannot hold locks. 0 turns it off. |
+| Idle transaction timeout | 0–86,400 seconds | 30 | `idle_in_transaction_session_timeout`: how long the server lets a transaction of yours sit open and idle before it ends the session, so a forgotten transaction cannot hold locks. 0 turns it off. An editor tab's own connection uses the row below instead. |
+| Idle transaction timeout for query cards | 0–86,400 seconds | 600 | The same limit for an editor tab's own connection, where a transaction can stay open from one card to the next. When a tab's transaction sits idle this long, the server ends the tab's connection. A banner shows while a tab has a transaction open. 0 turns it off; a forgotten transaction then holds its locks until you commit, roll back or close the tab. See [Transactions](query-execution.md#transactions). |
+| Editor tab connections per server | 0–100 | 8 | Each editor tab that runs a query holds one connection of its own, beside the shared pool. When a server already has this many, a tab's cards run on a shared connection, without session state between cards, and Pharos says so once. 0 = no limit. See [One Connection per Editor Tab](query-execution.md#one-connection-per-editor-tab). |
 
 ### Connection pool
 

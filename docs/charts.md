@@ -18,11 +18,11 @@ nav_order: 10
 
 ## Overview
 
-Any query result can be visualized as a chart without leaving Pharos. Switch a result to Chart view, map columns to chart roles, and Pharos aggregates and renders the data — either from the rows already loaded in the grid, or by pushing an aggregation query down to PostgreSQL to chart the full dataset. Charts support interactive drill-down back into the grid, customizable series colors, image export, and per-tab persistence.
+Any query result can be visualized as a chart without leaving Pharos. Switch a result to Chart view, map columns to chart roles, and Pharos aggregates and renders the data — either from the rows already loaded in the grid, or by pushing an aggregation query down to PostgreSQL to chart the full dataset. Charts support interactive drill-down back into the grid, customizable series colors, image export, and per-card persistence.
 
 ## Switching Between Grid and Chart
 
-Each result tab has a **Grid / Chart** toggle at the front of the result action bar. A new result always opens in Grid view; the chosen view mode is remembered per result tab, so you can keep one result as a chart while another stays a grid.
+The results area has a **Grid | Chart | Plan** control at the front of the result action bar (**Plan** shows a card's query plan; see [Explain](query-execution.md#explain)). A new result always opens in Grid view; the chosen view mode is remembered per [query card](query-editor.md#query-cards), so you can keep one card's results as a chart while another stays a grid.
 
 Chart configuration is saved along with your workspace, so a charted result reopens as the same chart after relaunching Pharos. If the cached rows for an older result are no longer stored, the chart shows a prompt to re-run the query — your column mappings are preserved.
 
@@ -103,11 +103,12 @@ Series colors come from a global default palette, with an optional per-chart ove
 
 ## Client-Side vs Server-Side Aggregation
 
-By default, charts aggregate **the rows currently loaded** in the result tab. If more rows exist than are loaded, an orange banner reports "Charting N of M loaded rows, aggregated client-side" with a **Load all rows** button that fetches the remaining rows into memory (up to 200,000).
+By default, charts aggregate **the rows currently loaded** for the card. If more rows exist than are loaded, an orange banner reports "Charting N of M loaded rows, aggregated client-side" with a **Load all rows** button that fetches the remaining rows into memory (up to 200,000).
 
 For large datasets, enable **Aggregate on server** in the rail's Server aggregation section. Pharos wraps your query in a generated `GROUP BY` statement and runs it on PostgreSQL, so the chart reflects the **full dataset** regardless of how many rows are loaded in the grid.
 
 - Server aggregation requires a single `SELECT` or `WITH` query with a category and value mapped. Gantt charts never aggregate server-side.
+- On a tab with its [own connection](query-execution.md#one-connection-per-editor-tab), the aggregation runs on that connection, so it sees the tab's temporary tables and uncommitted rows, and it never ends or breaks an open transaction.
 - Scatter charts in server mode plot a **deterministic sample** (up to 5,000 points, chosen by a stable hash so re-runs reproduce the same sample) and are flagged as sampled.
 - While the query runs, a banner shows "Running server aggregation…"; on success it reports "Aggregated server-side over the full dataset, as of &lt;time&gt;" (with "truncated" or "sampled" appended when applicable). Errors appear in the same banner.
 - Changing any mapping or bin setting while server mode is on re-runs the aggregation automatically (debounced).
@@ -140,7 +141,7 @@ Clicking a chart stages a selection rather than filtering immediately. Selected 
 The commit button's label describes exactly what will happen:
 
 - **Filter in Grid — …** (client mode) — translates the selection into [column filters](column-filters.md), switches back to Grid view, and shows a **Filtered by chart** chip. Clicking the chip removes the chart filter and restores any manual filters it displaced.
-- **Query Selected Rows — …** (server mode) — spawns a new result tab running your original query wrapped in a `WHERE` clause matching the selection. The query goes through the normal execution path, so it appears in query history and can be re-run independently.
+- **Query Selected Rows — …** (server mode) — adds a new card to the active tab, running your original query wrapped in a `WHERE` clause matching the selection. The query goes through the normal execution path, so it appears in query history and can be re-run independently.
 
 ## Exporting Charts
 

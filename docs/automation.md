@@ -36,7 +36,7 @@ Search for "Pharos" in the Shortcuts app's action list.
 | Action | What it does |
 |---|---|
 | **Open Connection** | Opens a new query tab bound to a saved connection, and connects it. |
-| **Run Saved Query** | Opens a saved query in a tab, runs it, and returns the rows as a CSV file. |
+| **Run Saved Query** | Opens a saved query in a tab, runs its cards in order, and returns the last card's rows as a CSV file. |
 | **New Query Tab** | Opens a new query tab holding the SQL you supply. The query is *not* run. |
 | **Open Saved Query** | Opens a saved query in a tab. The query is *not* run. |
 | **Export Table** | Opens Pharos's export panel for a table, ready for you to choose the format, the columns and the destination. |
@@ -53,8 +53,10 @@ Two actions have spoken phrases:
 
 ### Run Saved Query
 
-The action opens the saved query in a tab and then runs it through the editor's
-own Run command. That matters: your query variables are substituted exactly as
+The action opens the saved query in a tab and then runs all of its cards, in
+order, through the editor's own Run All Cards command. The CSV file holds the
+rows of the last card. If a card fails, Run All stops there and the action
+reports that no result arrived. That matters: your query variables are substituted exactly as
 they are in the editor, and the destructive-SQL confirmation still appears.
 
 {: .warning }
