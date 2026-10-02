@@ -144,6 +144,12 @@ class EditorPaneVC: NSViewController {
         container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
         container.addSubview(cardStack.view)
+        sessionBanner.isHidden = true
+        sessionBanner.onAction = { [weak self] action in self?.sessionBannerAction(action) }
+        container.addSubview(sessionBanner)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(tabSessionDidChange(_:)),
+            name: TabSessionMonitor.didChange, object: nil)
 
         NSLayoutConstraint.activate([
             paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
@@ -307,13 +313,79 @@ class EditorPaneVC: NSViewController {
             self?.formatListButton.isHidden = !offered
         }
         cardStack.validationConnectionId = { [weak self] in self?.session.activeConnectionId }
+        cardStack.validationSchema = { [weak self] in self?.session.activeTab?.schemaName }
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
-        let editorHeight = max(0, view.bounds.height - totalHeaderHeight)
-        cardStack.view.frame = NSRect(x: 0, y: 0, width: view.bounds.width, height: editorHeight)
+        // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via
+        // Auto Layout; the session banner (when shown) directly under them.
+        let bannerHeight = sessionBanner.isHidden ? 0 : TabSessionBanner.height
+        let below = max(0, view.bounds.height - totalHeaderHeight)
+        sessionBanner.frame = NSRect(x: 0, y: below - bannerHeight, width: view.bounds.width, height: bannerHeight)
+        cardStack.view.frame = NSRect(x: 0, y: 0, width: view.bounds.width, height: max(0, below - bannerHeight))
+    }
+
+    // MARK: - Tab session banner
+
+    /// The active tab's connection: an open or failed transaction, or a reset.
+    private let sessionBanner = TabSessionBanner(frame: .zero)
+    /// Ticks once a second while a transaction is shown, for its age and countdown.
+    private var sessionBannerTimer: Timer?
+
+    @objc private func tabSessionDidChange(_ note: Notification) {
+        guard let tabId = note.userInfo?["tabId"] as? String, tabId == session.activeTabId else { return }
+        refreshSessionBanner()
+    }
+
+    func refreshSessionBanner() {
+        let monitor = TabSessionMonitor.shared
+        let state = session.activeTabId.flatMap { tabId in
+            TabSessionBannerModel.state(
+                report: monitor.report(for: tabId), receivedAt: monitor.receivedAt[tabId],
+                pendingReset: monitor.pendingResets[tabId], now: Date())
+        }
+        let wasHidden = sessionBanner.isHidden
+        sessionBanner.apply(state)
+        if wasHidden != sessionBanner.isHidden { view.needsLayout = true }
+        if case .transaction = state {
+            if sessionBannerTimer == nil {
+                let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.refreshSessionBanner() }
+                }
+                timer.tolerance = 0.3
+                RunLoop.main.add(timer, forMode: .common)
+                sessionBannerTimer = timer
+            }
+        } else {
+            sessionBannerTimer?.invalidate()
+            sessionBannerTimer = nil
+        }
+    }
+
+    private func sessionBannerAction(_ action: TabSessionBannerAction) {
+        guard let tabId = session.activeTabId else { return }
+        switch action {
+        case .dismiss:
+            TabSessionMonitor.shared.dismissReset(tabId)
+        case .commit, .rollBack:
+            let commit = action == .commit
+            Task { @MainActor [weak self] in
+                do {
+                    let result = try await PharosCore.sessionEndTransaction(tabId: tabId, commit: commit)
+                    TabSessionMonitor.shared.record(result.session)
+                    if commit && !result.committed, let view = self?.view {
+                        Toast.show(in: view, message: String(localized: "The transaction had failed, so it was rolled back."),
+                                   style: .warning, duration: 4.0)
+                    }
+                } catch {
+                    TabSessionMonitor.shared.refresh(tabId)
+                    if let view = self?.view {
+                        Toast.show(in: view, message: error.localizedDescription, style: .error, duration: 5.0)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - State Observation
@@ -322,6 +394,7 @@ class EditorPaneVC: NSViewController {
 
     private func activeTabIdChanged(_ tabId: String?) {
         refreshTabBar()
+        refreshSessionBanner()
 
         // Detect active tab change (the publisher also fires on a re-select).
         if tabId != lastActiveTabId {
@@ -339,6 +412,11 @@ class EditorPaneVC: NSViewController {
     // MARK: - Tab Switching
 
     private func tabChanged(from oldTabId: String?, to newTabId: String?) {
+        // A filter belongs to the tab it was typed for.
+        if !cardFilterField.stringValue.isEmpty {
+            cardFilterField.stringValue = ""
+            cardStack.filter = ""
+        }
         guard let newTabId,
               let tab = session.tabs.first(where: { $0.id == newTabId }) else {
             cardStack.show(tabId: nil)
@@ -582,6 +660,18 @@ class EditorPaneVC: NSViewController {
         )
         editorToolbar.addSubview(trailingGroup)
 
+        // Filter cards: shows the cards whose name or SQL holds the text
+        // (Apple HIG, Search fields: filter in place, as you type).
+        cardFilterField.placeholderString = String(localized: "Filter Cards")
+        cardFilterField.controlSize = .small
+        cardFilterField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        cardFilterField.sendsSearchStringImmediately = true
+        cardFilterField.target = self
+        cardFilterField.action = #selector(cardFilterChanged(_:))
+        cardFilterField.translatesAutoresizingMaskIntoConstraints = false
+        cardFilterField.setAccessibilityIdentifier("editor.filterCards")
+        editorToolbar.addSubview(cardFilterField)
+
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 24),
             formatButton.heightAnchor.constraint(equalToConstant: 24),
@@ -600,7 +690,19 @@ class EditorPaneVC: NSViewController {
 
             trailingGroup.trailingAnchor.constraint(equalTo: editorToolbar.trailingAnchor, constant: -8),
             trailingGroup.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+
+            cardFilterField.trailingAnchor.constraint(equalTo: trailingGroup.leadingAnchor, constant: -8),
+            cardFilterField.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+            cardFilterField.widthAnchor.constraint(equalToConstant: 160),
+            cardFilterField.leadingAnchor.constraint(greaterThanOrEqualTo: toolbarStack.trailingAnchor, constant: 8),
         ])
+    }
+
+    /// The Filter Cards field.
+    let cardFilterField = NSSearchField()
+
+    @objc private func cardFilterChanged(_ sender: NSSearchField) {
+        cardStack.filter = sender.stringValue
     }
 
     @objc private func showErrors() {

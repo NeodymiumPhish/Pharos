@@ -53,6 +53,9 @@ class SQLEditorController: NSViewController {
 
     /// The connection live validation checks the text against; nil skips it.
     var validationConnectionId: () -> String? = { nil }
+    /// The editor tab whose own connection validation uses when it has one
+    /// open (it knows the tab's temp tables and `search_path`), and its schema.
+    var validationTab: () -> (tabId: String, schema: String?)? = { nil }
 
     /// Current fold regions for code folding.
     private var foldRegions: [SQLFoldRegion] = []
@@ -737,7 +740,13 @@ class SQLEditorController: NSViewController {
         }
 
         do {
-            let result = try await PharosCore.validateSQL(connectionId: connectionId, sql: sql)
+            let result: ValidationResult
+            if let tab = validationTab(),
+               let target = CardExecutor.auxTarget(tabId: tab.tabId, connectionId: connectionId, schema: tab.schema) {
+                result = try await PharosCore.sessionValidateSQL(target, sql: sql)
+            } else {
+                result = try await PharosCore.validateSQL(connectionId: connectionId, sql: sql)
+            }
             await MainActor.run {
                 if let error = result.error, let position = error.position {
                     self.markError(SQLErrorLocation(

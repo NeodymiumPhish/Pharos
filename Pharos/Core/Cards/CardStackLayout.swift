@@ -75,6 +75,23 @@ enum CardStackLayout {
     }
 
     /// The rows that intersect `visible` (a contiguous range, as rows stack).
+    /// The card a VoiceOver rotor moves to: the next (or previous) card after
+    /// `current` whose label holds `filter`; from the start (or end) when
+    /// there is no current card. Nil when there is none.
+    static func rotorTarget(ids: [String], labels: [String: String], current: String?,
+                            forward: Bool, filter: String) -> String? {
+        let needle = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = ids.filter { needle.isEmpty || (labels[$0] ?? "").localizedCaseInsensitiveContains(needle) }
+        guard !matching.isEmpty else { return nil }
+        guard let current, let at = ids.firstIndex(of: current) else {
+            return forward ? matching.first : matching.last
+        }
+        if forward {
+            return ids[(at + 1)...].first { matching.contains($0) }
+        }
+        return ids[..<at].last { matching.contains($0) }
+    }
+
     static func visibleIndices(_ frames: [CGRect], visible: CGRect) -> Range<Int> {
         guard let first = frames.firstIndex(where: { $0.maxY > visible.minY }) else { return 0..<0 }
         let end = frames[first...].firstIndex(where: { $0.minY >= visible.maxY }) ?? frames.count

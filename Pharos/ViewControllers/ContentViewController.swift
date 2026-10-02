@@ -113,6 +113,8 @@ class ContentViewController: NSViewController {
     private var runQueues: [String: CardRunQueue] = [:]
     /// The tab and the card-model ticket of each job that is running.
     private var runningJobs: [String: (tabId: String, ticket: CardRunTicket?)] = [:]
+    /// Tabs already told that their cards run on shared connections.
+    private var poolRouteNoticeTabs: Set<String> = []
 
     /// The activity donated for the active tab's workspace, held so it stays
     /// current until the next tab switch replaces it. `becomeCurrent()` does not
@@ -1563,6 +1565,38 @@ class ContentViewController: NSViewController {
         }
     }
 
+    /// Give a card a name from its SQL the first time it runs, as tabs get
+    /// one. Only a card with no name is touched, checked again when the answer
+    /// lands, so a name the user typed meanwhile always wins. The name goes to
+    /// every version of the card.
+    private func suggestCardNameIfAutomatic(cardId: String, inTab tabId: String, sql: String) {
+        guard ModelAvailability.shared.isAvailable(for: .nameTabsAutomatically) else { return }
+        guard let card = session.tabs.first(where: { $0.id == tabId })?.document.card(cardId),
+              card.name == nil, card.kind == .sql,
+              !nameSuggestionAsked.contains(card.lineageId),
+              !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        nameSuggestionAsked.insert(card.lineageId)
+
+        Task { [weak self] in
+            do {
+                let suggestion = try await NameSuggester().suggest(sql: sql, existingFolders: [], kind: .queryCard)
+                guard let self, !suggestion.title.isEmpty else { return }
+                var applied = false
+                self.session.updateTab(id: tabId) {
+                    applied = $0.document.applySuggestedName(suggestion.title, to: cardId)
+                }
+                if applied {
+                    self.applyCardNameToHistory(cardId: cardId, inTab: tabId)
+                    if self.editorPane.showsTab(tabId) { self.editorPane.refreshCards() }
+                    self.updateResultsHeader()
+                }
+            } catch {
+                Log.intelligence.error(
+                    "Card name suggestion failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     // MARK: - Query Execution
 
     /// True when the active tab has a connected connection — the precondition
@@ -1754,6 +1788,14 @@ class ContentViewController: NSViewController {
         sendCardRun(ticket, jobId: job.id, sql: sql, tabId: tabId, connectionId: connectionId)
     }
 
+    /// Say once per tab that its cards run on shared connections (the server
+    /// has its share of tab connections, or cannot hold one).
+    private func noteRunRoute(_ route: CardRunRoute, tabId: String) {
+        guard case let .pool(reason?) = route, !poolRouteNoticeTabs.contains(tabId) else { return }
+        poolRouteNoticeTabs.insert(tabId)
+        Toast.show(in: view, message: reason, style: .warning, duration: 6.0)
+    }
+
     /// Send a card's rendered SQL and apply what comes back.
     private func sendCardRun(_ ticket: CardRunTicket, jobId: String, sql: String, tabId: String, connectionId: String) {
         guard let tab = session.tabs.first(where: { $0.id == tabId }),
@@ -1789,10 +1831,15 @@ class ContentViewController: NSViewController {
             let signpost = Log.signposter.beginInterval("execute", id: Log.signposter.makeSignpostID())
             defer { Log.signposter.endInterval("execute", signpost) }
             do {
+                // The tab's own connection: SET, temp tables and transactions
+                // carry from card to card. The pool only when the tab cannot
+                // have one.
+                let target = TabSessionTarget(sessionId: tabId, connectionId: connectionId, schema: tabSchema, queryId: queryId)
                 if isSelectLike {
-                    let result = try await PharosCore.executeQuery(
-                        connectionId: connectionId, sql: sql, queryId: queryId, limit: limit, schema: tabSchema)
+                    let outcome = try await CardExecutor.query(target: target, sql: sql, limit: limit)
+                    let result = outcome.result
                     await MainActor.run {
+                        self.noteRunRoute(outcome.route, tabId: tabId)
                         var cr = CardResult(cardId: ticket.cardId, runId: ticket.runId, sql: sql, rawSQL: ticket.rawSQL)
                         cr.queryResult = result
                         cr.executionTimeMs = result.executionTimeMs
@@ -1806,9 +1853,10 @@ class ContentViewController: NSViewController {
                             outcome: .select(rowCount: result.rowCount), durationMs: result.executionTimeMs)
                     }
                 } else {
-                    let result = try await PharosCore.executeStatement(
-                        connectionId: connectionId, sql: sql, queryId: queryId, schema: tabSchema)
+                    let outcome = try await CardExecutor.statement(target: target, sql: sql)
+                    let result = outcome.result
                     await MainActor.run {
+                        self.noteRunRoute(outcome.route, tabId: tabId)
                         var cr = CardResult(cardId: ticket.cardId, runId: ticket.runId, sql: sql, rawSQL: ticket.rawSQL)
                         cr.executeResult = result
                         cr.executionTimeMs = result.executionTimeMs
@@ -1902,6 +1950,7 @@ class ContentViewController: NSViewController {
         // Every successful run arrives here — foreground and background — so
         // this is the one place a tab's first run can be seen.
         suggestEditorTabNameIfAutomatic(forEditorTab: tabId, sql: result.sql)
+        suggestCardNameIfAutomatic(cardId: ownerId, inTab: tabId, sql: result.rawSQL)
 
         if let wsId = workspaceId, let hid = result.historyResultId {
             captureExecutedResult(historyId: hid, editorTabId: tabId, workspaceId: wsId, cardId: ownerId)
@@ -2022,10 +2071,26 @@ class ContentViewController: NSViewController {
 
         let tabId = activeTab.id
         let rawSQL = card.sql
+        let tabSchema = activeTab.schemaName
 
         Task {
             do {
-                let json = try await PharosCore.explainQuery(connectionId: connectionId, sql: sql, analyze: analyze)
+                // On the tab's own connection when it has one: the plan then
+                // sees its temp tables and settings, and an open transaction
+                // stays open (ANALYZE is undone to a savepoint).
+                let json: String
+                if let target = await CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
+                    do {
+                        let r = try await PharosCore.sessionExplain(target, sql: sql, analyze: analyze)
+                        await TabSessionMonitor.shared.record(r.session)
+                        json = r.plan
+                    } catch {
+                        await TabSessionMonitor.shared.refresh(tabId)
+                        throw error
+                    }
+                } else {
+                    json = try await PharosCore.explainQuery(connectionId: connectionId, sql: sql, analyze: analyze)
+                }
                 let plan = try QueryPlan(json: json)
                 await MainActor.run {
                     guard self.session.tabs.contains(where: { $0.id == tabId }) else { return }
@@ -2370,21 +2435,27 @@ class ContentViewController: NSViewController {
             let name = AuthoredLabelSanitizer.sanitized(field.stringValue).trimmingCharacters(in: .whitespacesAndNewlines)
             self.applyCardName(name.isEmpty ? nil : name, to: cardId, inTab: tabId)
         }
-        suggestName(into: field, of: alert, sql: card.sql, kind: .resultTab)
+        suggestName(into: field, of: alert, sql: card.sql, kind: .queryCard)
     }
 
     /// Set (or clear) a card's name, and write it to the history rows of
     /// every version that has one, so Results History shows the name too.
     private func applyCardName(_ name: String?, to cardId: String, inTab tabId: String) {
-        var lineageCards: [QueryCard] = []
         session.updateTab(id: tabId) { tab in
             tab.document.rename(cardId: cardId, name: name)
             tab.isDirty = true
-            if let lineage = tab.document.card(cardId)?.lineageId {
-                lineageCards = tab.document.cards.filter { $0.lineageId == lineage }
-            }
         }
         refreshCardResultsUI()
+        applyCardNameToHistory(cardId: cardId, inTab: tabId)
+    }
+
+    /// Write the card's current name to the history rows of every version
+    /// that has one, so Results History shows it too.
+    private func applyCardNameToHistory(cardId: String, inTab tabId: String) {
+        guard let document = session.tabs.first(where: { $0.id == tabId })?.document,
+              let lineage = document.card(cardId)?.lineageId else { return }
+        let lineageCards = document.cards.filter { $0.lineageId == lineage }
+        let name = lineageCards.first?.name
         for card in lineageCards {
             guard let historyResultId = session.resultStore[tabId].result(forCard: card.id)?.historyResultId
                     ?? card.lastRun?.historyResultId else { continue }
@@ -2500,18 +2571,33 @@ class ContentViewController: NSViewController {
         let offset = Int64(existingResult.rows.count)
         let limit = Int64(stateManager.settings.query.defaultLimit)
         let tabSchema = tab.schemaName
+        let tabId = tab.id
 
         resultsVC.setLoadingMore(true)
 
         Task {
             do {
-                let moreResult = try await PharosCore.fetchMoreRows(
-                    connectionId: connectionId,
-                    sql: trimmedSQL,
-                    limit: limit,
-                    offset: offset,
-                    schema: tabSchema
-                )
+                // The next page comes from the connection the card ran on:
+                // the tab's own, which sees its temp tables and uncommitted rows.
+                let moreResult: QueryResult
+                if let target = await CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
+                    do {
+                        let r = try await PharosCore.sessionFetchMoreRows(target, sql: trimmedSQL, limit: limit, offset: offset)
+                        await TabSessionMonitor.shared.record(r.session)
+                        moreResult = r.payload
+                    } catch {
+                        await TabSessionMonitor.shared.refresh(tabId)
+                        throw error
+                    }
+                } else {
+                    moreResult = try await PharosCore.fetchMoreRows(
+                        connectionId: connectionId,
+                        sql: trimmedSQL,
+                        limit: limit,
+                        offset: offset,
+                        schema: tabSchema
+                    )
+                }
                 await MainActor.run {
                     let merged = QueryResult(
                         columns: existingResult.columns,
@@ -2702,6 +2788,15 @@ class ContentViewController: NSViewController {
     /// handled inside AppStateManager.closeTab via the queriesWillBeCancelled
     /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
     func closeTab(id: String) {
+        // First the tab's open transaction, which closing rolls back; then
+        // its unsaved text. Cancel at either leaves the tab as it was.
+        confirmRollingBack(tabsWithOpenTransaction(among: [id]), action: .closeTab) { [weak self] proceed in
+            guard let self, proceed else { return }
+            self.closeTabAskingAboutUnsavedWork(id: id)
+        }
+    }
+
+    private func closeTabAskingAboutUnsavedWork(id: String) {
         // Plan §5.2 L: ask before the tab takes an unsaved edit with it.
         // Nothing below runs until the answer is in — Cancel leaves the tab
         // exactly as it was.
@@ -2965,9 +3060,27 @@ class ContentViewController: NSViewController {
                        style: .warning)
             return
         }
+        let editorTabId = resultTabId.flatMap { session.resultStore.editorTabId(forCard: $0) } ?? tab.id
         Task {
             do {
-                let result = try await PharosCore.applyRowUpdates(connectionId: connectionId, request: request)
+                // On the tab's own connection when it has one: in its open
+                // transaction the edit joins that transaction (saved at Commit)
+                // instead of waiting on the rows the transaction has locked.
+                let result: RowUpdateResult
+                var joinedTransaction = false
+                if let target = await CardExecutor.auxTarget(tabId: editorTabId, connectionId: connectionId, schema: tab.schemaName) {
+                    do {
+                        let r = try await PharosCore.sessionApplyRowUpdates(target, request: request)
+                        await TabSessionMonitor.shared.record(r.session)
+                        result = r.result
+                        joinedTransaction = r.inTransaction
+                    } catch {
+                        await TabSessionMonitor.shared.refresh(editorTabId)
+                        throw error
+                    }
+                } else {
+                    result = try await PharosCore.applyRowUpdates(connectionId: connectionId, request: request)
+                }
                 await MainActor.run {
                     Log.query.info("Applied row updates: \(result.rowsUpdated, privacy: .public) rows")
                     self.resultsVC.pendingEdits.removeAll()
@@ -2978,8 +3091,11 @@ class ContentViewController: NSViewController {
                     // The core records the write in query history like any
                     // other statement, so the history list has to hear about it.
                     NotificationCoalescer.post(.queryHistoryDidChange)
+                    let applied = String(localized: "Applied \(CountedNounText.phrase(result.rowsUpdated, "row")) in \(DurationText.short(milliseconds: result.executionTimeMs))")
                     Toast.show(in: self.view,
-                               message: String(localized: "Applied \(CountedNounText.phrase(result.rowsUpdated, "row")) in \(DurationText.short(milliseconds: result.executionTimeMs))"),
+                               message: joinedTransaction
+                                   ? applied + " " + String(localized: "They are saved when you commit the tab's transaction.")
+                                   : applied,
                                style: .success)
                     self.reloadResultTabAfterEdit(resultTabId)
                 }
@@ -3023,9 +3139,22 @@ class ContentViewController: NSViewController {
         let limit = Int32(clamping: max(Int(stateManager.settings.query.defaultLimit), current.rows.count))
         let schema = editorTab.schemaName
         Task {
-            guard let refreshed = try? await PharosCore.executeQuery(
-                connectionId: connectionId, sql: sql, limit: limit, schema: schema,
-                source: "row-edit-refresh") else { return }
+            // Re-read on the connection that wrote: in an open transaction only
+            // the tab's own connection sees the new values.
+            let refreshed: QueryResult
+            if let target = await CardExecutor.auxTarget(tabId: editorTabId, connectionId: connectionId, schema: schema) {
+                guard let r = try? await PharosCore.sessionExecuteQuery(target, sql: sql, limit: limit, aux: true) else {
+                    await TabSessionMonitor.shared.refresh(editorTabId)
+                    return
+                }
+                await TabSessionMonitor.shared.record(r.session)
+                refreshed = r.payload
+            } else {
+                guard let r = try? await PharosCore.executeQuery(
+                    connectionId: connectionId, sql: sql, limit: limit, schema: schema,
+                    source: "row-edit-refresh") else { return }
+                refreshed = r
+            }
             await MainActor.run {
                 self.session.resultStore.mutateResult(cardId: resultTabId) { $0.queryResult = refreshed }
                 guard self.session.pinnedResult == nil,
@@ -3755,6 +3884,7 @@ extension ContentViewController {
         chartHost.setServerLoading(true)
 
         let schema = editorTab.schemaName
+        let editorTabId = editorTab.id
         // Pass limit ≥ the generator's group cap so groups aren't silently paged
         // off by executeQuery's own page limit; hasMore then means truncation.
         let cap = max(SqlPushdownGenerator.groupCap, SqlPushdownGenerator.scatterSampleCap)
@@ -3765,10 +3895,26 @@ extension ContentViewController {
 
         Task {
             do {
-                let qr = try await PharosCore.executeQuery(
-                    connectionId: connectionId, sql: sql, queryId: queryId,
-                    limit: limit, schema: schema, source: "chart-aggregation"
-                )
+                // On the tab's own connection when it has one, so the
+                // aggregation sees what the card saw (temp tables, open
+                // transaction); it runs inside a savepoint there.
+                let qr: QueryResult
+                if let target = await CardExecutor.auxTarget(
+                    tabId: editorTabId, connectionId: connectionId, schema: schema, queryId: queryId) {
+                    do {
+                        let r = try await PharosCore.sessionExecuteQuery(target, sql: sql, limit: limit, aux: true)
+                        await TabSessionMonitor.shared.record(r.session)
+                        qr = r.payload
+                    } catch {
+                        await TabSessionMonitor.shared.refresh(editorTabId)
+                        throw error
+                    }
+                } else {
+                    qr = try await PharosCore.executeQuery(
+                        connectionId: connectionId, sql: sql, queryId: queryId,
+                        limit: limit, schema: schema, source: "chart-aggregation"
+                    )
+                }
                 await MainActor.run {
                     // Last-write-wins: ignore a result whose run was superseded.
                     guard self.chartServerQueryId == queryId else { return }
@@ -4144,9 +4290,24 @@ extension ContentViewController {
         Task {
             let outcome: Result<QueryResult, Error>
             do {
-                outcome = .success(try await PharosCore.fetchAllRows(
-                    connectionId: connectionId, sql: sql, queryId: queryId,
-                    maxRows: Int64(cap), schema: schema, onProgress: onProgress))
+                // One snapshot on the connection the card ran on (the tab's
+                // own when it has one), inside a savepoint in its transaction.
+                if let target = await CardExecutor.auxTarget(
+                    tabId: editorTabId, connectionId: connectionId, schema: schema, queryId: queryId) {
+                    do {
+                        let r = try await PharosCore.sessionFetchAllRows(
+                            target, sql: sql, maxRows: Int64(cap), onProgress: onProgress)
+                        await TabSessionMonitor.shared.record(r.session)
+                        outcome = .success(r.payload)
+                    } catch {
+                        await TabSessionMonitor.shared.refresh(editorTabId)
+                        throw error
+                    }
+                } else {
+                    outcome = .success(try await PharosCore.fetchAllRows(
+                        connectionId: connectionId, sql: sql, queryId: queryId,
+                        maxRows: Int64(cap), schema: schema, onProgress: onProgress))
+                }
             } catch {
                 outcome = .failure(error)
             }
@@ -4582,7 +4743,15 @@ extension ContentViewController {
 
     @objc func menuDisconnect(_: Any?) {
         guard let id = session.activeTab?.connectionId else { return }
-        stateManager.disconnect(id: id)
+        // Disconnecting closes every tab connection on this server, in every
+        // window, rolling back their open transactions: ask first.
+        let open = stateManager.sessions.flatMap(\.tabs).filter {
+            $0.connectionId == id && TabSessionMonitor.shared.hasOpenTransaction($0.id)
+        }
+        confirmRollingBack(open, action: .disconnect) { [weak self] proceed in
+            guard proceed else { return }
+            self?.stateManager.disconnect(id: id)
+        }
     }
 
     @objc func menuRefreshMetadata(_: Any?) {

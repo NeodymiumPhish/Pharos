@@ -16,6 +16,23 @@ protocol SQLTextViewCompletionDelegate: AnyObject {
 
 /// NSTextView subclass with SQL syntax highlighting via shared SQLLexer state map.
 class SQLTextView: NSTextView {
+    /// Set by a host that finds across several text views (the query cards):
+    /// Edit ▸ Find then goes to the host's find bar instead of this view's.
+    /// Returns false when the host does not take the action.
+    var textFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
+    /// Whether the host's find bar can take an action now (menu validation).
+    var textFinderActionValidator: ((NSTextFinder.Action) -> Bool)?
+
+    override func performTextFinderAction(_ sender: Any?) {
+        if let handler = textFinderActionHandler,
+           let tag = (sender as? NSValidatedUserInterfaceItem)?.tag ?? (sender as? NSControl)?.tag,
+           let action = NSTextFinder.Action(rawValue: tag),
+           handler(action) {
+            return
+        }
+        super.performTextFinderAction(sender)
+    }
+
 
     weak var completionDelegate: SQLTextViewCompletionDelegate?
 
@@ -202,6 +219,10 @@ class SQLTextView: NSTextView {
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(SQLTextView.undo(_:)) { return editorUndoManager.canUndo }
         if item.action == #selector(SQLTextView.redo(_:)) { return editorUndoManager.canRedo }
+        if item.action == #selector(NSResponder.performTextFinderAction(_:)), let validate = textFinderActionValidator,
+           let action = NSTextFinder.Action(rawValue: item.tag) {
+            return validate(action)
+        }
         return super.validateUserInterfaceItem(item)
     }
 

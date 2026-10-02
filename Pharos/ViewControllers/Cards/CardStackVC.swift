@@ -45,6 +45,8 @@ final class CardStackVC: NSViewController {
     var onClearResults: ((_ cardId: String) -> Void)?
     var onListPasteOffer: ((_ offered: Bool) -> Void)?
     var validationConnectionId: () -> String? = { nil }
+    /// The schema the tab's toolbar pull-down shows, for validation on the tab's connection.
+    var validationSchema: () -> String? = { nil }
 
     let completionProvider: SQLCompletionProvider
 
@@ -94,6 +96,9 @@ final class CardStackVC: NSViewController {
         scrollView.documentView = documentView
         scrollView.setAccessibilityIdentifier("editor.cards")
         scrollView.setAccessibilityLabel(String(localized: "Query cards"))
+        // VO-U lists the cards; moving through them reads each card's label.
+        let rotor = NSAccessibilityCustomRotor(label: String(localized: "Query Cards"), itemSearchDelegate: self)
+        scrollView.setAccessibilityCustomRotors([rotor])
         documentView.addSubview(addButton)
         view = scrollView
 
@@ -182,6 +187,7 @@ final class CardStackVC: NSViewController {
         addButton.isHidden = !items.contains(.addCard)
         refreshStatus()
         relayout(anchor: anchor)
+        findTextChanged()
     }
 
     // MARK: - Name rows
@@ -364,7 +370,15 @@ final class CardStackVC: NSViewController {
         editor.setCursorPosition(card.cursorPosition)
         editor.setVariableNames(variableNames)
         editor.setCompletionVariables(completionVariables)
+        // One find bar for the whole stack, not one per card.
+        editor.textView.usesFindBar = false
+        editor.textView.textFinderActionHandler = { [weak self] action in self?.performFind(action) ?? false }
+        editor.textView.textFinderActionValidator = { [weak self] action in self?.canPerformFind(action) ?? false }
         editor.validationConnectionId = { [weak self] in self?.validationConnectionId() }
+        editor.validationTab = { [weak self] in
+            guard let self, let tabId = self.tabId else { return nil }
+            return (tabId, self.validationSchema())
+        }
         editor.textView.isEditable = !card.isLocked
         let id = card.id
         editor.onTextEdited = { [weak self] cardId, text in
@@ -372,6 +386,7 @@ final class CardStackVC: NSViewController {
             var accepted = false
             self.mutate { doc in accepted = doc.updateSQL(cardId: cardId, text) }
             guard accepted else { return }
+            self.findTextChanged()
             self.onTextEdited?(cardId, text)
             self.refreshStatus(only: [cardId])
         }
@@ -620,6 +635,88 @@ final class CardStackVC: NSViewController {
         documentView.scrollToVisible(inDoc.insetBy(dx: 0, dy: -24))
     }
 
+    // MARK: - Find across cards
+
+    private lazy var finderClient = CardStackFinderClient(stack: self)
+    private lazy var textFinder: NSTextFinder = {
+        let finder = NSTextFinder()
+        finder.client = finderClient
+        finder.findBarContainer = scrollView
+        finder.isIncrementalSearchingEnabled = true
+        finder.incrementalSearchingShouldDimContentView = false
+        return finder
+    }()
+    private var finderUsed = false
+
+    /// Edit ▸ Find on the stack. Returns false when the action does not apply.
+    @discardableResult
+    func performFind(_ action: NSTextFinder.Action) -> Bool {
+        guard isViewLoaded, textFinder.validateAction(action) else { return false }
+        finderUsed = true
+        textFinder.performAction(action)
+        return true
+    }
+
+    func canPerformFind(_ action: NSTextFinder.Action) -> Bool {
+        isViewLoaded && textFinder.validateAction(action)
+    }
+
+    /// The cards' text or their order changed: the finder searches anew.
+    private func findTextChanged() {
+        guard finderUsed else { return }
+        finderClient.invalidate()
+        textFinder.noteClientStringWillChange()
+    }
+
+    /// The cards find searches: the laid-out, unfolded cards, in stack order.
+    func findableCards() -> [(id: String, sql: String)] {
+        guard let doc = document() else { return [] }
+        return items.compactMap { item in
+            guard case let .card(id) = item, let card = doc.card(id), !card.isCollapsed else { return nil }
+            return (id, card.sql)
+        }
+    }
+
+    /// The cards at least partly on screen.
+    func visibleCardIds() -> [String] {
+        let visible = scrollView.contentView.bounds
+        return CardStackLayout.visibleIndices(frames, visible: visible).compactMap { i in
+            guard i < items.count, case let .card(id) = items[i] else { return nil }
+            return id
+        }
+    }
+
+    /// The focused card's selection, in its own terms.
+    func focusedSelection() -> (cardId: String, range: NSRange)? {
+        guard let id = document()?.focusedCardId, let editor = editors[id] else { return nil }
+        return (id, editor.textView.selectedRange())
+    }
+
+    /// Select a match in its card and make that card the focused one, while
+    /// the keyboard stays in the find bar.
+    func selectMatch(cardId: String, range: NSRange) {
+        guard let editor = editor(for: cardId) else { return }
+        editor.textView.setSelectedRange(range)
+        if document()?.focusedCardId != cardId {
+            mutate { doc in doc.focusedCardId = cardId }
+            refreshStatus()
+            onFocusChanged?(cardId)
+        }
+    }
+
+    /// Scroll a match into view.
+    func revealMatch(cardId: String, range: NSRange) {
+        guard let editor = editor(for: cardId), let card = cardViews[cardId] else { return }
+        relayout(anchor: nil)
+        let textView = editor.textView
+        guard let rect = textView.findRects(forCharacterRange: range).first?.rectValue else {
+            scrollToCard(cardId)
+            return
+        }
+        let inDoc = documentView.convert(card.convert(rect, from: textView), from: card)
+        documentView.scrollToVisible(inDoc.insetBy(dx: 0, dy: -24))
+    }
+
     // MARK: - Variables
 
     func setVariables(names: Set<String>, completion: [QueryVariable]) {
@@ -649,4 +746,28 @@ final class ClosureMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     @objc private func fire() { handler() }
+}
+
+// MARK: - VoiceOver rotor
+
+extension CardStackVC: NSAccessibilityCustomRotorItemSearchDelegate {
+    nonisolated func rotor(_ rotor: NSAccessibilityCustomRotor,
+                           resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        MainActor.assumeIsolated {
+            let ids = items.compactMap { item -> String? in
+                if case let .card(id) = item { return id } else { return nil }
+            }
+            var labels: [String: String] = [:]
+            for id in ids { labels[id] = cardViews[id]?.accessibilityLabel() ?? "" }
+            let current = (searchParameters.currentItem?.targetElement as? CardView)?.cardId
+            guard let target = CardStackLayout.rotorTarget(
+                ids: ids, labels: labels, current: current,
+                forward: searchParameters.searchDirection == .next, filter: searchParameters.filterString),
+                  let view = cardViews[target] else { return nil }
+            scrollToCard(target)
+            let result = NSAccessibilityCustomRotor.ItemResult(targetElement: view)
+            result.customLabel = labels[target]
+            return result
+        }
+    }
 }

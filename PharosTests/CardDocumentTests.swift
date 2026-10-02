@@ -192,6 +192,13 @@ private func testRenameDeleteRestore() {
     expect(d.card(a)?.name == "Totals" && d.card(b)?.name == "Totals", "rename: every version of the query takes the trimmed name")
     expect(d.rename(cardId: b, name: "   ") && d.card(a)?.name == nil, "rename: a blank name clears it")
 
+    // A suggested name lands only on a query nobody has named.
+    expect(d.applySuggestedName(" Active users ", to: b) && d.card(a)?.name == "Active users" && d.card(b)?.nameIsSuggested == true,
+           "suggest: an unnamed query takes the suggestion on every version")
+    _ = d.rename(cardId: a, name: "Mine")
+    expect(!d.applySuggestedName("Other", to: b) && d.card(b)?.name == "Mine" && d.card(b)?.nameIsSuggested == false,
+           "suggest: a name the user gave always wins")
+
     let c = d.insertCard(after: b, sql: "SELECT 3")
     guard let removed = d.deleteCard(cardId: b) else { expect(false, "delete: returns the card"); return }
     expect(removed.index == 1 && d.cards.map(\.id) == [a, c], "delete: the card goes, its place is reported")

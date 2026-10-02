@@ -179,6 +179,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // at once, and both of the other answers go on to
         // `proceedWithTermination()`, whose watchdog replies true even if the
         // core wedges. That is what keeps `.terminateLater` from hanging.
+        // Open transactions in the tabs' own connections: quitting rolls them
+        // back, so that is asked before anything else.
+        let openTabs = windowControllers.flatMap { $0.splitViewController.contentVC.tabsWithOpenTransaction() }
+        if !openTabs.isEmpty, let asker = windowControllers.first(where: {
+            !$0.splitViewController.contentVC.tabsWithOpenTransaction().isEmpty
+        }) {
+            asker.window?.makeKeyAndOrderFront(nil)
+            asker.splitViewController.contentVC.confirmRollingBack(openTabs, action: .quit) { proceed in
+                guard proceed else {
+                    NSApp.reply(toApplicationShouldTerminate: false)
+                    return
+                }
+                self.continueTerminationAskingAboutUnsavedWork()
+            }
+            return .terminateLater
+        }
+        continueTerminationAskingAboutUnsavedWork()
+        return .terminateLater
+    }
+
+    /// The rest of `applicationShouldTerminate`, after the open-transaction
+    /// question. Ends in exactly one reply, like the method it continues.
+    @MainActor
+    private func continueTerminationAskingAboutUnsavedWork() {
         let pending = windowControllers.filter {
             !$0.splitViewController.contentVC.unsavedWorkTabs.isEmpty
         }
@@ -190,11 +214,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     NSApp.reply(toApplicationShouldTerminate: false)
                 }
             }
-            return .terminateLater
+            return
         }
 
         proceedWithTermination()
-        return .terminateLater
     }
 
     /// Ask each window in turn about its own unsaved tabs, stopping at the

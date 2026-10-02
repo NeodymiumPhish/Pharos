@@ -14,6 +14,9 @@ struct WindowSessionHooks {
     var defaultSchema: (String) -> String? = { _ in nil }
     /// Cancel every in-flight query of these tabs and tell observers.
     var cancelQueries: ([QueryTab]) -> Void = { _ in }
+    /// These tabs are gone: close their own database connections (rolling
+    /// back; the user was asked first).
+    var tabsDidClose: ([String]) -> Void = { _ in }
     /// The window's tab set or active tab changed: the stored session is stale.
     var markDirty: () -> Void = {}
     /// The window's active connection changed. Tags are global and load lazily.
@@ -243,6 +246,7 @@ final class WindowSession: ObservableObject {
         }
 
         tabs.remove(at: idx)
+        hooks.tabsDidClose([id])
         if pinnedTabId == id { unpinResults() }
 
         if tabs.isEmpty {
@@ -262,6 +266,7 @@ final class WindowSession: ObservableObject {
             closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
         }
         tabs = tabs.filter { $0.id == id }
+        hooks.tabsDidClose(others.map(\.id))
         activeTabId = id
     }
 
@@ -275,6 +280,7 @@ final class WindowSession: ObservableObject {
             closedTabHistory = Array(closedTabHistory.suffix(maxClosedHistory))
         }
         tabs = Array(tabs[...idx])
+        hooks.tabsDidClose(closing.map(\.id))
 
         if let activeId = activeTabId, closing.contains(where: { $0.id == activeId }) {
             activeTabId = id
@@ -308,5 +314,6 @@ final class WindowSession: ObservableObject {
     /// closes: a query belongs to the session that started it.
     func cancelAllRunningQueries() {
         hooks.cancelQueries(tabs.filter { !$0.runningQueries.isEmpty })
+        hooks.tabsDidClose(tabs.map(\.id))
     }
 }

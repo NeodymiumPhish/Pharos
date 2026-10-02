@@ -121,4 +121,36 @@ extension ContentViewController {
             self.saveEach(rest, then: then)
         }
     }
+    // MARK: - Open transactions
+
+    /// The tabs of this window (or among `tabIds`) whose own connection holds
+    /// an open transaction.
+    func tabsWithOpenTransaction(among tabIds: [String]? = nil) -> [QueryTab] {
+        let ids = Set(tabIds ?? session.tabs.map(\.id))
+        return session.tabs.filter { ids.contains($0.id) && TabSessionMonitor.shared.hasOpenTransaction($0.id) }
+    }
+
+    /// Ask before `action` rolls back these tabs' open transactions.
+    /// `then(true)` means go ahead; an empty list answers at once.
+    func confirmRollingBack(_ tabs: [QueryTab], action: OpenTransactionWarning.Action,
+                            then: @escaping (Bool) -> Void) {
+        guard !tabs.isEmpty else { then(true); return }
+        let names = tabs.map(\.name)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = OpenTransactionWarning.title(tabNames: names, action: action)
+        alert.informativeText = OpenTransactionWarning.message(tabNames: names, action: action)
+        alert.addButton(withTitle: action.buttonTitle)
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.buttons[0].hasDestructiveAction = true
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            then(response == .alertFirstButtonReturn)
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
+        }
+    }
 }

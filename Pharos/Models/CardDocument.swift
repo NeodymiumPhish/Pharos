@@ -190,6 +190,20 @@ struct CardDocument: Equatable, Codable {
         return true
     }
 
+    /// Name the card's query with a suggested name, only if it has no name
+    /// yet. Returns whether it was applied.
+    @discardableResult
+    mutating func applySuggestedName(_ name: String, to cardId: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let lineage = card(cardId)?.lineageId, !trimmed.isEmpty,
+              !cards.contains(where: { $0.lineageId == lineage && $0.name != nil }) else { return false }
+        for i in cards.indices where cards[i].lineageId == lineage {
+            cards[i].name = trimmed
+            cards[i].nameIsSuggested = true
+        }
+        return true
+    }
+
     mutating func setCollapsed(cardId: String, _ collapsed: Bool) {
         guard let i = index(of: cardId) else { return }
         cards[i].isCollapsed = collapsed

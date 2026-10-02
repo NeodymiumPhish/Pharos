@@ -41,7 +41,6 @@ struct ResultsGridSettings: Equatable {
     var defaultCopyFormat: CopyFormat = .tsv
     var copyIncludeHeaders = true
     var copyRichText = true
-    var maximumResultTabs: UInt32 = 0
 
     init() {}
 
@@ -61,7 +60,6 @@ struct ResultsGridSettings: Equatable {
         defaultCopyFormat = r.defaultCopyFormat
         copyIncludeHeaders = r.copyIncludeHeaders
         copyRichText = r.copyRichText
-        maximumResultTabs = r.maximumResultTabs
     }
 }
 

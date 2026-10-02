@@ -374,8 +374,22 @@ final class MainToolbarController: NSObject {
     }
 
     @objc private func connectionItemClicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, let tabId = activeTab?.id else { return }
-        stateManager.useConnection(id, forTabId: tabId, in: session)
+        guard let id = sender.representedObject as? String, let tab = activeTab else { return }
+        let tabId = tab.id
+        // Moving the tab to another connection closes its own connection,
+        // rolling back an open transaction there: ask first.
+        guard id != tab.connectionId, let contentVC,
+              !contentVC.tabsWithOpenTransaction(among: [tabId]).isEmpty else {
+            stateManager.useConnection(id, forTabId: tabId, in: session)
+            return
+        }
+        contentVC.confirmRollingBack(contentVC.tabsWithOpenTransaction(among: [tabId]), action: .disconnect) { [weak self] proceed in
+            guard let self, proceed else { return }
+            Task { @MainActor in
+                _ = await TabSessionMonitor.shared.close(tabId)
+                self.stateManager.useConnection(id, forTabId: tabId, in: self.session)
+            }
+        }
     }
 
     @objc private func connectSelected() { contentVC?.menuConnect(nil) }

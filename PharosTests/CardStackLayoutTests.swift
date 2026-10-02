@@ -99,7 +99,20 @@ private func testAnchoredOffset() {
            "anchor: never scrolls above the top")
 }
 
+private func testRotor() {
+    let ids = ["a", "b", "c"]
+    let labels = ["a": "Card 1, Orders", "b": "Card 2, Users", "c": "Card 3, Orders by day"]
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: nil, forward: true, filter: "") == "a", "rotor: first card")
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: nil, forward: false, filter: "") == "c", "rotor: last card backwards")
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: "a", forward: true, filter: "") == "b", "rotor: next")
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: "c", forward: true, filter: "") == nil, "rotor: none after the last")
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: "a", forward: true, filter: "orders") == "c", "rotor: filter skips")
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: "c", forward: false, filter: "") == "b", "rotor: previous")
+    expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: nil, forward: true, filter: "zzz") == nil, "rotor: no match")
+}
+
 func runTests() {
+    testRotor()
     testItems()
     testFrames()
     testAnchoredOffset()

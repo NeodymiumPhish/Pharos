@@ -97,6 +97,16 @@ final class AppStateManager: ObservableObject {
         session.hooks.cancelQueries = { [weak self] tabs in
             self?.cancelQueries(beforeClosing: tabs)
         }
+        session.hooks.tabsDidClose = { tabIds in
+            // Each closed tab's own connection: an open transaction is rolled
+            // back (never committed); the close paths asked the user first.
+            Task { @MainActor in
+                for tabId in tabIds where TabSessionMonitor.shared.report(for: tabId) != nil
+                    || PharosCore.tabSessionState(tabId: tabId) != nil {
+                    _ = await TabSessionMonitor.shared.close(tabId)
+                }
+            }
+        }
         session.hooks.markDirty = { [weak self] in
             self?.sessionDirty = true
         }
@@ -496,6 +506,8 @@ final class AppStateManager: ObservableObject {
         Task {
             do {
                 try await PharosCore.disconnect(connectionId: id)
+                // The core closed every tab connection on this server first.
+                TabSessionMonitor.shared.forgetConnection(id)
                 self.connectionStatuses[id] = .disconnected
                 // The pool is app-wide, so every window pointed at it loses it.
                 for session in self.sessions where session.activeConnectionId == id {

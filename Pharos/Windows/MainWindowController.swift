@@ -184,12 +184,17 @@ extension MainWindowController: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if isCloseConfirmed || stateManager.isTerminating { return true }
         let contentVC = splitViewController.contentVC
+        let open = contentVC.tabsWithOpenTransaction()
         let unsaved = contentVC.unsavedWorkTabs
-        guard !unsaved.isEmpty else { return true }
-        contentVC.confirmClosing(unsaved) { [weak self] proceed in
+        guard !open.isEmpty || !unsaved.isEmpty else { return true }
+        // Open transactions first (closing rolls them back), then unsaved text.
+        contentVC.confirmRollingBack(open, action: .closeWindow) { [weak self] proceed in
             guard let self, proceed else { return }
-            self.isCloseConfirmed = true
-            self.window?.close()
+            contentVC.confirmClosing(contentVC.unsavedWorkTabs) { [weak self] proceed in
+                guard let self, proceed else { return }
+                self.isCloseConfirmed = true
+                self.window?.close()
+            }
         }
         return false
     }
