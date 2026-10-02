@@ -105,6 +105,77 @@ async fn reset_statement_timeout(conn: &mut sqlx::pool::PoolConnection<sqlx::Pos
         .await;
 }
 
+/// What a run is told when its SQL left a transaction block open.
+///
+/// Each run takes its own pooled connection, and the pool resets a connection
+/// when it goes back (`db::postgres::release_reset_sql`), so a transaction can
+/// never span two runs. Without this, a `BEGIN` run on its own would end
+/// unseen, and an `UPDATE` run next — which the user believes is waiting for
+/// a `COMMIT` — would commit at once.
+pub(crate) const OPEN_TRANSACTION_ROLLED_BACK: &str = "This run left a transaction open, so Pharos rolled it back. \
+Nothing it changed was saved. Each run uses its own connection: put BEGIN and COMMIT in the same run.";
+
+/// The note added to a run's own error when its transaction failed with it.
+const FAILED_TRANSACTION_ROLLED_BACK: &str = "The transaction this run opened was rolled back.";
+
+/// What a run of user SQL left on its connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunLeft {
+    Clean,
+    /// A transaction block, still open and healthy. Rolled back.
+    OpenTransaction,
+    /// A transaction block the run's own error aborted. Rolled back.
+    FailedTransaction,
+}
+
+/// End a run of user SQL: roll back a transaction block it left open, and
+/// reset the query timeout. Replaces `reset_statement_timeout` on the paths
+/// that run the user's SQL as written (`execute_query`, `execute_statement`);
+/// the paths that wrap it in one statement of their own (EXPLAIN, fetch more,
+/// the cursor snapshot) cannot open a block.
+///
+/// One round trip, as the `RESET` alone was: the probe is the first statement
+/// of the query, where `statement_timestamp()` equals
+/// `transaction_timestamp()` unless a block was already open. In a FAILED
+/// block the probe itself fails with 25P02. The `ROLLBACK` is sent only when
+/// there is a block, so it never logs "no transaction in progress".
+///
+/// Not for a cut-off result (`has_more`): its statement is still sending, and
+/// its connection is closed instead, which rolls any block back on the server.
+/// Nothing is committed on that path, so there is nothing to warn about.
+async fn finish_user_sql(conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>) -> RunLeft {
+    let probe = (&mut **conn)
+        .fetch_all(sqlx::raw_sql(
+            "SELECT statement_timestamp() = transaction_timestamp(); RESET statement_timeout",
+        ))
+        .await;
+    let left = match probe {
+        Ok(rows) => match rows.first().and_then(|r| r.try_get::<bool, _>(0).ok()) {
+            Some(false) => RunLeft::OpenTransaction,
+            _ => RunLeft::Clean,
+        },
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("25P02") => RunLeft::FailedTransaction,
+        // A server without the probe (non-PG): what this path did before.
+        Err(_) => {
+            reset_statement_timeout(conn).await;
+            RunLeft::Clean
+        }
+    };
+    if left != RunLeft::Clean {
+        let _ = (&mut **conn).execute(sqlx::raw_sql("ROLLBACK")).await;
+    }
+    left
+}
+
+/// The run's own error, with a note when its transaction went with it.
+fn with_transaction_note(message: String, left: RunLeft) -> String {
+    if left == RunLeft::FailedTransaction {
+        format!("{}\n\n{}", message, FAILED_TRANSACTION_ROLLED_BACK)
+    } else {
+        message
+    }
+}
+
 /// Stop a statement whose rows this client has stopped reading, and close its
 /// connection unread.
 ///
@@ -508,12 +579,13 @@ pub async fn execute_query(
         stop_unread_statement(pool.clone(), conn, backend_pid);
         return Err(QUERY_CANCELLED.to_string());
     }
-    if !has_more {
-        reset_statement_timeout(&mut conn).await;
-    }
+    let left = if has_more { RunLeft::Clean } else { finish_user_sql(&mut conn).await };
 
     if let Some(err) = fetch_error {
-        return Err(err);
+        return Err(with_transaction_note(err, left));
+    }
+    if left == RunLeft::OpenTransaction {
+        return Err(OPEN_TRANSACTION_ROLLED_BACK.to_string());
     }
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -1099,8 +1171,11 @@ pub async fn execute_statement(
         stop_unread_statement(pool.clone(), conn, backend_pid);
         return Err(QUERY_CANCELLED.to_string());
     };
-    reset_statement_timeout(&mut conn).await;
-    let result = result.map_err(|e| format_db_error(&e))?;
+    let left = finish_user_sql(&mut conn).await;
+    let result = result.map_err(|e| with_transaction_note(format_db_error(&e), left))?;
+    if left == RunLeft::OpenTransaction {
+        return Err(OPEN_TRANSACTION_ROLLED_BACK.to_string());
+    }
 
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
@@ -3044,55 +3119,161 @@ mod live_pool_reset_tests {
         });
     }
 
+    /// A one-row table `(id, v)` = `(1, 0)` for one test. Each test has its
+    /// own name: the tests run in parallel.
+    async fn make_probe_table(other: &mut sqlx::PgConnection, table: &str) {
+        sqlx::raw_sql(&format!(
+            "DROP TABLE IF EXISTS public.{table}; \
+             CREATE TABLE public.{table} (id int PRIMARY KEY, v int); \
+             INSERT INTO public.{table} VALUES (1, 0);"
+        ))
+        .execute(&mut *other)
+        .await
+        .expect("make the probe table");
+    }
+
+    /// What another user sees of the probe row: whether it can lock it at
+    /// once (NOWAIT fails with 55P03 while a transaction holds it; one
+    /// statement, so its implicit transaction ends with it) and the value of
+    /// `v`. Drops the table.
+    async fn read_and_drop_probe_table(other: &mut sqlx::PgConnection, table: &str) -> (Result<(), String>, i32) {
+        let locked = sqlx::raw_sql(&format!("SELECT v FROM public.{table} WHERE id = 1 FOR UPDATE NOWAIT"))
+            .execute(&mut *other)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+        let v: (i32,) = sqlx::query_as(&format!("SELECT v FROM public.{table} WHERE id = 1"))
+            .fetch_one(&mut *other)
+            .await
+            .expect("read v");
+        sqlx::raw_sql(&format!("DROP TABLE public.{table}"))
+            .execute(&mut *other)
+            .await
+            .expect("drop the probe table");
+        (locked, v.0)
+    }
+
     /// The open transaction is the one that hurts OTHER users: it holds its
-    /// row locks. After the run ends, another connection must be able to take
-    /// the same row lock at once.
+    /// row locks. A connection that goes back to the pool inside one is
+    /// closed by the pool's reset, so another connection can take the same
+    /// row lock at once and the uncommitted change is gone.
+    ///
+    /// The SQL runs on a connection taken from the pool directly, not through
+    /// `execute_query`: that path rolls a left-open block back itself
+    /// (`finish_user_sql`), so it never reaches the pool's reset in this state.
     #[test]
     #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
     fn live_pool_reset_an_open_transaction_ends_and_frees_its_locks() {
         block_on(async {
+            const TABLE: &str = "pharos_pool_reset_probe";
             let mut other = other_user().await;
-            sqlx::raw_sql(
-                "DROP TABLE IF EXISTS public.pharos_pool_reset_probe; \
-                 CREATE TABLE public.pharos_pool_reset_probe (id int PRIMARY KEY, v int); \
-                 INSERT INTO public.pharos_pool_reset_probe VALUES (1, 0);",
-            )
-            .execute(&mut other)
-            .await
-            .expect("make the probe table");
+            make_probe_table(&mut other, TABLE).await;
 
             let state = one_connection_state(&SessionOptions::default()).await;
-            // ONE run opens the transaction and makes an uncommitted change.
-            // RETURNING, so the run has rows: a run with none is described
-            // with the extended protocol, which fails on two statements and
-            // ABORTS the transaction — a different state from the one a user
-            // leaves, and one sqlx's own release ping already closes.
-            run(&state, "BEGIN; UPDATE public.pharos_pool_reset_probe SET v = 1 WHERE id = 1 RETURNING v")
-                .await
-                .expect("BEGIN; UPDATE");
-            // The next run is not inside the first run's transaction.
+            let pool = state.require_pool(CONN).expect("pool");
+            {
+                let mut conn = pool.acquire().await.expect("acquire");
+                sqlx::raw_sql(&format!("BEGIN; UPDATE public.{TABLE} SET v = 1 WHERE id = 1"))
+                    .execute(&mut *conn)
+                    .await
+                    .expect("BEGIN; UPDATE");
+            } // back to the pool, inside the open transaction
+            // The next run is not inside that transaction.
             let savepoint = run(&state, "SAVEPOINT pharos_probe").await;
-            // Another user can lock the row at once (NOWAIT fails with 55P03
-            // while the leaked transaction still holds it), and the UPDATE
-            // never committed. One statement, so its implicit transaction
-            // ends with it, error or not.
-            let locked = sqlx::raw_sql(
-                "SELECT v FROM public.pharos_pool_reset_probe WHERE id = 1 FOR UPDATE NOWAIT",
-            )
-            .execute(&mut other)
-            .await;
-            let v: (i32,) = sqlx::query_as("SELECT v FROM public.pharos_pool_reset_probe WHERE id = 1")
-                .fetch_one(&mut other)
-                .await
-                .expect("read v");
-            sqlx::raw_sql("DROP TABLE public.pharos_pool_reset_probe")
-                .execute(&mut other)
-                .await
-                .expect("drop the probe table");
+            let (locked, v) = read_and_drop_probe_table(&mut other, TABLE).await;
 
             assert!(savepoint.is_err(), "the next run was still inside the open transaction");
             assert!(locked.is_ok(), "another user could not lock the row: {:?}", locked.err());
-            assert_eq!(v.0, 0, "the uncommitted UPDATE must not survive");
+            assert_eq!(v, 0, "the uncommitted UPDATE must not survive");
+        });
+    }
+
+    /// The guard: a `BEGIN` run on its own is refused with the message, and
+    /// the `UPDATE` run after it is NOT inside a transaction — it commits, as
+    /// the message said it would.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guard_a_begin_on_its_own_is_rolled_back_and_says_so() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let begin = run(&state, "BEGIN").await;
+            assert_eq!(begin.err().as_deref(), Some(super::OPEN_TRANSACTION_ROLLED_BACK));
+            assert!(run(&state, "SAVEPOINT pharos_probe").await.is_err(), "still inside the BEGIN");
+        });
+    }
+
+    /// The guard on a run that changes rows and leaves the block open: the
+    /// rows it returned are replaced by the message, the change is rolled
+    /// back, and its row lock is free at once.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guard_an_uncommitted_update_is_rolled_back_and_its_lock_freed() {
+        block_on(async {
+            const TABLE: &str = "pharos_guard_query_probe";
+            let mut other = other_user().await;
+            make_probe_table(&mut other, TABLE).await;
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let result = run(&state, &format!("BEGIN; UPDATE public.{TABLE} SET v = 1 WHERE id = 1 RETURNING v")).await;
+            let (locked, v) = read_and_drop_probe_table(&mut other, TABLE).await;
+            assert_eq!(result.err().as_deref(), Some(super::OPEN_TRANSACTION_ROLLED_BACK));
+            assert!(locked.is_ok(), "another user could not lock the row: {:?}", locked.err());
+            assert_eq!(v, 0, "the uncommitted UPDATE must not survive");
+        });
+    }
+
+    /// The same guard on the statement path (no rows back).
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guard_an_uncommitted_statement_is_rolled_back() {
+        block_on(async {
+            const TABLE: &str = "pharos_guard_statement_probe";
+            let mut other = other_user().await;
+            make_probe_table(&mut other, TABLE).await;
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let result = super::execute_statement(
+                CONN.to_string(),
+                format!("BEGIN; UPDATE public.{TABLE} SET v = 1 WHERE id = 1"),
+                None, None, &state,
+            )
+            .await;
+            let (locked, v) = read_and_drop_probe_table(&mut other, TABLE).await;
+            assert_eq!(result.err().as_deref(), Some(super::OPEN_TRANSACTION_ROLLED_BACK));
+            assert!(locked.is_ok(), "another user could not lock the row: {:?}", locked.err());
+            assert_eq!(v, 0, "the uncommitted UPDATE must not survive");
+        });
+    }
+
+    /// A run whose own error aborted its block: the server's message stays as
+    /// it was (the "at character N" the editor reads included), with the note
+    /// after it.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guard_a_failed_transaction_keeps_the_error_and_adds_the_note() {
+        block_on(async {
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let err = run(&state, "BEGIN; SELECT 1/0").await.expect_err("division by zero");
+            assert!(err.starts_with("error returned from database: division by zero"), "{err}");
+            assert!(err.ends_with(super::FAILED_TRANSACTION_ROLLED_BACK), "{err}");
+            let plain = run(&state, "SELECT 1/0").await.expect_err("division by zero");
+            assert!(!plain.contains(super::FAILED_TRANSACTION_ROLLED_BACK), "no block, no note: {plain}");
+        });
+    }
+
+    /// No false alarm: a complete block in one run commits and returns its
+    /// rows.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guard_a_complete_transaction_in_one_run_commits() {
+        block_on(async {
+            const TABLE: &str = "pharos_guard_commit_probe";
+            let mut other = other_user().await;
+            make_probe_table(&mut other, TABLE).await;
+            let state = one_connection_state(&SessionOptions::default()).await;
+            let result = run(&state, &format!("BEGIN; UPDATE public.{TABLE} SET v = 1 WHERE id = 1; COMMIT; SELECT v FROM public.{TABLE}")).await;
+            let (_, v) = read_and_drop_probe_table(&mut other, TABLE).await;
+            let result = result.expect("a complete block is not refused");
+            assert_eq!(result.rows[0][0], serde_json::json!("1"));
+            assert_eq!(v, 1, "the committed UPDATE stays");
         });
     }
 
