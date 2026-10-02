@@ -40,6 +40,19 @@ typedef void (*AsyncCallback)(void *context, const char *result_json, const char
 typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
 
 /**
+ * Split SQL text into query cards. Returns `{"cards":[…]}` (camelCase card
+ * fields). A null pointer is empty text.
+ */
+ char *pharos_cards_split(const char *text);
+
+/**
+ * Write query cards as SQL text. Takes `{"cards":[…],"mode":"all"|"latest"}`
+ * and returns `{"text":"…"}`, or `{"error":"…"}` when the request does not
+ * parse.
+ */
+ char *pharos_cards_serialize(const char *request_json);
+
+/**
  * Load all connection configs. Returns JSON array. Caller must free.
  */
  char *pharos_load_connections(void);

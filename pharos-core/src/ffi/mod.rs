@@ -42,6 +42,7 @@ macro_rules! ffi_spawn {
     }};
 }
 
+mod cards;
 mod connection;
 mod lifecycle;
 mod model_feedback;

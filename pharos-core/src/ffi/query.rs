@@ -84,7 +84,7 @@ fn mask_variable_tokens(sql: &str) -> (String, Vec<String>, String) {
 
     while i < sql.len() {
         if bytes[i] == b'{' && i + 1 < sql.len() && bytes[i + 1] == b'{' {
-            if let Some(end) = token_end(sql, i + 2) {
+            if let Some(end) = crate::commands::sql_lexer::variable_token_end(sql, i + 2) {
                 masked.push_str(&format!("{}{}q", prefix, tokens.len()));
                 tokens.push(sql[i..end].to_string());
                 i = end;
@@ -99,21 +99,6 @@ fn mask_variable_tokens(sql: &str) -> (String, Vec<String>, String) {
     }
 
     (masked, tokens, prefix)
-}
-
-/// End index (exclusive, past the `}}`) of the token whose contents start at
-/// `from`, or `None` when the run holds a brace or a newline before it closes.
-fn token_end(sql: &str, from: usize) -> Option<usize> {
-    let bytes = sql.as_bytes();
-    let mut i = from;
-    while i < sql.len() {
-        match bytes[i] {
-            b'}' if i + 1 < sql.len() && bytes[i + 1] == b'}' => return Some(i + 2),
-            b'{' | b'}' | b'\n' | b'\r' => return None,
-            _ => i += 1,
-        }
-    }
-    None
 }
 
 /// A placeholder stem no substring of `sql` already carries, so restoring can

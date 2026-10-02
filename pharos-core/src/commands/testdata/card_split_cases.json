@@ -1,0 +1,61 @@
+[
+  {
+    "name": "plain statements, the last without a semicolon",
+    "text": "SELECT 1;\nSELECT 2",
+    "cards": [
+      {"name": null, "sql": "SELECT 1", "lineage": 0},
+      {"name": null, "sql": "SELECT 2", "lineage": 1}
+    ]
+  },
+  {
+    "name": "semicolons that do not end a statement",
+    "text": "SELECT 'a;b', \"c;d\", $$e;f$$, E'g\\';h' -- i;\nFROM t; /* j; */ SELECT (1);",
+    "cards": [
+      {"name": null, "sql": "SELECT 'a;b', \"c;d\", $$e;f$$, E'g\\';h' -- i;\nFROM t", "lineage": 0},
+      {"name": null, "sql": "/* j; */ SELECT (1)", "lineage": 1}
+    ]
+  },
+  {
+    "name": "named cards and versions",
+    "text": "-- name: Active users\n-- version: 1 locked\n-- SELECT * FROM users\n\n-- name: Active users\n-- version: 2\nSELECT * FROM users WHERE active;\n\n-- name: Plans\nSELECT * FROM plans;\n",
+    "cards": [
+      {"name": "Active users", "version": 1, "locked": true, "sql": "SELECT * FROM users", "lineage": 0},
+      {"name": "Active users", "version": 2, "locked": false, "sql": "SELECT * FROM users WHERE active", "lineage": 0},
+      {"name": "Plans", "sql": "SELECT * FROM plans", "lineage": 1}
+    ]
+  },
+  {
+    "name": "BEGIN ATOMIC routine body",
+    "text": "CREATE OR REPLACE PROCEDURE p()\nLANGUAGE sql\nBEGIN ATOMIC\n  INSERT INTO t VALUES (1);\n  SELECT CASE WHEN true THEN 1 END;\nEND;\nCALL p();",
+    "cards": [
+      {"name": null, "sql": "CREATE OR REPLACE PROCEDURE p()\nLANGUAGE sql\nBEGIN ATOMIC\n  INSERT INTO t VALUES (1);\n  SELECT CASE WHEN true THEN 1 END;\nEND", "lineage": 0},
+      {"name": null, "sql": "CALL p()", "lineage": 1}
+    ]
+  },
+  {
+    "name": "psql meta-commands and COPY data",
+    "text": "\\set id 7\nSELECT * FROM t WHERE id = :id \\gx\nCOPY t (a) FROM STDIN;\n1\t;\n\\.\n",
+    "cards": [
+      {"name": null, "sql": "\\set id 7", "kind": "psqlMeta", "lineage": 0},
+      {"name": null, "sql": "SELECT * FROM t WHERE id = :id", "lineage": 1},
+      {"name": null, "sql": "\\gx", "kind": "psqlMeta", "lineage": 2},
+      {"name": null, "sql": "COPY t (a) FROM STDIN;\n1\t;\n\\.", "kind": "copyData", "lineage": 3}
+    ]
+  },
+  {
+    "name": "variable tokens and parentheses",
+    "text": "SELECT {{a;b}} FROM t WHERE x IN ({{list}});\nCREATE RULE r AS ON INSERT TO t DO ALSO (INSERT INTO a VALUES (1); UPDATE b SET c = 1);",
+    "cards": [
+      {"name": null, "sql": "SELECT {{a;b}} FROM t WHERE x IN ({{list}})", "lineage": 0},
+      {"name": null, "sql": "CREATE RULE r AS ON INSERT TO t DO ALSO (INSERT INTO a VALUES (1); UPDATE b SET c = 1)", "lineage": 1}
+    ]
+  },
+  {
+    "name": "leading comments stay, a comment tail is its own card",
+    "text": "-- monthly totals\nSELECT sum(x) FROM t; -- fast\n\n-- the end\n",
+    "cards": [
+      {"name": null, "sql": "-- monthly totals\nSELECT sum(x) FROM t -- fast", "lineage": 0},
+      {"name": null, "sql": "-- the end", "lineage": 1}
+    ]
+  }
+]
