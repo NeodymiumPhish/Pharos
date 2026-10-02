@@ -17,6 +17,9 @@ struct WorkspaceUpsert: Codable {
     /// not per workspace; the Rust struct still has the column.
     var variablesJson: String
     var cursorPosition: Int?
+    /// The tab's cards (`CardPersistence`). `editorText` holds the same cards
+    /// as SQL text, for search and for older versions of the app.
+    var cardsJson: String? = nil
 }
 
 /// A row in the workspace list.
@@ -67,6 +70,10 @@ struct WorkspaceResultMeta: Codable {
     var status: String = QueryHistoryStatus.ok
     /// What the server said, on a row whose `status` is not `ok`.
     var errorMessage: String?
+    /// The query card the result belongs to, and its version. Nil on rows
+    /// recorded before cards existed: the reopen maps those by their SQL.
+    var cardId: String? = nil
+    var cardVersion: Int? = nil
 
     /// True when this row has a result behind it — the only rows the reopen
     /// rebuild and the workspace preview list.
@@ -84,4 +91,6 @@ struct WorkspaceDetail: Codable {
     let variablesJson: String
     let cursorPosition: Int?
     let results: [WorkspaceResultMeta]
+    /// The tab's cards; nil on a workspace saved before cards existed.
+    var cardsJson: String? = nil
 }

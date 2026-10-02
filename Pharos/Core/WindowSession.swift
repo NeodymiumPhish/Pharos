@@ -134,7 +134,7 @@ final class WindowSession: ObservableObject {
     /// `ContentViewController`, which is already one per window; it sits here
     /// so the whole of a window's state is in one place and a pending cell
     /// edit stays with the window that made it.
-    var resultStore = ResultTabStore()
+    var resultStore = CardResultStore()
 
     // MARK: - Settled publishers
 
@@ -187,9 +187,9 @@ final class WindowSession: ObservableObject {
 
     /// Append a tab and make it active.
     @discardableResult
-    func createTab(sql: String = "", name: String? = nil) -> QueryTab {
+    func createTab(document: CardDocument = CardDocument(), name: String? = nil) -> QueryTab {
         let tabName = name ?? "Query \(tabs.count + 1)"
-        var tab = QueryTab(name: tabName, sql: sql)
+        var tab = QueryTab(name: tabName, document: document)
         applyDefaultSchema(&tab)
         tabs.append(tab)
         activeTabId = tab.id
@@ -285,7 +285,8 @@ final class WindowSession: ObservableObject {
     func duplicateTab(id: String) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[idx]
-        let newTab = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, sql: tab.sql)
+        // Fresh card ids: results are filed by card, and the copy has none.
+        let newTab = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, document: tab.document.forReuse())
         tabs.insert(newTab, at: idx + 1)
         activeTabId = newTab.id
     }
@@ -293,7 +294,7 @@ final class WindowSession: ObservableObject {
     func reopenLastClosedTab() {
         guard !closedTabHistory.isEmpty else { return }
         let tab = closedTabHistory.removeLast()
-        let reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, sql: tab.sql)
+        let reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, document: tab.document.forReuse())
         tabs.append(reopened)
         activeTabId = reopened.id
     }

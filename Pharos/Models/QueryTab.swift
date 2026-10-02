@@ -15,14 +15,28 @@ struct ResultsGridState {
     var hiddenColumns: Set<String> = []
 }
 
-/// A single query currently executing for a tab. Multiple may be in flight
-/// concurrently. `id` matches the `query_id` registered in pharos-core's
-/// `running_queries` registry, so cancellation/lookup is symmetric across FFI.
+/// A single query currently executing for a tab. `id` matches the `query_id`
+/// registered in pharos-core's `running_queries` registry, so cancellation and
+/// lookup are symmetric across FFI.
 struct RunningQuery: Identifiable, Equatable {
+    /// What the run is for.
+    enum Kind: Equatable {
+        /// A card's own run.
+        case card
+        /// "Load All Rows" for a card's result.
+        case snapshot
+        /// Pharos's own work for a card's result: a chart aggregation, the
+        /// re-read after a cell edit.
+        case aux
+    }
+
     let id: String
+    /// The card the run belongs to.
+    let cardId: String?
+    let kind: Kind
+    /// What the running-queries list calls it: the card's name.
+    let label: String
     let normalizedSQL: String       // trimmed + whitespace-collapsed, used for dedup
-    let segmentIndex: Int           // -1 = direct-SQL (no parseable segment), >= 0 = segment
-    let lineRange: ClosedRange<Int> // 1-based editor line range, for popover label
     let startTime: CFTimeInterval   // CACurrentMediaTime() at launch
 }
 
@@ -37,8 +51,9 @@ struct QueryTab: Identifiable {
     var nameIsSuggested: Bool = false
     var connectionId: String?
     var schemaName: String?
-    var sql: String
-    var cursorPosition: Int = 0
+    /// The tab's query cards. Every keystroke lands here: session restore,
+    /// the workspace snapshot, save and the unsaved-work check read it.
+    var document: CardDocument
     var isDirty: Bool = false
     /// All in-flight queries launched from this tab, ordered by `startTime` ascending.
     var runningQueries: [RunningQuery] = []
@@ -52,26 +67,17 @@ struct QueryTab: Identifiable {
     /// Filesystem URL this tab was opened from, if any. Set when the tab is
     /// opened from a `.sql` or other plain-text file; ⌘S writes back here.
     var sourceURL: URL?
-    /// Whether the right-docked vertical result-tabs panel is shown for this
-    /// tab. Seeded from the app-wide default so new tabs open the way the user
-    /// last left the panel. Defaulting here rather than at each `QueryTab(...)`
-    /// call site covers every path that makes a tab — new, initial, duplicate,
-    /// and reopen-from-history. Only consulted while
-    /// `AppSettings.verticalResultTabs` is ON.
-    ///
-    /// Query variables are NOT per tab any more: they are app-wide, in
-    /// `QueryVariableStore`.
-    var resultTabsPanelVisible: Bool = ResultTabsPanelPrefs.visibleByDefault
     /// The persisted workspace history record this tab is bound to. nil until
     /// the first query executes (or until reopened from history). When set,
     /// executed results associate to this workspace and appear as one history item.
     var workspaceId: String?
 
-    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil, schemaName: String? = nil, sql: String = "") {
+    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil,
+         schemaName: String? = nil, document: CardDocument = CardDocument()) {
         self.id = id
         self.name = name
         self.connectionId = connectionId
         self.schemaName = schemaName
-        self.sql = sql
+        self.document = document
     }
 }

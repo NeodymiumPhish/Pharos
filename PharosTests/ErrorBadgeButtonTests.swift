@@ -83,11 +83,11 @@ func runTests() {
     let errorButton = ErrorBadgeButton()
     errorButton.setState(total: 2, unread: 1)
     let resultTabsToggle = NSButton()
-    resultTabsToggle.image = NSImage(systemSymbolName: "rectangle.righthalf.inset.filled", accessibilityDescription: nil)
+    resultTabsToggle.image = NSImage(systemSymbolName: "rectangle.compress.vertical", accessibilityDescription: nil)
     resultTabsToggle.isBordered = false
 
     let group = ErrorBadgeButton.makeToolbarTrailingGroup(
-        errorButton: errorButton, resultTabsToggle: resultTabsToggle
+        errorButton: errorButton, trailingButton: resultTabsToggle
     )
     container.addSubview(group)
     NSLayoutConstraint.activate([

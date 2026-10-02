@@ -70,9 +70,9 @@ private func testEnsureAndCreate() {
     expect(session.activeTabId, second.id, "a new tab becomes active")
     expect(session.activeTab?.id, second.id, "activeTab reads back the new tab")
 
-    let named = session.createTab(sql: "select 1", name: "Report")
+    let named = session.createTab(document: CardDocument(cards: [QueryCard(sql: "select 1")]), name: "Report")
     expect(named.name, "Report", "a given name wins over the generated one")
-    expect(named.sql, "select 1", "the SQL is carried in")
+    expect(named.document.cards.map(\.sql), ["select 1"], "the cards are carried in")
 
     session.selectTab(id: session.tabs[0].id)
     expect(session.activeTabId, session.tabs[0].id, "selectTab moves the active tab")
@@ -266,7 +266,7 @@ private func testClosingHandsRunningQueriesToTheCanceller() {
 }
 
 private func running(_ id: String) -> RunningQuery {
-    RunningQuery(id: id, normalizedSQL: "select 1", segmentIndex: -1, lineRange: 1...1, startTime: 0)
+    RunningQuery(id: id, cardId: nil, kind: .card, label: "Query", normalizedSQL: "select 1", startTime: 0)
 }
 
 private extension WindowSession {

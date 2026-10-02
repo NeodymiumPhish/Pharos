@@ -937,12 +937,12 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
         guard row < previewResults.count else { return cell }
         let meta = previewResults[row]
-        let colorIndex = (meta.colorIndex ?? 0) % ResultTab.palette.count
+        let colorIndex = meta.colorIndex ?? 0
         let matches = selectedWorkspaceId.flatMap { matchesByWorkspace[$0] } ?? []
 
         cell.configure(
             meta: meta,
-            dotColor: ResultTab.palette[colorIndex],
+            dotColor: CardPalette.color(colorIndex) ?? .systemBlue,
             isMatch: matches.contains(meta.id)
         )
         return cell

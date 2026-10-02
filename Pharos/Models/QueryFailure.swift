@@ -28,15 +28,10 @@ struct QueryFailure: Identifiable, Equatable {
     /// the difference the user noticed.
     var rawSQL: String? = nil
 
-    /// The editor line range the failed statement came from, 1-based and
-    /// inclusive. Nil when the run came from no editor segment — a browse
-    /// action, a whole-editor run, a drill.
-    ///
-    /// Only the run itself knows this, which is half the reason the Query
-    /// History record is driven from Swift rather than from the core's own
-    /// failure site. Set it at every site that HAS a range; a nil here is
-    /// recorded as "no range", exactly as it is for a successful run.
-    var lineRange: ClosedRange<Int>? = nil
+    /// The query card that ran, when the run came from one. The error
+    /// position counts into that card's text (after variable substitution),
+    /// so "Go to Error" goes to the card and marks the text there.
+    var cardId: String? = nil
 
     /// False until the sheet shows this entry. Drives the pulse on the tab button.
     var isRead: Bool = false

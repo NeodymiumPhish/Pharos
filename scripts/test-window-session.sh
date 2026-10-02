@@ -9,30 +9,27 @@
 # wraps its body in `MainActor.assumeIsolated`, which is sound here because the
 # binary's main IS the main thread.
 #
-# `ResultTabStore` and its `ResultTab` come along because the session holds the
+# `CardResultStore` and its `CardResult` come along because the session holds the
 # result store; `QueryTab` drags the editor-state model tail behind it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/window-session-tests \
   Pharos/Core/WindowSession.swift \
-  Pharos/Core/ResultTabsPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Core/CountedNounText.swift \
   Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Core/HistoryRowText.swift \
-  Pharos/Core/ResultTabRowText.swift \
-  Pharos/Core/ResultTabName.swift \
   Pharos/Core/AuthoredLabelSanitizer.swift \
-  Pharos/Views/ResultTabRowCell.swift \
   Pharos/Views/MarkerShape.swift \
   Pharos/Core/AccessibilityDisplay.swift \
   Pharos/Core/DisplayEscape.swift \
-  Pharos/Models/ResultTabStore.swift \
-  Pharos/Models/ResultTab.swift \
+  Pharos/Models/CardResultStore.swift \
+  Pharos/Models/CardResult.swift \
   Pharos/Models/QueryPlan.swift \
   Pharos/Models/Charts/ChartConfig.swift \
   Pharos/Models/Charts/ChartTypes.swift \
   Pharos/Models/PendingCellEdits.swift \
+  Pharos/Models/CardDocument.swift \
   Pharos/Models/QueryTab.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/QueryFailure.swift \

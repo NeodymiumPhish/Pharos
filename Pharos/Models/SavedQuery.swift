@@ -12,6 +12,9 @@ struct SavedQuery: Codable, Identifiable {
     /// as "leave unchanged") nor read. It stays on the wire because the Rust
     /// struct still has the field.
     var variables: String?
+    /// The query's cards (`CardPersistence`): a saved query is a full tab of
+    /// cards. Nil on queries saved before cards existed; `sql` is split then.
+    var cardsJson: String? = nil
     let createdAt: String
     let updatedAt: String
     // Rust uses #[serde(rename_all = "camelCase")] — Swift property names match directly
@@ -24,6 +27,7 @@ struct CreateSavedQuery: Codable {
     let connectionId: String?
     /// Legacy; always `nil`. See `SavedQuery.variables`.
     let variables: String?
+    var cardsJson: String? = nil
 }
 
 struct UpdateSavedQuery: Codable {
@@ -33,4 +37,6 @@ struct UpdateSavedQuery: Codable {
     let sql: String?
     /// Legacy; always `nil`. See `SavedQuery.variables`.
     let variables: String?
+    /// nil leaves the stored cards alone.
+    var cardsJson: String? = nil
 }

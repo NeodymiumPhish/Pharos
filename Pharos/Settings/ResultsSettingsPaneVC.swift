@@ -167,20 +167,20 @@ final class ResultsSettingsPaneVC: SettingsFormPaneVC {
                     kind: .toggle(.settings(\.results.allowInlineEditing))),
             ]),
 
-            SettingsSection(title: String(localized: "Result tabs"), items: [
+            SettingsSection(title: String(localized: "Query cards"), items: [
                 SettingsItem(
                     id: "maximumResultTabs",
-                    title: String(localized: "Maximum result tabs"),
-                    caption: String(localized: "Per editor tab."),
+                    title: String(localized: "Results kept per tab"),
+                    caption: String(localized: "The most query cards in one editor tab that hold their results in memory."),
                     icon: "rectangle.stack",
-                    help: String(localized: "Reaching the limit closes the oldest result you have not looked at and have not renamed; 0 keeps them all."),
+                    help: String(localized: "Over the limit, the oldest results you have not looked at are let go. The card stays and shows Results removed; run it again to get them back. 0 keeps them all."),
                     kind: .stepper(.settings(\.results.maximumResultTabs), range: 0...50, unit: nil)),
                 SettingsItem(
-                    id: "showResultTabsPanelByDefault",
-                    title: String(localized: "Open new tabs with the result-tabs panel"),
-                    caption: String(localized: "Toggling the panel in a tab also sets this. Only used while Appearance ▸ Show result tabs in a vertical panel is on."),
-                    icon: "sidebar.right",
-                    kind: .toggle(.settings(\.results.showResultTabsPanelByDefault))),
+                    id: "showNewResultsAutomatically",
+                    title: String(localized: "Show new results automatically"),
+                    caption: String(localized: "When a card's run ends, its results take over the results area. Off keeps the results you are looking at."),
+                    icon: "rectangle.on.rectangle",
+                    kind: .toggle(.settings(\.results.showNewResultsAutomatically))),
             ]),
         ]
     }

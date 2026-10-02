@@ -54,15 +54,14 @@ func runTests() {
     defaults.set(false, forKey: copyKey)
     expectTrue(SettingsMigration.migrate(from: defaults, into: &settings), "a stored value reports a change")
     expectFalse(settings.results.copyIncludeHeaders, "PharosCopyIncludeHeaders lands on results.copyIncludeHeaders")
-    expectTrue(settings.results.showResultTabsPanelByDefault,
-               "the other field is untouched when only one key is stored")
+    expectTrue(settings.results.showNewResultsAutomatically,
+               "the other fields are untouched when only one key is stored")
 
     clear()
     settings = AppSettings()
     defaults.set(false, forKey: panelKey)
-    expectTrue(SettingsMigration.migrate(from: defaults, into: &settings), "the panel key reports a change too")
-    expectFalse(settings.results.showResultTabsPanelByDefault,
-                "ResultTabsPanelVisibleByDefault lands on results.showResultTabsPanelByDefault")
+    expectTrue(SettingsMigration.migrate(from: defaults, into: &settings), "the retired panel key reports a change too")
+    expectTrue(settings == AppSettings(), "the retired panel key changes no setting (result tabs are gone)")
 
     // A stored `true` must move as well, even though it equals the default —
     // the key's presence is the signal, not the value's novelty. Otherwise the
@@ -81,7 +80,6 @@ func runTests() {
     defaults.set(false, forKey: panelKey)
     expectTrue(SettingsMigration.migrate(from: defaults, into: &settings), "both keys report a change")
     expectFalse(settings.results.copyIncludeHeaders, "both keys: headers moved")
-    expectFalse(settings.results.showResultTabsPanelByDefault, "both keys: panel moved")
 
     // MARK: - The keys are removed afterwards
 
@@ -94,7 +92,6 @@ func runTests() {
     // This is the one that matters. The user's own later choice must survive
     // the next launch.
     settings.results.copyIncludeHeaders = true
-    settings.results.showResultTabsPanelByDefault = true
     let before = settings
     expectFalse(SettingsMigration.migrate(from: defaults, into: &settings),
                 "a second migrate reports no change")

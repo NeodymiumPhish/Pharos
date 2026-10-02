@@ -34,8 +34,8 @@ private func tab(_ name: String, dirty: Bool = false, running: Bool = false) -> 
     var t = QueryTab(id: name, name: name)
     t.isDirty = dirty
     if running {
-        t.runningQueries = [RunningQuery(id: "q-\(name)", normalizedSQL: "select 1", segmentIndex: 0,
-                                         lineRange: 1...1, startTime: 0)]
+        t.runningQueries = [RunningQuery(id: "q-\(name)", cardId: "c", kind: .card, label: name,
+                                         normalizedSQL: "select 1", startTime: 0)]
     }
     return t
 }

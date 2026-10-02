@@ -1,15 +1,19 @@
 import AppKit
 import Combine
 
-/// One SQL editor: the text view with its gutter, syntax highlighting,
-/// folds, completion, live validation and error markers.
+/// One query card's SQL editor: the text view with its gutter, syntax
+/// highlighting, folds, completion, live validation and error markers.
 ///
-/// It knows nothing about where its text is stored. The owner shows a
-/// document with `documentId` + `setSQL`, receives each user edit through
+/// It knows nothing about where its text is stored. The owner shows a card
+/// with `documentId` + `setSQL`, receives each user edit through
 /// `onTextEdited`, and says which connection live validation checks against
-/// through `validationConnectionId`. `EditorPaneVC` owns one today and swaps
-/// the text on a tab switch; query cards will own one per card on screen and
-/// share one completion provider between them.
+/// through `validationConnectionId`. The cards on screen share one completion
+/// provider.
+///
+/// A card grows to fit its text (HIG, Scroll views: no vertical scroll view
+/// inside another): this editor never scrolls vertically, hands vertical
+/// wheel events to the card stack, and reports `contentHeight` for the stack
+/// to size the card by. With word wrap off it scrolls sideways itself.
 class SQLEditorController: NSViewController {
 
     let textView = SQLTextView()
@@ -18,8 +22,19 @@ class SQLEditorController: NSViewController {
     private var gutter: LineNumberGutter?
     private let stateManager = AppStateManager.shared
 
-    init(completionProvider: SQLCompletionProvider = SQLCompletionProvider()) {
+    /// Prefix of the accessibility identifiers: `<prefix>.text`,
+    /// `<prefix>.gutter`. Each card passes its own (`editor.card.<n>`).
+    var identifierPrefix: String {
+        didSet {
+            guard isViewLoaded, oldValue != identifierPrefix else { return }
+            textView.setAccessibilityIdentifier("\(identifierPrefix).text")
+            gutter?.setAccessibilityIdentifier("\(identifierPrefix).gutter")
+        }
+    }
+
+    init(completionProvider: SQLCompletionProvider = SQLCompletionProvider(), identifierPrefix: String = "editor") {
         self.completionProvider = completionProvider
+        self.identifierPrefix = identifierPrefix
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -30,26 +45,27 @@ class SQLEditorController: NSViewController {
     /// Applies the scroll-bar setting to the scroll view and follows its changes.
     private var scrollBarPolicy: ScrollBarPolicy?
     private var validationTask: Task<Void, Never>?
-    private var segmentTask: Task<Void, Never>?
     private var foldRegionTask: Task<Void, Never>?
-    private var highlightOverlay: NSView?
-    private var highlightFadeTask: Task<Void, Never>?
 
-    /// The document this editor shows (an editor tab's id today). nil while it
+    /// The card this editor shows. nil while it
     /// shows nothing: user edits are then not reported.
     var documentId: String?
 
     /// The connection live validation checks the text against; nil skips it.
     var validationConnectionId: () -> String? = { nil }
 
-    /// Current parsed SQL segments.
-    private(set) var segments: [SQLSegment] = []
-
     /// Current fold regions for code folding.
     private var foldRegions: [SQLFoldRegion] = []
 
-    /// Callback fired when the user clicks the gutter run button on a segment.
-    var onRunSegment: ((SQLSegment) -> Void)?
+    /// The height the text needs, changed: by an edit, a fold, a font or
+    /// wrap change. The card stack sizes the card again.
+    var onContentHeightChange: (() -> Void)?
+
+    /// The text view took the keyboard: this card is now the focused one.
+    var onFocus: (() -> Void)?
+
+    /// The selection moved. The card stack keeps the caret on screen.
+    var onSelectionChange: (() -> Void)?
 
     /// Fired after each user edit (not after `setSQL`) with the document's id
     /// and its whole text. The owner stores the text where it lives.
@@ -67,8 +83,9 @@ class SQLEditorController: NSViewController {
         // Scroll view for text editor — uses frame-based layout since parent
         // (NSSplitView) manages layout via frames, not Auto Layout.
         // Frame is set in viewDidLayout; starts at container bounds minus gutter.
-        scrollView = NSScrollView(frame: container.bounds)
-        scrollView.hasVerticalScroller = true
+        scrollView = CardEditorScrollView(frame: container.bounds)
+        scrollView.hasVerticalScroller = false
+        scrollView.verticalScrollElasticity = .none
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
@@ -96,18 +113,16 @@ class SQLEditorController: NSViewController {
 
         // Stable handles for accessibility tooling and the UI test harness.
         // The gutter names itself in its own initialiser.
-        textView.setAccessibilityIdentifier("editor.text")
+        textView.setAccessibilityIdentifier("\(identifierPrefix).text")
 
         scrollView.documentView = textView
 
         // Line number gutter — standalone NSView beside the scroll view,
         // outside the scroll view hierarchy to avoid macOS 26's ruler VEV injection.
-        let gutterView = LineNumberGutter(textView: textView, scrollView: scrollView)
+        let gutterView = LineNumberGutter(textView: textView, scrollView: scrollView,
+                                          accessibilityIdentifier: "\(identifierPrefix).gutter")
         gutterView.onWidthChange = { [weak self] in
             self?.view.needsLayout = true
-        }
-        gutterView.onRunSegment = { [weak self] segment in
-            self?.onRunSegment?(segment)
         }
         gutterView.onToggleFold = { [weak self] regionIndex in
             self?.toggleFold(at: regionIndex)
@@ -143,7 +158,9 @@ class SQLEditorController: NSViewController {
         // Fold state changed — re-sync gutter line numbers
         textView.onFoldStateChanged = { [weak self] in
             self?.gutter?.invalidateLineNumbers()
+            self?.onContentHeightChange?()
         }
+        textView.onBecomeFirstResponder = { [weak self] in self?.onFocus?() }
 
         // Click on fold placeholder — unfold that region
         textView.onPlaceholderClicked = { [weak self] foldEntryId in
@@ -152,7 +169,7 @@ class SQLEditorController: NSViewController {
             self.recalculateFoldRegions()
         }
 
-        // Track cursor movement for active segment highlighting
+        // The card stack keeps the caret on screen as it moves.
         NotificationCenter.default.addObserver(
             self, selector: #selector(editorSelectionDidChange(_:)),
             name: NSTextView.didChangeSelectionNotification, object: textView
@@ -227,34 +244,29 @@ class SQLEditorController: NSViewController {
         // text, so a tab switch must take it away rather than leave it
         // sitting over whatever now occupies those characters.
         textView.clearDraftHighlight()
-        // Suppress the onTextChange callback to avoid double-parsing:
-        // setSQL already parses segments, and onTextChange would trigger
-        // recalculateSegments which parses again.
+        // Suppress the onTextChange callback: this is not a user edit, and
+        // the owner already holds the text.
         // A direct `string =` skips didChangeText, so nothing else resets the
         // per-document state: folds would keep hiding the OLD text's ranges in
         // the new text, and ⌘Z would replay the previous tab's edits here.
         textView.unfoldAll()
         suppressTextChange = true
         // AppKit keeps CRLF as typed; `\r` is invisible in the editor and
-        // breaks line-based segment math. Store one line ending.
+        // breaks line-based error math. Store one line ending.
         textView.string = sql.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         suppressTextChange = false
         textView.undoManager?.removeAllActions()
         textView.highlightSyntax()
         gutter?.invalidateLineNumbers()
-        // Immediately recalculate segments for the new text
-        segments = SQLSegmentParser.parse(sql)
-        let cursor = textView.selectedRange().location
-        let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments)
-        gutter?.setSegments(segments, activeIndex: activeIndex)
+        onContentHeightChange?()
 
         // Recalculate fold regions
         recalculateFoldRegions()
     }
 
     @objc private func editorSelectionDidChange(_: Notification) {
-        updateActiveSegment()
+        onSelectionChange?()
     }
 
     func getSQL() -> String {
@@ -440,8 +452,9 @@ class SQLEditorController: NSViewController {
             recalculateFoldRegions()
         }
 
-        // The gutter's statement bands and their run glyphs
-        gutter?.setDrawsSegmentBands(editor.showRunButtonsInGutter)
+        // A card is one statement: no statement bands, no run glyphs. The
+        // card's own Run button runs it.
+        gutter?.setDrawsSegmentBands(false)
 
         // Line numbers — toggle gutter visibility and re-layout
         gutter?.isHidden = !editor.lineNumbers
@@ -469,6 +482,7 @@ class SQLEditorController: NSViewController {
         if needsRehighlight {
             textView.highlightSyntax()
         }
+        onContentHeightChange?()
     }
 
     /// Builds the editor font at `size` (from the current font family setting)
@@ -480,20 +494,20 @@ class SQLEditorController: NSViewController {
         // mid-flight cannot pick up a family from a save that has not reached
         // `applySettings(_:)` yet.
         let family = lastApplied?.fontFamily ?? stateManager.settings.editor.fontFamily
-        let fontName = family.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
-        let fontSize = CGFloat(size)
-
-        let editorFont: NSFont
-        if fontName == "System Monospace" {
-            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        } else if let font = NSFont(name: fontName, size: fontSize) {
-            editorFont = font
-        } else {
-            editorFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        }
+        let editorFont = Self.editorFont(family: family, size: CGFloat(size))
         textView.font = editorFont
         // The gutter's numbers follow the editor size (see LineNumberGutter.setFont).
         gutter?.setFont(editorFont)
+    }
+
+    /// The editor font for a Settings ▸ Editor family and size. Card previews
+    /// use it too, so a preview and the editor that replaces it line up.
+    static func editorFont(family: String, size: CGFloat) -> NSFont {
+        let fontName = family.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Menlo"
+        if fontName == "System Monospace" {
+            return .monospacedSystemFont(ofSize: size, weight: .regular)
+        }
+        return NSFont(name: fontName, size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
     // MARK: - Pinch / keyboard font size
@@ -545,7 +559,44 @@ class SQLEditorController: NSViewController {
         stateManager.saveSettings(updated)
     }
 
-    // MARK: - Segment API
+    // MARK: - Size
+
+    /// The height the card's editor needs to show every line: the used text
+    /// plus the text insets, plus a legacy horizontal scroller when one is
+    /// showing. Never less than one line.
+    var contentHeight: CGFloat {
+        guard isViewLoaded, let lm = textView.layoutManager, let tc = textView.textContainer else { return 0 }
+        lm.ensureLayout(for: tc)
+        let line = lm.defaultLineHeight(for: textView.font ?? .monospacedSystemFont(ofSize: 13, weight: .regular))
+        var height = max(lm.usedRect(for: tc).height, line) + textView.textContainerInset.height * 2
+        if scrollView.hasHorizontalScroller, scrollView.scrollerStyle == .legacy,
+           let scroller = scrollView.horizontalScroller {
+            height += scroller.frame.height
+        }
+        return ceil(height) + 1
+    }
+
+    /// The caret's rect in `view`'s coordinates, for the card stack to keep
+    /// on screen.
+    var caretRectInView: NSRect? {
+        guard isViewLoaded, let lm = textView.layoutManager, let tc = textView.textContainer else { return nil }
+        let length = (textView.string as NSString).length
+        let location = min(textView.selectedRange().location, length)
+        var rect: NSRect
+        if length == 0 || location >= length {
+            rect = lm.extraLineFragmentRect.isEmpty
+                ? lm.boundingRect(forGlyphRange: NSRange(location: max(0, lm.numberOfGlyphs - 1), length: min(1, lm.numberOfGlyphs)), in: tc)
+                : lm.extraLineFragmentRect
+        } else {
+            let glyph = lm.glyphIndexForCharacter(at: location)
+            rect = lm.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: tc)
+        }
+        rect.origin.x += textView.textContainerOrigin.x
+        rect.origin.y += textView.textContainerOrigin.y
+        return view.convert(rect, from: textView)
+    }
+
+    // MARK: - Selection
 
     /// The editor's selection, or nil when nothing is selected.
     ///
@@ -556,122 +607,6 @@ class SQLEditorController: NSViewController {
         let range = textView.selectedRange()
         guard range.length > 0 else { return nil }
         return (textView.string as NSString).substring(with: range)
-    }
-
-    /// Returns the SQL segment at the current cursor position, or nil if none.
-    func getSegmentSQLAtCursor() -> SQLSegment? {
-        let cursor = textView.selectedRange().location
-        guard let idx = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments),
-              idx < segments.count else { return nil }
-
-        // Text storage always contains the full SQL (folds are display-layer only),
-        // so segments parsed from textView.string are always correct.
-        return segments[idx]
-    }
-
-    /// Set the result color for a segment bar in the gutter.
-    func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
-        gutter?.setSegmentColor(color, forSegmentIndex: index)
-    }
-
-    /// Clear all segment result colors in the gutter.
-    func clearSegmentColors() {
-        gutter?.clearSegmentColors()
-    }
-
-    /// Forward the tab's running-segment indices to the gutter. Pass empty set to stop pulsing.
-    func setRunningSegmentIndices(_ indices: Set<Int>) {
-        gutter?.setRunningSegmentIndices(indices)
-    }
-
-    /// Highlight a line range in the editor (scroll to visible + 3-second fade overlay).
-    func highlightLines(_ range: ClosedRange<Int>) {
-        let text = textView.string as NSString
-        guard text.length > 0 else { return }
-
-        var charStart = 0
-        var currentLine = 1
-        // Advance to the start line
-        while currentLine < range.lowerBound && charStart < text.length {
-            if text.character(at: charStart) == 0x0A /* newline */ {
-                currentLine += 1
-            }
-            charStart += 1
-        }
-        var charEnd = charStart
-        // Advance to the end line
-        while currentLine <= range.upperBound && charEnd < text.length {
-            if text.character(at: charEnd) == 0x0A /* newline */ {
-                currentLine += 1
-            }
-            charEnd += 1
-        }
-        let charRange = NSRange(location: charStart, length: charEnd - charStart)
-        textView.scrollRangeToVisible(charRange)
-
-        // Show a highlight overlay that lasts 3 seconds then fades out
-        showHighlightOverlay(for: charRange)
-    }
-
-    private func showHighlightOverlay(for charRange: NSRange) {
-        // Cancel any previous fade
-        highlightFadeTask?.cancel()
-        highlightOverlay?.removeFromSuperview()
-
-        guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else { return }
-
-        // Get the bounding rect for the character range
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
-        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-
-        // Adjust for text container inset
-        let inset = textView.textContainerInset
-        rect.origin.x = 0
-        rect.origin.y += inset.height
-        rect.size.width = textView.bounds.width
-
-        let overlay = NSView(frame: rect)
-        overlay.wantsLayer = true
-        overlay.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
-        overlay.layer?.cornerRadius = 3
-        textView.addSubview(overlay)
-        highlightOverlay = overlay
-
-        // Hold for 3 seconds, then fade out over 0.5 seconds
-        highlightFadeTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, let self, let overlay = self.highlightOverlay else { return }
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.5
-                overlay.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                self?.highlightOverlay?.removeFromSuperview()
-                self?.highlightOverlay = nil
-            }
-        }
-    }
-
-    /// Recalculate segments from the current editor text (debounced).
-    private func recalculateSegments() {
-        segmentTask?.cancel()
-        segmentTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms debounce
-            guard !Task.isCancelled, let self else { return }
-            let text = self.textView.string
-            self.segments = SQLSegmentParser.parse(text)
-            let cursor = self.textView.selectedRange().location
-            let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: self.segments)
-            self.gutter?.setSegments(self.segments, activeIndex: activeIndex)
-        }
-    }
-
-    /// Update the active segment highlight based on current cursor position (no debounce).
-    private func updateActiveSegment() {
-        let cursor = textView.selectedRange().location
-        let activeIndex = SQLSegmentParser.segmentIndex(forCursorAt: cursor, in: segments)
-        gutter?.setSegments(segments, activeIndex: activeIndex)
     }
 
     // MARK: - Code Folding
@@ -762,8 +697,7 @@ class SQLEditorController: NSViewController {
         // FoldState.adjustForEdit (called from SQLTextView.didChangeText) automatically
         // removes folds that overlap the edit and shifts folds after it.
 
-        // Recalculate SQL segments
-        recalculateSegments()
+        onContentHeightChange?()
 
         // Debounced fold region recalculation (full document parse — not needed per keystroke)
         foldRegionTask?.cancel()
@@ -866,5 +800,18 @@ extension SQLEditorController: SQLTextViewCompletionDelegate {
         guard completionProvider.isShown else { return false }
         completionProvider.acceptSelected()
         return true
+    }
+}
+
+/// The card editor's scroll view: sideways only. A vertical wheel or trackpad
+/// movement goes to the card stack, so scrolling over a card scrolls the
+/// stack instead of stopping dead.
+final class CardEditorScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        if abs(event.scrollingDeltaY) >= abs(event.scrollingDeltaX) {
+            nextResponder?.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
     }
 }

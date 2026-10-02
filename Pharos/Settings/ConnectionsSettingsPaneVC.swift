@@ -75,6 +75,22 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     help: String(localized: "It stops a forgotten transaction from holding locks. 0 turns it off."),
                     kind: .stepper(.settings(\.connections.idleInTransactionSeconds),
                                    range: 0...86400, unit: String(localized: "seconds"))),
+                SettingsItem(
+                    id: "tabIdleInTransactionSeconds",
+                    title: String(localized: "Idle transaction timeout for query cards"),
+                    caption: String(localized: "Each editor tab has its own connection, so a transaction can stay open from one card to the next. This is how long it may sit idle."),
+                    icon: "hourglass.badge.plus",
+                    help: String(localized: "A banner shows while a tab has a transaction open. 0 turns the timeout off; a forgotten transaction then holds its locks until you commit, roll back or close the tab."),
+                    kind: .stepper(.settings(\.connections.tabIdleInTransactionSeconds),
+                                   range: 0...86400, unit: String(localized: "seconds"))),
+                SettingsItem(
+                    id: "maxTabSessionsPerConnection",
+                    title: String(localized: "Editor tab connections per server"),
+                    caption: String(localized: "Each editor tab that runs a query holds one connection, beside the shared pool."),
+                    icon: "rectangle.connected.to.line.below",
+                    help: String(localized: "A small server allows few connections. Over the limit, a tab's cards run on the shared pool, without session state between cards. 0 = no limit."),
+                    kind: .stepper(.settings(\.connections.maxTabSessionsPerConnection),
+                                   range: 0...100, unit: nil)),
             ]),
 
             SettingsSection(title: String(localized: "Connection Pool"), items: [

@@ -27,7 +27,7 @@ private final class Recorder: RunningQueriesPopoverDelegate {
 }
 
 private func running(_ id: String, _ sql: String, lines: ClosedRange<Int>, startedAgo: Double) -> RunningQuery {
-    RunningQuery(id: id, normalizedSQL: sql, segmentIndex: 0, lineRange: lines,
+    RunningQuery(id: id, cardId: "card-\(id)", kind: .card, label: "Card \(lines.lowerBound)", normalizedSQL: sql,
                  startTime: CACurrentMediaTime() - startedAgo)
 }
 

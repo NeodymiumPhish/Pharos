@@ -53,7 +53,7 @@ fn quoted_search_path_element(name: &str) -> Result<String, String> {
 }
 
 /// The user's `search_path` suffix, from the settings cache.
-fn search_path_suffix(state: &AppState) -> String {
+pub(crate) fn search_path_suffix(state: &AppState) -> String {
     state.settings().connections.search_path_suffix.clone()
 }
 
@@ -80,7 +80,7 @@ pub(crate) fn history_prune_policy(state: &AppState) -> sqlite::HistoryPrunePoli
 }
 
 /// The user's statement timeout, in seconds, from the settings cache.
-fn query_timeout_seconds(state: &AppState) -> u32 {
+pub(crate) fn query_timeout_seconds(state: &AppState) -> u32 {
     state.settings().query.timeout_seconds
 }
 
@@ -219,7 +219,7 @@ fn stop_unread_statement(
 
 /// How long `cancel_until_ended` waits for the statement to end before it
 /// sends the cancel again, and how many cancels it sends in all.
-const CANCEL_CONFIRM_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+pub(crate) const CANCEL_CONFIRM_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 const CANCEL_ATTEMPTS: u32 = 5;
 
 /// Send a cancel, then read the connection until the statement has ended;
@@ -238,7 +238,7 @@ const CANCEL_ATTEMPTS: u32 = 5;
 /// server's ready message, and returns early with the statement's error
 /// ("canceling statement", SQLSTATE 57014). Either way it is over. The ping is
 /// pinned and never dropped half-read, so a timeout only pauses it.
-async fn cancel_until_ended<F, Fut>(
+pub(crate) async fn cancel_until_ended<F, Fut>(
     conn: &mut sqlx::PgConnection,
     wait: std::time::Duration,
     send_cancel: F,
@@ -264,7 +264,7 @@ where
 /// caller holds a pool connection itself, so with every connection busy (a
 /// pool of one, at the least) a wait would last until the acquire timeout —
 /// found 2026-09-30, when a cancelled `pg_sleep` kept running on the server.
-async fn cancel_backend(pool: &sqlx::PgPool, backend_pid: i32) -> Result<(), String> {
+pub(crate) async fn cancel_backend(pool: &sqlx::PgPool, backend_pid: i32) -> Result<(), String> {
     let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
     if let Some(mut idle) = pool.try_acquire() {
         return (&mut *idle)
@@ -289,7 +289,7 @@ async fn cancel_backend(pool: &sqlx::PgPool, backend_pid: i32) -> Result<(), Str
 
 /// The error a cancelled query returns. Swift shows its own text for a cancel,
 /// so this is only what the logs and a history row read.
-const QUERY_CANCELLED: &str = "Query was cancelled";
+pub(crate) const QUERY_CANCELLED: &str = "Query was cancelled";
 
 /// `pool.acquire()`, abandoned the moment the query is cancelled. Without this
 /// a cancel pressed while every pool connection is busy waits out the acquire,
@@ -366,7 +366,7 @@ pub struct QueryResult {
 
 /// Build ColumnDef values from PgColumn metadata, keeping the source table OID
 /// and attnum that PostgreSQL reports for each column.
-fn pg_columns_to_defs(cols: &[sqlx::postgres::PgColumn]) -> Vec<ColumnDef> {
+pub(crate) fn pg_columns_to_defs(cols: &[sqlx::postgres::PgColumn]) -> Vec<ColumnDef> {
     cols.iter()
         .map(|col| ColumnDef {
             name: col.name().to_string(),
@@ -385,7 +385,7 @@ fn pg_columns_to_defs(cols: &[sqlx::postgres::PgColumn]) -> Vec<ColumnDef> {
 /// Returns None only when no column carries a source table. An empty
 /// `candidates` array is the fingerprint case and still returns a block,
 /// because Swift needs `table_keys` to test the table overlap.
-async fn build_row_identity(
+pub(crate) async fn build_row_identity(
     pool: &sqlx::PgPool,
     connection_id: &str,
     columns: &[ColumnDef],
@@ -519,7 +519,7 @@ async fn read_rows_with_cancel(
 }
 
 /// The first `take` rows as JSON arrays of text values, in column order.
-fn rows_to_json(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: usize) -> Vec<serde_json::Value> {
+pub(crate) fn rows_to_json(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: usize) -> Vec<serde_json::Value> {
     rows.into_iter()
         .take(take)
         .map(|row| {
@@ -535,7 +535,7 @@ fn rows_to_json(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: u
 
 /// The history row for one successful run, with a fresh id.
 #[allow(clippy::too_many_arguments)]
-fn history_entry(
+pub(crate) fn history_entry(
     state: &AppState,
     connection_id: &str,
     sql: &str,
@@ -568,13 +568,13 @@ fn history_entry(
 }
 
 /// A result's cached blobs: columns, rows and the identity block, as JSON text.
-type ResultCache = (String, String, Option<String>);
+pub(crate) type ResultCache = (String, String, Option<String>);
 
 /// The blobs to cache for a result, or None for an empty result or one over
 /// the per-result cap (10 MB of uncompressed JSON). Built by the caller rather
 /// than in the blocking task, so the task owns plain text and the row tree is
 /// moved into the result once, not cloned.
-fn result_cache(
+pub(crate) fn result_cache(
     columns: &[ColumnDef],
     json_rows: &[serde_json::Value],
     row_identity: Option<&RowIdentity>,
@@ -598,7 +598,7 @@ fn result_cache(
 /// blocking task afterwards — the gzip and the blob write are the only part
 /// of the path whose cost grows with the result, and the caller does not need
 /// them to show the grid.
-fn record_history(state: &AppState, entry: &QueryHistoryEntry, cache: Option<ResultCache>) {
+pub(crate) fn record_history(state: &AppState, entry: &QueryHistoryEntry, cache: Option<ResultCache>) {
     let inserted = match state.metadata_db.lock() {
         Ok(db) => match sqlite::save_query_history_with_policy(
             &db,

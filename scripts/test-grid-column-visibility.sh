@@ -19,8 +19,8 @@ swiftc -o /tmp/grid-column-visibility-tests \
   Pharos/ViewControllers/ResultsGrid/ResultsCellSelection.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsSortController.swift \
   Pharos/Views/AccessibilityProxyElement.swift \
-  Pharos/Core/ResultTabsPanelPrefs.swift \
   Pharos/Core/SQLErrorLocation.swift \
+  Pharos/Models/CardDocument.swift \
   Pharos/Models/QueryTab.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/QueryFailure.swift \

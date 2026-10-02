@@ -18,6 +18,11 @@ pub struct WorkspaceUpsert {
     pub variables_json: String,
     #[serde(default)]
     pub cursor_position: Option<i64>,
+    /// The tab's query cards as JSON, written and read by Swift
+    /// (`CardPersistence`). `editor_text` holds the same cards as text, for
+    /// search and for older versions of the app.
+    #[serde(default)]
+    pub cards_json: Option<String>,
 }
 
 fn default_variables_json() -> String { "[]".to_string() }
@@ -49,6 +54,11 @@ pub struct ResultAssociation {
     pub line_end: Option<i64>,
     #[serde(default)]
     pub custom_label: Option<String>,
+    /// The query card the result belongs to, and its version.
+    #[serde(default)]
+    pub card_id: Option<String>,
+    #[serde(default)]
+    pub card_version: Option<i64>,
 }
 
 /// Row shown in the workspace list (Layout B).
@@ -97,6 +107,12 @@ pub struct WorkspaceResultMeta {
     pub status: String,
     /// What the server said, for a row whose `status` is not `ok`.
     pub error_message: Option<String>,
+    /// The query card the result belongs to, and its version. None on rows
+    /// recorded before cards existed.
+    #[serde(default)]
+    pub card_id: Option<String>,
+    #[serde(default)]
+    pub card_version: Option<i64>,
 }
 
 /// Full workspace payload returned on reopen.
@@ -111,6 +127,8 @@ pub struct WorkspaceDetail {
     pub variables_json: String,
     pub cursor_position: Option<i64>,
     pub results: Vec<WorkspaceResultMeta>,
+    #[serde(default)]
+    pub cards_json: Option<String>,
 }
 
 #[cfg(test)]
@@ -160,7 +178,7 @@ mod tests {
     /// `WorkspaceResultMeta` declares.
     #[test]
     fn result_meta_serializes_the_line_range_as_camel_case() {
-        let meta = WorkspaceResultMeta {
+        let meta = WorkspaceResultMeta { card_id: Default::default(), card_version: Default::default(),
             id: "h1".to_string(),
             sql: "SELECT 1".to_string(),
             result_order: Some(0),

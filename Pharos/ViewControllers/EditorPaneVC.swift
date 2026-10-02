@@ -9,28 +9,34 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
-    func editorPane(_ pane: EditorPaneVC, didRequestRunSegment segment: SQLSegment)
-    func editorPaneDidEditText(_ pane: EditorPaneVC)
     func editorPaneDidRequestShowErrors(_ pane: EditorPaneVC)
-    func editorPane(_ pane: EditorPaneVC, didSelectResultTab resultTabId: String)
-    func editorPane(_ pane: EditorPaneVC, didCloseResultTab resultTabId: String)
-    func editorPane(_ pane: EditorPaneVC, didRequestResultTabDetail resultTabId: String)
-    func editorPane(_ pane: EditorPaneVC, didRequestResultTabRename resultTabId: String)
     /// A `{{` completion row was accepted, or a `{{name}}` token was clicked:
     /// show that variable (creating it when no variable has the name).
     func editorPane(_ pane: EditorPaneVC, didChooseVariable name: String)
+
+    // Query cards
+    func editorPane(_ pane: EditorPaneVC, didRequestRunCard cardId: String, mode: CardRunMode)
+    func editorPane(_ pane: EditorPaneVC, didRequestViewResultsOfCard cardId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestCancelCard cardId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestRenameCard cardId: String)
+    func editorPane(_ pane: EditorPaneVC, didRequestClearResultsOfCard cardId: String)
+    func editorPane(_ pane: EditorPaneVC, didEditCard cardId: String)
+    /// What the card's name row shows that only the results side knows.
+    func editorPane(_ pane: EditorPaneVC, statusOf card: QueryCard, inTab tabId: String) -> CardStackVC.CardStatus
 }
 
-/// The editor area: the tab bar, the SQL editor and its toolbar, and the
-/// vertical result-tabs panel. It shows `AppStateManager.activeTab`.
+/// The editor area: the tab bar, the header row, and the active tab's query
+/// cards (`CardStackVC`). It shows `WindowSession.activeTab`.
 ///
-/// Query variables are not here any more. They are app-wide
-/// (`QueryVariableStore`) and edited in the sidebar's Variables navigator;
-/// this pane only reports which `{{name}}` tokens the editor text references
+/// Query variables are not here. They are app-wide (`QueryVariableStore`)
+/// and edited in the sidebar's Variables navigator; this pane only reports
+/// which `{{name}}` tokens the cards reference
 /// (`WindowSession.referencedVariableNames`) and highlights the defined names.
 class EditorPaneVC: NSViewController {
 
-    let editorVC: SQLEditorController
+    /// One completion list for every card of the window.
+    let completionProvider = SQLCompletionProvider()
+    let cardStack: CardStackVC
     private(set) var paneTabBar: PaneTabBar!
 
     // Editor toolbar (below tab bar)
@@ -46,56 +52,18 @@ class EditorPaneVC: NSViewController {
     /// "Format as SQL list" — hidden until a paste qualifies for the offer.
     private let formatListButton = NSButton()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
-
-    // Schema selector (in editor toolbar). Run, Cancel and the connection
-    // pull-down live in the window toolbar (`MainToolbarController`).
+    private let newCardButton = NSButton()
+    private let collapseAllButton = NSButton()
 
     /// Per-tab failure indicator. Hidden until the pane's active tab has a
     /// failure in its log.
     let errorButton = ErrorBadgeButton()
-
-    /// Width of the result-tabs panel's resize divider.
-    private let panelDividerWidth: CGFloat = 5
-
-    /// Smallest editor `viewDidLayout` will leave before it starts reducing the
-    /// result-tabs panel. The panel renders at the width the user chose and the
-    /// editor absorbs the rest, until the editor reaches this floor; only then
-    /// is the panel reduced, and no further than its own `minWidth`. Display
-    /// only: the pref is never written from here.
-    ///
-    /// The floor's value is not what makes a drag exact — `widthForDrag` is. By
-    /// stopping a widen at the ceiling, it keeps the pref inside what can be
-    /// displayed, so the reduction never engages mid-drag whatever this floor
-    /// is set to.
-    private let minEditorWidth: CGFloat = 200
-
-    // Vertical result tabs (fed by ContentViewController.refreshResultTabViews)
-    private let resultTabsToggle = NSButton()
-    private let resultTabsPanelVC = ResultTabsPanelVC()
-    private let resultTabsDivider = ResizeDividerView()
-    private var resultTabsPanelWidthAtDragStart: CGFloat = 0
 
     /// Coalesces the `{{token}}` scan behind editor typing. The scan is a full
     /// regex pass over the text, so it runs once per pause rather than once per
     /// keystroke.
     private var referencedNamesScanTimer: Timer?
     private let referencedNamesScanDelay: TimeInterval = 0.15
-
-    // `resultTabsPanelWidthAtDragStart` above snapshots the **pref**, never the
-    // width last displayed. The two differ whenever the narrow-window shrink in
-    // `viewDidLayout` is active, and a drag assigns its result back to the pref
-    // — so anchoring on the displayed width mixed the two units and made the
-    // drag move the panel the WRONG WAY (measured, when two panels shared the
-    // budget: a widen collapsed the pref 400 → 285 and the panel fell 42pt).
-    // Anchoring on the pref costs a cosmetic lag while shrunk; a divider that
-    // moves the wrong way is the bug that was reported. Do not "fix" this back.
-
-    private var isResultTabsPanelVisible: Bool {
-        guard stateManager.settings.verticalResultTabs,
-              let tabId = lastActiveTabId,
-              let tab = session.tabs.first(where: { $0.id == tabId }) else { return false }
-        return tab.resultTabsPanelVisible
-    }
 
     weak var delegate: EditorPaneDelegate?
 
@@ -108,7 +76,7 @@ class EditorPaneVC: NSViewController {
 
     init(session: WindowSession) {
         self.session = session
-        self.editorVC = SQLEditorController()
+        self.cardStack = CardStackVC(completionProvider: completionProvider)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -162,78 +130,20 @@ class EditorPaneVC: NSViewController {
         // Editor toolbar (below tab bar)
         setupEditorToolbar()
 
-        // Editor — wire segment run and text edit callbacks
-        editorVC.onRunSegment = { [weak self] segment in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestRunSegment: segment)
-        }
-        editorVC.onTextEdited = { [weak self] tabId, text in
-            guard let self else { return }
-            // Every keystroke goes into the tab: session restore, the
-            // workspace snapshot, save and the unsaved-work check read it.
-            self.session.updateTab(id: tabId) { tab in
-                tab.sql = text
-                tab.isDirty = true
-            }
-            self.delegate?.editorPaneDidEditText(self)
-            // Adding or removing a `{{token}}` changes which variables are
-            // referenced, and therefore which rows the sidebar's Variables
-            // navigator flags.
-            self.scheduleReferencedNamesScan()
-        }
-        editorVC.validationConnectionId = { [weak self] in self?.session.activeConnectionId }
-        editorVC.onVariableChosen = { [weak self] name in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didChooseVariable: name)
-        }
-        editorVC.textView.onListPasteDetected = { [weak self] in
-            self?.formatListButton.isHidden = false
-        }
-        editorVC.textView.onListPasteOfferInvalidated = { [weak self] in
-            self?.formatListButton.isHidden = true
-        }
-        addChild(editorVC)
+        wireCardStack()
+        addChild(cardStack)
 
-        // Highlight the app-wide variable names in the editor and offer them
+        // Highlight the app-wide variable names in the cards and offer them
         // after `{{`, and follow the store: an edit in any window's sidebar
-        // reaches every editor.
+        // reaches every card.
         applyQueryVariables()
         NotificationCenter.default.addObserver(
             self, selector: #selector(queryVariablesDidChange(_:)),
             name: QueryVariableStore.didChange, object: nil)
 
-        addChild(resultTabsPanelVC)
-        resultTabsPanelVC.onSelectRow = { [weak self] id in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didSelectResultTab: id)
-        }
-        resultTabsPanelVC.onCloseRow = { [weak self] id in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didCloseResultTab: id)
-        }
-        resultTabsPanelVC.onRenameRow = { [weak self] id in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestResultTabRename: id)
-        }
-        resultTabsPanelVC.onViewDetail = { [weak self] id in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestResultTabDetail: id)
-        }
-        resultTabsDivider.onDragBegan = { [weak self] in
-            guard let self else { return }
-            self.resultTabsPanelWidthAtDragStart = ResultTabsPanelPrefs.width
-        }
-        resultTabsDivider.onDrag = { [weak self] offset in
-            self?.resizeResultTabsPanel(byOffset: offset)
-        }
-
         container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
-        container.addSubview(editorVC.view)
-        container.addSubview(resultTabsPanelVC.view)
-        container.addSubview(resultTabsDivider)
-        resultTabsPanelVC.view.isHidden = true
-        resultTabsDivider.isHidden = true
+        container.addSubview(cardStack.view)
 
         NSLayoutConstraint.activate([
             paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
@@ -247,16 +157,15 @@ class EditorPaneVC: NSViewController {
             editorToolbar.heightAnchor.constraint(equalToConstant: editorToolbarHeight),
         ])
 
-        // Editor view uses frame-based layout — positioned in viewDidLayout.
-        // Set initial frame below the tab bar + editor toolbar so it doesn't cover them.
-        editorVC.view.frame = NSRect(
+        // The card stack uses frame-based layout — positioned in viewDidLayout.
+        cardStack.view.frame = NSRect(
             x: 0, y: 0,
             width: container.bounds.width,
             height: max(0, container.bounds.height - totalHeaderHeight)
         )
 
         // Observe the active tab. Settled publisher, no run-loop hop: the
-        // editor has loaded its tab's text by the time `selectTab` returns
+        // cards of the new tab are on screen by the time `selectTab` returns
         // (see `AppStateManager.tabsSettled`).
         session.activeTabIdSettled
             .sink { [weak self] tabId in
@@ -265,10 +174,10 @@ class EditorPaneVC: NSViewController {
             .store(in: &cancellables)
 
         // Observe tab content changes (isDirty, isExecuting, name) + rebuild menus.
-        // Dedup on the fields this sink actually reads: id / name / isDirty /
-        // isExecuting / segmentIndex set. Without this, every
-        // keystroke (which updates `tab.sql` via updateTab) republishes the tabs
-        // and re-rebuilt all four UI surfaces.
+        // Dedup on the fields this sink actually reads. Without this, every
+        // keystroke (which updates the tab's document via updateTab)
+        // republishes the tabs and rebuilt every surface. Card state is not
+        // here: the card stack is driven directly.
         session.tabsSettled
             .removeDuplicates { lhs, rhs in
                 guard lhs.count == rhs.count else { return false }
@@ -280,26 +189,22 @@ class EditorPaneVC: NSViewController {
                         || a.isExecuting != b.isExecuting
                         || a.connectionId != b.connectionId
                         || a.schemaName != b.schemaName
+                        || a.runningQueries.map(\.cardId) != b.runningQueries.map(\.cardId)
                     {
                         return false
                     }
-                    // Gutter pulse uses the segment indices of running queries
-                    // — same count + same indices = same pulse, no rebuild.
-                    let aSegs = a.runningQueries.map { $0.segmentIndex }
-                    let bSegs = b.runningQueries.map { $0.segmentIndex }
-                    if aSegs != bSegs { return false }
                 }
                 return true
             }
-            .sink { [weak self] tabs in
+            .sink { [weak self] _ in
                 guard let self else { return }
                 self.refreshTabBar()
                 self.updateEditorToolbarState()
-                self.updateGutterPulseForActiveTab(tabs: tabs)
+                self.cardStack.refreshStatus()
             }
             .store(in: &cancellables)
 
-        // Push schema metadata to editor
+        // Push schema metadata to the shared completion list, once per push.
         Publishers.CombineLatest3(
             metadataCache.$schemas,
             metadataCache.$tables,
@@ -307,8 +212,7 @@ class EditorPaneVC: NSViewController {
         )
         .receive(on: RunLoop.main)
         .sink { [weak self] schemas, tables, columns in
-            self?.editorVC.updateSchemaMetadata(
-                schemas: schemas, tables: tables, columnsByTable: columns)
+            self?.completionProvider.updateMetadata(schemas: schemas, tables: tables, columnsByTable: columns)
         }
         .store(in: &cancellables)
 
@@ -319,13 +223,13 @@ class EditorPaneVC: NSViewController {
             .sink { [weak self] schema, connectionId in
                 guard let self else { return }
                 let fallback = connectionId.flatMap { self.session.hooks.defaultSchema($0) }
-                self.editorVC.setCurrentSchema(schema ?? fallback)
+                self.completionProvider.currentSchema = schema ?? fallback
             }
             .store(in: &cancellables)
 
         // Columns load per schema, lazily: the list asks for the schemas the
         // statement names so they are there by the next keystroke.
-        editorVC.completionProvider.onSchemaNeeded = { schema in
+        completionProvider.onSchemaNeeded = { schema in
             MetadataCache.shared.prioritize(schema: schema)
         }
 
@@ -350,39 +254,66 @@ class EditorPaneVC: NSViewController {
             .store(in: &cancellables)
     }
 
+    /// Connect the card stack to the active tab's document and to the
+    /// delegate.
+    private func wireCardStack() {
+        cardStack.document = { [weak self] in
+            guard let self, let id = self.cardStack.tabId else { return nil }
+            return self.session.tabs.first(where: { $0.id == id })?.document
+        }
+        cardStack.mutate = { [weak self] change in
+            guard let self, let id = self.cardStack.tabId else { return }
+            self.session.updateTab(id: id) { change(&$0.document) }
+        }
+        cardStack.status = { [weak self] card in
+            guard let self, let tabId = self.cardStack.tabId,
+                  let delegate = self.delegate else { return CardStackVC.CardStatus() }
+            return delegate.editorPane(self, statusOf: card, inTab: tabId)
+        }
+        cardStack.onRun = { [weak self] id, mode in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestRunCard: id, mode: mode)
+        }
+        cardStack.onViewResults = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestViewResultsOfCard: id)
+        }
+        cardStack.onCancel = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestCancelCard: id)
+        }
+        cardStack.onRenameRequest = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestRenameCard: id)
+        }
+        cardStack.onClearResults = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didRequestClearResultsOfCard: id)
+        }
+        cardStack.onTextEdited = { [weak self] id, _ in
+            guard let self, let tabId = self.cardStack.tabId else { return }
+            self.session.updateTab(id: tabId) { $0.isDirty = true }
+            self.delegate?.editorPane(self, didEditCard: id)
+            // Adding or removing a `{{token}}` changes which variables are
+            // referenced, and therefore which rows the sidebar's Variables
+            // navigator flags.
+            self.scheduleReferencedNamesScan()
+        }
+        cardStack.onVariableChosen = { [weak self] name in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didChooseVariable: name)
+        }
+        cardStack.onListPasteOffer = { [weak self] offered in
+            self?.formatListButton.isHidden = !offered
+        }
+        cardStack.validationConnectionId = { [weak self] in self?.session.activeConnectionId }
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
         // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via Auto Layout.
-        // Horizontal order: editor | divider | result tabs.
         let editorHeight = max(0, view.bounds.height - totalHeaderHeight)
-        let showResults = isResultTabsPanelVisible
-
-        var resultsW = showResults ? ResultTabsPanelPrefs.width : 0
-        let dividersW = showResults ? panelDividerWidth : 0
-
-        // The panel renders at the width the user chose; the editor absorbs
-        // what is left. Only when the editor would fall under its floor is the
-        // panel reduced, and never below its own minimum. Display only: the
-        // pref is never written from here, so a temporarily narrow window does
-        // not destroy it.
-        var editorW = view.bounds.width - resultsW - dividersW
-        if editorW < minEditorWidth {
-            let deficit = minEditorWidth - editorW
-            let floor = showResults ? ResultTabsPanelPrefs.minWidth : 0
-            resultsW -= min(deficit, max(0, resultsW - floor))
-            editorW = view.bounds.width - resultsW - dividersW
-        }
-        editorW = max(0, editorW)
-        editorVC.view.frame = NSRect(x: 0, y: 0, width: editorW, height: editorHeight)
-
-        var x = editorW
-        resultTabsDivider.isHidden = !showResults
-        resultTabsPanelVC.view.isHidden = !showResults
-        if showResults {
-            resultTabsDivider.frame = NSRect(x: x, y: 0, width: panelDividerWidth, height: editorHeight)
-            x += panelDividerWidth
-            resultTabsPanelVC.view.frame = NSRect(x: x, y: 0, width: resultsW, height: editorHeight)
-        }
+        cardStack.view.frame = NSRect(x: 0, y: 0, width: view.bounds.width, height: editorHeight)
     }
 
     // MARK: - State Observation
@@ -401,17 +332,6 @@ class EditorPaneVC: NSViewController {
         }
     }
 
-    /// Read the active tab from the tabs array and push its running-segment
-    /// indices to the gutter (or empty set if the tab isn't executing).
-    private func updateGutterPulseForActiveTab(tabs: [QueryTab]) {
-        guard let activeTabId = session.activeTabId,
-              let tab = tabs.first(where: { $0.id == activeTabId }) else {
-            editorVC.setRunningSegmentIndices([])
-            return
-        }
-        editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
-    }
-
     private func refreshTabBar() {
         paneTabBar.update(tabs: session.tabs, activeTabId: session.activeTabId)
     }
@@ -419,24 +339,13 @@ class EditorPaneVC: NSViewController {
     // MARK: - Tab Switching
 
     private func tabChanged(from oldTabId: String?, to newTabId: String?) {
-        // Save cursor position of old tab
-        if let oldTabId, editorVC.documentId == oldTabId {
-            let cursorPos = editorVC.getCursorPosition()
-            session.updateTab(id: oldTabId) { $0.cursorPosition = cursorPos }
-        }
-
         guard let newTabId,
               let tab = session.tabs.first(where: { $0.id == newTabId }) else {
-            editorVC.documentId = nil
-            editorVC.setSQL("")
-            syncResultTabsPanel()
+            cardStack.show(tabId: nil)
             return
         }
 
-        editorVC.documentId = newTabId
-        editorVC.setSQL(tab.sql)
-        editorVC.setCursorPosition(tab.cursorPosition)
-        editorVC.clearErrorMarkers()
+        cardStack.show(tabId: newTabId)
 
         // Sync global state to this tab's connection/schema so sidebar updates.
         // Only set when the value actually changes to avoid redundant reloads.
@@ -449,77 +358,96 @@ class EditorPaneVC: NSViewController {
             session.activeSchema = tab.schemaName
         }
 
-        // Sync gutter pulse to the newly-activated tab.
-        editorVC.setRunningSegmentIndices(Set(tab.runningQueries.map { $0.segmentIndex }))
-
-        // The incoming tab's text references a different token set; the
+        // The incoming tab's cards reference a different token set; the
         // sidebar must not wait out the typing debounce to learn it.
         referencedNamesScanTimer?.invalidate()
         publishReferencedNames()
-        syncResultTabsPanel()
+        updateCollapseAllButton()
     }
 
     // MARK: - Public API
 
+    /// Put the keyboard in the focused card.
     func focus() {
-        editorVC.focus()
+        guard let id = cardStack.document()?.focusedCardId else { return }
+        cardStack.focusCard(id)
     }
 
-    func getSQL() -> String {
-        editorVC.getSQL()
-    }
-
+    /// Format the focused card. A locked card keeps its text.
     func formatSQL() {
-        editorVC.formatSQL()
+        guard let editor = cardStack.focusedEditor, editor.textView.isEditable else { return }
+        editor.formatSQL()
     }
 
-    /// The editor's current font size (9...24) — for the View menu's
-    /// Increase/Decrease Editor Font items to validate against the clamp.
+    /// The editor font size (9...24) — for the View menu's Increase/Decrease
+    /// Editor Font items to validate against the clamp.
     var editorFontSize: Int {
-        editorVC.currentFontSize
+        cardStack.focusedEditor?.currentFontSize ?? Int(stateManager.settings.editor.fontSize)
     }
 
     /// Steps the editor font size by one, same clamp and save path as a
     /// trackpad pinch. Used by the View menu's ⌘+ / ⌘− commands.
     func stepEditorFontSize(by delta: Int) {
-        editorVC.stepFontSize(by: delta)
+        if let editor = cardStack.focusedEditor {
+            editor.stepFontSize(by: delta)
+            return
+        }
+        let size = FontSizeStepper.stepped(editorFontSize, by: delta)
+        var updated = stateManager.settings
+        guard updated.editor.fontSize != UInt32(size) else { return }
+        updated.editor.fontSize = UInt32(size)
+        stateManager.saveSettings(updated)
     }
 
-    /// `range` is in document coordinates — see `SQLEditorController.markError(range:)`.
-    func markError(range: NSRange, message: String? = nil) {
-        editorVC.markError(range: range, message: message)
+    /// `range` counts into the card's text.
+    func markError(cardId: String, range: NSRange, message: String? = nil) {
+        cardStack.editor(for: cardId)?.markError(range: range, message: message)
     }
 
-    func revealError(range: NSRange) {
-        editorVC.revealError(range: range)
+    func revealError(cardId: String, range: NSRange) {
+        cardStack.focusCard(cardId)
+        cardStack.editor(for: cardId)?.revealError(range: range)
     }
 
-    func clearErrorMarkers() {
-        editorVC.clearErrorMarkers()
+    func clearErrorMarkers(cardId: String) {
+        cardStack.focusedEditor.flatMap { $0.documentId == cardId ? $0 : nil }?.clearErrorMarkers()
     }
 
+    /// Put `text` in at the caret of the focused card, or in a new card when
+    /// the focused card is locked.
     func insertText(_ text: String) {
-        let range = editorVC.textView.selectedRange()
-        editorVC.textView.insertText(text, replacementRange: range)
+        guard let doc = cardStack.document() else { return }
+        if let id = doc.focusedCardId, doc.card(id)?.isLocked == false, let editor = cardStack.editor(for: id) {
+            cardStack.focusCard(id)
+            let range = editor.textView.selectedRange()
+            editor.textView.insertText(text, replacementRange: range)
+        } else {
+            cardStack.addCard(after: doc.focusedCardId, sql: text)
+        }
     }
 
-    func highlightLines(_ range: ClosedRange<Int>) {
-        editorVC.highlightLines(range)
+    /// Push the failure-log state of this pane's active tab onto the badge.
+    /// Called by ContentViewController; the `$tabs` sink cannot do this, because
+    /// its `removeDuplicates` whitelist does not watch the failure log.
+    func setErrorState(total: Int, unread: Int) {
+        errorButton.setState(total: total, unread: unread)
     }
 
-    func setSegmentColor(_ color: NSColor?, forSegmentIndex index: Int) {
-        editorVC.setSegmentColor(color, forSegmentIndex: index)
+    /// Whether this pane is showing `tabId` right now.
+    func showsTab(_ tabId: String) -> Bool {
+        lastActiveTabId == tabId
     }
 
-    func clearSegmentColors() {
-        editorVC.clearSegmentColors()
+    /// The cards' run state or results changed: refresh the name rows.
+    func refreshCards() {
+        cardStack.refreshStatus()
     }
 
-    /// Save the current tab's cursor position.
-    func saveCurrentTabState() {
-        guard let tabId = editorVC.documentId else { return }
-        let cursorPos = editorVC.getCursorPosition()
-        session.updateTab(id: tabId) { $0.cursorPosition = cursorPos }
+    /// The active tab's cards changed shape (a split, a new card): rebuild,
+    /// keeping `anchor` in place on screen.
+    func reloadCards(anchor: String? = nil) {
+        cardStack.reload(anchor: anchor.map { .card($0) })
+        updateCollapseAllButton()
     }
 
     // MARK: - Editor Toolbar
@@ -614,34 +542,43 @@ class EditorPaneVC: NSViewController {
         separator.translatesAutoresizingMaskIntoConstraints = false
         editorToolbar.addSubview(separator)
 
-        // All controls in one row: Format, Describe, Save, Format-as-SQL-list.
-        // The schema selector is in the window toolbar, beside the connection.
+        // New query card below the focused one (⌃⌘N).
+        newCardButton.image = NSImage(systemSymbolName: "plus.rectangle", accessibilityDescription: String(localized: "New Query Card"))?.withSymbolConfiguration(fmtConfig)
+        newCardButton.bezelStyle = .recessed
+        newCardButton.isBordered = false
+        newCardButton.toolTip = String(localized: "New Query Card (⌃⌘N)")
+        newCardButton.contentTintColor = .secondaryLabelColor
+        newCardButton.target = self
+        newCardButton.action = #selector(newCardTapped)
+        newCardButton.translatesAutoresizingMaskIntoConstraints = false
+        newCardButton.setAccessibilityIdentifier("editor.newCard")
+
+        // All controls in one row: Format, Describe, Save, New Card,
+        // Format-as-SQL-list. The schema selector is in the window toolbar,
+        // beside the connection.
         let toolbarStack = NSStackView(
-            views: [formatButton, describeQueryButton, saveDropdown, formatListButton])
+            views: [formatButton, describeQueryButton, saveDropdown, newCardButton, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
 
         editorToolbar.addSubview(toolbarStack)
 
-        // The error badge and the result-tabs toggle, right-aligned as one
-        // group and not part of the leading stack.
-        let resultTabsConfig = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        // Not `sidebar.trailing`: that is the Inspector toggle's glyph, drawn
-        // in the window toolbar directly above this button.
-        resultTabsToggle.image = NSImage(systemSymbolName: "rectangle.righthalf.inset.filled", accessibilityDescription: "Result Tabs")?.withSymbolConfiguration(resultTabsConfig)
-        resultTabsToggle.bezelStyle = .recessed
-        resultTabsToggle.isBordered = false
-        resultTabsToggle.toolTip = "Show/Hide Result Tabs"
-        resultTabsToggle.contentTintColor = .secondaryLabelColor
-        resultTabsToggle.target = self
-        resultTabsToggle.action = #selector(toggleResultTabsPanel)
+        // The error badge and Collapse All, right-aligned as one group and
+        // not part of the leading stack.
+        collapseAllButton.bezelStyle = .recessed
+        collapseAllButton.isBordered = false
+        collapseAllButton.contentTintColor = .secondaryLabelColor
+        collapseAllButton.target = self
+        collapseAllButton.action = #selector(toggleCollapseAll)
+        collapseAllButton.setAccessibilityIdentifier("editor.collapseAll")
+        updateCollapseAllButton()
 
         errorButton.target = self
         errorButton.action = #selector(showErrors)
 
         let trailingGroup = ErrorBadgeButton.makeToolbarTrailingGroup(
-            errorButton: errorButton, resultTabsToggle: resultTabsToggle
+            errorButton: errorButton, trailingButton: collapseAllButton
         )
         editorToolbar.addSubview(trailingGroup)
 
@@ -651,6 +588,8 @@ class EditorPaneVC: NSViewController {
             describeQueryButton.widthAnchor.constraint(equalToConstant: 24),
             describeQueryButton.heightAnchor.constraint(equalToConstant: 24),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
+            newCardButton.widthAnchor.constraint(equalToConstant: 24),
+            newCardButton.heightAnchor.constraint(equalToConstant: 24),
 
             toolbarStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
             toolbarStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
@@ -664,76 +603,8 @@ class EditorPaneVC: NSViewController {
         ])
     }
 
-    @objc private func toggleResultTabsPanel() {
-        guard let tabId = lastActiveTabId else { return }
-        var nowVisible = false
-        session.updateTab(id: tabId) {
-            $0.resultTabsPanelVisible.toggle()
-            nowVisible = $0.resultTabsPanelVisible
-        }
-        // Remember the choice so new tabs inherit it. Settings ▸ Results ▸
-        // Result tabs is the home of that value now; `AppStateManager` pushes
-        // it back onto `ResultTabsPanelPrefs`, which is what `QueryTab` reads.
-        var updated = AppStateManager.shared.settings
-        if updated.results.showResultTabsPanelByDefault != nowVisible {
-            updated.results.showResultTabsPanelByDefault = nowVisible
-            AppStateManager.shared.saveSettings(updated)
-        }
-        syncResultTabsPanel()
-    }
-
-    /// Push the failure-log state of this pane's active tab onto the badge.
-    /// Called by ContentViewController; the `$tabs` sink cannot do this, because
-    /// its `removeDuplicates` whitelist does not watch the failure log.
-    func setErrorState(total: Int, unread: Int) {
-        errorButton.setState(total: total, unread: unread)
-    }
-
-    /// Whether this pane is showing `tabId` right now.
-    func showsTab(_ tabId: String) -> Bool {
-        lastActiveTabId == tabId
-    }
-
     @objc private func showErrors() {
         delegate?.editorPaneDidRequestShowErrors(self)
-    }
-
-    /// Width the visible divider takes, so a drag's ceiling is computed from
-    /// the same budget `viewDidLayout` divides.
-    private var currentDividersWidth: CGFloat {
-        isResultTabsPanelVisible ? panelDividerWidth : 0
-    }
-
-    /// Resolve one drag event into a width to store, holding two invariants:
-    ///
-    /// - **Narrowing is always honoured**, unconditionally. The stored width is
-    ///   the user's, and a drag that asks for less always gets less.
-    /// - **Widening never LOWERS the stored width.** If the room is not there
-    ///   the panel simply stops; the pref must not fall. An earlier attempt
-    ///   clamped unconditionally to the free space, which forced the pref down
-    ///   whenever the free space was below the panel's own minimum — and
-    ///   collapsed it on a touch that never moved the pointer.
-    ///
-    /// The ceiling stops the pref running away past what can ever be displayed.
-    /// Without it, over-widening left the pref far above the on-screen width, so
-    /// the next drag had to travel that whole difference before the divider
-    /// moved at all: measured as a 210pt dead zone.
-    private func widthForDrag(requested: CGFloat, current: CGFloat, ceiling: CGFloat) -> CGFloat {
-        guard requested > current else { return requested }
-        return min(requested, max(current, ceiling))
-    }
-
-    /// The panel sits to the right of its divider, so dragging left (negative)
-    /// widens it. Deriving the width from the drag-start snapshot each time —
-    /// rather than nudging the current width — is what keeps the divider stuck
-    /// to the cursor after an overshoot past the min or max.
-    private func resizeResultTabsPanel(byOffset offset: CGFloat) {
-        ResultTabsPanelPrefs.width = widthForDrag(
-            requested: resultTabsPanelWidthAtDragStart - offset,
-            current: ResultTabsPanelPrefs.width,
-            ceiling: view.bounds.width - currentDividersWidth - minEditorWidth
-        )
-        view.needsLayout = true
     }
 
     /// The app-wide variable list changed (this window's sidebar or another's):
@@ -744,8 +615,7 @@ class EditorPaneVC: NSViewController {
 
     private func applyQueryVariables() {
         let store = QueryVariableStore.shared
-        editorVC.setVariableNames(store.definedNames)
-        editorVC.setCompletionVariables(store.variables)
+        cardStack.setVariables(names: store.definedNames, completion: store.variables)
     }
 
     /// Re-scan the editor text for `{{token}}` references and publish the
@@ -761,32 +631,10 @@ class EditorPaneVC: NSViewController {
     }
 
     private func publishReferencedNames() {
-        let names = VariableSubstitutor.referencedNames(in: editorVC.textView.string)
+        let names = VariableSubstitutor.referencedNames(in: cardStack.allText)
         if session.referencedVariableNames != names {
             session.referencedVariableNames = names
         }
-    }
-
-    /// Refresh the result-tabs toggle tint, its visibility (the button hides
-    /// entirely while the setting selects the horizontal bar), and relayout.
-    /// Driven imperatively — `resultTabsPanelVisible` is deliberately absent
-    /// from the `$tabs` `removeDuplicates` whitelist. Called on toggle, on tab
-    /// switch, and by ContentViewController when the setting flips.
-    func syncResultTabsPanel() {
-        let tab = lastActiveTabId.flatMap { id in session.tabs.first(where: { $0.id == id }) }
-        let verticalMode = stateManager.settings.verticalResultTabs
-        resultTabsToggle.isHidden = !verticalMode
-        resultTabsToggle.contentTintColor = (verticalMode && (tab?.resultTabsPanelVisible ?? false))
-            ? .controlAccentColor : .secondaryLabelColor
-        view.needsLayout = true
-    }
-
-    /// Rows for this pane's panel, pushed by ContentViewController's
-    /// refreshResultTabViews(). `activeId` is the result this pane's own tab
-    /// holds, whether or not that tab is the focused one — an unfocused pane
-    /// still highlights its own result rather than showing none.
-    func updateResultTabs(_ rows: [ResultTabRowModel], activeId: String?) {
-        resultTabsPanelVC.update(rows: rows, activeId: activeId)
     }
 
     @objc private func formatSQLTapped() {
@@ -794,7 +642,28 @@ class EditorPaneVC: NSViewController {
     }
 
     @objc private func formatListTapped() {
-        editorVC.textView.applyPendingSQLize()
+        cardStack.focusedEditor?.textView.applyPendingSQLize()
+    }
+
+    @objc private func newCardTapped() {
+        cardStack.addCardBelowFocused()
+    }
+
+    /// Collapse every card, or expand them all when every card is collapsed.
+    @objc private func toggleCollapseAll() {
+        let allCollapsed = cardStack.document()?.cards.allSatisfy(\.isCollapsed) ?? false
+        cardStack.setAllCollapsed(!allCollapsed)
+        updateCollapseAllButton()
+    }
+
+    private func updateCollapseAllButton() {
+        let allCollapsed = cardStack.document()?.cards.allSatisfy(\.isCollapsed) ?? false
+        let title = allCollapsed ? String(localized: "Expand All Cards") : String(localized: "Collapse All Cards")
+        collapseAllButton.image = NSImage(systemSymbolName: allCollapsed ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
+                                          accessibilityDescription: title)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
+        collapseAllButton.toolTip = title
+        collapseAllButton.setAccessibilityLabel(title)
     }
 
     @objc private func saveTapped() {
@@ -861,7 +730,7 @@ class EditorPaneVC: NSViewController {
             // Close first: the editor can only take the keyboard back once
             // the popover's window has given it up.
             self.closeDescribeQueryPopover()
-            self.editorVC.insertDraft(sql)
+            self.insertDraft(sql)
         }
         popoverVC.onClose = { [weak self] in self?.closeDescribeQueryPopover() }
 
@@ -871,6 +740,23 @@ class EditorPaneVC: NSViewController {
         popover.delegate = self
         describeQueryPopover = popover
         popover.show(relativeTo: describeQueryButton.bounds, of: describeQueryButton, preferredEdge: .maxY)
+    }
+
+    /// A drafted statement goes into the focused card when it is empty, else
+    /// into a new card below it: one statement per card.
+    private func insertDraft(_ sql: String) {
+        guard let doc = cardStack.document() else { return }
+        if let id = doc.focusedCardId, let card = doc.card(id), !card.isLocked,
+           card.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let editor = cardStack.editor(for: id) {
+            cardStack.focusCard(id)
+            editor.insertDraft(sql)
+        } else {
+            cardStack.addCard(after: doc.focusedCardId)
+            if let id = cardStack.document()?.focusedCardId, let editor = cardStack.editor(for: id) {
+                editor.insertDraft(sql)
+            }
+        }
     }
 
     private func closeDescribeQueryPopover() {

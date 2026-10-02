@@ -223,7 +223,25 @@ private func testCodableRoundTrip() {
     expect(back == d, "codable: a document survives a JSON round trip")
 }
 
+private func testForReuse() {
+    var (d, a) = doc("SELECT 1")
+    _ = d.rename(cardId: a, name: "Q")
+    _ = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
+    _ = d.updateSQL(cardId: a, "SELECT 2")
+    guard case .split = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 2")!, outcome: rows(2)) else { return }
+    let copy = d.forReuse()
+    expect(copy.cards.count == 2, "reuse: same cards")
+    expect(Set(copy.cards.map(\.id)).isDisjoint(with: Set(d.cards.map(\.id))), "reuse: fresh ids")
+    expect(copy.cards[0].lineageId == copy.cards[1].lineageId && copy.cards[0].lineageId != d.cards[0].lineageId,
+           "reuse: versions still share a new lineage")
+    expect(copy.cards.allSatisfy { $0.lastRun == nil && $0.colorIndex == nil }, "reuse: no runs, no colours")
+    expect(copy.cards[0].isLocked && copy.cards.map(\.sql) == ["SELECT 1", "SELECT 2"] && copy.cards[1].name == "Q",
+           "reuse: locks, SQL and names stay")
+    expect(copy.focusedCardId == copy.cards[1].id && copy.displayedCardId == nil, "reuse: focus follows, nothing displayed")
+}
+
 func runTests() {
+    testForReuse()
     testNewDocument()
     testFirstRunReplacesInPlace()
     testRunWithoutEditReplaces()

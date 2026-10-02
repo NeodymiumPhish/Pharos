@@ -169,8 +169,6 @@ struct EditorSettings: Codable, Equatable {
     var autoPairQuotes: Bool = true
     /// A wash behind the line the caret is on.
     var highlightCurrentLine: Bool = true
-    /// The gutter's statement bands, and the run glyph they carry.
-    var showRunButtonsInGutter: Bool = true
     /// The fold chevrons, and folding at all.
     var codeFolding: Bool = true
     /// Shortest region the fold parser will offer, in lines.
@@ -626,12 +624,13 @@ struct ResultsSettings: Codable, Equatable {
 
     var allowInlineEditing: Bool = true
 
-    // MARK: Result tabs
+    // MARK: Query card results
 
-    /// Most result tabs one editor tab keeps, 0 for unlimited.
+    /// Most results one editor tab keeps in memory, 0 for unlimited. The key
+    /// keeps its old name, so a limit set for result tabs carries over.
     var maximumResultTabs: UInt32 = 0
-    /// Whether a newly created editor tab opens with the result-tabs panel.
-    var showResultTabsPanelByDefault: Bool = true
+    /// A card's new results take over the results area when its run ends.
+    var showNewResultsAutomatically: Bool = true
 }
 
 /// The per-feature switches under Settings ▸ Intelligence.
@@ -1007,6 +1006,11 @@ struct ConnectionSettings: Codable, Equatable {
     /// `TimeZone` for every session. Empty leaves the server's own. A
     /// connection's own `sessionTimeZone` overrides it.
     var defaultTimeZone: String = ""
+    /// `idle_in_transaction_session_timeout` for an editor tab's own
+    /// connection, in seconds; 0 turns it off.
+    var tabIdleInTransactionSeconds: UInt32 = 600
+    /// Most editor-tab connections to one server; 0 = no limit.
+    var maxTabSessionsPerConnection: UInt32 = 8
 }
 
 /// The time zones a session may be asked for: the ones this Mac knows, plus
@@ -1236,7 +1240,6 @@ struct AppSettings: Codable, Equatable {
     var boolDisplay: BoolDisplay = .trueFalse
     var checkForUpdates: Bool = true
     var showLeafPartitions: Bool = false
-    var verticalResultTabs: Bool = true
     /// Whether the on-device Apple Intelligence features are offered at all.
     ///
     /// The default here is a belt-and-braces copy of the core's own default:

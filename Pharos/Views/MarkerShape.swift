@@ -4,18 +4,14 @@ import AppKit
 
 /// The SECOND channel for a signal that is otherwise carried by colour alone.
 ///
-/// A result tab's identity is its palette colour, and a tag band's identity is
-/// its palette colour. Under System Settings → Accessibility → Display →
-/// Differentiate Without Color, colour is not a channel at all, so those
-/// surfaces draw a distinct SHAPE per colour as well — the colour stays, the
-/// shape is added. The shapes live here, in one place, so the horizontal tab
-/// bar's drawn dot (`ResultTabBar`) and the vertical panel's dot
-/// (`ResultTabRowCell`) cannot end up drawing different markers for the same
-/// result.
+/// A tag band's identity is its palette colour. Under System Settings →
+/// Accessibility → Display → Differentiate Without Color, colour is not a
+/// channel at all, so those surfaces draw a distinct SHAPE per colour as well
+/// — the colour stays, the shape is added. The shapes live here, in one
+/// place, so every surface draws the same marker for the same colour.
 ///
-/// Eight shapes, not six: `ResultTab.palette` cycles through EIGHT colours, and
-/// a marker set smaller than the palette would hand two live tabs the same
-/// shape — which is the exact failure this exists to prevent.
+/// Eight shapes: more than any palette here has colours, so two entries of one
+/// palette never share a shape.
 enum MarkerShape {
     case circle, square, triangle, diamond, ring, cross, hexagon, invertedTriangle
 
@@ -123,15 +119,16 @@ enum MarkerShape {
     /// marker that changed shape when the user switched appearance would be a
     /// worse signal than no marker at all.
     ///
-    /// The table names both palettes this app draws dots from — `ResultTab`'s
-    /// eight and `TagPalette`'s six — because neither can be imported here: the
+    /// The table names the palettes this app draws dots from — `CardPalette`'s
+    /// six (the first six slots) and `TagPalette`'s six — because neither can be imported here: the
     /// two cells that call this compile in standalone `swiftc` harnesses that
     /// do not link the model layer. What matters is only that entries WITHIN
     /// one palette differ; a tab and a tag may share a shape, since they never
     /// appear beside each other. `MarkerShapeTests` pins both palettes' spreads
     /// so an added colour cannot silently collide.
     private static let slots: [String: Int] = [
-        // ResultTab.palette, in cycle order.
+        // CardPalette.colors, in cycle order (brown and pink: the old
+        // result-tab palette, kept so stored indices keep their shapes).
         "systemBlueColor": 0,
         "systemPurpleColor": 1,
         "systemTealColor": 2,

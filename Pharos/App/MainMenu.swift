@@ -148,11 +148,17 @@ enum MainMenu {
         let queryMenuItem = NSMenuItem()
         let queryMenu = NSMenu(title: String(localized: "Query"))
 
-        let runItem = queryMenu.addItem(withTitle: String(localized: "Run Query"), action: #selector(ContentViewController.menuRunQuery(_:)), keyEquivalent: "\r")
+        let runItem = queryMenu.addItem(withTitle: String(localized: "Run Card"), action: #selector(ContentViewController.menuRunQuery(_:)), keyEquivalent: "\r")
         runItem.keyEquivalentModifierMask = [.command]
         runItem.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
 
-        let runAllItem = queryMenu.addItem(withTitle: String(localized: "Run All Queries"), action: #selector(ContentViewController.menuRunAllQueries(_:)), keyEquivalent: "\r")
+        // Replace the focused card's results instead of keeping them as a
+        // locked version (⇧⌘↩ is free in the menu bar).
+        let runReplaceItem = queryMenu.addItem(withTitle: String(localized: "Run and Replace Results"), action: #selector(ContentViewController.menuRunAndReplaceResults(_:)), keyEquivalent: "\r")
+        runReplaceItem.keyEquivalentModifierMask = [.command, .shift]
+        runReplaceItem.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)
+
+        let runAllItem = queryMenu.addItem(withTitle: String(localized: "Run All Cards"), action: #selector(ContentViewController.menuRunAllQueries(_:)), keyEquivalent: "\r")
         runAllItem.keyEquivalentModifierMask = [.command, .option]
         runAllItem.image = NSImage(systemSymbolName: "forward.fill", accessibilityDescription: nil)
 
@@ -180,6 +186,24 @@ enum MainMenu {
         let formatItem = queryMenu.addItem(withTitle: String(localized: "Format SQL"), action: #selector(ContentViewController.menuFormatSQL(_:)), keyEquivalent: "i")
         formatItem.keyEquivalentModifierMask = [.control]
         formatItem.image = NSImage(systemSymbolName: "text.alignleft", accessibilityDescription: nil)
+
+        queryMenu.addItem(.separator())
+
+        // Query cards. ⌃⌘N, ⌃⌘↑ and ⌃⌘↓ are free in the menu bar.
+        let newCardItem = queryMenu.addItem(withTitle: String(localized: "New Card"), action: #selector(ContentViewController.menuNewCard(_:)), keyEquivalent: "n")
+        newCardItem.keyEquivalentModifierMask = [.control, .command]
+        newCardItem.image = NSImage(systemSymbolName: "plus.rectangle", accessibilityDescription: nil)
+
+        let previousCardItem = queryMenu.addItem(withTitle: String(localized: "Previous Card"), action: #selector(ContentViewController.menuPreviousCard(_:)),
+                                                 keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!))
+        previousCardItem.keyEquivalentModifierMask = [.control, .command]
+
+        let nextCardItem = queryMenu.addItem(withTitle: String(localized: "Next Card"), action: #selector(ContentViewController.menuNextCard(_:)),
+                                             keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!))
+        nextCardItem.keyEquivalentModifierMask = [.control, .command]
+
+        queryMenu.addItem(withTitle: String(localized: "Collapse All Cards"), action: #selector(ContentViewController.menuCollapseAllCards(_:)), keyEquivalent: "")
+        queryMenu.addItem(withTitle: String(localized: "Expand All Cards"), action: #selector(ContentViewController.menuExpandAllCards(_:)), keyEquivalent: "")
 
         queryMenuItem.submenu = queryMenu
         mainMenu.addItem(queryMenuItem)
@@ -288,14 +312,14 @@ enum MainMenu {
         previousTabItem.keyEquivalentModifierMask = [.command, .shift]
 
         let nextResultTabItem = viewMenu.addItem(
-            withTitle: String(localized: "Show Next Result Tab"),
+            withTitle: String(localized: "Show Results of Next Card"),
             action: #selector(ContentViewController.menuSelectNextResultTab(_:)),
             keyEquivalent: "\t"
         )
         nextResultTabItem.keyEquivalentModifierMask = [.control]
 
         let previousResultTabItem = viewMenu.addItem(
-            withTitle: String(localized: "Show Previous Result Tab"),
+            withTitle: String(localized: "Show Results of Previous Card"),
             action: #selector(ContentViewController.menuSelectPreviousResultTab(_:)),
             keyEquivalent: "\t"
         )

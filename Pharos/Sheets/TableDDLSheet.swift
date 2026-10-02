@@ -69,7 +69,7 @@ enum CloneOutcomeText {
 
 /// Modal showing a table's reconstructed CREATE TABLE DDL at selectable detail
 /// levels (sidebar), with copy-to-clipboard and an inline Clone Table action.
-/// Modeled on QueryDetailSheet.
+/// A read-only SQL sheet.
 class TableDDLSheet: NSViewController {
 
     private let schema: String

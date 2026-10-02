@@ -75,14 +75,7 @@ final class AppStateManager: ObservableObject {
 
     @Published private(set) var connections: [ConnectionConfig] = []
     @Published private(set) var connectionStatuses: [String: ConnectionStatus] = [:]
-    @Published private(set) var settings: AppSettings = AppSettings() {
-        didSet {
-            // The model layer's mirror of one settings field — see
-            // `ResultTabsPanelPrefs.visibleByDefault` for why it cannot read
-            // this object itself. One writer, here, so the two cannot drift.
-            ResultTabsPanelPrefs.visibleByDefault = settings.results.showResultTabsPanelByDefault
-        }
-    }
+    @Published private(set) var settings: AppSettings = AppSettings()
 
     /// Last error from a state operation (save, delete, load). Observed by UI to show alerts.
     @Published var lastError: String?
@@ -575,17 +568,19 @@ final class AppStateManager: ObservableObject {
     func workspaceUpsertPayload(for tab: QueryTab, workspaceId: String) -> WorkspaceUpsert? {
         guard let connId = tab.connectionId else { return nil }
         let connName = connections.first { $0.id == connId }?.name ?? connId
+        let stored = CardPersistence.encode(tab.document)
         return WorkspaceUpsert(
             id: workspaceId,
             name: nil,
             nameIsCustom: false,
             connectionId: connId,
             connectionName: connName,
-            editorText: tab.sql,
+            editorText: stored.text,
             // Legacy column: variables are app-wide now (`QueryVariableStore`),
             // so every snapshot writes an empty list and nothing reads it back.
             variablesJson: "[]",
-            cursorPosition: tab.cursorPosition
+            cursorPosition: nil,
+            cardsJson: stored.json
         )
     }
 
@@ -637,6 +632,7 @@ final class AppStateManager: ObservableObject {
         guard !sessions.isEmpty else { return }
         let windows = sessions.enumerated().map { windowIndex, session -> SessionWindow in
             let saved = session.tabs.enumerated().map { idx, tab -> SessionTab in
+                let stored = CardPersistence.encode(tab.document)
                 return SessionTab(
                     tabIndex: idx,
                     workspaceId: tab.workspaceId,
@@ -644,11 +640,14 @@ final class AppStateManager: ObservableObject {
                     nameIsCustom: !tab.nameIsSuggested && Self.isCustomTabName(tab.name),
                     connectionId: tab.connectionId,
                     schemaName: tab.schemaName,
-                    sql: tab.sql,
-                    cursorPosition: tab.cursorPosition,
+                    sql: stored.text,
+                    cursorPosition: 0,
                     // Legacy field, kept for the wire shape; never read back.
                     variablesJson: nil,
-                    isActive: tab.id == session.activeTabId
+                    isActive: tab.id == session.activeTabId,
+                    cardsJson: stored.json,
+                    sourcePath: tab.sourceURL?.path,
+                    savedQueryId: tab.savedQueryId
                 )
             }
             return SessionWindow(
@@ -783,17 +782,22 @@ final class AppStateManager: ObservableObject {
         if let existing = session.tabs.first(where: { $0.workspaceId == workspaceId }) { return existing.id }
         // Named, not broadcast: every open window observes `.openWorkspace`,
         // and without the session id each of them would rebuild the tab.
-        NotificationCenter.default.post(
-            name: .openWorkspace, object: nil,
-            userInfo: ["workspaceId": workspaceId, "sessionId": session.id]
-        )
+        // The session row's cards are the newer copy (the workspace row is
+        // written on runs and closes): the reopen prefers them.
+        var info: [String: Any] = ["workspaceId": workspaceId, "sessionId": session.id, "sessionText": saved.sql]
+        if let json = saved.cardsJson { info["sessionCardsJson"] = json }
+        NotificationCenter.default.post(name: .openWorkspace, object: nil, userInfo: info)
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {
             try? await Task.sleep(nanoseconds: 40_000_000)
             guard let tab = session.tabs.first(where: { $0.workspaceId == workspaceId }) else { continue }
-            // The workspace row owns the editor text and cursor. It does not
-            // store the schema, so that comes from the session.
-            session.updateTab(id: tab.id) { $0.schemaName = saved.schemaName }
+            // The workspace row does not store the schema, the file or the
+            // saved query, so those come from the session.
+            session.updateTab(id: tab.id) {
+                $0.schemaName = saved.schemaName
+                $0.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }
+                $0.savedQueryId = saved.savedQueryId
+            }
             return tab.id
         }
         return nil
@@ -802,13 +806,14 @@ final class AppStateManager: ObservableObject {
     /// Rebuild a tab that never ran a query straight from the session row.
     @discardableResult
     private func restoreDraftTab(_ saved: SessionTab, in session: WindowSession) -> QueryTab {
-        let tab = session.createTab(sql: saved.sql, name: saved.name)
+        let tab = session.createTab(document: CardPersistence.decode(json: saved.cardsJson, text: saved.sql), name: saved.name)
         // The connection is recorded, not dialled: restoring must never open a
         // database connection the user did not ask for.
         session.updateTab(id: tab.id) {
             $0.connectionId = saved.connectionId
             $0.schemaName = saved.schemaName
-            $0.cursorPosition = saved.cursorPosition
+            $0.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }
+            $0.savedQueryId = saved.savedQueryId
             $0.isDirty = false
         }
         return tab

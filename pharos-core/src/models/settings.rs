@@ -84,8 +84,6 @@ pub struct EditorSettings {
     #[serde(default = "default_true")]
     pub highlight_current_line: bool,
     #[serde(default = "default_true")]
-    pub show_run_buttons_in_gutter: bool,
-    #[serde(default = "default_true")]
     pub code_folding: bool,
     #[serde(default = "default_minimum_lines_to_fold")]
     pub minimum_lines_to_fold: u32,
@@ -176,7 +174,6 @@ impl Default for EditorSettings {
             auto_pair_brackets: true,
             auto_pair_quotes: true,
             highlight_current_line: true,
-            show_run_buttons_in_gutter: true,
             code_folding: true,
             minimum_lines_to_fold: default_minimum_lines_to_fold(),
             completion_trigger: CompletionTrigger::default(),
@@ -525,11 +522,13 @@ pub struct ResultsSettings {
     #[serde(default = "default_true")]
     pub allow_inline_editing: bool,
 
-    // Result tabs
+    // Query card results. The key keeps its old name so a stored limit
+    // carries over: most results one editor tab keeps in memory, 0 = no limit.
     #[serde(default)]
     pub maximum_result_tabs: u32,
+    /// A card's new results take over the results area when its run ends.
     #[serde(default = "default_true")]
-    pub show_result_tabs_panel_by_default: bool,
+    pub show_new_results_automatically: bool,
 }
 
 fn default_true() -> bool { true }
@@ -562,7 +561,7 @@ impl Default for ResultsSettings {
             copy_rich_text: true,
             allow_inline_editing: true,
             maximum_result_tabs: 0,
-            show_result_tabs_panel_by_default: true,
+            show_new_results_automatically: true,
         }
     }
 }
@@ -789,8 +788,19 @@ pub struct ConnectionSettings {
     /// `TimeZone` for every session. Empty leaves the server's own.
     #[serde(default)]
     pub default_time_zone: String,
+    /// `idle_in_transaction_session_timeout` for an editor tab's own
+    /// connection, in seconds; 0 turns it off. Longer than the pool's: a
+    /// transaction left open between query cards is the point of a tab
+    /// connection, and the banner shows while one is open.
+    #[serde(default = "default_tab_idle_in_transaction_seconds")]
+    pub tab_idle_in_transaction_seconds: u32,
+    /// Most editor-tab connections to one server; 0 = no limit.
+    #[serde(default = "default_max_tab_sessions_per_connection")]
+    pub max_tab_sessions_per_connection: u32,
 }
 
+fn default_tab_idle_in_transaction_seconds() -> u32 { 600 }
+fn default_max_tab_sessions_per_connection() -> u32 { 8 }
 fn default_connection_port() -> u32 { 5432 }
 fn default_search_path_suffix() -> String { "public".to_string() }
 fn default_max_connections() -> u32 { 5 }
@@ -814,6 +824,8 @@ impl Default for ConnectionSettings {
             keepalive_interval_seconds: 0,
             keepalive_count: 0,
             default_time_zone: String::new(),
+            tab_idle_in_transaction_seconds: default_tab_idle_in_transaction_seconds(),
+            max_tab_sessions_per_connection: default_max_tab_sessions_per_connection(),
         }
     }
 }
@@ -947,8 +959,6 @@ pub struct AppSettings {
     pub check_for_updates: bool,
     #[serde(default)]
     pub show_leaf_partitions: bool,
-    #[serde(default = "default_vertical_result_tabs")]
-    pub vertical_result_tabs: bool,
     /// Whether the on-device Apple Intelligence features are offered at all.
     /// Defaults ON: the model runs on this Mac and sends nothing anywhere, and
     /// a user who does not want it turns it off in Settings ▸ General.
@@ -1002,7 +1012,6 @@ pub struct AppSettings {
 }
 
 fn default_check_for_updates() -> bool { true }
-fn default_vertical_result_tabs() -> bool { true }
 fn default_use_apple_intelligence() -> bool { true }
 
 // MARK: - Database Navigator
@@ -1190,7 +1199,6 @@ impl Default for AppSettings {
             bool_display: BoolDisplay::default(),
             check_for_updates: default_check_for_updates(),
             show_leaf_partitions: false,
-            vertical_result_tabs: default_vertical_result_tabs(),
             use_apple_intelligence: default_use_apple_intelligence(),
             charts: ChartSettings::default(),
             results: ResultsSettings::default(),
@@ -1246,7 +1254,6 @@ pub(crate) mod fixture {
                     auto_pair_brackets: false,
                     auto_pair_quotes: false,
                     highlight_current_line: false,
-                    show_run_buttons_in_gutter: false,
                     code_folding: false,
                     minimum_lines_to_fold: 4,
                     completion_trigger: CompletionTrigger::AfterDotAndIdentifiers,
@@ -1286,7 +1293,6 @@ pub(crate) mod fixture {
                 bool_display: BoolDisplay::YesNo,
                 check_for_updates: false,
                 show_leaf_partitions: true,
-                vertical_result_tabs: false,
                 use_apple_intelligence: false,
                 charts: ChartSettings { palette: vec!["#000000".to_string()] },
                 results: ResultsSettings {
@@ -1312,7 +1318,7 @@ pub(crate) mod fixture {
                     copy_rich_text: false,
                     allow_inline_editing: false,
                     maximum_result_tabs: 1,
-                    show_result_tabs_panel_by_default: false,
+                    show_new_results_automatically: false,
                 },
                 updates: UpdateSettings {
                     check_frequency: UpdateFrequency::Weekly,
@@ -1388,6 +1394,8 @@ pub(crate) mod fixture {
                     keepalive_interval_seconds: 10,
                     keepalive_count: 6,
                     default_time_zone: "Asia/Tokyo".to_string(),
+                    tab_idle_in_transaction_seconds: 601,
+                    max_tab_sessions_per_connection: 9,
                 },
                 data_export: DataExportSettings {
                     default_format: ExportFormat::Tsv,
@@ -1543,26 +1551,6 @@ mod tests {
         assert!(!parsed.show_cancelled_query_dialog, "the field defaults to false");
     }
 
-    /// Settings stored before this field existed must still load, and the
-    /// field must default ON — bare #[serde(default)] would yield false and
-    /// silently flip existing users to the horizontal bar.
-    #[test]
-    fn app_settings_default_vertical_result_tabs() {
-        // A realistic blob from an older build. None of these keys is what
-        // this test checks — the subject is the ABSENT `verticalResultTabs`
-        // key, and nothing here asserts on these values.
-        let json = r#"{
-            "theme": "auto",
-            "editor": {"fontFamily": "Menlo", "fontSize": 13, "tabSize": 2, "lineNumbers": true, "wordWrap": false},
-            "query": {"defaultLimit": 500, "timeoutSeconds": 30, "confirmDestructive": true}
-        }"#;
-        let parsed: AppSettings = serde_json::from_str(json).expect("old settings must still parse");
-        // Two separate code paths, each hand-written and each able to regress
-        // alone: the serde attribute, then the Default impl.
-        assert!(parsed.vertical_result_tabs, "the serde default gives true");
-        assert!(AppSettings::default().vertical_result_tabs, "the Default impl also gives true");
-    }
-
     /// Settings stored before the Apple Intelligence switch existed must load
     /// with it ON. A bare `#[serde(default)]` would give `false` and take the
     /// features away from every existing user without them asking.
@@ -1673,7 +1661,6 @@ mod tests {
         assert_eq!(parsed.bool_display, d.bool_display);
         assert_eq!(parsed.check_for_updates, d.check_for_updates);
         assert_eq!(parsed.show_leaf_partitions, d.show_leaf_partitions);
-        assert_eq!(parsed.vertical_result_tabs, d.vertical_result_tabs);
         assert_eq!(parsed.use_apple_intelligence, d.use_apple_intelligence);
         assert_eq!(parsed.always_show_scroll_bars, d.always_show_scroll_bars);
         // The nested structs must also come back at their defaults.

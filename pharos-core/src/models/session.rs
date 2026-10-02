@@ -30,6 +30,16 @@ pub struct SessionTab {
     pub variables_json: Option<String>,
     #[serde(default)]
     pub is_active: bool,
+    /// The tab's query cards as JSON, written and read by Swift
+    /// (`CardPersistence`); `sql` holds the same cards as text.
+    #[serde(default)]
+    pub cards_json: Option<String>,
+    /// The file the tab was opened from.
+    #[serde(default)]
+    pub source_path: Option<String>,
+    /// The saved query the tab was opened from.
+    #[serde(default)]
+    pub saved_query_id: Option<String>,
 }
 
 /// One main window: where it was on screen, and the tabs it held.

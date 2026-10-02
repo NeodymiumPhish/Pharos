@@ -231,13 +231,12 @@ final class RunningQueryRow: NSView {
     init(query: RunningQuery, elapsed: String, onCancel: @escaping (String) -> Void) {
         self.queryId = query.id
         self.onCancel = onCancel
+        // The card's name; a Load All or a chart run says which it is.
         let linesText: String
-        if query.segmentIndex == -1 {
-            linesText = String(localized: "Direct SQL")
-        } else if query.lineRange.lowerBound == query.lineRange.upperBound {
-            linesText = String(localized: "Line \(query.lineRange.lowerBound)")
-        } else {
-            linesText = String(localized: "Lines \(query.lineRange.lowerBound)–\(query.lineRange.upperBound)")
+        switch query.kind {
+        case .card: linesText = query.label
+        case .snapshot: linesText = String(localized: "\(query.label) · Load All")
+        case .aux: linesText = String(localized: "\(query.label) · chart")
         }
         self.linesLabel = NSTextField(labelWithString: linesText)
         // `normalizedSQL` is already one line (whitespace runs collapsed).

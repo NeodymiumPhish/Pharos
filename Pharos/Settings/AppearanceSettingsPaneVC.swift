@@ -62,12 +62,6 @@ final class AppearanceSettingsPaneVC: SettingsFormPaneVC {
             ]),
             SettingsSection(title: String(localized: "Layout"), items: [
                 SettingsItem(
-                    id: "verticalResultTabs",
-                    title: String(localized: "Show result tabs in a vertical panel"),
-                    caption: String(localized: "Off lists them along a bar above the results grid instead."),
-                    icon: "sidebar.right",
-                    kind: .toggle(.settings(\.verticalResultTabs))),
-                SettingsItem(
                     id: "alwaysShowScrollBars",
                     title: String(localized: "Always show scroll bars"),
                     caption: String(localized: "In the editor and the results. Off follows the system's scroll-bar preference."),

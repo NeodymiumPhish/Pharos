@@ -33,6 +33,9 @@ extension PharosCore {
         var lineStart: Int? = nil
         var lineEnd: Int? = nil
         var customLabel: String? = nil
+        /// The query card the result belongs to, and its version.
+        var cardId: String? = nil
+        var cardVersion: Int? = nil
     }
 
     /// Associate a produced result (by its history id) with a workspace.

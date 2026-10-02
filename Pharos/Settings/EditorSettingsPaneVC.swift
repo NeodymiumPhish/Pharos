@@ -91,12 +91,6 @@ final class EditorSettingsPaneVC: SettingsFormPaneVC {
                     icon: "text.line.first.and.arrowtriangle.forward",
                     kind: .toggle(.settings(\.editor.highlightCurrentLine))),
                 SettingsItem(
-                    id: "showRunButtonsInGutter",
-                    title: String(localized: "Show run buttons in the gutter"),
-                    caption: String(localized: "The band beside each statement, and the play glyph it shows on hover. ⌘Return still runs the statement at the cursor."),
-                    icon: "play.rectangle",
-                    kind: .toggle(.settings(\.editor.showRunButtonsInGutter))),
-                SettingsItem(
                     id: "codeFolding",
                     title: String(localized: "Allow code folding"),
                     caption: String(localized: "The chevrons that collapse a CTE, a subquery, a CASE or a BEGIN block. Turning this off opens everything that is folded."),

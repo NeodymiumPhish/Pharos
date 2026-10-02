@@ -124,6 +124,15 @@ class SQLTextView: NSTextView {
     /// Called whenever the text changes (after highlighting).
     var onTextChange: ((String) -> Void)?
 
+    /// The view took the keyboard. A query card becomes the focused card.
+    var onBecomeFirstResponder: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let took = super.becomeFirstResponder()
+        if took { onBecomeFirstResponder?() }
+        return took
+    }
+
     /// Called when fold state changes (fold or unfold) so the host VC can re-sync gutter.
     var onFoldStateChanged: (() -> Void)?
 

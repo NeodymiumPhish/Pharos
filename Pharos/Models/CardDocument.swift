@@ -281,6 +281,33 @@ struct CardDocument: Equatable, Codable {
         }
     }
 
+    // MARK: - Copies
+
+    /// The same cards for another tab: fresh ids (results are filed by card
+    /// id, across every tab of a window), no runs, no results, no failures.
+    /// Names, versions, locks and SQL stay. A duplicated tab and a saved
+    /// query opened twice use this.
+    func forReuse() -> CardDocument {
+        var lineageMap: [String: String] = [:]
+        var idMap: [String: String] = [:]
+        var copy = self
+        copy.cards = cards.map { old in
+            var c = QueryCard(id: UUID().uuidString, version: old.version, name: old.name, sql: old.sql, kind: old.kind)
+            c.lineageId = lineageMap[old.lineageId] ?? c.id
+            lineageMap[old.lineageId] = c.lineageId
+            idMap[old.id] = c.id
+            c.nameIsSuggested = old.nameIsSuggested
+            c.isLocked = old.isLocked
+            c.isCollapsed = old.isCollapsed
+            c.cursorPosition = old.cursorPosition
+            return c
+        }
+        copy.focusedCardId = focusedCardId.flatMap { idMap[$0] } ?? copy.cards.first?.id
+        copy.displayedCardId = nil
+        copy.expandedLineages = Set(expandedLineages.compactMap { lineageMap[$0] })
+        return copy
+    }
+
     // MARK: - Helpers
 
     private func nextVersion(of lineageId: String) -> Int {

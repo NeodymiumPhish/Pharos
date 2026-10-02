@@ -430,7 +430,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let session = showMainWindow().session
-        let tab = session.createTab(sql: sql)
+        let tab = session.createTab(document: CardText.document(from: sql))
         session.selectTab(id: tab.id)
         NSApp.activate(ignoringOtherApps: true)
     }

@@ -37,6 +37,8 @@ extension PharosCore {
         var lineEnd: Int? = nil
         /// How long the run took before it failed.
         var executionTimeMs: Int = 0
+        /// The query card that ran, when it came from one.
+        var cardId: String? = nil
     }
 
     /// Record a query that FAILED, and return the new entry's id.

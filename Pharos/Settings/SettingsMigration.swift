@@ -40,8 +40,9 @@ enum SettingsMigration {
             changed = true
         }
 
-        if let value = bool(defaults, resultTabsPanelVisibleKey) {
-            settings.results.showResultTabsPanelByDefault = value
+        // The result-tabs panel is gone with result tabs; its legacy key is
+        // only removed.
+        if bool(defaults, resultTabsPanelVisibleKey) != nil {
             defaults.removeObject(forKey: resultTabsPanelVisibleKey)
             changed = true
         }

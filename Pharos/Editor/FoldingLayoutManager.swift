@@ -467,7 +467,7 @@ extension NSTextView {
     /// forbids both. A pill discloses the scalar without touching storage, so
     /// Copy still yields the exact raw bytes underneath it. That is why every
     /// read-only, copyable text view in the app (`TableDDLSheet`'s DDL pane,
-    /// `QueryErrorSheet`'s SQL and error panes, `QueryDetailSheet`'s SQL pane)
+    /// `QueryErrorSheet`'s SQL and error panes)
     /// must use this stack, not `DisplayEscape.escaped`/`escapedMultiline`.
     ///
     /// Needed wherever a stack has to be built OUTSIDE a method body — a stored

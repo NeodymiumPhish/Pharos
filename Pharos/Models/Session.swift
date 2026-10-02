@@ -27,6 +27,12 @@ struct SessionTab: Codable, Equatable {
     /// `SessionStoreShapeTests` pins the key set.
     var variablesJson: String?
     var isActive: Bool
+    /// The tab's cards (`CardPersistence`); `sql` holds them as text.
+    var cardsJson: String? = nil
+    /// The file the tab was opened from (⌘S writes back there).
+    var sourcePath: String? = nil
+    /// The saved query the tab was opened from.
+    var savedQueryId: String? = nil
 }
 
 /// One main window as it was left at the end of the last run: where it was on

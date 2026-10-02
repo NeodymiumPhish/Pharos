@@ -101,29 +101,23 @@ final class ErrorBadgeButton: NSButton {
             : .secondaryLabelColor
     }
 
-    /// The right-aligned group at the trailing edge of the editor toolbar. The
-    /// error button goes to the left of the variables toggle, and the toggle
-    /// keeps the position and the size it had before this button existed. An
-    /// optional result-tabs toggle is appended after both.
+    /// The right-aligned group at the trailing edge of the editor toolbar: the
+    /// error badge, then one more button (Collapse All, for query cards).
     ///
     /// Call this once per set of buttons. A second call with the same views
     /// would activate a duplicate set of constraints and move every view into a
     /// second stack.
-    ///
-    /// Two buttons: the error badge, then the result-tabs toggle. (The
-    /// variables toggle that used to sit between them is gone — variables live
-    /// in the sidebar's Variables navigator now.)
     static func makeToolbarTrailingGroup(
-        errorButton: ErrorBadgeButton, resultTabsToggle: NSButton
+        errorButton: ErrorBadgeButton, trailingButton: NSButton
     ) -> NSStackView {
-        resultTabsToggle.translatesAutoresizingMaskIntoConstraints = false
+        trailingButton.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            resultTabsToggle.widthAnchor.constraint(equalToConstant: 24),
-            resultTabsToggle.heightAnchor.constraint(equalToConstant: 24),
+            trailingButton.widthAnchor.constraint(equalToConstant: 24),
+            trailingButton.heightAnchor.constraint(equalToConstant: 24),
             errorButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
             errorButton.heightAnchor.constraint(equalToConstant: 24),
         ])
-        let stack = NSStackView(views: [errorButton, resultTabsToggle])
+        let stack = NSStackView(views: [errorButton, trailingButton])
         stack.orientation = .horizontal
         stack.spacing = 4
         stack.translatesAutoresizingMaskIntoConstraints = false

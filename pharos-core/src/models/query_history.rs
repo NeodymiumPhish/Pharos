@@ -121,6 +121,9 @@ pub struct FailedQueryRecord {
     /// How long the run took before it failed.
     #[serde(default)]
     pub execution_time_ms: i64,
+    /// The query card that ran, when it came from one.
+    #[serde(default)]
+    pub card_id: Option<String>,
 }
 
 fn default_failed_status() -> String { HISTORY_STATUS_ERROR.to_string() }

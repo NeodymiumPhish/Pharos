@@ -120,6 +120,8 @@ pub async fn record_failed_query(
             line_start: record.line_start,
             line_end: record.line_end,
             custom_label: None,
+            card_id: record.card_id.clone(),
+            card_version: None,
         }) {
             // Non-fatal: the failure IS recorded, it is simply not tied to the
             // workspace. Losing the whole row over a lost association would be

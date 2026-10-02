@@ -19,9 +19,9 @@ extension ContentViewController {
             isDirty: tab.isDirty,
             hasSavedQuery: tab.savedQueryId != nil,
             hasFile: tab.sourceURL != nil,
-            // `tab.sql` is current for every tab, not only the visible one:
-            // `EditorPaneVC` writes each keystroke into it (`onTextEdited`).
-            isEmpty: tab.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            // The document is current for every tab, not only the visible
+            // one: the card stack writes each keystroke into it.
+            isEmpty: tab.document.cards.allSatisfy { $0.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
     }
 
     /// Every tab of THIS window whose loss the user should be warned about.

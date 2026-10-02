@@ -9,6 +9,10 @@ pub struct SavedQuery {
     pub sql: String,
     pub connection_id: Option<String>,
     pub variables: Option<String>,
+    /// The query's cards as JSON (Swift's `CardPersistence`): a saved query is
+    /// a whole tab of cards. `sql` holds the latest version of each as text.
+    #[serde(default)]
+    pub cards_json: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -21,6 +25,8 @@ pub struct CreateSavedQuery {
     pub sql: String,
     pub connection_id: Option<String>,
     pub variables: Option<String>,
+    #[serde(default)]
+    pub cards_json: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,4 +37,7 @@ pub struct UpdateSavedQuery {
     pub folder: Option<String>,
     pub sql: Option<String>,
     pub variables: Option<String>,
+    /// None leaves the stored cards alone.
+    #[serde(default)]
+    pub cards_json: Option<String>,
 }

@@ -77,7 +77,7 @@ struct NewQueryTabIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let session = try PharosIntentBridge.showMainWindow().session
-        let tab = session.createTab(sql: sql)
+        let tab = session.createTab(document: CardText.document(from: sql))
         session.selectTab(id: tab.id)
         Log.ui.info("Intent opened a new query tab")
         // Deliberately NOT run: an intent fires from an automation, where a

@@ -19,7 +19,9 @@
     "keepaliveIntervalSeconds": 10,
     "maxConnections": 6,
     "maxLifetimeSeconds": 1801,
-    "searchPathSuffix": "public, extensions"
+    "maxTabSessionsPerConnection": 9,
+    "searchPathSuffix": "public, extensions",
+    "tabIdleInTransactionSeconds": 601
   },
   "dataExport": {
     "batchSize": 5001,
@@ -71,7 +73,6 @@
     "lineNumbers": false,
     "minimumLinesToFold": 4,
     "offerSqlListChip": false,
-    "showRunButtonsInGutter": false,
     "sqlListQuoteStyle": "double",
     "syntaxTheme": "vivid",
     "tabSize": 3,
@@ -162,7 +163,7 @@
     "nullStyle": "dimmed",
     "numberStyle": "grouped",
     "showColumnTypeIcons": true,
-    "showResultTabsPanelByDefault": false,
+    "showNewResultsAutomatically": false,
     "showRowNumbers": false
   },
   "security": {
@@ -186,6 +187,5 @@
     "channel": "preRelease",
     "checkFrequency": "weekly"
   },
-  "useAppleIntelligence": false,
-  "verticalResultTabs": false
+  "useAppleIntelligence": false
 }

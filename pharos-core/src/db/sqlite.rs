@@ -827,6 +827,39 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         )?;
     }
 
+    // Migration: query cards. Each editor tab, workspace and saved query keeps
+    // its cards as JSON beside the flat SQL text (Swift's `CardPersistence`);
+    // each result names the card it belongs to. A session tab also keeps the
+    // file and the saved query it was opened from. All nullable: a row from
+    // before cards existed is split from its text.
+    for (table, column, decl) in [
+        ("session_tabs", "cards_json", "TEXT"),
+        ("session_tabs", "source_path", "TEXT"),
+        ("session_tabs", "saved_query_id", "TEXT"),
+        ("workspaces", "cards_json", "TEXT"),
+        ("saved_queries", "cards_json", "TEXT"),
+        ("query_history", "card_id", "TEXT"),
+        ("query_history", "card_version", "INTEGER"),
+    ] {
+        add_column_if_missing(conn, table, column, decl)?;
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
+    )?;
+
+    Ok(())
+}
+
+/// `ALTER TABLE … ADD COLUMN` unless the column is there already.
+fn add_column_if_missing(conn: &Connection, table: &str, column: &str, decl: &str) -> SqliteResult<()> {
+    let present: bool = conn
+        .prepare(&format!("SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1", table))?
+        .query_row([column], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+    if !present {
+        conn.execute_batch(&format!("ALTER TABLE {} ADD COLUMN {} {};", table, column, decl))?;
+    }
     Ok(())
 }
 
@@ -1281,8 +1314,8 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
 
     conn.execute(
         r#"
-        INSERT INTO saved_queries (id, name, folder, sql, connection_id, variables, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        INSERT INTO saved_queries (id, name, folder, sql, connection_id, variables, created_at, updated_at, cards_json)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#,
         (
             id,
@@ -1293,6 +1326,7 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
             &query.variables,
             &now,
             &now,
+            &query.cards_json,
         ),
     )?;
 
@@ -1303,6 +1337,7 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
         sql: query.sql.clone(),
         connection_id: query.connection_id.clone(),
         variables: query.variables.clone(),
+        cards_json: query.cards_json.clone(),
         created_at: now.clone(),
         updated_at: now,
     })
@@ -1311,7 +1346,7 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
 /// Load all saved queries
 pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables FROM saved_queries ORDER BY name",
+        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables, cards_json FROM saved_queries ORDER BY name",
     )?;
 
     let queries = stmt.query_map([], |row| {
@@ -1324,6 +1359,7 @@ pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
             variables: row.get(7)?,
+            cards_json: row.get(8)?,
         })
     })?;
 
@@ -1333,7 +1369,7 @@ pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
 /// Get a single saved query by ID
 pub fn get_saved_query(conn: &Connection, query_id: &str) -> SqliteResult<Option<SavedQuery>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables FROM saved_queries WHERE id = ?1",
+        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables, cards_json FROM saved_queries WHERE id = ?1",
     )?;
 
     let mut rows = stmt.query([query_id])?;
@@ -1348,6 +1384,7 @@ pub fn get_saved_query(conn: &Connection, query_id: &str) -> SqliteResult<Option
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
             variables: row.get(7)?,
+            cards_json: row.get(8)?,
         }))
     } else {
         Ok(None)
@@ -1373,6 +1410,9 @@ pub fn update_saved_query(conn: &Connection, update: &UpdateSavedQuery) -> Sqlit
     if let Some(ref variables) = update.variables {
         params.push(Box::new(variables.clone()));
     }
+    if let Some(ref cards_json) = update.cards_json {
+        params.push(Box::new(cards_json.clone()));
+    }
 
     params.push(Box::new(update.id.clone()));
 
@@ -1393,6 +1433,10 @@ pub fn update_saved_query(conn: &Connection, update: &UpdateSavedQuery) -> Sqlit
     }
     if update.variables.is_some() {
         sql_parts.push(format!("variables = ?{}", idx));
+        idx += 1;
+    }
+    if update.cards_json.is_some() {
+        sql_parts.push(format!("cards_json = ?{}", idx));
         idx += 1;
     }
 
@@ -1789,8 +1833,8 @@ pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()
                 INSERT INTO session_tabs
                     (tab_index, window_id, window_index, frame, workspace_id, name,
                      name_is_custom, connection_id, schema_name, sql, cursor_position,
-                     variables_json, is_active)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                     variables_json, is_active, cards_json, source_path, saved_query_id)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                 "#,
                 rusqlite::params![
                     tab.tab_index,
@@ -1806,6 +1850,9 @@ pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()
                     tab.cursor_position,
                     tab.variables_json,
                     tab.is_active as i64,
+                    tab.cards_json,
+                    tab.source_path,
+                    tab.saved_query_id,
                 ],
             )?;
         }
@@ -1938,7 +1985,7 @@ pub fn load_session(conn: &Connection) -> SqliteResult<Session> {
     let mut stmt = conn.prepare(
         "SELECT tab_index, window_id, window_index, frame, workspace_id, name,
                 name_is_custom, connection_id, schema_name, sql, cursor_position,
-                variables_json, is_active
+                variables_json, is_active, cards_json, source_path, saved_query_id
          FROM session_tabs ORDER BY window_index, window_id, tab_index",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -1959,6 +2006,9 @@ pub fn load_session(conn: &Connection) -> SqliteResult<Session> {
                 cursor_position: row.get(10)?,
                 variables_json: row.get(11)?,
                 is_active: is_active != 0,
+                cards_json: row.get(13)?,
+                source_path: row.get(14)?,
+                saved_query_id: row.get(15)?,
             },
         ))
     })?;
@@ -2290,10 +2340,11 @@ pub fn upsert_workspace(conn: &Connection, w: &crate::models::WorkspaceUpsert) -
         r#"
         INSERT INTO workspaces
             (id, name, name_is_custom, connection_id, connection_name,
-             editor_text, variables_json, cursor_position, created_at, last_activity_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
+             editor_text, variables_json, cursor_position, created_at, last_activity_at, cards_json)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?10)
         ON CONFLICT(id) DO UPDATE SET
             editor_text = excluded.editor_text,
+            cards_json = COALESCE(excluded.cards_json, workspaces.cards_json),
             variables_json = excluded.variables_json,
             cursor_position = excluded.cursor_position,
             last_activity_at = excluded.last_activity_at,
@@ -2310,6 +2361,7 @@ pub fn upsert_workspace(conn: &Connection, w: &crate::models::WorkspaceUpsert) -
             &w.variables_json,
             &w.cursor_position,
             &now,
+            &w.cards_json,
         ),
     )?;
     Ok(())
@@ -2334,11 +2386,14 @@ pub fn associate_result_to_workspace(
             SET workspace_id = ?1, result_order = ?2, color_index = ?3, raw_sql = ?4,
                 line_start   = COALESCE(?5, line_start),
                 line_end     = COALESCE(?6, line_end),
-                custom_label = COALESCE(?7, custom_label)
+                custom_label = COALESCE(?7, custom_label),
+                card_id      = COALESCE(?9, card_id),
+                card_version = COALESCE(?10, card_version)
           WHERE id = ?8",
         (
             &a.workspace_id, a.result_order, a.color_index, a.raw_sql.as_deref(),
             a.line_start, a.line_end, a.custom_label.as_deref(), &a.history_id,
+            a.card_id.as_deref(), a.card_version,
         ),
     )?;
     enforce_workspace_budget(conn, &a.workspace_id)?;
@@ -2516,7 +2571,8 @@ pub fn load_workspaces(
 /// fetched per-result via get_query_history_result).
 pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate::models::WorkspaceDetail>> {
     let head = conn.query_row(
-        "SELECT id, name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position
+        "SELECT id, name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position,
+                cards_json
          FROM workspaces WHERE id = ?1",
         [id],
         |row| {
@@ -2531,11 +2587,12 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<String>>(8)?,
             ))
         },
     );
 
-    let (wid, resolved_name, connection_id, connection_name, editor_text, variables_json, cursor_position) =
+    let (wid, resolved_name, connection_id, connection_name, editor_text, variables_json, cursor_position, cards_json) =
         match head {
             Ok(v) => v,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
@@ -2546,7 +2603,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         "SELECT id, sql, result_order, color_index, custom_label, row_count, column_count,
                 schema, table_names, (result_columns IS NOT NULL) AS has_results,
                 execution_time_ms, executed_at, chart_view_state_json, raw_sql,
-                line_start, line_end, status, error_message
+                line_start, line_end, status, error_message, card_id, card_version
          FROM query_history WHERE workspace_id = ?1
          ORDER BY result_order ASC, executed_at ASC",
     )?;
@@ -2571,6 +2628,8 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
                 line_end: row.get(15)?,
                 status: row.get(16)?,
                 error_message: row.get(17)?,
+                card_id: row.get(18)?,
+                card_version: row.get(19)?,
             })
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2584,6 +2643,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         variables_json,
         cursor_position,
         results,
+        cards_json,
     }))
 }
 
@@ -2668,10 +2728,10 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
         "INSERT INTO workspaces
-            (id, name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, created_at, last_activity_at)
+            (id, name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, created_at, last_activity_at, cards_json)
          SELECT ?1,
                 CASE WHEN name IS NULL THEN NULL ELSE name || ' (copy)' END,
-                name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, ?2, ?2
+                name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, ?2, ?2, cards_json
          FROM workspaces WHERE id = ?3",
         (&new_id, &now, id),
     )?;
@@ -2680,7 +2740,8 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
         "SELECT connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                 result_columns, result_rows, schema, column_count, table_names,
                 result_order, color_index, custom_label, chart_view_state_json, raw_sql,
-                line_start, line_end, status, error_message
+                line_start, line_end, status, error_message,
+                card_id, card_version, result_row_identity, source
          FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
     )?;
     let rows: Vec<_> = stmt
@@ -2694,6 +2755,9 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 r.get::<_, Option<String>>(14)?, r.get::<_, Option<String>>(15)?,
                 r.get::<_, Option<i64>>(16)?, r.get::<_, Option<i64>>(17)?,
                 r.get::<_, String>(18)?, r.get::<_, Option<String>>(19)?,
+                r.get::<_, Option<String>>(20)?, r.get::<_, Option<i64>>(21)?,
+                // Copied as whatever SQLite holds (text, or a compressed blob).
+                r.get::<_, rusqlite::types::Value>(22)?, r.get::<_, Option<String>>(23)?,
             ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2704,13 +2768,15 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at,
                  result_columns, result_rows, schema, column_count, table_names,
                  workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql,
-                 line_start, line_end, status, error_message)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
+                 line_start, line_end, status, error_message,
+                 card_id, card_version, result_row_identity, source)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)",
             rusqlite::params![
                 child_id, row.0, row.1, row.2, row.3, row.4, row.5,
                 row.6, row.7, row.8, row.9, row.10,
                 new_id, row.11, row.12, row.13, row.14, row.15,
                 row.16, row.17, row.18, row.19,
+                row.20, row.21, row.22, row.23,
             ],
         )?;
     }
@@ -2953,7 +3019,7 @@ mod workspace_roundtrip_tests {
         history_id: &str, workspace_id: &str, result_order: i64, color_index: i64,
         raw_sql: Option<&str>,
     ) -> ResultAssociation {
-        ResultAssociation {
+        ResultAssociation { card_id: Default::default(), card_version: Default::default(),
             history_id: history_id.to_string(),
             workspace_id: workspace_id.to_string(),
             result_order,
@@ -2969,7 +3035,7 @@ mod workspace_roundtrip_tests {
     fn whitespace_only_filter_behaves_as_no_filter() {
         let dir = temp_db_dir("ws_blank_filter");
         let conn = init_database(&dir).expect("init_database");
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3151,7 +3217,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("workspace_failed_child");
         let conn = init_database(&dir).expect("init_database");
 
-        upsert_workspace(&conn, &WorkspaceUpsert {
+        upsert_workspace(&conn, &WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3201,7 +3267,7 @@ mod workspace_roundtrip_tests {
         let conn = init_database(&dir).expect("init_database");
 
         // 1 + 2. Upsert workspace, connection "prod-db".
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3373,7 +3439,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("identity_budget");
         let conn = init_database(&dir).expect("init_database");
 
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws9".to_string(),
             name: None,
             name_is_custom: false,
@@ -3437,7 +3503,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("workspace_budget");
         let conn = init_database(&dir).expect("init_database");
 
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws2".to_string(),
             name: None,
             name_is_custom: false,
@@ -3492,7 +3558,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("chart_view_state");
         let conn = init_database(&dir).expect("init_database");
 
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3562,7 +3628,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("raw_sql_round_trip");
         let conn = init_database(&dir).expect("init_database");
 
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3599,7 +3665,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("assoc_line_range");
         let conn = init_database(&dir).expect("init_database");
 
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3665,7 +3731,7 @@ mod workspace_roundtrip_tests {
         let dir = temp_db_dir("dup_raw_sql");
         let conn = init_database(&dir).expect("init_database");
 
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: Some("Orig".to_string()),
             name_is_custom: true,
@@ -3696,6 +3762,90 @@ mod workspace_roundtrip_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Query cards: a workspace, a saved query and a session tab keep their
+    /// cards JSON beside the flat text; a result keeps its card id; a
+    /// duplicate copies all of it (and the row identity and source it used to
+    /// drop); the migration runs twice without harm.
+    #[test]
+    fn query_cards_persist_beside_their_text() {
+        let dir = temp_db_dir("query_cards");
+        let mut conn = init_database(&dir).expect("init_database");
+        create_schema(&conn).expect("create_schema again: the card migration is idempotent");
+
+        let ws = WorkspaceUpsert {
+            id: "ws1".to_string(),
+            name: Some("Cards".to_string()),
+            name_is_custom: true,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "-- name: A\nSELECT 1;\n".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+            cards_json: Some(r#"{"format":1,"flatHash":"x"}"#.to_string()),
+        };
+        upsert_workspace(&conn, &ws).expect("upsert with cards");
+        // A writer that says nothing about the cards keeps the stored ones.
+        upsert_workspace(&conn, &WorkspaceUpsert { cards_json: None, editor_text: "SELECT 2".to_string(), ..ws.clone() })
+            .expect("upsert without cards");
+
+        let mut h1 = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        h1.source = Some("card".to_string());
+        save_query_history(&conn, &h1, Some(r#"[{"name":"a"}]"#), Some("[[1]]"), Some(r#"{"keys":[]}"#)).expect("save h1");
+        let mut a = assoc("h1", "ws1", 0, 2, Some("SELECT 1"));
+        a.card_id = Some("card-a".to_string());
+        a.card_version = Some(2);
+        associate_result_to_workspace(&conn, &a).expect("associate with a card");
+        // A re-association that names no card keeps the card.
+        associate_result_to_workspace(&conn, &assoc("h1", "ws1", 0, 2, Some("SELECT 1"))).expect("re-associate");
+
+        let detail = load_workspace(&conn, "ws1").expect("load").expect("ws1");
+        assert_eq!(detail.cards_json.as_deref(), Some(r#"{"format":1,"flatHash":"x"}"#), "cards kept");
+        assert_eq!(detail.editor_text, "SELECT 2", "the text is the latest");
+        assert_eq!(detail.results[0].card_id.as_deref(), Some("card-a"));
+        assert_eq!(detail.results[0].card_version, Some(2));
+
+        let dup_id = duplicate_workspace(&conn, "ws1").expect("duplicate").expect("new id");
+        let dup = load_workspace(&conn, &dup_id).expect("load dup").expect("dup");
+        assert_eq!(dup.cards_json, detail.cards_json, "the duplicate has the cards");
+        assert_eq!(dup.results[0].card_id.as_deref(), Some("card-a"), "and the card id");
+        let (identity, source): (rusqlite::types::Value, Option<String>) = conn
+            .query_row("SELECT result_row_identity, source FROM query_history WHERE workspace_id = ?1",
+                       [&dup_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .expect("dup row");
+        assert!(identity != rusqlite::types::Value::Null, "the row identity is copied");
+        assert_eq!(source.as_deref(), Some("card"), "the source is copied");
+
+        let q = create_saved_query(&conn, "q1", &CreateSavedQuery {
+            name: "Q".to_string(), folder: None, sql: "SELECT 1;".to_string(), connection_id: None,
+            variables: None, cards_json: Some("C1".to_string()),
+        }).expect("create saved query");
+        assert_eq!(q.cards_json.as_deref(), Some("C1"));
+        let kept = update_saved_query(&conn, &UpdateSavedQuery {
+            id: "q1".to_string(), name: Some("Q2".to_string()), folder: None, sql: None, variables: None, cards_json: None,
+        }).expect("rename").expect("q1");
+        assert_eq!(kept.cards_json.as_deref(), Some("C1"), "an update without cards keeps them");
+        let changed = update_saved_query(&conn, &UpdateSavedQuery {
+            id: "q1".to_string(), name: None, folder: None, sql: None, variables: None, cards_json: Some("C2".to_string()),
+        }).expect("update cards").expect("q1");
+        assert_eq!(changed.cards_json.as_deref(), Some("C2"));
+        assert_eq!(load_saved_queries(&conn).expect("list")[0].cards_json.as_deref(), Some("C2"));
+
+        let session = Session { windows: vec![SessionWindow {
+            window_id: "w".to_string(), window_index: 0, frame: None,
+            tabs: vec![SessionTab {
+                tab_index: 0, workspace_id: None, name: "Query 1".to_string(), name_is_custom: false,
+                connection_id: None, schema_name: None, sql: "SELECT 1;".to_string(), cursor_position: 0,
+                variables_json: None, is_active: true, cards_json: Some("S".to_string()),
+                source_path: Some("/tmp/a.sql".to_string()), saved_query_id: Some("q1".to_string()),
+            }],
+        }] };
+        save_session(&mut conn, &session).expect("save session");
+        assert_eq!(load_session(&conn).expect("load session"), session, "a session tab keeps its cards, file and saved query");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// One workspace ("ws1", connection "prod-db") holding two queries with
     /// distinct SQL: h1 mentions `orders`, h2 mentions `customers`.
     ///
@@ -3704,7 +3854,7 @@ mod workspace_roundtrip_tests {
     fn workspace_with_two_queries(tag: &str) -> (Connection, PathBuf) {
         let dir = temp_db_dir(tag);
         let conn = init_database(&dir).expect("init_database");
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3802,7 +3952,7 @@ mod workspace_roundtrip_tests {
         // disagree. Drop or reverse the ORDER BY and this test fails.
         let dir = temp_db_dir("ws_match_both");
         let conn = init_database(&dir).expect("init_database");
-        let ws = WorkspaceUpsert {
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
             id: "ws1".to_string(),
             name: None,
             name_is_custom: false,
@@ -3878,7 +4028,7 @@ mod workspace_roundtrip_tests {
         for (workspace_id, history_id, executed_offset) in
             [("ws_a", "h_a", 0i64), ("ws_b", "h_b", 1i64)]
         {
-            let ws = WorkspaceUpsert {
+            let ws = WorkspaceUpsert { cards_json: Default::default(),
                 id: workspace_id.to_string(),
                 name: None,
                 name_is_custom: false,
@@ -3958,7 +4108,7 @@ mod workspace_roundtrip_tests {
         for (workspace_id, history_id, executed_offset) in
             [("ws_old", "h_old", 0i64), ("ws_new", "h_new", 10i64)]
         {
-            let ws = WorkspaceUpsert {
+            let ws = WorkspaceUpsert { cards_json: Default::default(),
                 id: workspace_id.to_string(),
                 name: None,
                 name_is_custom: false,
@@ -4557,7 +4707,7 @@ mod session_roundtrip_tests {
     }
 
     fn tab(index: i64, workspace_id: Option<&str>, name: &str, active: bool) -> SessionTab {
-        SessionTab {
+        SessionTab { cards_json: Default::default(), saved_query_id: Default::default(), source_path: Default::default(),
             tab_index: index,
             workspace_id: workspace_id.map(|s| s.to_string()),
             name: name.to_string(),
@@ -4994,7 +5144,7 @@ mod clear_history_tests {
     #[test]
     fn a_workspace_with_rows_left_survives() {
         let conn = db();
-        let w = crate::models::WorkspaceUpsert {
+        let w = crate::models::WorkspaceUpsert { cards_json: Default::default(),
             id: "w1".to_string(),
             name: None,
             name_is_custom: false,
