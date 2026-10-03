@@ -64,7 +64,7 @@ A run with no edit replaces the card's results in place. A failed or cancelled r
 
 - **New Card** (**Ctrl+Cmd+N**, **Query > New Card**, or the toolbar button) adds a card.
 - **Ctrl+Cmd+Up** / **Ctrl+Cmd+Down** (**Query > Previous Card** / **Next Card**) move the focus to the previous or next card.
-- The **chevron button** at the start of a card's name row folds the card to its name row (chevron points right) or opens it again (chevron points down). If an opened card reaches past the bottom of the editor area, the cards scroll so its top is at the top of the area.
+- The **chevron button** at the start of a card's name row folds the card to its name row (chevron points right), which then shows the start of the card's SQL on one line or opens it again (chevron points down). If an opened card reaches past the bottom of the editor area, the cards scroll so its top is at the top of the area.
 - **Query > Collapse All Cards** / **Expand All Cards**, or the toolbar button, collapses or expands every card.
 - **Cmd+Z** undoes adding, deleting or renaming a card. Because of this, deleting a card asks no confirmation.
 

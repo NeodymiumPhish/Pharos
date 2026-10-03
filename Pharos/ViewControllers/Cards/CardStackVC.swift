@@ -242,7 +242,7 @@ final class CardStackVC: NSViewController {
             let p = CardPresentation.make(card: card, position: position, lineageCount: lineageCounts[card.lineageId] ?? 1,
                                           isEdited: st.isEdited, activity: st.activity,
                                           resultInMemory: st.resultInMemory, isDisplayed: st.isDisplayed)
-            let meta = card.isCollapsed ? firstLine(of: card.sql) : st.meta
+            let meta = card.isCollapsed ? CardPresentation.sqlSummary(card.sql) : st.meta
             view.header.apply(p, color: CardPalette.color(card.colorIndex), isCollapsed: card.isCollapsed, meta: meta,
                               runUnavailableReason: runReason)
             view.color = CardPalette.color(card.colorIndex)
@@ -258,10 +258,6 @@ final class CardStackVC: NSViewController {
                 editor.textView.isEditable = !card.isLocked
             }
         }
-    }
-
-    private func firstLine(of sql: String) -> String {
-        sql.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
     }
 
     // MARK: - Layout
