@@ -693,7 +693,11 @@ class ResultsGridVC: NSViewController {
         clear()
         let timeStr = formatDuration(result.executionTimeMs)
         let count = formatRowCount(Int(result.rowsAffected))
-        statusLabel.stringValue = "\(count) row\(result.rowsAffected == 1 ? "" : "s") affected in \(timeStr)"
+        let affected = "\(count) row\(result.rowsAffected == 1 ? "" : "s") affected in \(timeStr)"
+        statusLabel.stringValue = affected
+        // `clear()` put up "No Results · Run a query", which is false here:
+        // the statement ran. Say what it did instead.
+        showStatementState(affected)
     }
 
     func clear() {
@@ -753,6 +757,15 @@ class ResultsGridVC: NSViewController {
         ) { [weak self] in
             self?.contentVC?.menuRunQuery(nil)
         }
+    }
+
+    /// A statement that returns no rows (INSERT, UPDATE, SET, BEGIN …) ran.
+    private func showStatementState(_ affected: String) {
+        emptyState.show(
+            symbol: "checkmark.circle",
+            title: String(localized: "Statement Ran"),
+            message: affected + "."
+        )
     }
 
     /// A result arrived and carried nothing — not the same thing as no result,
