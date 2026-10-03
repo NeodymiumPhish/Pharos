@@ -9,7 +9,10 @@ import AppKit
 /// it. A card whose editor is a preview is given a live editor (without the
 /// keyboard focus) when a match lands in it.
 @MainActor
-final class CardStackFinderClient: NSObject, NSTextFinderClient {
+// `@preconcurrency`: the SDK does not mark NSTextFinderClient main-actor, but
+// NSTextFinder calls its client only on the main thread; Swift checks that at
+// run time (SE-0423) instead of every member being `nonisolated`.
+final class CardStackFinderClient: NSObject, @preconcurrency NSTextFinderClient {
     weak var stack: CardStackVC?
     private var cachedIndex: CardFindIndex?
 

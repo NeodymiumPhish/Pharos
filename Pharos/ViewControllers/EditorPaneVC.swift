@@ -523,7 +523,8 @@ class EditorPaneVC: NSViewController {
 
     /// The active tab's cards changed shape (a split, a new card): rebuild,
     /// keeping `anchor` in place on screen.
-    func reloadCards(anchor: String? = nil) {
+    func reloadCards(anchor: String? = nil, splitFrom locked: String? = nil) {
+        if let locked, let anchor { cardStack.cardDidSplit(locked: locked, new: anchor) }
         cardStack.reload(anchor: anchor.map { .card($0) })
         updateCollapseAllButton()
     }

@@ -187,6 +187,10 @@ final class CardStackVC: NSViewController {
             switch item {
             case let .card(id):
                 if cardViews[id] == nil { cardViews[id] = makeCardView(id) }
+                // An editor handed over by a split, not yet in its card.
+                if let editor = editors[id], let view = cardViews[id], view.body !== editor.view {
+                    view.setBody(editor.view)
+                }
             case let .versionGroup(lineage, ids):
                 let v = groupViews[lineage] ?? makeGroupView(lineage)
                 groupViews[lineage] = v
@@ -200,6 +204,10 @@ final class CardStackVC: NSViewController {
         refreshStatus()
         relayout(anchor: anchor)
         findTextChanged()
+        if let editor = refocusAfterReload {
+            refocusAfterReload = nil
+            if editor.view.window != nil { view.window?.makeFirstResponder(editor.textView) }
+        }
     }
 
     // MARK: - Name rows
@@ -392,7 +400,6 @@ final class CardStackVC: NSViewController {
             return (tabId, self.validationSchema())
         }
         editor.textView.isEditable = !card.isLocked
-        let id = card.id
         editor.onTextEdited = { [weak self] cardId, text in
             guard let self else { return }
             var accepted = false
@@ -403,9 +410,14 @@ final class CardStackVC: NSViewController {
             self.refreshStatus(only: [cardId])
         }
         editor.onContentHeightChange = { [weak self] in self?.scheduleRelayout() }
-        editor.onFocus = { [weak self] in self?.cardDidTakeFocus(id) }
-        editor.onSelectionChange = { [weak self] in
-            guard let self else { return }
+        // The card an editor serves can change (a split hands the editor to
+        // the new version), so these read `documentId` rather than capture it.
+        editor.onFocus = { [weak self, weak editor] in
+            guard let id = editor?.documentId else { return }
+            self?.cardDidTakeFocus(id)
+        }
+        editor.onSelectionChange = { [weak self, weak editor] in
+            guard let self, let editor, let id = editor.documentId else { return }
             let position = editor.getCursorPosition()
             self.mutate { doc in
                 if let i = doc.index(of: id) { doc.cards[i].cursorPosition = position }
@@ -600,6 +612,24 @@ final class CardStackVC: NSViewController {
         scrollToCard(id)
     }
 
+    /// A run after an edit split `locked` (which keeps its results and its
+    /// old SQL) from `new` (the edited SQL). The live editor — the user's
+    /// text, caret and undo history — goes to `new`; `locked` shows its own
+    /// SQL in a fresh preview. Call before `reload`.
+    func cardDidSplit(locked: String, new: String) {
+        guard let editor = editors.removeValue(forKey: locked) else { return }
+        if view.window?.firstResponder === editor.textView { refocusAfterReload = editor }
+        if let old = editors.removeValue(forKey: new) { tearDown(old) }
+        editors[new] = editor
+        editor.documentId = new
+        editor.textView.isEditable = true
+        previews[locked] = nil
+        cardViews[locked]?.setBody(makePreview(locked))
+    }
+
+    /// An editor that had the keyboard when a split moved it between cards.
+    private weak var refocusAfterReload: SQLEditorController?
+
     /// The focused card's live editor.
     var focusedEditor: SQLEditorController? {
         document()?.focusedCardId.flatMap { editors[$0] }
@@ -762,24 +792,25 @@ final class ClosureMenuItem: NSMenuItem {
 
 // MARK: - VoiceOver rotor
 
+// The SDK marks this delegate main-actor, so the method is isolated like the
+// rest of the controller (an earlier `nonisolated` + `assumeIsolated` made the
+// result cross actors, which ItemResult cannot).
 extension CardStackVC: NSAccessibilityCustomRotorItemSearchDelegate {
-    nonisolated func rotor(_ rotor: NSAccessibilityCustomRotor,
-                           resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
-        MainActor.assumeIsolated {
-            let ids = items.compactMap { item -> String? in
-                if case let .card(id) = item { return id } else { return nil }
-            }
-            var labels: [String: String] = [:]
-            for id in ids { labels[id] = cardViews[id]?.accessibilityLabel() ?? "" }
-            let current = (searchParameters.currentItem?.targetElement as? CardView)?.cardId
-            guard let target = CardStackLayout.rotorTarget(
-                ids: ids, labels: labels, current: current,
-                forward: searchParameters.searchDirection == .next, filter: searchParameters.filterString),
-                  let view = cardViews[target] else { return nil }
-            scrollToCard(target)
-            let result = NSAccessibilityCustomRotor.ItemResult(targetElement: view)
-            result.customLabel = labels[target]
-            return result
+    func rotor(_ rotor: NSAccessibilityCustomRotor,
+               resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters) -> NSAccessibilityCustomRotor.ItemResult? {
+        let ids = items.compactMap { item -> String? in
+            if case let .card(id) = item { return id } else { return nil }
         }
+        var labels: [String: String] = [:]
+        for id in ids { labels[id] = cardViews[id]?.accessibilityLabel() ?? "" }
+        let current = (searchParameters.currentItem?.targetElement as? CardView)?.cardId
+        guard let target = CardStackLayout.rotorTarget(
+            ids: ids, labels: labels, current: current,
+            forward: searchParameters.searchDirection == .next, filter: searchParameters.filterString),
+              let view = cardViews[target] else { return nil }
+        scrollToCard(target)
+        let result = NSAccessibilityCustomRotor.ItemResult(targetElement: view)
+        result.customLabel = labels[target]
+        return result
     }
 }

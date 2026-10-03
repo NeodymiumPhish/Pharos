@@ -1957,7 +1957,11 @@ class ContentViewController: NSViewController {
         }
         depositResult(owned, forEditorTab: tabId)
         if editorPane.showsTab(tabId) {
-            if case .split = effect { editorPane.reloadCards(anchor: ownerId) } else { editorPane.refreshCards() }
+            if case let .split(lockedId, _) = effect {
+                editorPane.reloadCards(anchor: ownerId, splitFrom: lockedId)
+            } else {
+                editorPane.refreshCards()
+            }
         }
         finishJob(jobId, inTab: tabId, .succeeded)
     }
@@ -2079,13 +2083,13 @@ class ContentViewController: NSViewController {
                 // sees its temp tables and settings, and an open transaction
                 // stays open (ANALYZE is undone to a savepoint).
                 let json: String
-                if let target = await CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
+                if let target = CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
                     do {
                         let r = try await PharosCore.sessionExplain(target, sql: sql, analyze: analyze)
-                        await TabSessionMonitor.shared.record(r.session)
+                        TabSessionMonitor.shared.record(r.session)
                         json = r.plan
                     } catch {
-                        await TabSessionMonitor.shared.refresh(tabId)
+                        TabSessionMonitor.shared.refresh(tabId)
                         throw error
                     }
                 } else {
@@ -2580,13 +2584,13 @@ class ContentViewController: NSViewController {
                 // The next page comes from the connection the card ran on:
                 // the tab's own, which sees its temp tables and uncommitted rows.
                 let moreResult: QueryResult
-                if let target = await CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
+                if let target = CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
                     do {
                         let r = try await PharosCore.sessionFetchMoreRows(target, sql: trimmedSQL, limit: limit, offset: offset)
-                        await TabSessionMonitor.shared.record(r.session)
+                        TabSessionMonitor.shared.record(r.session)
                         moreResult = r.payload
                     } catch {
-                        await TabSessionMonitor.shared.refresh(tabId)
+                        TabSessionMonitor.shared.refresh(tabId)
                         throw error
                     }
                 } else {
@@ -3068,14 +3072,14 @@ class ContentViewController: NSViewController {
                 // instead of waiting on the rows the transaction has locked.
                 let result: RowUpdateResult
                 var joinedTransaction = false
-                if let target = await CardExecutor.auxTarget(tabId: editorTabId, connectionId: connectionId, schema: tab.schemaName) {
+                if let target = CardExecutor.auxTarget(tabId: editorTabId, connectionId: connectionId, schema: tab.schemaName) {
                     do {
                         let r = try await PharosCore.sessionApplyRowUpdates(target, request: request)
-                        await TabSessionMonitor.shared.record(r.session)
+                        TabSessionMonitor.shared.record(r.session)
                         result = r.result
                         joinedTransaction = r.inTransaction
                     } catch {
-                        await TabSessionMonitor.shared.refresh(editorTabId)
+                        TabSessionMonitor.shared.refresh(editorTabId)
                         throw error
                     }
                 } else {
@@ -3142,12 +3146,12 @@ class ContentViewController: NSViewController {
             // Re-read on the connection that wrote: in an open transaction only
             // the tab's own connection sees the new values.
             let refreshed: QueryResult
-            if let target = await CardExecutor.auxTarget(tabId: editorTabId, connectionId: connectionId, schema: schema) {
+            if let target = CardExecutor.auxTarget(tabId: editorTabId, connectionId: connectionId, schema: schema) {
                 guard let r = try? await PharosCore.sessionExecuteQuery(target, sql: sql, limit: limit, aux: true) else {
-                    await TabSessionMonitor.shared.refresh(editorTabId)
+                    TabSessionMonitor.shared.refresh(editorTabId)
                     return
                 }
-                await TabSessionMonitor.shared.record(r.session)
+                TabSessionMonitor.shared.record(r.session)
                 refreshed = r.payload
             } else {
                 guard let r = try? await PharosCore.executeQuery(
@@ -3899,14 +3903,14 @@ extension ContentViewController {
                 // aggregation sees what the card saw (temp tables, open
                 // transaction); it runs inside a savepoint there.
                 let qr: QueryResult
-                if let target = await CardExecutor.auxTarget(
+                if let target = CardExecutor.auxTarget(
                     tabId: editorTabId, connectionId: connectionId, schema: schema, queryId: queryId) {
                     do {
                         let r = try await PharosCore.sessionExecuteQuery(target, sql: sql, limit: limit, aux: true)
-                        await TabSessionMonitor.shared.record(r.session)
+                        TabSessionMonitor.shared.record(r.session)
                         qr = r.payload
                     } catch {
-                        await TabSessionMonitor.shared.refresh(editorTabId)
+                        TabSessionMonitor.shared.refresh(editorTabId)
                         throw error
                     }
                 } else {
@@ -4292,15 +4296,15 @@ extension ContentViewController {
             do {
                 // One snapshot on the connection the card ran on (the tab's
                 // own when it has one), inside a savepoint in its transaction.
-                if let target = await CardExecutor.auxTarget(
+                if let target = CardExecutor.auxTarget(
                     tabId: editorTabId, connectionId: connectionId, schema: schema, queryId: queryId) {
                     do {
                         let r = try await PharosCore.sessionFetchAllRows(
                             target, sql: sql, maxRows: Int64(cap), onProgress: onProgress)
-                        await TabSessionMonitor.shared.record(r.session)
+                        TabSessionMonitor.shared.record(r.session)
                         outcome = .success(r.payload)
                     } catch {
-                        await TabSessionMonitor.shared.refresh(editorTabId)
+                        TabSessionMonitor.shared.refresh(editorTabId)
                         throw error
                     }
                 } else {
