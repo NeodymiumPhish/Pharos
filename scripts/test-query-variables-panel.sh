@@ -13,6 +13,7 @@ echo "runTests()" > "$TMPMAIN"
 swiftc -o /tmp/query-variables-panel-tests \
   Pharos/ViewControllers/QueryVariables/QueryVariablesPanelVC.swift \
   Pharos/ViewControllers/QueryVariables/VariableListView.swift \
+  "Pharos/Utilities/NSLayoutConstraint+Swap.swift" \
   Pharos/ViewControllers/QueryVariables/VariableRowView.swift \
   Pharos/ViewControllers/QueryVariables/VariableDetailVC.swift \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \

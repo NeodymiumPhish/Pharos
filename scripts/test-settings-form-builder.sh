@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/settings-form-builder-tests \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Settings/Furniture/*.swift \
+  "Pharos/Utilities/NSLayoutConstraint+Swap.swift" \
   PharosTests/SettingsFormBuilderTests.swift \
   PharosTests/main.swift
 /tmp/settings-form-builder-tests

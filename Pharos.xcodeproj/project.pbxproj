@@ -78,6 +78,7 @@
 		324D23A7854A6B19278960D3 /* SchemaSelectorPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB348FEAF8FBBF5666D1D306 /* SchemaSelectorPopoverVC.swift */; };
 		325C5B2F6705581E09653999 /* ResultsDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = D662512D7219078869005EED /* ResultsDataSource.swift */; };
 		32658884EC755D14B18936A7 /* QueryNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */; };
+		344D7F8872C054B7213BE168 /* NSLayoutConstraint+Swap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */; };
 		34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080E74E651B82BE21F196DDC /* ImportDataSheet.swift */; };
 		34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE224A37E3FEC0F67F65D19 /* Settings.swift */; };
 		3528B524F776D3A6392F2ACC /* ColumnIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13897D85C05525947FD11603 /* ColumnIdentifier.swift */; };
@@ -590,6 +591,7 @@
 		A6D3955E9601CF2414F57DFA /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
 		A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLThemeCatalog.swift; sourceTree = "<group>"; };
+		A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSLayoutConstraint+Swap.swift"; sourceTree = "<group>"; };
 		A846DAE04C447D3AE1792991 /* TagFamilyLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFamilyLabel.swift; sourceTree = "<group>"; };
 		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
@@ -802,6 +804,7 @@
 				A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */,
 				78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */,
 				EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */,
+				A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */,
 				EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */,
 				FC0387D201E65BB04093EBEA /* QuickLookItemBuilder.swift */,
 				58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */,
@@ -1512,6 +1515,7 @@
 				23E22A80E39B50A59CA7E425 /* ModelAvailability.swift in Sources */,
 				60583C76A34589B8A9F81380 /* ModelFeedbackEntry.swift in Sources */,
 				D4AA5CE5CFBC5C82D272798D /* ModelFeedbackStore.swift in Sources */,
+				344D7F8872C054B7213BE168 /* NSLayoutConstraint+Swap.swift in Sources */,
 				9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */,
 				5C3CCF03D9E5B9FE79F803B3 /* NSTextField+AuthoredLabel.swift in Sources */,
 				069AD6A513AAF8ED5DEF4A86 /* NSTextField+FormLabel.swift in Sources */,

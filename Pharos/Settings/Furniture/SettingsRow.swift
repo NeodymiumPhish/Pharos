@@ -207,9 +207,10 @@ final class SettingsRow: NSView {
         captionLabel.stringValue = text
         let hidden = text.isEmpty
         captionLabel.isHidden = hidden
-        captionGap.isActive = !hidden
-        captionBottom.isActive = !hidden
-        titleBottom.isActive = hidden
+        let withCaption: [NSLayoutConstraint] = [captionGap, captionBottom]
+        let titleOnly: [NSLayoutConstraint] = [titleBottom]
+        NSLayoutConstraint.swap(activate: hidden ? titleOnly : withCaption,
+                                deactivate: hidden ? withCaption : titleOnly)
         control?.setAccessibilityHelp(hidden ? nil : text)
     }
 

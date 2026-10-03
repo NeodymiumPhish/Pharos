@@ -29,8 +29,10 @@ final class VariableListView: NSView {
             countLabel.isHidden = !showsHeader
             addButton.isHidden = !showsHeader
             headerSeparator.isHidden = !showsHeader
-            scrollTopToHeader.isActive = showsHeader
-            scrollTopToEdge.isActive = !showsHeader
+            let toHeader: [NSLayoutConstraint] = [scrollTopToHeader]
+            let toEdge: [NSLayoutConstraint] = [scrollTopToEdge]
+            NSLayoutConstraint.swap(activate: showsHeader ? toHeader : toEdge,
+                                    deactivate: showsHeader ? toEdge : toHeader)
         }
     }
     private let headerSeparator = HairlineView()

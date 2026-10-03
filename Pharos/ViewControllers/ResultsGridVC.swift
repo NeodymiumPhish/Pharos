@@ -1054,8 +1054,9 @@ class ResultsGridVC: NSViewController {
 
     private func updateLoadMoreVisibility() {
         loadMoreBar.isHidden = !hasMore
-        scrollViewBottomToLoadMore.isActive = hasMore
-        scrollViewBottomToContainer.isActive = !hasMore
+        let toBar: [NSLayoutConstraint] = [scrollViewBottomToLoadMore]
+        let toEdge: [NSLayoutConstraint] = [scrollViewBottomToContainer]
+        NSLayoutConstraint.swap(activate: hasMore ? toBar : toEdge, deactivate: hasMore ? toEdge : toBar)
     }
 
     @objc func loadMoreTapped() {
