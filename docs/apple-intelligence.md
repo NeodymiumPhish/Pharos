@@ -130,7 +130,7 @@ each of them shows you its usual text first — nothing waits for the model:
 | A card's **first run** | A card with no name gets a suggested name. A name you type always wins. |
 | **Save Query…** (⌘S) | The name field fills with a suggestion, selected, so your first keystroke replaces it. If your folders match, the folder is picked too. |
 | **Rename…** on a query card | The dialog opens with the name it has; the suggestion arrives and replaces it, selected. |
-| **Rename…** on an editor tab | The same. |
+| **File > Rename Tab…** | The same. |
 
 Anything you have typed wins. A suggestion that arrives after you start typing
 is discarded, and the field says where the text came from — hover it for

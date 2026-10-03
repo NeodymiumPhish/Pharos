@@ -22,7 +22,16 @@ The query editor provides SQL editing with syntax highlighting, auto-completion,
 
 ## Editor Toolbar
 
-The editor toolbar holds: **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The **navigator selector** (a grouped set of four icons over the sidebar), the **connection** pull-down and the **schema** pull-down beside it live in the window toolbar above. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); the connection and schema pull-downs both follow the active tab, so the pair reads as "this database, this schema"; choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of four icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+
+### The context row
+
+The context row says which database and schema this tab uses, and what its connection is doing. It belongs to the tab: changing it changes no other tab. From left to right:
+
+- the **Connection** pop-up button. It lists every saved connection with its state; its last item is **Manage Connections…**. Choosing a connection that is not connected connects it at once. When the tab has an open transaction, choosing another connection asks first: **Roll Back and Switch** or **Cancel**. A tab with no connection shows **Choose Connection** and "Choose a database for this tab.";
+- **›**, then the **Schema** pop-up button. It opens the searchable schema list, with **All Schemas** and **Set as Default Schema** (see [Schema Selector](schema-browser.md#schema-selector));
+- the connection's state: **Connected**; **Not connected** with a **Connect** button; **Connecting…** with a spinner; or **Could not connect** with a **Try Again** button. Rest the pointer on Could not connect to see the reason;
+- the **transaction chip**, while the tab has an open or failed transaction, or after its connection was reset (see [Transactions](query-execution.md#transactions)).
 
 [Query variables](query-variables.md) are edited in the sidebar's **Variables** navigator, not in the editor.
 
@@ -76,7 +85,7 @@ Other actions also add a card to the active tab:
 
 ### Filtering cards
 
-Type in the **Filter Cards** field in the editor toolbar to show only the cards whose name or SQL contains the text. The filter is cleared when you switch tabs.
+Type in the **Filter Cards** field in the editor toolbar to show only the cards whose name or SQL contains the text. Each tab keeps its own filter.
 
 ### Find
 
@@ -119,7 +128,7 @@ Suggestions come from the connected database's schema metadata: schema, table, a
 
 ## Opening and Saving SQL Files
 
-- **File > Open…** (**Cmd+O**) opens `.sql` or plain-text files in new tabs; you can also double-click SQL files in Finder, drop them on the Dock icon, or **drop them onto the editor** — each file opens in its own new tab. Files over 50 MB prompt before opening.
+- **File > Open…** (**Cmd+O**) opens `.sql` or plain-text files; you can also double-click SQL files in Finder, drop them on the Dock icon, or **drop them onto the editor**. Each file opens in its own tab (see [Where opened items go](#where-opened-items-go)). Files over 50 MB prompt before opening.
 - Opening a file splits it into **one card per statement**. A `-- name: X` comment line gives the card below it the name X.
 - psql meta-commands (such as `\set …`) and the data of a `COPY … FROM STDIN` become cards that Pharos shows but does not run.
 - A tab opened from a file stays linked to it: **Cmd+S** writes straight back to the file, and the tab shows a dirty indicator for unsaved edits.
@@ -128,11 +137,11 @@ Suggestions come from the connected database's schema metadata: schema, table, a
 
 ## The "Run in Pharos" Service
 
-Select SQL in any app that offers macOS Services — a text editor, a browser, Mail — and choose **Services > Run in Pharos** from that app's menu (or from the right-click menu). Pharos comes forward and opens the selected text in a **new editor tab**. The name is the macOS convention for the item; Pharos does **not** run the query. Read it, pick the connection, then press **Run** as usual. An empty selection does nothing.
+Select SQL in any app that offers macOS Services — a text editor, a browser, Mail — and choose **Services > Run in Pharos** from that app's menu (or from the right-click menu). Pharos comes forward and opens the selected text in an editor tab (see [Where opened items go](#where-opened-items-go)). The name is the macOS convention for the item; Pharos does **not** run the query. Read it, pick the connection, then press **Run** as usual. An empty selection does nothing.
 
 ## Tab Management
 
-Pharos supports multiple editor tabs. The **+** button at the right of the tab bar adds one.
+Every editor tab is a native macOS window tab, grouped the way Safari and Finder group theirs. The system tab bar appears when a window has two or more tabs; **View > Show Tab Bar** shows it always. Its **+** button and **File > New Tab** (**Cmd+T**) add a tab beside the current one, on the current tab's connection and schema, with the same sidebar and inspector layout.
 
 | Action | Shortcut |
 |--------|----------|
@@ -140,14 +149,26 @@ Pharos supports multiple editor tabs. The **+** button at the right of the tab b
 | Close Tab | Cmd+W |
 | Reopen Closed Tab | Cmd+Shift+T |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
+| Show Next Tab / Show Previous Tab | Cmd+Shift+] / Cmd+Shift+[ (or Ctrl+Tab / Ctrl+Shift+Tab) |
+| Show All Tabs | Cmd+Shift+\ |
 
-Double-click a tab to rename it. Each tab keeps its own cards, connection, and results, and gets its own [database connection](query-execution.md#one-connection-per-editor-tab); [query variables](query-variables.md) are shared by every tab. Right-click a tab for **Close Others**, **Close to the Right**, **Duplicate**, and **Rename**.
+**Cmd+1** to **Cmd+9** show the first to ninth tab of the window's group. **Reopen Closed Tab** works across every window and remembers up to 20 closed tabs.
+
+To rename a tab, choose **File > Rename Tab…**; **File > Duplicate Tab** puts a copy of its cards in a new tab beside it, without their results. Double-clicking a tab does not rename it. Right-clicking a tab shows the system's own menu: **Close Tab**, **Close Other Tabs** and **Move Tab to New Window**.
+
+Each tab keeps its own cards, connection, and results, and gets its own [database connection](query-execution.md#one-connection-per-editor-tab); [query variables](query-variables.md) are shared by every tab.
+
+The window title is the tab's name. Under it, the subtitle reads "connection · schema", or "No connection". Each tab shows a small dot for its connection: green when connected, orange while connecting, red when the connection failed, and an empty ring when the tab is not connected or has no connection. The dot pulses while the tab runs queries. Rest the pointer on a tab to read its name, its connection and schema, and its state. A tab with unsaved edits shows the system's edited dot.
+
+### Where opened items go
+
+Opening a saved query, a history entry, a workspace from Results History, a `.sql` file, **Run in Pharos** text, a Shortcuts action or a Dock menu item puts it in the current tab when that tab is untouched. Untouched means blank, never typed in, with no file, saved query or workspace, and nothing running. Otherwise it opens in a new tab beside the current one. A saved query or workspace that is already open in any window is brought to the front instead.
 
 ## Windows
 
-**File > New Window** (**Cmd+N**) opens a second main window. Each window has its own tabs, its own connection and its own results, so you can put two databases side by side. A new window starts with one empty tab bound to the connection the front window was using; it does not copy that window's tabs.
+**File > New Window** (**Cmd+N**) opens a second main window. Each window has its own tabs, so you can put two databases side by side. A new window starts with one empty tab bound to the connection the front window was using; it does not copy that window's tabs.
 
-**Cmd+W** closes the tab, **Cmd+Shift+W** closes the window. Closing a window cancels the queries that window started.
+**Cmd+W** closes the tab, **Cmd+Shift+W** (**File > Close Window**) closes every tab of the window, asking about each. Closing a tab cancels the queries that tab started.
 
 A tab with an open transaction asks before it closes, and so does a window or Pharos itself: **Roll Back and Close** (or **Roll Back and Quit**) or **Cancel**. Pharos always rolls back and never commits for you. See [Transactions](query-execution.md#transactions).
 
@@ -161,9 +182,9 @@ Closing a tab, closing a window or quitting Pharos asks first when a tab holds e
 
 A tab bound to a saved query or to a file always counts as unsaved once you edit it. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text, so there is nothing to warn about. An empty tab never counts. Turn the whole warning off with **Warn before closing unsaved tabs** in [Settings > General](settings.md#general-pane).
 
-Windows tab together the way the system does everywhere else. **Window > Merge All Windows** makes one window with a tab for each; **Window > Move Tab to New Window** takes one back out. Whether **Cmd+N** opens a window or a tab follows your own setting in **System Settings > Desktop & Dock > Prefer tabs when opening documents**.
+Windows tab together the way the system does everywhere else. **Window > Merge All Windows** makes one window with a tab for each; **Window > Move Tab to New Window** takes one back out. You can also drag a tab out of the tab bar to make a window of it, or drag it into another window's tab bar. Whether **Cmd+N** opens a window or a tab follows your own setting in **System Settings > Desktop & Dock > Prefer tabs when opening documents**.
 
-Pharos reopens the windows you left open, each at the size and position you left it, with the same tabs and the same tab selected. Turn this off in [Settings > General](settings.md#general-pane) with **Restore open tabs**.
+Pharos reopens the windows you left open, each at the size and position you left it, with the same tabs in the same order and the selected tab in front. Turn this off in [Settings > General](settings.md#general-pane) with **Restore open tabs**.
 
 ## Indentation
 

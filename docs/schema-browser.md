@@ -76,7 +76,7 @@ Two cases stay where they are: a child whose parent is in another schema keeps i
 
 ## Schema Selector
 
-The schema selector is the **schema pull-down** in the window toolbar, beside the connection pull-down; the pair reads as "this database, this schema", and both follow the active tab. Click it to open a popover with:
+The schema selector is the **Schema** pop-up button in each tab's [context row](query-editor.md#the-context-row), after the **Connection** pop-up button; the pair reads as "this database › this schema", and both belong to that tab. Click it to open a popover with:
 
 - A **Filter schemas…** search field
 - A scrollable list of schemas, with **All Schemas** pinned at the top; the active schema is checkmarked and the connection's default schema is marked "★ default"
@@ -133,6 +133,6 @@ An inherited child table inside a **Partitions** folder gets the same read-only 
 
 ## Refreshing
 
-The tree refreshes automatically when you connect, and after operations that change structure (clone, import, truncate, drop). To refresh manually — for example after running your own DDL — choose **File > Refresh Metadata** (**Cmd+Shift+R**), or open the **connection pull-down in the window toolbar** and choose **Refresh Metadata**.
+The tree refreshes automatically when you connect, and after operations that change structure (clone, import, truncate, drop). To refresh manually — for example after running your own DDL — choose **File > Refresh Metadata** (**Cmd+Shift+R**).
 
 The tree is cached per connection, so switching between connections restores instantly. Row-count estimates are gathered in the background (Pharos runs `ANALYZE` on unanalyzed tables where permitted) and fill in as they arrive.

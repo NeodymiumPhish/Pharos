@@ -34,7 +34,7 @@ When a run ends, its results take over the results area. To keep looking at othe
 
 The cards of one tab run on the tab's one connection, so they run one at a time: a card you run while another card of the same tab runs waits for it. Running a card that is already running or waiting does nothing. Cards in different tabs run at the same time. While queries run:
 
-- The tab's dot pulses in your accent colour.
+- The connection dot on the tab pulses.
 - The running card shows **Cancel** in its name row, in place of **Run**, until its query completes. A waiting card also shows **Cancel**.
 - **Query ▸ Cancel All Queries** (Cmd+Opt+.) cancels every query of the tab.
 
@@ -53,7 +53,7 @@ What Pharos keeps on a tab connection:
 
 - **Row limit.** Rows are read through a cursor, so a result cut at the [row limit](#row-limit-and-load-more) keeps the tab's connection and its settings. A data-modifying `WITH` query still runs to completion — all of its rows are written — even if only the first page is shown.
 - **Query timeout.** Pharos keeps the [query timeout](#query-timeout) itself on a tab connection, so your own `SET statement_timeout` stays in force.
-- **Search path.** The schema pull-down changes `search_path` only when you pick another schema, so your own `SET search_path` stays in force until then.
+- **Search path.** The schema pop-up button in the tab's [context row](query-editor.md#the-context-row) changes `search_path` only when you pick another schema, so your own `SET search_path` stays in force until then.
 
 **Load More**, **Load All**, **Explain**, chart aggregation, validation and cell edits run on the tab's connection when it has one. So they see its temporary tables and uncommitted rows, and they never end or break your transaction.
 
@@ -71,17 +71,17 @@ PgBouncer in **transaction pooling** mode cannot keep session state between stat
 
 ### A reset connection
 
-If the tab's connection is lost — the Mac slept, the network dropped, the server restarted, or the idle limit ended it — the next run opens a new one. A banner above the cards says that the connection was reset, and that its settings, temporary tables and any open transaction are gone. Pharos never sends a statement again that was in flight when the connection was lost.
+If the tab's connection is lost — the Mac slept, the network dropped, the server restarted, or the idle limit ended it — the next run opens a new one. The tab's [context row](query-editor.md#the-context-row) shows a **Connection reset** chip. Its tooltip, and the first line of its menu, say that the connection was reset and that its settings, temporary tables and any open transaction are gone. Choose **OK** in its menu to remove the chip. Pharos never sends a statement again that was in flight when the connection was lost.
 
 ## Transactions
 
 Pharos does **not** end a transaction that you leave open. Run `BEGIN` in one card, and the cards after it run inside that transaction until you commit or roll back.
 
-### The transaction banner
+### The transaction chip
 
-While a transaction is open, a banner above the cards says "Transaction open for *time*". It counts down the server's idle limit, and has **Roll Back** and **Commit** buttons.
+While a transaction is open, the tab's [context row](query-editor.md#the-context-row) shows an orange chip: "Transaction open · 2 min". The time counts up. Rest the pointer on the chip for the full message, which also counts down the server's idle limit. Click the chip to open a menu: the message, then **Roll Back** and **Commit**. **Query > Commit Transaction** and **Query > Roll Back Transaction** do the same.
 
-After an error inside the transaction, the banner says that the transaction failed and offers only **Roll Back**. As in psql, only `ROLLBACK` works in a failed transaction.
+After an error inside the transaction, the chip turns red and reads "Transaction failed". Its menu offers only **Roll Back**. As in psql, only `ROLLBACK` works in a failed transaction.
 
 ### Savepoints
 
@@ -107,7 +107,7 @@ These ask first while a tab has a transaction open:
 - disconnecting — **Roll Back and Disconnect**;
 - switching the tab to another connection.
 
-Each also offers **Cancel**. Pharos always rolls back, and never commits for you. To keep the changes, cancel and use **Commit** in the tab.
+Switching the connection offers **Roll Back and Switch**. Each also offers **Cancel**. Pharos always rolls back, and never commits for you. To keep the changes, cancel, then choose **Commit** from the tab's transaction chip.
 
 ## Read-only Connections
 
@@ -115,7 +115,7 @@ On a [read-only connection](connections.md#read-only-connections), Pharos refuse
 
 ## A lost connection
 
-When a query fails because the **connection** is gone — the server closed it, the SSH tunnel stopped, the socket broke — the connection moves to **Error** in the toolbar and the Database Navigator, and **Connect** becomes available again. Before this, a failed query never changed a connection's status, so a dead tunnel kept a green glyph and Connect appeared to do nothing until you pressed Disconnect first.
+When a query fails because the **connection** is gone — the server closed it, the SSH tunnel stopped, the socket broke — the connection moves to **Error** in the tab's context row (**Could not connect**, with **Try Again**), on the tab's dot (red) and in the Database Navigator, and **Connect** becomes available again. Before this, a failed query never changed a connection's status, so a dead tunnel kept a green glyph and Connect appeared to do nothing until you pressed Disconnect first.
 
 A statement timeout and a query you cancelled are **not** a lost connection. Those kill the statement, not the session, so the connection stays connected.
 
@@ -162,7 +162,7 @@ When **Confirm queries that change the database** is enabled in [Settings](setti
 
 ## Completion Notifications
 
-Pharos can post a macOS notification when a query finishes (successfully or with an error) so you don't have to babysit long runs. A notification fires when the query ran at least the configured minimum duration (default 5 seconds) **and** either Pharos is in the background or the query's tab isn't the one you're looking at — both conditions are individually toggleable in [Settings](settings.md). Clicking the notification brings Pharos forward and focuses the originating tab. Queries you cancelled yourself don't notify.
+Pharos can post a macOS notification when a query finishes (successfully or with an error) so you don't have to babysit long runs. A notification fires when the query ran at least the configured minimum duration (default 5 seconds) **and** either Pharos is in the background or the query's tab isn't the one you're looking at — both conditions are individually toggleable in [Settings](settings.md). A tab is not the one you're looking at when another tab of its window is showing, when its window is minimised, or when it has closed. Clicking the notification brings Pharos forward and focuses the originating tab. Queries you cancelled yourself don't notify.
 
 Separately, the Dock icon shows a badge counting how many queries finished while Pharos was in the background — even ones too quick to trigger a notification — and clears as soon as you switch back to Pharos.
 
@@ -170,7 +170,7 @@ Separately, the Dock icon shows a badge counting how many queries finished while
 
 When a query fails, the PostgreSQL error message is displayed in the results area. If the error includes a character position, the card underlines the location in red to help you find the problem.
 
-The first failure you have not read appears as a one-line banner above the results, not as a dialog: the editor stays usable behind it. The banner carries **Go to Error** (move the editor to the failing text), **Details…** (open the full error sheet on that entry) and a close button. If a second failure arrives while the first is still unread, the error sheet opens as before — at that point there is a list to read rather than a single message. Switching editor tabs takes the banner away; the tab's error button still holds every failure.
+The first failure you have not read appears as a one-line banner above the results, not as a dialog: the editor stays usable behind it. The banner carries **Go to Error** (move the editor to the failing text), **Details…** (open the full error sheet on that entry) and a close button. If a second failure arrives while the first is still unread, the error sheet opens as before — at that point there is a list to read rather than a single message. The banner stays with its own tab when you switch to another tab; the tab's error button still holds every failure.
 
 A cancelled query is never a banner. It opens the cancellation dialog when **Show cancelled query dialog** is on, and nothing at all when it is off.
 

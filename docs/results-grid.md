@@ -34,7 +34,7 @@ The view control at the front of the result action bar is **Grid | Chart | Plan*
 ### Choosing whose results are on screen
 
 - Click a card's **View Results** button to show its results. The button then reads **Showing Results · N rows** and is filled. So you can look at one card's results while you type in another.
-- **Ctrl+Tab** / **Ctrl+Shift+Tab** (**View > Show Results of Next Card** / **Show Results of Previous Card**) show the results of the next or previous card that has results.
+- **Cmd+Opt+]** / **Cmd+Opt+[** (**View > Show Results of Next Card** / **Show Results of Previous Card**) show the results of the next or previous card that has results.
 - When a run ends, its results take over the results area. Turn off **Show new results automatically** in [Settings > Results](settings.md#results-pane) to keep the results you are looking at.
 
 Showing a card's results again restores its grid state (sort, filters, column widths, scroll position, selection) exactly.
@@ -139,12 +139,6 @@ A long load reports its progress: the bar shows a progress indicator, a running 
 ## Empty States
 
 The grid says which kind of empty it is. **No Results** — with a **Run Query** button — means there are no results to show yet. **No Rows** means a query did run and returned nothing.
-
-## Pin Results
-
-Click the **pin** button in the action bar to keep the current result visible while you switch editor tabs. The button turns orange and shows the pinned result's name.
-
-The pin releases as soon as you ask the grid to show something else: showing any card's results, or running a query in any tab. A query that finishes in a **background** tab does not release it — that result stays with its card without touching the grid, so the pinned rows stay on screen.
 
 ## Editor and Results toggles
 

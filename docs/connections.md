@@ -18,7 +18,7 @@ nav_order: 3
 
 ## Overview
 
-Connections are managed in the **Connections Manager** sheet (**Cmd+Shift+N** or **File > Manage Connections…**; **Done** or Escape closes it, and it asks before discarding unsaved edits) and selected **per editor tab** from the connection pull-down in the window toolbar. Different tabs can point at different databases at the same time.
+Connections are managed in the **Connections Manager** sheet (**Cmd+Shift+N** or **File > Manage Connections…**; **Done** or Escape closes it, and it asks before discarding unsaved edits) and selected **per editor tab** from the **Connection** pop-up button in the tab's [context row](query-editor.md#the-context-row), at the start of the editor's header row. Different tabs can point at different databases at the same time.
 
 ## The Connections Manager
 
@@ -206,13 +206,20 @@ A link Pharos cannot read shows an alert with the link in it, and changes nothin
 
 ## Connecting and Disconnecting
 
-In the window toolbar, open the **connection pull-down**. It lists every saved connection with a live status glyph and a checkmark on the tab's active connection, followed by **Connect**, **Disconnect** and **Refresh Metadata** (also in the **File** menu; Refresh Metadata is **Cmd+Shift+R**), then:
+Each tab's [context row](query-editor.md#the-context-row), at the start of the editor's header row, holds the **Connection** pop-up button. It lists every saved connection with its state, and shows the tab's connection. Its last item is **Manage Connections…**, which opens the Connections Manager.
+
+- Choosing a connection that is not connected connects it at once.
+- If the tab has an open transaction, choosing another connection asks first: **Roll Back and Switch** or **Cancel**.
+
+After the pop-up, the context row shows the connection's state: **Connected**; **Not connected** with a **Connect** button; **Connecting…** with a spinner; or **Could not connect** with a **Try Again** button. Rest the pointer on Could not connect to see the reason. The tab itself shows the same state as a small dot: green connected, orange connecting, red failed, an empty ring not connected.
+
+The **File** menu holds:
 
 - **Connect** / **Disconnect** — open or close the connection for this tab
-- **Refresh Connection** — reload schema metadata (refreshes the schema browser)
-- **Manage Connections…** — open the Connections Manager
+- **Refresh Metadata** (**Cmd+Shift+R**) — reload schema metadata (refreshes the schema browser)
+- **Manage Connections…** (**Cmd+Shift+N**) — open the Connections Manager
 
-Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection. The **schema pull-down** beside the connection in the window toolbar shows the tab's schema (or **All Schemas**) and opens a searchable list to change it or to **Set as Default** for the connection.
+Once connected, the [Schema Browser](schema-browser.md) populates and queries in that tab run against the selected connection. The **Schema** pop-up button after the connection (connection › schema) shows the tab's schema (or **All Schemas**) and opens a searchable list to change it or to **Set as Default Schema** for the connection.
 
 ## Remembering the password
 
@@ -258,7 +265,7 @@ The two switches are **independent**. Turning off **Remember the password in the
 
 Each connection can carry its own gate. In the Connections Manager, under **Authentication**, tick **Require Touch ID to connect and to show the password**. Two things then ask you to authenticate first — with Touch ID, an unlocked Apple Watch, or your login password, whichever your Mac offers:
 
-- **Connecting** with that connection, however the connection is started — the toolbar pull-down, **File > Connect**, or selecting the connection for a tab
+- **Connecting** with that connection, however the connection is started — the tab's **Connect** or **Try Again** button, **File > Connect**, or selecting the connection for a tab
 - **Showing its stored password** in the form
 - **Being asked for a password or an SSH tunnel secret**, before either sheet appears — the sheet must never become a way past the gate
 

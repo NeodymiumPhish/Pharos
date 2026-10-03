@@ -315,8 +315,12 @@ enum MainMenu {
 
         viewMenu.addItem(.separator())
 
-        // AppKit's own tab commands. Its Window menu adds them on ⌃Tab and
-        // ⌃⇧Tab as well; these are the ⇧⌘] / ⇧⌘[ that Safari and Xcode use.
+        // AppKit's own tab commands, on the ⇧⌘] / ⇧⌘[ that Safari and Xcode
+        // use. AppKit leaves its own Window-menu copies (⌃Tab / ⌃⇧Tab) out
+        // when the app already has items with these actions — measured live —
+        // so the two hidden items below keep ⌃Tab and ⌃⇧Tab working. A menu
+        // key equivalent is matched before the focused text view sees the key,
+        // which is what lets ⌃Tab switch tabs from inside a card.
         let nextTabItem = viewMenu.addItem(
             withTitle: String(localized: "Show Next Tab"),
             action: #selector(NSWindow.selectNextTab(_:)),
@@ -330,6 +334,17 @@ enum MainMenu {
             keyEquivalent: "["
         )
         previousTabItem.keyEquivalentModifierMask = [.command, .shift]
+
+        let hiddenTabSwitches: [(String, Selector, NSEvent.ModifierFlags)] = [
+            (String(localized: "Show Next Tab"), #selector(NSWindow.selectNextTab(_:)), [.control]),
+            (String(localized: "Show Previous Tab"), #selector(NSWindow.selectPreviousTab(_:)), [.control, .shift]),
+        ]
+        for (title, action, modifiers) in hiddenTabSwitches {
+            let item = viewMenu.addItem(withTitle: title, action: action, keyEquivalent: "\t")
+            item.keyEquivalentModifierMask = modifiers
+            item.isHidden = true
+            item.allowsKeyEquivalentWhenHidden = true
+        }
 
         // ⌥⌘] / ⌥⌘[, not ⌃Tab: ⌃Tab belongs to the native tabs.
         let nextResultTabItem = viewMenu.addItem(

@@ -42,7 +42,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Reopen Closed Tab | Cmd+Shift+T |
 | Save Query… | Cmd+S |
 | Export Query as SQL File… | Cmd+Opt+S |
-| Close Window | Cmd+Shift+W |
+| Close Window (every tab of the window) | Cmd+Shift+W |
 
 ## Edit
 
@@ -87,10 +87,11 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Database Navigator navigator | Cmd+Opt+4 |
 | Filter in Navigator | Cmd+Opt+J |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
-| Show Next Tab | Cmd+Shift+] |
-| Show Previous Tab | Cmd+Shift+[ |
-| Show Results of Next Card | Ctrl+Tab |
-| Show Results of Previous Card | Ctrl+Shift+Tab |
+| Show Next Tab | Cmd+Shift+] (or Ctrl+Tab) |
+| Show Previous Tab | Cmd+Shift+[ (or Ctrl+Shift+Tab) |
+| Show All Tabs | Cmd+Shift+\ |
+| Show Results of Next Card | Cmd+Opt+] |
+| Show Results of Previous Card | Cmd+Opt+[ |
 | Increase Editor Font | Cmd++ |
 | Decrease Editor Font | Cmd+- |
 

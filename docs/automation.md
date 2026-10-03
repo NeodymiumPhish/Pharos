@@ -35,14 +35,17 @@ Search for "Pharos" in the Shortcuts app's action list.
 
 | Action | What it does |
 |---|---|
-| **Open Connection** | Opens a new query tab bound to a saved connection, and connects it. |
+| **Open Connection** | Opens a query tab bound to a saved connection, and connects it. |
 | **Run Saved Query** | Opens a saved query in a tab, runs its cards in order, and returns the last card's rows as a CSV file. |
-| **New Query Tab** | Opens a new query tab holding the SQL you supply. The query is *not* run. |
+| **New Query Tab** | Opens a query tab holding the SQL you supply. The query is *not* run. |
 | **Open Saved Query** | Opens a saved query in a tab. The query is *not* run. |
 | **Export Table** | Opens Pharos's export panel for a table, ready for you to choose the format, the columns and the destination. |
 
 Every action brings Pharos to the front — the work happens in the app, with the
-same connections, tabs and confirmations you get when you do it by hand.
+same connections, tabs and confirmations you get when you do it by hand. An
+action that opens a tab uses the current tab when that tab is untouched, and a
+new tab beside it otherwise (see
+[Where opened items go](query-editor.md#where-opened-items-go)).
 
 ### Siri phrases
 

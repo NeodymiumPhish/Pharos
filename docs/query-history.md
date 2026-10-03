@@ -24,7 +24,7 @@ The **Results History** panel is the third navigator of the sidebar (the clock i
 
 Each workspace row is one line: its name on the left and when it was last active on the right. Hover the row for the rest — how many queries it holds and which connection they ran against. Workspaces are named after their connection automatically (e.g., "analytics", or "analytics +1" if a second database was also queried); rename them to anything you like.
 
-- **Reopen** — double-click a workspace to restore it as a live editor tab, with each card and its results. If the workspace is already open, Pharos focuses that tab instead. Double-clicking a specific result in the preview reopens the workspace focused on that result.
+- **Reopen** — double-click a workspace to restore it as a live editor tab, with each card and its results. If the workspace is already open in any window, Pharos brings that tab to the front instead. Otherwise it opens in the current tab when that tab is untouched, or in a new tab beside it (see [Where opened items go](query-editor.md#where-opened-items-go)). Double-clicking a specific result in the preview reopens the workspace focused on that result.
 - **Preview** — selecting a workspace lists its results in the lower half of the panel: each with its color dot, label, and column/row counts. A result shows its [card's name](query-editor.md#the-name-row) here too. Selecting a result previews its SQL in the [Inspector](inspector.md).
 - **Context menu** — **Rename…**, **Duplicate**, and **Delete** (multi-select supported for deleting several at once). Individual results in the preview offer **Copy SQL** and **Delete this result**.
 
@@ -46,7 +46,7 @@ A query that the server refused leaves a row of its own: a warning glyph, the wo
 
 - **Scope** — the control at the top of the panel chooses what the list shows: **All**, **Succeeded**, or **Failed**. **Failed** is a flat, newest-first list of every failure, whatever workspace it came from; the workspace rows step aside for it.
 - **What is kept** — the SQL that ran, the connection, the time, and the message. There are no rows and no columns to keep: the query never produced any, so the row shows no counts.
-- **Reopening** — double-click a failed row to put its SQL in a new tab with one card, ready to correct and run again. Nothing is restored to the results grid, because nothing was returned.
+- **Reopening** — double-click a failed row to put its SQL in a tab with one card, ready to correct and run again. Nothing is restored to the results grid, because nothing was returned.
 - **Not every failure** — only answers from the server. A refusal Pharos makes on its own — no connection yet, a variable still unset, an empty editor, a tunnel that closed before anything was sent — says nothing about your SQL, and a history full of those buries the real failures, so they are not recorded.
 - **Workspaces** — a failure belongs to the workspace its tab was in, and is counted among that workspace's queries. It is not a result: reopening the workspace rebuilds only the results, and the preview pane lists only those.
 - **Turning it off** — **Settings ▸ Library & History ▸ Record failed queries**. Off stops new failures being recorded; rows already in the history stay until you clear them.

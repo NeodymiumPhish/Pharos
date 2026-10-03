@@ -41,7 +41,7 @@ Queries can be organized into folders; folders are listed alphabetically, follow
 
 ## Opening a Saved Query
 
-Double-click a saved query to open it in a new editor tab, with all of its cards. If it's already open in a tab, Pharos switches to that tab instead of creating a duplicate. Hovering over a query shows a tooltip preview of its SQL.
+Double-click a saved query to open it in an editor tab, with all of its cards: the current tab when that tab is untouched, otherwise a new tab beside it (see [Where opened items go](query-editor.md#where-opened-items-go)). If it's already open in a tab of any window, Pharos brings that tab to the front instead of creating a duplicate. Hovering over a query shows a tooltip preview of its SQL.
 
 With **On double-click** set to **Open in a tab and run it** in [Settings > Library & History](settings.md#library--history-pane), the query opens and then runs **Run All Cards**: its cards run in order, one at a time, and the run stops at the first failure.
 
@@ -51,7 +51,7 @@ With **On double-click** set to **Open in a tab and run it** in [Settings > Libr
 
 | Action | Description |
 |--------|-------------|
-| Open in Tab | Opens the query in a new editor tab |
+| Open in Tab | Opens the query in an editor tab (the current tab when it is untouched, otherwise a new tab) |
 | Copy SQL | Copies the SQL to the clipboard (variables rendered) |
 | Export as SQL File… | Saves the query to a `.sql` file |
 | Share… | Sends the SQL text (variables rendered) to the system share sheet |

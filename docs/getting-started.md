@@ -59,10 +59,10 @@ Building from source requires Xcode and a Rust toolchain installed via [rustup](
 The Pharos window has three panes:
 
 - **Sidebar** (left, toggle with **Cmd+Ctrl+S**) — one panel with four navigators, switched by the grouped selector in the window toolbar above it, level with the window buttons (or from **View > Navigators**, **Cmd+Opt+1/2/3/4**). Pressing the icon that is already selected hides the sidebar; pressing it again brings it back. The four navigators are: **Query Library** (saved queries), **Variables** (the app-wide `{{name}}` values), **Results History** (workspaces and past queries), and **Database Navigator** (the schema browser). A **Filter** field along the BOTTOM of the sidebar narrows whichever navigator is showing — **Cmd+Opt+J** puts the caret in it, and each navigator remembers its own filter text. A **+** pull-down sits beside the field in the Query Library (**New Query**, **New Folder**) and in Variables (**New Variable**).
-- **Content area** (center) — the query editor with its tabs and toolbar, above the results area (grid, chart or plan) and its action bar. Each editor tab is a stack of [query cards](query-editor.md#query-cards), one statement per card.
+- **Content area** (center) — the query editor with its header row, above the results area (grid, chart or plan) and its action bar. Each editor tab is a stack of [query cards](query-editor.md#query-cards), one statement per card.
 - **Inspector** (right, toggle with **Cmd+Opt+I**) — row details, selection statistics, and schema object details. Collapsed by default.
 
-Connections are chosen **per editor tab** from the connection pull-down in the window toolbar — there is no global connection selector.
+Connections are chosen **per editor tab** from the **Connection** pop-up button at the start of the editor's header row (the tab's [context row](query-editor.md#the-context-row)) — there is no global connection selector. Every editor tab is a native macOS window tab: the window title is the tab's name, and the subtitle under it reads "connection · schema". See [Tab Management](query-editor.md#tab-management).
 
 ## Creating Your First Connection
 
@@ -78,7 +78,7 @@ Connections are chosen **per editor tab** from the connection pull-down in the w
 4. Click **Test Connection** to verify — on success, the latency is shown and the **Default Schema** menu is populated
 5. Click **Save**
 
-Then, in the window toolbar, open the **connection pull-down** and choose your connection, then **Connect**. The Database Navigator panel populates with your schema, and you're ready to run queries. The **schema pull-down** next to the connection pins one schema for the tab (or **All Schemas**); it is also where you set a connection's default schema.
+Then, at the start of the editor's header row, open the **Connection** pop-up button and choose your connection. Pharos connects it at once. The Database Navigator panel populates with your schema, and you're ready to run queries. The **Schema** pop-up button after the connection pins one schema for the tab (or **All Schemas**); it is also where you set a connection's default schema.
 
 ## Running Your First Query
 
