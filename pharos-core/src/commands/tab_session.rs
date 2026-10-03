@@ -1041,10 +1041,12 @@ pub struct SessionFetchMoreRequest {
 }
 
 pub async fn session_fetch_more_rows(request: SessionFetchMoreRequest, state: &AppState) -> Result<SessionQueryResult, String> {
+    // One row past the page, as the pool's Load More does: that row is how
+    // `has_more` knows more remain (it is read, then dropped).
     let sql = format!(
         "SELECT * FROM ({}) AS _pharos_paginated LIMIT {} OFFSET {}",
         request.sql.trim().trim_end_matches(';'),
-        request.limit,
+        request.limit + 1,
         request.offset
     );
     let mut run = SessionRunRequest {
@@ -1926,6 +1928,22 @@ mod live_tab_session_tests {
             assert!(!v.valid);
             assert_eq!(state.tab_session(TAB).unwrap().report().txn, TxnState::InTransaction);
             statement(&state, "ROLLBACK").await.unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_tab_session_load_more_says_when_more_rows_remain() {
+        block_on(async {
+            let state = live_state(false).await;
+            let sql = "SELECT g FROM generate_series(1, 3000) g ORDER BY g";
+            let page = |offset| SessionFetchMoreRequest { target: target(TAB), sql: sql.into(), limit: 1000, offset };
+            let second = session_fetch_more_rows(page(1000), &state).await.expect("page 2");
+            assert_eq!(second.result.row_count, 1000);
+            assert!(second.result.has_more, "rows 2001-3000 remain after page 2");
+            let third = session_fetch_more_rows(page(2000), &state).await.expect("page 3");
+            assert_eq!(third.result.row_count, 1000);
+            assert!(!third.result.has_more, "nothing remains after page 3");
         });
     }
 
