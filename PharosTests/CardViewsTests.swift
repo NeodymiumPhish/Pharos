@@ -126,11 +126,57 @@ private func testIdentifiersAndSizes() {
     expect(f.card.header.runReplaceButton.accessibilityIdentifier() == "editor.card.3.runReplace", "ids: run and replace")
 
     f.card.bodyHeight = 120
-    expect(f.card.fittingHeight == CardHeaderView.height + 121, "size: name row + body + separator", "got \(f.card.fittingHeight)")
+    expect(f.card.fittingHeight == CardHeaderView.height + 121 + CardView.bodyBottomInset,
+           "size: name row + separator + body + bottom inset", "got \(f.card.fittingHeight)")
     f.card.isCollapsed = true
     expect(f.card.fittingHeight == CardHeaderView.height, "size: a collapsed card is its name row")
     f.layout()
     expect(f.card.body?.isHidden == true, "size: a collapsed card hides its body")
+}
+
+/// Stands in for an editor: opaque, and drawn (cacheDisplay skips layer backgrounds).
+private final class OpaqueRedView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1).setFill()
+        bounds.fill()
+    }
+    override var isOpaque: Bool { true }
+}
+
+/// An opaque body must never paint over the card's border: the bottom edge
+/// and the rounded bottom corners stay the card's own (found 2026-10-02 in
+/// the app — the body ran to the bottom edge and hid the bottom border).
+private func testBodyLeavesTheBorderVisible() {
+    let card = CardView(cardId: "c1")
+    card.bodyHeight = 60
+    let body = OpaqueRedView()
+    card.setBody(body)
+    card.frame = NSRect(x: 0, y: 0, width: 300, height: card.fittingHeight)
+    card.layoutSubtreeIfNeeded()
+
+    let inset = card.bounds.height - body.frame.maxY
+    expect(inset >= CardView.bodyBottomInset, "border: the body ends above the bottom edge", "gap \(inset)")
+    expect(card.bounds.width - body.frame.maxX >= 2, "border: the body ends left of the 2 pt outline")
+
+    guard let rep = card.bitmapImageRepForCachingDisplay(in: card.bounds) else { expect(false, "border: bitmap"); return }
+    card.cacheDisplay(in: card.bounds, to: rep)
+    func isBody(_ x: Int, _ y: Int) -> Bool {
+        guard let c = rep.colorAt(x: x, y: y), c.numberOfComponents >= 3 else { return false }
+        return c.redComponent > 0.8 && c.greenComponent < 0.2 && c.blueComponent < 0.2
+    }
+    let w = rep.pixelsWide, h = rep.pixelsHigh
+    // Either orientation: the rows at both ends, and the columns at the right
+    // edge, hold no body pixel; the body itself is there in the middle.
+    let scale = max(1, Int((CGFloat(w) / card.bounds.width).rounded()))
+    let edge = 3 * scale
+    var onBorder = 0
+    for x in 0..<w { for y in Array(0..<edge) + Array((h - edge)..<h) where isBody(x, y) { onBorder += 1 } }
+    // The displayed-card outline is 2 pt wide: those columns are the border's.
+    let right = 2 * scale
+    for y in 0..<h { for x in (w - right)..<w where isBody(x, y) { onBorder += 1 } }
+    expect(isBody(w / 2, h / 2) || isBody(w / 2, h / 2 + 10 * scale), "border: the body is drawn",
+           "body \(body.frame)")
+    expect(onBorder == 0, "border: no body pixel on the bottom or right border", "\(onBorder) pixels")
 }
 
 private func testPreview() {
@@ -174,6 +220,7 @@ func runTests() {
     testNameRowStates()
     testClicksReachTheButtons()
     testIdentifiersAndSizes()
+    testBodyLeavesTheBorderVisible()
     testPreview()
     testVersionGroup()
     if failures == 0 { print("\nAll card view tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }

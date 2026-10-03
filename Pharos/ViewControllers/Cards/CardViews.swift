@@ -266,6 +266,12 @@ final class ChipLabel: NSTextField {
 final class CardView: NSView {
     static let cornerRadius: CGFloat = 9
     static let stripeWidth: CGFloat = 4
+    /// Space kept clear between the body and the card's bottom and right
+    /// edges, so the opaque body never paints over the border or the rounded
+    /// corners. At the right edge the corner curve rises 6.5 pt above the
+    /// bottom (radius 9, body 2 pt in), so the bottom inset must exceed that.
+    static let bodyBottomInset: CGFloat = 8
+    static let bodyTrailingInset: CGFloat = 2
 
     let cardId: String
     let header = CardHeaderView()
@@ -293,7 +299,7 @@ final class CardView: NSView {
 
     /// The height the card needs.
     var fittingHeight: CGFloat {
-        CardHeaderView.height + (isCollapsed ? 0 : bodyHeight + 1)
+        CardHeaderView.height + (isCollapsed ? 0 : bodyHeight + 1 + Self.bodyBottomInset)
     }
 
     func setBody(_ view: NSView?) {
@@ -309,18 +315,25 @@ final class CardView: NSView {
         header.frame = NSRect(x: Self.stripeWidth, y: 0, width: bounds.width - Self.stripeWidth, height: CardHeaderView.height)
         body?.isHidden = isCollapsed
         body?.frame = NSRect(x: Self.stripeWidth, y: CardHeaderView.height + 1,
-                             width: max(0, bounds.width - Self.stripeWidth - 1), height: max(0, bodyHeight))
+                             width: max(0, bounds.width - Self.stripeWidth - Self.bodyTrailingInset), height: max(0, bodyHeight))
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: Self.cornerRadius, yRadius: Self.cornerRadius)
-        (isLocked ? NSColor.underPageBackgroundColor : NSColor.textBackgroundColor).setFill()
+        // The body's colour everywhere the editor and gutter do not cover
+        // (the bottom inset), so the card reads as one surface.
+        NSColor.textBackgroundColor.setFill()
         path.fill()
 
-        // The stripe: the card's colour, or a neutral one for a card that has
-        // never succeeded.
         NSGraphicsContext.saveGraphicsState()
         path.addClip()
+        // A locked card's name row is shaded: it holds results, not a draft.
+        if isLocked {
+            NSColor.underPageBackgroundColor.setFill()
+            NSRect(x: 0, y: 0, width: bounds.width, height: CardHeaderView.height).fill()
+        }
+        // The stripe: the card's colour, or a neutral one for a card that has
+        // never succeeded.
         (color ?? .separatorColor).setFill()
         NSRect(x: 0, y: 0, width: Self.stripeWidth, height: bounds.height).fill()
         NSGraphicsContext.restoreGraphicsState()
