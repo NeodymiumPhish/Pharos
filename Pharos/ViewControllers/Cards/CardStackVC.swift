@@ -57,6 +57,8 @@ final class CardStackVC: NSViewController {
     var onClearResults: ((_ cardId: String) -> Void)?
     var onListPasteOffer: ((_ offered: Bool) -> Void)?
     var validationConnectionId: () -> String? = { nil }
+    /// Why the tab's cards cannot run now (no connected database), or nil.
+    var runUnavailableReason: () -> String? = { nil }
     /// The schema the tab's toolbar pull-down shows, for validation on the tab's connection.
     var validationSchema: () -> String? = { nil }
 
@@ -219,6 +221,7 @@ final class CardStackVC: NSViewController {
         guard let doc = document() else { return }
         var lineageCounts: [String: Int] = [:]
         for c in doc.cards { lineageCounts[c.lineageId, default: 0] += 1 }
+        let runReason = runUnavailableReason()
         var position = 0
         for item in items {
             guard case let .card(id) = item, let card = doc.card(id), let view = cardViews[id] else { continue }
@@ -232,7 +235,8 @@ final class CardStackVC: NSViewController {
                                           isEdited: st.isEdited, activity: st.activity,
                                           resultInMemory: st.resultInMemory, isDisplayed: st.isDisplayed)
             let meta = card.isCollapsed ? firstLine(of: card.sql) : st.meta
-            view.header.apply(p, color: CardPalette.color(card.colorIndex), isCollapsed: card.isCollapsed, meta: meta)
+            view.header.apply(p, color: CardPalette.color(card.colorIndex), isCollapsed: card.isCollapsed, meta: meta,
+                              runUnavailableReason: runReason)
             view.color = CardPalette.color(card.colorIndex)
             view.isFocused = doc.focusedCardId == id
             view.isDisplayed = st.isDisplayed
@@ -489,6 +493,9 @@ final class CardStackVC: NSViewController {
 
     private func menu(for id: String) -> NSMenu {
         let menu = NSMenu()
+        // The items carry their own enabled state. With autoenabling on, AppKit
+        // enabled every item, because each one's target answers its action.
+        menu.autoenablesItems = false
         guard let card = document()?.card(id) else { return menu }
         let st = status(card)
         func item(_ title: String, _ handler: @escaping () -> Void, enabled: Bool = true) {
@@ -496,7 +503,7 @@ final class CardStackVC: NSViewController {
             i.isEnabled = enabled
             menu.addItem(i)
         }
-        let runnable = card.kind == .sql
+        let runnable = card.kind == .sql && runUnavailableReason() == nil
         item(String(localized: "Run"), { [weak self] in self?.onRun?(id, .run) }, enabled: runnable)
         item(String(localized: "Run and Replace Results"), { [weak self] in self?.onRun?(id, .replace) }, enabled: runnable)
         if st.resultInMemory {

@@ -34,8 +34,9 @@ When a run ends, its results take over the results area. To keep looking at othe
 
 The cards of one tab run on the tab's one connection, so they run one at a time: a card you run while another card of the same tab runs waits for it. Running a card that is already running or waiting does nothing. Cards in different tabs run at the same time. While queries run:
 
-- The toolbar's **Run | Cancel** control (one capsule, play and stop) shows it: the **stop glyph pulses in your accent colour** for as long as anything runs in the tab, in step with the tab's dot. With one query running, stop cancels it. With several, stop opens a list of the in-flight queries: the start of each one's SQL, its elapsed time and its own cancel button, and a **Cancel All** button under them. **Query ▸ Cancel All Queries** (Cmd+Opt+.) does the same from the keyboard.
-- The running card shows **Cancel** in its name row until its query completes.
+- The tab's dot pulses in your accent colour.
+- The running card shows **Cancel** in its name row, in place of **Run**, until its query completes. A waiting card also shows **Cancel**.
+- **Query ▸ Cancel All Queries** (Cmd+Opt+.) cancels every query of the tab.
 
 ## One Connection per Editor Tab
 
@@ -120,7 +121,7 @@ A statement timeout and a query you cancelled are **not** a lost connection. Tho
 
 ## Cancelling
 
-Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use the card's **Cancel** button or the running-queries popover to cancel a specific one. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side. Inside an open transaction, a cancel undoes only that card (see [Savepoints](#savepoints)).
+Press **Cmd+.** (or **Query > Cancel Query**) to cancel the most recent running query, or use a card's **Cancel** button to cancel that card. Cancellation sends `pg_cancel_backend()` to the server, terminating the query server-side. Inside an open transaction, a cancel undoes only that card (see [Savepoints](#savepoints)).
 
 ## Explain
 

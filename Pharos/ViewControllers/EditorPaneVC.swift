@@ -252,11 +252,23 @@ class EditorPaneVC: NSViewController {
         // The status, not the tab's `connectionId`: a tab can name a
         // connection long before it is connected, and the schema cache is
         // empty until it is. The `tabsSettled` sink cannot see this — its
-        // dedup whitelist reads the tab, not the connection.
+        // dedup whitelist reads the tab, not the connection. The cards' Run
+        // buttons grey out and ungrey on the same change (and on a rename,
+        // which their reason quotes).
         stateManager.$connectionStatuses
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateDescribeQueryButton() }
+            .sink { [weak self] _ in
+                self?.updateDescribeQueryButton()
+                self?.cardStack.refreshStatus()
+            }
+            .store(in: &cancellables)
+        stateManager.$connections
+            .map { $0.map(\.name) }
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.cardStack.refreshStatus() }
             .store(in: &cancellables)
     }
 
@@ -313,6 +325,16 @@ class EditorPaneVC: NSViewController {
             self?.formatListButton.isHidden = !offered
         }
         cardStack.validationConnectionId = { [weak self] in self?.session.activeConnectionId }
+        // The same test `ContentViewController.runCard` applies, on the tab
+        // the stack shows.
+        cardStack.runUnavailableReason = { [weak self] in
+            guard let self, let tabId = self.cardStack.tabId else { return nil }
+            let connectionId = self.session.tabs.first(where: { $0.id == tabId })?.connectionId
+            return CardRunAvailability.reason(
+                connectionId: connectionId,
+                connectionName: connectionId.flatMap { id in self.stateManager.connections.first(where: { $0.id == id })?.name },
+                status: connectionId.map { self.stateManager.status(for: $0) })
+        }
         cardStack.validationSchema = { [weak self] in self?.session.activeTab?.schemaName }
     }
 

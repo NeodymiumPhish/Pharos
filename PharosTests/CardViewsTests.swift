@@ -141,6 +141,82 @@ private func testClicksReachTheButtons() {
 
 private func ranCard() -> QueryCard { ran("SELECT 1") }
 
+/// A tab without a connected database: Run and Run and Replace are greyed
+/// out, and say why on hover and on click.
+private func testRunUnavailable() {
+    let f = Fixture()
+    let h = f.card.header
+    var ran = 0
+    h.onRun = { ran += 1 }
+    h.onRunReplace = { ran += 1 }
+    let reason = "Not connected to “Prod”."
+
+    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "")
+    f.layout()
+    expect(h.runButton.isEnabled && h.runButton.toolTip == "Run (⌘↩)", "available: Run is enabled with its tooltip")
+
+    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "", runUnavailableReason: reason)
+    f.layout()
+    expect(!h.runButton.isEnabled && !h.runReplaceButton.isEnabled, "unavailable: Run and Run and Replace are greyed out")
+    expect(h.runButton.toolTip == nil, "unavailable: no tooltip over the popover", "got \(String(describing: h.runButton.toolTip))")
+    expect(h.runButton.accessibilityHelp() == reason, "unavailable: VoiceOver reads the reason as help")
+
+    // A click goes through hit-testing to the greyed-out button, runs nothing,
+    // and shows the reason.
+    expect(f.hit(h.runButton) === h.runButton, "unavailable: a click still reaches the button")
+    let centre = h.runButton.convert(NSPoint(x: h.runButton.bounds.midX, y: h.runButton.bounds.midY), to: nil)
+    let down = NSEvent.mouseEvent(with: .leftMouseDown, location: centre, modifierFlags: [], timestamp: 0,
+                                  windowNumber: f.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    h.runButton.mouseDown(with: down)
+    expect(ran == 0, "unavailable: a click runs nothing")
+    expect(h.runButton.isShowingReason, "unavailable: a click shows the reason")
+
+    // One popover at a time: the next button's reason replaces it.
+    h.runReplaceButton.showReason(byHover: false)
+    expect(h.runReplaceButton.isShowingReason && !h.runButton.isShowingReason, "one popover at a time")
+    h.runReplaceButton.closeReason()
+
+    // The window server sends mouseEntered/Exited only through a tracking
+    // area; without one the hover below would never happen in the app.
+    expect(h.runButton.trackingAreas.contains { $0.owner === h.runButton && $0.options.contains(.mouseEnteredAndExited) },
+           "hover: the button has a tracking area for the pointer")
+    // Hover: nothing before the delay, the reason after it, gone on exit.
+    func crossing(_ type: NSEvent.EventType) -> NSEvent {
+        NSEvent.enterExitEvent(with: type, location: centre, modifierFlags: [], timestamp: 0,
+                               windowNumber: f.window.windowNumber, context: nil, eventNumber: 0,
+                               trackingNumber: 0, userData: nil)!
+    }
+    h.runButton.mouseEntered(with: crossing(.mouseEntered))
+    RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+    expect(!h.runButton.isShowingReason, "hover: nothing shows before the delay")
+    RunLoop.current.run(until: Date().addingTimeInterval(CardRunButton.hoverDelay + 0.3))
+    expect(h.runButton.isShowingReason, "hover: the reason shows after the delay")
+    if let popover = f.window.childWindows?.first ?? NSApp.windows.first(where: { $0 !== f.window && $0.isVisible }) {
+        let button = h.runButton.window!.convertToScreen(h.runButton.convert(h.runButton.bounds, to: nil))
+        expect(popover.frame.maxY <= button.minY + 1, "hover: the popover opens below the button",
+               "popover \(popover.frame), button \(button)")
+    }
+    h.runButton.mouseExited(with: crossing(.mouseExited))
+    expect(!h.runButton.isShowingReason, "hover: the reason goes when the pointer leaves")
+
+    // A pointer that passes over without resting opens nothing.
+    h.runButton.mouseEntered(with: crossing(.mouseEntered))
+    h.runButton.mouseExited(with: crossing(.mouseExited))
+    RunLoop.current.run(until: Date().addingTimeInterval(CardRunButton.hoverDelay + 0.3))
+    expect(!h.runButton.isShowingReason, "hover: passing over opens nothing")
+
+    // Connected again: enabled, tooltip back, an open reason closes.
+    h.runButton.showReason(byHover: false)
+    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "")
+    expect(h.runButton.isEnabled && h.runButton.toolTip == "Run (⌘↩)" && h.runButton.accessibilityHelp() == nil,
+           "available again: enabled, tooltip back, no help")
+    expect(!h.runButton.isShowingReason, "available again: the open reason closes")
+    h.runButton.mouseEntered(with: crossing(.mouseEntered))
+    RunLoop.current.run(until: Date().addingTimeInterval(CardRunButton.hoverDelay + 0.3))
+    expect(!h.runButton.isShowingReason, "available: hover shows no reason")
+    expect(f.click(h.runButton) && ran == 1, "available: a click runs the card")
+}
+
 private func testIdentifiersAndSizes() {
     let f = Fixture()
     f.card.header.setIdentifiers(prefix: "editor.card.3")
@@ -313,6 +389,7 @@ private func testVersionGroup() {
 func runTests() {
     testNameRowStates()
     testClicksReachTheButtons()
+    testRunUnavailable()
     testDisclosure()
     testIdentifiersAndSizes()
     testBodyLeavesTheBorderVisible()

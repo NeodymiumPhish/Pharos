@@ -38,8 +38,8 @@ final class CardHeaderView: NSView {
     let metaLabel = NSTextField(labelWithString: "")
     private let spinner = NSProgressIndicator()
     let resultsButton = NSButton()
-    let runButton = NSButton()
-    let runReplaceButton = NSButton()
+    let runButton = CardRunButton()
+    let runReplaceButton = CardRunButton()
     let cancelButton = NSButton()
     let moreButton = NSButton()
     private var cardColor: NSColor = .controlAccentColor
@@ -85,7 +85,7 @@ final class CardHeaderView: NSView {
         resultsButton.action = #selector(viewResults)
         resultsButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
-        for (button, image, label, action) in [
+        for (button, image, label, action): (NSButton, String, String, Selector) in [
             (runButton, "play.fill", String(localized: "Run"), #selector(run)),
             (runReplaceButton, "arrow.triangle.2.circlepath", String(localized: "Run and Replace Results"), #selector(runReplace)),
             (cancelButton, "stop.fill", String(localized: "Cancel"), #selector(cancel)),
@@ -98,8 +98,8 @@ final class CardHeaderView: NSView {
             button.target = self
             button.action = action
         }
-        runButton.toolTip = String(localized: "Run (⌘↩)")
-        runReplaceButton.toolTip = String(localized: "Run and Replace Results (⇧⌘↩): replace this card's results instead of keeping them as a locked version")
+        runButton.availableToolTip = String(localized: "Run (⌘↩)")
+        runReplaceButton.availableToolTip = String(localized: "Run and Replace Results (⇧⌘↩): replace this card's results instead of keeping them as a locked version")
         cancelButton.contentTintColor = .systemRed
 
         moreButton.bezelStyle = .push
@@ -137,8 +137,10 @@ final class CardHeaderView: NSView {
         ])
     }
 
-    /// Show `p` for a card drawn in `color`.
-    func apply(_ p: CardPresentation, color: NSColor?, isCollapsed: Bool, meta: String) {
+    /// Show `p` for a card drawn in `color`. `runUnavailableReason` greys out
+    /// Run and Run and Replace and says why (`CardRunAvailability`).
+    func apply(_ p: CardPresentation, color: NSColor?, isCollapsed: Bool, meta: String,
+               runUnavailableReason: String? = nil) {
         cardColor = color ?? .controlAccentColor
         nameLabel.stringValue = p.title
         nameLabel.textColor = p.titleIsPlaceholder ? .secondaryLabelColor : .labelColor
@@ -176,6 +178,8 @@ final class CardHeaderView: NSView {
         }
         runButton.isHidden = !p.canRun
         runReplaceButton.isHidden = !p.showsRunAndReplace
+        runButton.unavailableReason = runUnavailableReason
+        runReplaceButton.unavailableReason = runUnavailableReason
         cancelButton.isHidden = !p.showsCancel
         disclosure.isExpanded = !isCollapsed
     }
@@ -213,6 +217,131 @@ final class CardHeaderView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
+}
+
+/// A card's Run or Run and Replace button. While the tab cannot run
+/// (`unavailableReason` set) the button is greyed out, and the reason shows in
+/// a popover when the pointer rests on the button or the user clicks it.
+/// VoiceOver reads the reason as the button's help.
+final class CardRunButton: NSButton {
+    /// How long the pointer rests on the button before the reason shows, so
+    /// a pointer that only passes over a card opens nothing.
+    static let hoverDelay: TimeInterval = 0.4
+
+    /// One popover at a time, for all cards (HIG, Popovers).
+    private static weak var shownBy: CardRunButton?
+    private static var shownPopover: NSPopover?
+
+    /// Why the button cannot run its card; nil when it can.
+    var unavailableReason: String? {
+        didSet {
+            guard unavailableReason != oldValue else { return }
+            refresh()
+            if unavailableReason == nil {
+                cancelHover()
+                closeReason()
+            }
+        }
+    }
+    /// The tooltip while the button can run. A greyed-out button has no
+    /// tooltip: the popover says more, and the two would cover each other.
+    var availableToolTip: String? { didSet { refresh() } }
+
+    private var openedByHover = false
+
+    var isShowingReason: Bool { Self.shownBy === self && Self.shownPopover?.isShown == true }
+
+    convenience init() {
+        self.init(frame: .zero)
+        // Added once: `.inVisibleRect` keeps the area on the visible part of
+        // the button as it moves and resizes. AppKit does not call
+        // `updateTrackingAreas` for a new view, so an area added only there
+        // never existed (found in the live check).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    private func refresh() {
+        isEnabled = unavailableReason == nil
+        toolTip = unavailableReason == nil ? availableToolTip : nil
+        setAccessibilityHelp(unavailableReason)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        guard unavailableReason != nil else { return }
+        cancelHover()
+        perform(#selector(hoverElapsed), with: nil, afterDelay: Self.hoverDelay)
+    }
+
+    @objc private func hoverElapsed() { showReason(byHover: true) }
+
+    private func cancelHover() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(hoverElapsed), object: nil)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        cancelHover()
+        if openedByHover { closeReason() }
+    }
+
+    /// A greyed-out button still gets the click (hit-testing ignores
+    /// `isEnabled`); it shows the reason and runs nothing.
+    override func mouseDown(with event: NSEvent) {
+        guard unavailableReason != nil else { return super.mouseDown(with: event) }
+        cancelHover()
+        showReason(byHover: false)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            cancelHover()
+            closeReason()
+        }
+    }
+
+    /// Show the reason under the button. A popover opened by hover closes
+    /// when the pointer leaves; one opened by a click stays until the next
+    /// click elsewhere.
+    func showReason(byHover: Bool) {
+        guard let reason = unavailableReason, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        openedByHover = byHover
+        if isShowingReason { return }
+        Self.shownPopover?.close()
+
+        let label = NSTextField(wrappingLabelWithString: reason)
+        label.preferredMaxLayoutWidth = 260
+        label.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSView()
+        content.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            label.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
+            label.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -10),
+        ])
+        let controller = NSViewController()
+        controller.view = content
+        controller.preferredContentSize = content.fittingSize
+
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.behavior = .transient
+        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        popover.show(relativeTo: bounds, of: self, preferredEdge: isFlipped ? .maxY : .minY)
+        Self.shownPopover = popover
+        Self.shownBy = self
+    }
+
+    func closeReason() {
+        guard Self.shownBy === self else { return }
+        Self.shownPopover?.close()
+        Self.shownPopover = nil
+        Self.shownBy = nil
+        openedByHover = false
+    }
 }
 
 /// A small rounded label: the version chip and the state badge.

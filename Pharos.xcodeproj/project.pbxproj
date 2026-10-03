@@ -28,6 +28,7 @@
 		0D4788B0E6B6E339EC9CB225 /* VariableCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0050C55A0C9DA511EC8AC149 /* VariableCompletion.swift */; };
 		0DC746EF37BE955A11C1F5C2 /* GridSelectionValidity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */; };
 		0DE389DF03E98881DB46EBA8 /* PlanSummaryPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1181620F4973B4674683C030 /* PlanSummaryPrompt.swift */; };
+		0E0E85D8C94B0DAB137B60BB /* CardRunAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0EB5BB3232529EA8DB1DB2 /* CardRunAvailability.swift */; };
 		0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
@@ -184,7 +185,6 @@
 		7CFBCE4DE722CBBF1896DFB3 /* SQLFoldingParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D48095594419F14207C82F /* SQLFoldingParser.swift */; };
 		7D25B7B3E9EB6125DEAF8395 /* SchemaPopUpButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */; };
 		7DB7C60CF312CF9E8EBC7140 /* CompletionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92E74684F85A0F7FE8A63987 /* CompletionResolver.swift */; };
-		7E1BEFC9BB71030E69AB4527 /* RunControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04C57F0525388507241EA774 /* RunControl.swift */; };
 		7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C0E80717841FF454B8D378 /* DrillCoverage.swift */; };
 		806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */; };
 		8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */; };
@@ -263,7 +263,6 @@
 		AA85FF8401AA3168DE75F249 /* SQLOrderStability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */; };
 		AB4FF098324AD58A9D3A42EA /* GeneratedContentLabelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B984A8C698677E5EC07C83EF /* GeneratedContentLabelView.swift */; };
 		AB6A1A4BA0E10D2FBEF86887 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2842DA42F9D759036177BC /* AppDelegate.swift */; };
-		AB8B991F8DC7164FAF3512F6 /* RunControlState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5AAD67E03F9884A8FB303F0 /* RunControlState.swift */; };
 		ABC59F560A2FE279D883466F /* SettingsSplitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9389401FF1FEE1ACFA9432A0 /* SettingsSplitViewController.swift */; };
 		AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */; };
 		ACF2CD9A55853B329D46FFF3 /* ErrorExplanationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54101B9C807A769AD63E25B /* ErrorExplanationView.swift */; };
@@ -289,7 +288,6 @@
 		BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */; };
 		BB242B2D9790DD4A59F37CA8 /* TagsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9EADEB0FEC311C7E54B35A /* TagsSettingsPaneVC.swift */; };
 		BCA68E3BDB7D44B860015A42 /* SchemaBrowserVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */; };
-		BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */; };
 		BDD0B35D5CC9DF83EB996451 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F15F6D530ED4B08BF8F19F /* Log.swift */; };
 		BE1B3B13E8594784CDDA5A12 /* ErrorExplanationPrompt+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924134701A5DCF2C9E7981E0 /* ErrorExplanationPrompt+Cache.swift */; };
 		BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */; };
@@ -374,12 +372,10 @@
 /* Begin PBXFileReference section */
 		0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCopyScope.swift; sourceTree = "<group>"; };
 		0050C55A0C9DA511EC8AC149 /* VariableCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableCompletion.swift; sourceTree = "<group>"; };
-		02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunningQueriesPopoverVC.swift; sourceTree = "<group>"; };
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		02A96A71AC4D54E03F4A8B52 /* SettingsSidebarVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarVC.swift; sourceTree = "<group>"; };
 		03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Connection.swift"; sourceTree = "<group>"; };
 		04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowUpdateSQLBuilder.swift; sourceTree = "<group>"; };
-		04C57F0525388507241EA774 /* RunControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunControl.swift; sourceTree = "<group>"; };
 		04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanViewVC.swift; sourceTree = "<group>"; };
 		06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsCellSelection.swift; sourceTree = "<group>"; };
 		0807907A5831AFFE3ECBCA62 /* ColumnProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnProfile.swift; sourceTree = "<group>"; };
@@ -590,7 +586,6 @@
 		A3979604AF599EDCF7C0B789 /* SettingsDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDetailVC.swift; sourceTree = "<group>"; };
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A51B7E42D0E3720183013836 /* VariableValuePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValuePreview.swift; sourceTree = "<group>"; };
-		A5AAD67E03F9884A8FB303F0 /* RunControlState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunControlState.swift; sourceTree = "<group>"; };
 		A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestructiveSQLScanner.swift; sourceTree = "<group>"; };
 		A6D3955E9601CF2414F57DFA /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
@@ -700,6 +695,7 @@
 		ECAAA38815EB77E7D80DE74B /* AppearanceSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettingsPaneVC.swift; sourceTree = "<group>"; };
 		ED326E9C544D4D71C63ACFFB /* SavedQueryFilename.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQueryFilename.swift; sourceTree = "<group>"; };
 		EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCoalescer.swift; sourceTree = "<group>"; };
+		EE0EB5BB3232529EA8DB1DB2 /* CardRunAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardRunAvailability.swift; sourceTree = "<group>"; };
 		EE1BE9592C76B222B3A3B626 /* SchemaContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaContextMenu.swift; sourceTree = "<group>"; };
 		EE2AADFDD27DF6C7DFBE4A42 /* PaneTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTabBar.swift; sourceTree = "<group>"; };
 		EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnClassifier.swift; sourceTree = "<group>"; };
@@ -848,6 +844,7 @@
 				17CEEB8796DC2B8361BC29CF /* CardPersistence.swift */,
 				F7E540F43D6AD78D464F14C1 /* CardPresentation.swift */,
 				E2D980BDF7D79B8243A59CF1 /* CardResultEviction.swift */,
+				EE0EB5BB3232529EA8DB1DB2 /* CardRunAvailability.swift */,
 				BB539D03746C72A07263A689 /* CardRunQueue.swift */,
 				E0E5D48E1CE429915CDFF074 /* CardStackLayout.swift */,
 			);
@@ -896,7 +893,6 @@
 				04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */,
 				DE109495071281357840CE57 /* QueryHistoryVC.swift */,
 				996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */,
-				02399A7347EC9AE0F2BBE5D1 /* RunningQueriesPopoverVC.swift */,
 				F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */,
 				0AA28F370D58B185F9C4F416 /* SchemaBrowserVC.swift */,
 				EB348FEAF8FBBF5666D1D306 /* SchemaSelectorPopoverVC.swift */,
@@ -1072,7 +1068,6 @@
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
 				04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */,
 				660F536C895497044AF79E8C /* RuleKey.swift */,
-				A5AAD67E03F9884A8FB303F0 /* RunControlState.swift */,
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */,
 				FD49CDC956B8E19D8B96A86C /* SchemaButtonState.swift */,
@@ -1269,7 +1264,6 @@
 				C37D2F0491A80DB1124E442A /* PendingEditsBar.swift */,
 				6617C742EBFE1DEA3B133567 /* QueryErrorBanner.swift */,
 				A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */,
-				04C57F0525388507241EA774 /* RunControl.swift */,
 				E96C6665DAA0DA6F127AEC96 /* SavedQueryCellView.swift */,
 				58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */,
 				B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */,
@@ -1407,6 +1401,7 @@
 				9AE71289A521676F9BA0B679 /* CardResultEviction.swift in Sources */,
 				6602FFABB3AFAEFB01AE006D /* CardResultStore.swift in Sources */,
 				1573220283AD141ECC613ECC /* CardResultsHeaderView.swift in Sources */,
+				0E0E85D8C94B0DAB137B60BB /* CardRunAvailability.swift in Sources */,
 				8C6889781B030417D764F479 /* CardRunQueue.swift in Sources */,
 				481B9857D91F7B1118557AA4 /* CardStackFinderClient.swift in Sources */,
 				678E8279BAB1B2CB2B70BD1A /* CardStackLayout.swift in Sources */,
@@ -1607,9 +1602,6 @@
 				09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */,
 				440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */,
 				4DBF8F6F44E2BFEBB112BCCE /* RuleKey.swift in Sources */,
-				7E1BEFC9BB71030E69AB4527 /* RunControl.swift in Sources */,
-				AB8B991F8DC7164FAF3512F6 /* RunControlState.swift in Sources */,
-				BCFE03D8FA5A7114BD1ABCD1 /* RunningQueriesPopoverVC.swift in Sources */,
 				168A481957ED3B4BE106A90E /* RustScalarError.swift in Sources */,
 				B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */,
 				AE9E1AADFD64575AB3CDC9ED /* SQLDraft.swift in Sources */,

@@ -22,7 +22,7 @@ The query editor provides SQL editing with syntax highlighting, auto-completion,
 
 ## Editor Toolbar
 
-The editor toolbar holds: **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The **navigator selector** (a grouped set of four icons over the sidebar), the **connection** pull-down, the **schema** pull-down beside it and the **Run | Cancel** control live in the window toolbar above (see [Query Execution](query-execution.md)); the connection and schema pull-downs both follow the active tab, so the pair reads as "this database, this schema"; choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar holds: **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The **navigator selector** (a grouped set of four icons over the sidebar), the **connection** pull-down and the **schema** pull-down beside it live in the window toolbar above. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); the connection and schema pull-downs both follow the active tab, so the pair reads as "this database, this schema"; choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle there too. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
 [Query variables](query-variables.md) are edited in the sidebar's **Variables** navigator, not in the editor.
 
@@ -38,7 +38,7 @@ Each card has a name row above its SQL. From left to right it shows:
 - a **version chip** (v2, v3…) when the card has [earlier versions](#versions);
 - the **metadata** of its last run: when it ran, how long it took, and how many rows it returned;
 - a large **View Results** button. It reads **Showing Results · N rows**, and is filled, while that card's results are on screen;
-- **Run**, and **Run and Replace Results** (shown only after you edit a card that has results);
+- **Run**, and **Run and Replace Results** (shown only after you edit a card that has results). Both are greyed out while the tab has no connected database. Rest the pointer on a greyed-out button, or click it, to see why and how to connect;
 - **Cancel**, while the card runs;
 - the **⋯** menu.
 
