@@ -99,6 +99,29 @@ private func testNameRowStates() {
     expect(!h.cancelButton.isHidden && h.runButton.isHidden, "running: Cancel instead of Run")
 }
 
+private func testDisclosure() {
+    let f = Fixture()
+    let h = f.card.header
+    var toggled = 0
+    h.onToggleCollapse = { toggled += 1 }
+    h.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: false, meta: "")
+    f.layout()
+    expect(h.disclosure.isExpanded && h.disclosure.accessibilityLabel() == "Hide SQL", "disclosure: open card says Hide SQL")
+    expect(h.disclosure.accessibilityValue() as? String == "expanded", "disclosure: VoiceOver hears expanded")
+    // As tall as the Run button beside it: a real button, not a 13 pt triangle.
+    expect(abs(h.disclosure.frame.height - h.runButton.frame.height) < 1 && h.disclosure.frame.width >= 20,
+           "disclosure: full-size button", "disclosure \(h.disclosure.frame.size), run \(h.runButton.frame.size)")
+    expect(f.click(h.disclosure) && toggled == 1, "disclosure: a click reaches it through hit-testing")
+    let openNameX = h.nameLabel.frame.minX
+    h.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: true, meta: "")
+    expect(!h.disclosure.isExpanded && h.disclosure.accessibilityLabel() == "Show SQL", "disclosure: folded card says Show SQL")
+    f.layout()
+    expect(abs(h.nameLabel.frame.minX - openNameX) < 0.5, "disclosure: the name does not move when the card folds",
+           "open \(openNameX), folded \(h.nameLabel.frame.minX)")
+    h.setIdentifiers(prefix: "editor.card.2")
+    expect(h.disclosure.accessibilityIdentifier() == "editor.card.2.disclosure", "disclosure: AX id")
+}
+
 private func testClicksReachTheButtons() {
     let f = Fixture()
     let h = f.card.header
@@ -290,6 +313,7 @@ private func testVersionGroup() {
 func runTests() {
     testNameRowStates()
     testClicksReachTheButtons()
+    testDisclosure()
     testIdentifiersAndSizes()
     testBodyLeavesTheBorderVisible()
     testNameRowAtZeroWidth()

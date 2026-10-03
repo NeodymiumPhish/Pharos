@@ -548,8 +548,36 @@ final class CardStackVC: NSViewController {
 
     func toggleCollapsed(_ id: String) {
         guard let card = document()?.card(id) else { return }
+        let expanding = card.isCollapsed
         mutate { doc in doc.setCollapsed(cardId: id, !card.isCollapsed) }
         reload(anchor: .card(id))
+        if expanding { revealExpandedCard(id) }
+    }
+
+    /// A card that opened past the bottom of the editor area scrolls up so
+    /// its top meets the top of the area (`CardStackLayout.offsetAfterExpanding`).
+    private func revealExpandedCard(_ id: String) {
+        guard let i = items.firstIndex(of: .card(id)), i < frames.count else { return }
+        let clip = scrollView.contentView
+        guard let y = CardStackLayout.offsetAfterExpanding(
+            cardFrame: frames[i], visible: clip.bounds,
+            contentHeight: documentView.frame.height, topMargin: Self.spacing) else { return }
+        let origin = NSPoint(x: clip.bounds.origin.x, y: y)
+        // A short scroll shows where the card went; none with Reduce Motion
+        // (Apple HIG, Motion).
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            clip.scroll(to: origin)
+            scrollView.reflectScrolledClipView(clip)
+        } else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.2
+                context.allowsImplicitAnimation = true
+                clip.animator().setBoundsOrigin(origin)
+            } completionHandler: { [weak self] in
+                guard let self else { return }
+                self.scrollView.reflectScrolledClipView(clip)
+            }
+        }
     }
 
     /// Collapse or expand every card.

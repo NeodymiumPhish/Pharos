@@ -54,7 +54,7 @@ Running a card that has results **after you edited it** keeps the old results:
 
 - The old card is **locked** with its SQL and its results.
 - The edited SQL goes into a **new version card** below it (v2, v3…), and that card runs.
-- Older versions fold into one row above the newest ("2 earlier versions of *name*"). Click the row to show them.
+- Older versions fold into one row above the newest ("2 earlier versions of *name*"). Click the row, or its chevron button, to show them.
 
 A run with no edit replaces the card's results in place. A failed or cancelled run never locks the card; the next run tries again in place. **Run and Replace Results** (**Cmd+Shift+Return**) replaces the results in place even after an edit, and makes no new version.
 
@@ -64,6 +64,7 @@ A run with no edit replaces the card's results in place. A failed or cancelled r
 
 - **New Card** (**Ctrl+Cmd+N**, **Query > New Card**, or the toolbar button) adds a card.
 - **Ctrl+Cmd+Up** / **Ctrl+Cmd+Down** (**Query > Previous Card** / **Next Card**) move the focus to the previous or next card.
+- The **chevron button** at the start of a card's name row folds the card to its name row (chevron points right) or opens it again (chevron points down). If an opened card reaches past the bottom of the editor area, the cards scroll so its top is at the top of the area.
 - **Query > Collapse All Cards** / **Expand All Cards**, or the toolbar button, collapses or expands every card.
 - **Cmd+Z** undoes adding, deleting or renaming a card. Because of this, deleting a card asks no confirmation.
 

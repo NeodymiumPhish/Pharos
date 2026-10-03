@@ -99,6 +99,19 @@ private func testAnchoredOffset() {
            "anchor: never scrolls above the top")
 }
 
+private func testExpandScroll() {
+    let visible = CGRect(x: 0, y: 200, width: 600, height: 400)          // rows 200…600 on screen
+    func offset(_ frame: CGRect, content: CGFloat = 2000) -> CGFloat? {
+        CardStackLayout.offsetAfterExpanding(cardFrame: frame, visible: visible, contentHeight: content, topMargin: 10)
+    }
+    expect(offset(CGRect(x: 0, y: 300, width: 600, height: 250)) == nil, "expand: a card that still ends on screen moves nothing")
+    expect(offset(CGRect(x: 0, y: 300, width: 600, height: 400)) == 290, "expand: past the bottom → its top meets the top (less the margin)")
+    expect(offset(CGRect(x: 0, y: 450, width: 600, height: 900)) == 440, "expand: taller than the area → still its top at the top")
+    expect(offset(CGRect(x: 0, y: 1700, width: 600, height: 280), content: 2000) == 1600,
+           "expand: near the end, the stack scrolls only as far as its end")
+    expect(offset(CGRect(x: 0, y: 5, width: 600, height: 700), content: 2000) == 0, "expand: never above the first row")
+}
+
 private func testRotor() {
     let ids = ["a", "b", "c"]
     let labels = ["a": "Card 1, Orders", "b": "Card 2, Users", "c": "Card 3, Orders by day"]
@@ -113,6 +126,7 @@ private func testRotor() {
 
 func runTests() {
     testRotor()
+    testExpandScroll()
     testItems()
     testFrames()
     testAnchoredOffset()

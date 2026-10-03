@@ -92,6 +92,19 @@ enum CardStackLayout {
         return ids[..<at].last { matching.contains($0) }
     }
 
+    /// Where the stack scrolls after a card expands. Nil when the expanded
+    /// card's bottom is still on screen: nothing moves. Otherwise the offset
+    /// that puts the card's top `topMargin` below the top of the visible area,
+    /// so the SQL that just appeared is read from its start; clamped so the
+    /// stack never scrolls past its end. Flipped coordinates (y grows down).
+    static func offsetAfterExpanding(cardFrame: CGRect, visible: CGRect,
+                                     contentHeight: CGFloat, topMargin: CGFloat) -> CGFloat? {
+        guard cardFrame.maxY > visible.maxY else { return nil }
+        let target = max(0, cardFrame.minY - topMargin)
+        let farthest = max(0, contentHeight - visible.height)
+        return min(target, farthest)
+    }
+
     static func visibleIndices(_ frames: [CGRect], visible: CGRect) -> Range<Int> {
         guard let first = frames.firstIndex(where: { $0.maxY > visible.minY }) else { return 0..<0 }
         let end = frames[first...].firstIndex(where: { $0.minY >= visible.maxY }) ?? frames.count

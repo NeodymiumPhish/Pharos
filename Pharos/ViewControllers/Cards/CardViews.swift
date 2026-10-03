@@ -30,7 +30,7 @@ final class CardHeaderView: NSView {
     /// The ⋯ menu, built fresh by the owner each time it opens.
     var menuProvider: (() -> NSMenu)?
 
-    private let disclosure = NSButton()
+    let disclosure = CardDisclosureButton()
     let nameLabel = NSTextField(labelWithString: "")
     private let versionChip = ChipLabel()
     private let lockImage = NSImageView()
@@ -58,13 +58,8 @@ final class CardHeaderView: NSView {
     }
 
     private func build() {
-        disclosure.bezelStyle = .disclosure
-        disclosure.setButtonType(.onOff)
-        disclosure.title = ""
-        disclosure.state = .on
         disclosure.target = self
         disclosure.action = #selector(toggleCollapse)
-        disclosure.setAccessibilityLabel(String(localized: "Show SQL"))
 
         nameLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         nameLabel.lineBreakMode = .byTruncatingTail
@@ -182,14 +177,14 @@ final class CardHeaderView: NSView {
         runButton.isHidden = !p.canRun
         runReplaceButton.isHidden = !p.showsRunAndReplace
         cancelButton.isHidden = !p.showsCancel
-        disclosure.state = isCollapsed ? .off : .on
-        disclosure.setAccessibilityLabel(isCollapsed ? String(localized: "Show SQL") : String(localized: "Hide SQL"))
+        disclosure.isExpanded = !isCollapsed
     }
 
     /// Accessibility identifiers for card `n` (1-based).
     func setIdentifiers(prefix: String) {
         setAccessibilityIdentifier("\(prefix).header")
         nameLabel.setAccessibilityIdentifier("\(prefix).name")
+        disclosure.setAccessibilityIdentifier("\(prefix).disclosure")
         resultsButton.setAccessibilityIdentifier("\(prefix).viewResults")
         runButton.setAccessibilityIdentifier("\(prefix).run")
         runReplaceButton.setAccessibilityIdentifier("\(prefix).runReplace")
@@ -261,6 +256,45 @@ final class ChipLabel: NSTextField {
         let text = attributedStringValue
         let size = text.size()
         text.draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2))
+    }
+}
+
+// MARK: - Disclosure
+
+/// The control that shows and hides a card's SQL (and a card's earlier
+/// versions). A disclosure triangle in meaning — it points to the trailing
+/// side while the content is hidden and down while it shows (Apple HIG,
+/// Disclosure controls) — but drawn as a full-size bordered button, the
+/// height of the Run and ⋯ buttons beside it, because folding cards is how
+/// people sort a long tab of queries and results. Not a disclosure *button*:
+/// the HIG allows one of those per view, and a tab has many cards.
+final class CardDisclosureButton: NSButton {
+    /// True while the content shows (chevron down).
+    var isExpanded = true { didSet { refresh() } }
+    /// What the control shows and hides, for VoiceOver and the tooltip.
+    var contentName: String = String(localized: "SQL") { didSet { refresh() } }
+
+    convenience init() {
+        self.init(frame: .zero)
+        bezelStyle = .push
+        controlSize = .regular
+        imagePosition = .imageOnly
+        title = ""
+        setButtonType(.momentaryPushIn)
+        // One width for both chevrons, so the card's name never shifts when
+        // the card folds or opens.
+        widthAnchor.constraint(equalToConstant: 34).isActive = true
+        refresh()
+    }
+
+    private func refresh() {
+        let name = isExpanded ? "chevron.down" : "chevron.right"
+        let action = isExpanded ? String(localized: "Hide \(contentName)") : String(localized: "Show \(contentName)")
+        image = NSImage(systemSymbolName: name, accessibilityDescription: action)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        toolTip = action
+        setAccessibilityLabel(action)
+        setAccessibilityValue(isExpanded ? String(localized: "expanded") : String(localized: "collapsed"))
     }
 }
 
@@ -483,11 +517,9 @@ final class VersionGroupView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let disclosure = NSButton()
-        disclosure.bezelStyle = .disclosure
-        disclosure.setButtonType(.onOff)
-        disclosure.title = ""
-        disclosure.state = .off
+        let disclosure = CardDisclosureButton()
+        disclosure.isExpanded = false
+        disclosure.contentName = String(localized: "Earlier Versions")
         disclosure.target = self
         disclosure.action = #selector(expand)
         label.font = .systemFont(ofSize: 12)
