@@ -133,7 +133,12 @@ final class CardHeaderView: NSView {
             leading.centerYAnchor.constraint(equalTo: centerYAnchor),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
-            leading.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -8),
+            // 999, not required: a card is laid out once at width 0 before
+            // the stack gives it a frame, and a required gap here made Auto
+            // Layout break (and log) a constraint for every card.
+            { let gap = leading.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -8)
+              gap.priority = NSLayoutConstraint.Priority(999)
+              return gap }(),
         ])
     }
 
@@ -498,7 +503,11 @@ final class VersionGroupView: NSView {
         addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            // 999: holds whenever the row has a width; gives way quietly in the
+            // first layout at width 0 instead of breaking a required one.
+            { let edge = row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)
+              edge.priority = NSLayoutConstraint.Priority(999)
+              return edge }(),
             row.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         setAccessibilityElement(true)

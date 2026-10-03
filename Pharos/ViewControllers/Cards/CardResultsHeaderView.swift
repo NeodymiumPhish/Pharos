@@ -47,7 +47,11 @@ final class CardResultsHeaderView: NSView {
             swatch.widthAnchor.constraint(equalToConstant: 10),
             swatch.heightAnchor.constraint(equalToConstant: 10),
             row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            // 999: holds whenever the header has a width; gives way quietly
+            // in the first layout at width 0 instead of breaking a required one.
+            { let edge = row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+              edge.priority = NSLayoutConstraint.Priority(999)
+              return edge }(),
             row.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         setAccessibilityElement(true)

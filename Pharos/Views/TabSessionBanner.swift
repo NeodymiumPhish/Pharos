@@ -48,7 +48,11 @@ final class TabSessionBanner: NSView {
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -8),
+            // 999: the banner is laid out at width 0 while hidden, where a
+            // required gap cannot hold (Auto Layout broke and logged it).
+            { let gap = label.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -8)
+              gap.priority = NSLayoutConstraint.Priority(999)
+              return gap }(),
             buttons.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             buttons.centerYAnchor.constraint(equalTo: centerYAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),

@@ -179,6 +179,77 @@ private func testBodyLeavesTheBorderVisible() {
     expect(onBorder == 0, "border: no body pixel on the bottom or right border", "\(onBorder) pixels")
 }
 
+/// Required horizontal constraints under `view` that the laid-out alignment
+/// rectangles do not satisfy — what Xcode reports as "Conflicting constraints
+/// detected … will attempt to recover by breaking". A standalone binary does
+/// not print those reports, so the test measures the result instead.
+/// Intrinsic-size constraints are skipped: their real priorities are the
+/// hugging and compression priorities.
+private func brokenRequiredConstraints(in view: NSView, root: NSView) -> [NSLayoutConstraint] {
+    func x(_ item: AnyObject?, _ a: NSLayoutConstraint.Attribute) -> CGFloat? {
+        let rect: NSRect
+        if let v = item as? NSView, let sup = v.superview { rect = sup.convert(v.alignmentRect(forFrame: v.frame), to: root) }
+        else if let g = item as? NSLayoutGuide, let owner = g.owningView { rect = owner.convert(g.frame, to: root) }
+        else { return nil }
+        switch a {
+        case .leading, .left: return rect.minX
+        case .trailing, .right: return rect.maxX
+        case .width: return rect.width
+        case .centerX: return rect.midX
+        default: return nil
+        }
+    }
+    var broken: [NSLayoutConstraint] = []
+    var views = [view]
+    while let v = views.popLast() {
+        views.append(contentsOf: v.subviews)
+        for c in v.constraints where c.isActive && c.priority == .required
+            && !String(describing: type(of: c)).contains("ContentSize") {
+            guard let v1 = x(c.firstItem, c.firstAttribute) else { continue }
+            var v2: CGFloat = 0
+            if c.secondItem != nil { guard let s = x(c.secondItem, c.secondAttribute) else { continue }; v2 = s }
+            let rhs = c.multiplier * v2 + c.constant
+            let holds: Bool = switch c.relation {
+            case .equal: abs(v1 - rhs) < 0.5
+            case .lessThanOrEqual: v1 <= rhs + 0.5
+            case .greaterThanOrEqual: v1 >= rhs - 0.5
+            @unknown default: true
+            }
+            if !holds { broken.append(c) }
+        }
+    }
+    return broken
+}
+
+/// A card's name row is laid out once at width 0, before the stack gives the
+/// card a frame. No required constraint may break there (found 2026-10-03:
+/// Xcode logged a broken constraint for every card on every reload).
+private func testNameRowAtZeroWidth() {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+    let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+    window.contentView = root
+    let header = CardHeaderView(frame: .zero)
+    root.addSubview(header)
+    header.apply(presentation(ran("SELECT 1"), edited: true, activity: .running(startedAt: Date()), versions: 2),
+                 color: .systemBlue, isCollapsed: false, meta: "just now · 3 ms")
+    root.layoutSubtreeIfNeeded()
+    let atZero = brokenRequiredConstraints(in: header, root: root)
+    expect(atZero.isEmpty, "zero width: no required constraint breaks in the name row", atZero.map(\.description).joined(separator: "\n  "))
+    header.frame = NSRect(x: 0, y: 0, width: 600, height: CardHeaderView.height)
+    root.layoutSubtreeIfNeeded()
+    expect(brokenRequiredConstraints(in: header, root: root).isEmpty, "full width: none breaks either")
+
+    // The folded-versions row and the results header have the same shape.
+    let group = VersionGroupView(frame: .zero)
+    root.addSubview(group)
+    group.show(name: "A rather long query name", versions: [("a", 1), ("b", 2)])
+    let resultsHeader = CardResultsHeaderView(frame: .zero)
+    root.addSubview(resultsHeader)
+    root.layoutSubtreeIfNeeded()
+    expect(brokenRequiredConstraints(in: group, root: root).isEmpty, "zero width: none breaks in the folded-versions row")
+    expect(brokenRequiredConstraints(in: resultsHeader, root: root).isEmpty, "zero width: none breaks in the results header")
+}
+
 private func testPreview() {
     let preview = CardPreviewView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
     let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -221,6 +292,7 @@ func runTests() {
     testClicksReachTheButtons()
     testIdentifiersAndSizes()
     testBodyLeavesTheBorderVisible()
+    testNameRowAtZeroWidth()
     testPreview()
     testVersionGroup()
     if failures == 0 { print("\nAll card view tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }

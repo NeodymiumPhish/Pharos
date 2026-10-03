@@ -694,8 +694,17 @@ class EditorPaneVC: NSViewController {
 
             cardFilterField.trailingAnchor.constraint(equalTo: trailingGroup.leadingAnchor, constant: -8),
             cardFilterField.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
-            cardFilterField.widthAnchor.constraint(equalToConstant: 160),
-            cardFilterField.leadingAnchor.constraint(greaterThanOrEqualTo: toolbarStack.trailingAnchor, constant: 8),
+            // The field is 160 pt when there is room and gives way first in a
+            // narrow pane, down to 80 pt. The gap to the leading buttons is
+            // 999, not required, so the toolbar's first layout at width 0 does
+            // not break (and log) a constraint.
+            { let width = cardFilterField.widthAnchor.constraint(equalToConstant: 160)
+              width.priority = .defaultHigh
+              return width }(),
+            cardFilterField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            { let gap = cardFilterField.leadingAnchor.constraint(greaterThanOrEqualTo: toolbarStack.trailingAnchor, constant: 8)
+              gap.priority = NSLayoutConstraint.Priority(999)
+              return gap }(),
         ])
     }
 
