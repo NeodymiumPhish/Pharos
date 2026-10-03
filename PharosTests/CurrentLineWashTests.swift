@@ -84,14 +84,28 @@ private func caretLineRect(_ view: SQLTextView) -> NSRect {
     return rect
 }
 
-/// The color the bitmap holds at a point of the view, with the appearance the
-/// view carries applied. `cacheDisplay` runs the real `drawBackground(in:)`.
-private func rendered(_ view: SQLTextView) -> NSBitmapImageRep {
+/// A rendered bitmap and the scale that maps the view's POINTS onto its
+/// pixels. `bitmapImageRepForCachingDisplay` follows the main display's backing
+/// scale even for a view in no window, so on a Retina Mac the rep is 2x. Read
+/// a point coordinate straight through and a sample meant for the caret line
+/// (points 40–56 here) lands on pixels 40–56 — points 20–28, the lines above,
+/// where there is no wash — and the suite measures the plain page against
+/// itself. That is how this suite went red on a Retina main display while the
+/// wash was painting correctly.
+private struct Rendered {
+    let rep: NSBitmapImageRep
+    /// Pixels per point.
+    let scale: CGFloat
+}
+
+/// The view, drawn with the appearance it carries applied. `cacheDisplay` runs
+/// the real `drawBackground(in:)`.
+private func rendered(_ view: SQLTextView) -> Rendered {
     let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
     // The view carries the appearance under test, so `cacheDisplay` resolves
     // every dynamic color the drawing touches against it.
     view.cacheDisplay(in: view.bounds, to: rep)
-    return rep
+    return Rendered(rep: rep, scale: CGFloat(rep.pixelsWide) / view.bounds.width)
 }
 
 /// Resolve a dynamic system color against the light appearance. Read outside
@@ -103,12 +117,15 @@ private func inLight<T>(_ body: () -> T) -> T {
     return result
 }
 
-/// Average color over a rect of the bitmap. Averaging, not one pixel, so an
-/// anti-aliased edge or a stray caret pixel cannot decide the result.
-private func averageColor(_ rep: NSBitmapImageRep, in rect: NSRect) -> NSColor {
+/// Average color over a rect of the view, given in POINTS. Averaging, not one
+/// pixel, so an anti-aliased edge or a stray caret pixel cannot decide the
+/// result.
+private func averageColor(_ rendered: Rendered, in rect: NSRect) -> NSColor {
+    let rep = rendered.rep
+    let pixels = rect.applying(CGAffineTransform(scaleX: rendered.scale, y: rendered.scale))
     var r = 0.0, g = 0.0, b = 0.0, n = 0.0
-    for y in Int(rect.minY)..<Int(rect.maxY) {
-        for x in Int(rect.minX)..<Int(rect.maxX) {
+    for y in Int(pixels.minY)..<Int(pixels.maxY) {
+        for x in Int(pixels.minX)..<Int(pixels.maxX) {
             guard x >= 0, y >= 0, x < rep.pixelsWide, y < rep.pixelsHigh,
                   let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
             r += Double(colour.redComponent)
