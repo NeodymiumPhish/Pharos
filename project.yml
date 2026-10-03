@@ -3,13 +3,23 @@ options:
   bundleIdPrefix: com.pharos
   deploymentTarget:
     macOS: "26.0"
-  xcodeVersion: "26.0"
+  # LastUpgradeCheck: Xcode 27 stops offering "Update to recommended
+  # settings" once the settings below are in place.
+  xcodeVersion: "27.0"
   createIntermediateGroups: true
 
 settings:
   base:
     SWIFT_VERSION: "5.10"
     MACOSX_DEPLOYMENT_TARGET: "26.0"
+    # Xcode 27's recommended settings.
+    DEAD_CODE_STRIPPING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+    # Recommended YES, but a sandboxed script may touch only the files it
+    # declares, and the "Build Rust Library" phase runs cargo, which reads
+    # the whole crate and ~/.cargo and writes pharos-core/target. With YES
+    # the build fails: "failed to read pharos-core/Cargo.toml".
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
 
 targets:
   Pharos:
