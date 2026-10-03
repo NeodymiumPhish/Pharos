@@ -54,7 +54,7 @@ Running a card that has results **after you edited it** keeps the old results:
 
 - The old card is **locked** with its SQL and its results.
 - The edited SQL goes into a **new version card** below it (v2, v3…), and that card runs.
-- Older versions fold into one row above the newest ("2 earlier versions of *name*"). Click the row, or its chevron button, to show them.
+- Older versions fold into one row above the newest ("2 earlier versions of *name*"). Click the row, or its chevron button, to show them. The row then stays above them as their header; click it again to fold them. A run that makes a new version folds the older ones again.
 
 A run with no edit replaces the card's results in place. A failed or cancelled run never locks the card; the next run tries again in place. **Run and Replace Results** (**Cmd+Shift+Return**) replaces the results in place even after an edit, and makes no new version.
 
