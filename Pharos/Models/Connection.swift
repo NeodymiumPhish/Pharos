@@ -193,7 +193,6 @@ struct ConnectionConfig: Codable, Identifiable {
     var username: String
     var password: String = ""
     var sslMode: SslMode = .prefer
-    var color: String?
     var defaultSchema: String?
 
     /// Ask the device owner to authenticate (Touch ID, Apple Watch or the login
@@ -237,8 +236,9 @@ struct ConnectionConfig: Codable, Identifiable {
     /// the system trust store.
     var sslRootCertPath: String?
 
-    // Custom decoder: Rust skips "password" when empty and "color" when nil,
-    // so these keys may be absent in the JSON.
+    // Custom decoder: Rust skips "password" when empty, so that key may be
+    // absent in the JSON. A record from an older build may still carry
+    // "color" (a removed, never-shown field); the keyed container ignores it.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -249,7 +249,6 @@ struct ConnectionConfig: Codable, Identifiable {
         username = try c.decode(String.self, forKey: .username)
         password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
         sslMode = try c.decodeIfPresent(SslMode.self, forKey: .sslMode) ?? .prefer
-        color = try c.decodeIfPresent(String.self, forKey: .color)
         defaultSchema = try c.decodeIfPresent(String.self, forKey: .defaultSchema)
         // `decodeIfPresent`, so a record written before the column existed —
         // and any producer that still omits the key — reads back ungated.
@@ -270,7 +269,7 @@ struct ConnectionConfig: Codable, Identifiable {
 
     init(id: String, name: String, host: String, port: UInt16, database: String,
          username: String, password: String = "", sslMode: SslMode = .prefer,
-         color: String? = nil, defaultSchema: String? = nil,
+         defaultSchema: String? = nil,
          requiresAuthentication: Bool = false, sshTunnel: SshTunnelConfig? = nil,
          readOnly: Bool = false, rememberPassword: Bool = true,
          connectOnLaunch: Bool = false, sessionTimeZone: String? = nil,
@@ -283,7 +282,6 @@ struct ConnectionConfig: Codable, Identifiable {
         self.username = username
         self.password = password
         self.sslMode = sslMode
-        self.color = color
         self.defaultSchema = defaultSchema
         self.requiresAuthentication = requiresAuthentication
         self.sshTunnel = sshTunnel
@@ -295,7 +293,7 @@ struct ConnectionConfig: Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, host, port, database, username, password, sslMode, color, defaultSchema
+        case id, name, host, port, database, username, password, sslMode, defaultSchema
         case requiresAuthentication, sshTunnel
         case readOnly, rememberPassword, connectOnLaunch, sessionTimeZone, sslRootCertPath
     }
@@ -308,7 +306,7 @@ extension ConnectionConfig: Equatable {
         a.id == b.id && a.name == b.name && a.host == b.host && a.port == b.port
             && a.database == b.database && a.username == b.username
             && a.password == b.password && a.sslMode == b.sslMode
-            && a.color == b.color && a.defaultSchema == b.defaultSchema
+            && a.defaultSchema == b.defaultSchema
             && a.requiresAuthentication == b.requiresAuthentication
             && a.sshTunnel == b.sshTunnel
             && a.readOnly == b.readOnly

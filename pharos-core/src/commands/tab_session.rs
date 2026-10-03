@@ -1633,7 +1633,6 @@ mod live_tab_session_tests {
             username: env_or("PHAROS_TEST_PG_USER", "nfinn"),
             password: std::env::var("PHAROS_TEST_PG_PASSWORD").unwrap_or_default(),
             ssl_mode: SslMode::Prefer,
-            color: None,
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,

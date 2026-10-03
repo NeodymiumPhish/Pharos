@@ -269,7 +269,9 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         )?;
     }
 
-    // Migration: Add color column if it doesn't exist
+    // Migration: Add color column if it doesn't exist. The app no longer reads
+    // or writes it (the connection colour was removed); the column stays so a
+    // store keeps one shape for older builds.
     let has_color: bool = conn
         .prepare("SELECT COUNT(*) FROM pragma_table_info('connections') WHERE name = 'color'")?
         .query_row([], |row| row.get::<_, i64>(0))
@@ -896,8 +898,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, color, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -905,7 +907,6 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             database = excluded.database,
             username = excluded.username,
             ssl_mode = excluded.ssl_mode,
-            color = excluded.color,
             default_schema = excluded.default_schema,
             requires_authentication = excluded.requires_authentication,
             ssh_tunnel = excluded.ssh_tunnel,
@@ -925,7 +926,6 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             &config.username,
             &config.ssl_mode.to_string(),
             next_order,
-            &config.color,
             &config.default_schema,
             config.requires_authentication,
             ssh_tunnel_column(config.ssh_tunnel.as_ref()),
@@ -968,7 +968,7 @@ fn parse_ssh_tunnel_column(raw: Option<String>, connection_id: &str) -> Option<S
 /// Load all connection configurations from the database (passwords loaded from keychain separately)
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, color, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
+        "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
          COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path \
          FROM connections ORDER BY sort_order, name",
     )?;
@@ -986,15 +986,14 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             username: row.get(5)?,
             password: String::new(), // Password loaded from keychain separately
             ssl_mode,
-            color: row.get(7)?,
-            default_schema: row.get(8)?,
-            requires_authentication: row.get(9)?,
-            ssh_tunnel: parse_ssh_tunnel_column(row.get::<_, Option<String>>(10)?, &id),
-            read_only: row.get(11)?,
-            remember_password: row.get(12)?,
-            connect_on_launch: row.get(13)?,
-            session_time_zone: row.get(14)?,
-            ssl_root_cert_path: row.get(15)?,
+            default_schema: row.get(7)?,
+            requires_authentication: row.get(8)?,
+            ssh_tunnel: parse_ssh_tunnel_column(row.get::<_, Option<String>>(9)?, &id),
+            read_only: row.get(10)?,
+            remember_password: row.get(11)?,
+            connect_on_launch: row.get(12)?,
+            session_time_zone: row.get(13)?,
+            ssl_root_cert_path: row.get(14)?,
         })
     })?;
 
@@ -1041,7 +1040,6 @@ mod connection_auth_flag_tests {
             username: "nfinn".to_string(),
             password: String::new(),
             ssl_mode: SslMode::Disable,
-            color: None,
             default_schema: None,
             requires_authentication,
             ssh_tunnel: None,
@@ -1059,6 +1057,47 @@ mod connection_auth_flag_tests {
             .into_iter()
             .find(|c| c.id == id)
             .unwrap_or_else(|| panic!("connection {} present", id))
+    }
+
+    /// Every stored column, set to a value that is not its default, read back.
+    /// The save and the select name their columns by position, so a column
+    /// added or removed in one list and not the other shifts every later field;
+    /// this is the test that sees it (the connection colour was removed here).
+    #[test]
+    fn every_stored_field_round_trips() {
+        let dir = temp_db_dir("conn_all_fields");
+        let conn = init_database(&dir).expect("init_database");
+        let mut c = config("all", true);
+        c.name = "All Fields".to_string();
+        c.host = "db.example.com".to_string();
+        c.port = 6543;
+        c.database = "warehouse".to_string();
+        c.username = "analyst".to_string();
+        c.ssl_mode = SslMode::VerifyFull;
+        c.default_schema = Some("zeek".to_string());
+        c.read_only = true;
+        c.remember_password = false;
+        c.connect_on_launch = true;
+        c.session_time_zone = Some("Europe/Dublin".to_string());
+        c.ssl_root_cert_path = Some("/tmp/root.pem".to_string());
+        save_connection(&conn, &c).expect("save");
+
+        let got = loaded(&conn, "all");
+        assert_eq!(got.name, "All Fields");
+        assert_eq!(got.host, "db.example.com");
+        assert_eq!(got.port, 6543);
+        assert_eq!(got.database, "warehouse");
+        assert_eq!(got.username, "analyst");
+        assert_eq!(got.ssl_mode, SslMode::VerifyFull);
+        assert_eq!(got.default_schema.as_deref(), Some("zeek"));
+        assert!(got.requires_authentication);
+        assert!(got.read_only);
+        assert!(!got.remember_password);
+        assert!(got.connect_on_launch);
+        assert_eq!(got.session_time_zone.as_deref(), Some("Europe/Dublin"));
+        assert_eq!(got.ssl_root_cert_path.as_deref(), Some("/tmp/root.pem"));
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The flag survives save → load, and BOTH values are asserted from the same
@@ -1148,7 +1187,6 @@ mod connection_ssh_tunnel_tests {
             username: "app".to_string(),
             password: String::new(),
             ssl_mode: SslMode::Disable,
-            color: None,
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel,
@@ -5253,7 +5291,6 @@ mod connection_slice_column_tests {
             username: "app".to_string(),
             password: String::new(),
             ssl_mode: SslMode::VerifyFull,
-            color: None,
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,

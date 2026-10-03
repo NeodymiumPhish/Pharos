@@ -138,8 +138,6 @@ pub struct ConnectionConfig {
     #[serde(default)]
     pub ssl_mode: SslMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_schema: Option<String>,
     /// When true the app asks the device owner to authenticate (Touch ID, Apple
     /// Watch or the login password) before it connects with this record and
@@ -317,7 +315,6 @@ mod ssh_tunnel_json_tests {
             username: "app".to_string(),
             password: String::new(),
             ssl_mode: SslMode::Prefer,
-            color: None,
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: tunnel,
@@ -389,6 +386,17 @@ mod connection_slice_json_tests {
 
     fn base() -> &'static str {
         r#"{"id":"c1","name":"c1","host":"db","port":5432,"database":"nbt","username":"app""#
+    }
+
+    /// The connection colour was removed. A document from an older build, or
+    /// from the Swift side of one, may still carry it: it must decode, and the
+    /// key must not come back out.
+    #[test]
+    fn a_legacy_colour_key_is_ignored_and_not_written() {
+        let config: ConnectionConfig = serde_json::from_str(&format!(r##"{},"color":"#ff3b30"}}"##, base()))
+            .expect("a document with the old colour key must decode");
+        let out = serde_json::to_string(&config).unwrap();
+        assert!(!out.contains("color"), "the colour key must not be written: {out}");
     }
 
     #[test]

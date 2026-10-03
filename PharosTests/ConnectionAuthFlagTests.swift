@@ -32,6 +32,14 @@ private let requiredKeys = """
 """
 
 func runTests() {
+    // 0. The connection colour is gone (a Tauri-era field, never shown). A
+    // record saved by an older build still carries "color": it must decode,
+    // and writing it back must not carry the key on.
+    if let c = decode("{\(requiredKeys),\"color\":\"#ff3b30\"}", "legacy colour key") {
+        let out = (try? encoder.encode(c)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        expect(!out.contains("color"), "a record with the old colour key saves back without it")
+    }
+
     // 1. The absent key. This is the shape EVERY existing record has: the Rust
     // struct writes the key, but a record read from a store that predates the
     // column, and any other producer, may not. Absent must mean ungated —
@@ -61,7 +69,7 @@ func runTests() {
     for flag in [true, false] {
         let original = ConnectionConfig(id: "c2", name: "round", host: "h", port: 5432,
                                         database: "d", username: "u", password: "p",
-                                        sslMode: .disable, color: nil, defaultSchema: nil,
+                                        sslMode: .disable, defaultSchema: nil,
                                         requiresAuthentication: flag)
         do {
             let data = try encoder.encode(original)

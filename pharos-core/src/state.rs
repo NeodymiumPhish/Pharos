@@ -772,7 +772,6 @@ mod settings_cache_tests {
             username: "app".to_string(),
             password: String::new(),
             ssl_mode: SslMode::Prefer,
-            color: None,
             default_schema: None,
             requires_authentication: false,
             ssh_tunnel: None,
