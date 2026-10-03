@@ -290,6 +290,9 @@ struct CardDocument: Equatable, Codable {
             cards[i].isLocked = true
             cards[i].lastFailureId = nil
             cards.insert(next, at: indexAfterLineage(cards[i].lineageId))
+            // Older versions fold above the new run, even when the user had
+            // opened them: the new results are what they look at now.
+            expandedLineages.remove(cards[i].lineageId)
             if focusedCardId == ticket.cardId { focusedCardId = next.id }
             return .split(lockedCardId: ticket.cardId, newCardId: next.id)
         }

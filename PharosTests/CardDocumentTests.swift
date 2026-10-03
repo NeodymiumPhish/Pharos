@@ -62,6 +62,7 @@ private func testEditThenRunSplitsAndLocks() {
     _ = d.rename(cardId: a, name: "Active users")
     _ = d.updateSQL(cardId: a, "SELECT * FROM users WHERE active")
     expect(d.isEdited(cardId: a, renderedSQL: "SELECT * FROM users WHERE active"), "split: the card reads as edited")
+    d.expandedLineages.insert(d.card(a)!.lineageId)
     let ticket = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT * FROM users WHERE active")!
     expect(ticket.splits, "split: an edited card with results splits")
     let effect = d.completeRun(ticket, outcome: rows(3))
@@ -78,6 +79,7 @@ private func testEditThenRunSplitsAndLocks() {
     expect(new.name == "Active users", "split: the new card keeps the name")
     expect(d.cards.map(\.id) == [a, newId], "split: the new card goes below the old one")
     expect(d.focusedCardId == newId, "split: focus moves to the new card")
+    expect(d.expandedLineages.isEmpty, "split: opened earlier versions fold again above the new run")
     expect(new.colorIndex != nil && new.colorIndex != old.colorIndex, "split: the new card gets its own colour")
 }
 

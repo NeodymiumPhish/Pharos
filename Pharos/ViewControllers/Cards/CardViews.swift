@@ -633,24 +633,26 @@ final class CardPreviewView: NSView {
 
 /// The row that stands for a query's older versions: "3 earlier versions of
 /// Active users", with a chip per version. A click on the row opens them; a
-/// click on a chip shows that version's results.
+/// click on a chip shows that version's results. While they are open, the
+/// same row stands above them as their header, and a click folds them again.
 final class VersionGroupView: NSView {
     static let height: CGFloat = 30
 
-    var onExpand: (() -> Void)?
+    /// Open the versions when folded; fold them when open.
+    var onToggle: (() -> Void)?
     var onShowVersion: ((_ cardId: String) -> Void)?
 
+    let disclosure = CardDisclosureButton()
     private let label = NSTextField(labelWithString: "")
     private let chips = NSStackView()
     private var cardIds: [String] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let disclosure = CardDisclosureButton()
         disclosure.isExpanded = false
         disclosure.contentName = String(localized: "Earlier Versions")
         disclosure.target = self
-        disclosure.action = #selector(expand)
+        disclosure.action = #selector(toggle)
         label.font = .systemFont(ofSize: 12)
         label.textColor = .secondaryLabelColor
         label.lineBreakMode = .byTruncatingTail
@@ -677,7 +679,11 @@ final class VersionGroupView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    func show(name: String, versions: [(cardId: String, version: Int)]) {
+    /// `isExpanded`: the versions show as cards below this row, so the row
+    /// is their header (chevron down, no version chips).
+    func show(name: String, versions: [(cardId: String, version: Int)], isExpanded: Bool = false) {
+        disclosure.isExpanded = isExpanded
+        chips.isHidden = isExpanded
         cardIds = versions.map(\.cardId)
         let n = versions.count
         label.stringValue = n == 1
@@ -695,17 +701,17 @@ final class VersionGroupView: NSView {
         }
     }
 
-    @objc private func expand() { onExpand?() }
+    @objc private func toggle() { onToggle?() }
 
     @objc private func chipClicked(_ sender: NSButton) {
         guard sender.tag < cardIds.count else { return }
         onShowVersion?(cardIds[sender.tag])
     }
 
-    override func mouseDown(with event: NSEvent) { onExpand?() }
+    override func mouseDown(with event: NSEvent) { onToggle?() }
 
     override func accessibilityPerformPress() -> Bool {
-        onExpand?()
+        onToggle?()
         return true
     }
 

@@ -74,7 +74,13 @@ final class CardStackVC: NSViewController {
     private var cardViews: [String: CardView] = [:]
     private var editors: [String: SQLEditorController] = [:]
     private var previews: [String: CardPreviewView] = [:]
+    /// Keyed by `groupKey`: a query can have two folded rows, one each side
+    /// of a version whose results are on screen.
     private var groupViews: [String: VersionGroupView] = [:]
+
+    private static func groupKey(_ lineage: String, _ cardIds: [String]) -> String {
+        "\(lineage)/\(cardIds.first ?? "")"
+    }
     private lazy var addButton = AddCardButton(target: self, action: #selector(addCardAtEnd))
 
     private var items: [CardStackItem] = []
@@ -179,7 +185,7 @@ final class CardStackVC: NSViewController {
             if let e = editors.removeValue(forKey: id) { tearDown(e) }
             previews[id] = nil
         }
-        let liveGroups = Set(items.compactMap { if case let .versionGroup(l, _) = $0 { return l } else { return nil } })
+        let liveGroups = Set(items.compactMap { if case let .versionGroup(l, ids, _) = $0 { return Self.groupKey(l, ids) } else { return nil } })
         for (id, v) in groupViews where !liveGroups.contains(id) {
             v.removeFromSuperview()
             groupViews[id] = nil
@@ -193,11 +199,13 @@ final class CardStackVC: NSViewController {
                 if let editor = editors[id], let view = cardViews[id], view.body !== editor.view {
                     view.setBody(editor.view)
                 }
-            case let .versionGroup(lineage, ids):
-                let v = groupViews[lineage] ?? makeGroupView(lineage)
-                groupViews[lineage] = v
+            case let .versionGroup(lineage, ids, isExpanded):
+                let key = Self.groupKey(lineage, ids)
+                let v = groupViews[key] ?? makeGroupView(lineage)
+                groupViews[key] = v
                 let name = doc.card(ids.first ?? "")?.name ?? String(localized: "Untitled query")
-                v.show(name: name, versions: ids.compactMap { id in doc.card(id).map { (id, $0.version) } })
+                v.show(name: name, versions: ids.compactMap { id in doc.card(id).map { (id, $0.version) } },
+                       isExpanded: isExpanded)
             case .addCard:
                 break
             }
@@ -296,8 +304,8 @@ final class CardStackVC: NSViewController {
                 if view.superview == nil { documentView.addSubview(view) }
                 view.frame = frame
                 view.needsLayout = true
-            case let .versionGroup(lineage, _):
-                guard let view = groupViews[lineage] else { continue }
+            case let .versionGroup(lineage, ids, _):
+                guard let view = groupViews[Self.groupKey(lineage, ids)] else { continue }
                 if view.superview == nil { documentView.addSubview(view) }
                 view.frame = frame
             case .addCard:
@@ -486,7 +494,10 @@ final class CardStackVC: NSViewController {
 
     private func makeGroupView(_ lineage: String) -> VersionGroupView {
         let view = VersionGroupView()
-        view.onExpand = { [weak self] in self?.setLineageExpanded(lineage, true) }
+        view.onToggle = { [weak self] in
+            guard let self else { return }
+            self.setLineageExpanded(lineage, !(self.document()?.expandedLineages.contains(lineage) ?? false))
+        }
         view.onShowVersion = { [weak self] id in self?.onViewResults?(id) }
         return view
     }

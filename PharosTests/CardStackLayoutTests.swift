@@ -36,23 +36,28 @@ private func testItems() {
     expect(CardStackLayout.items(plain) == [.card("x"), .card("y"), .addCard], "items: cards then the add button")
 
     let d = versioned()
-    expect(CardStackLayout.items(d) == [.versionGroup(lineageId: "a", cardIds: ["a1", "a2"]), .card("a3"), .card("b"), .addCard],
+    expect(CardStackLayout.items(d) == [.versionGroup(lineageId: "a", cardIds: ["a1", "a2"], isExpanded: false), .card("a3"), .card("b"), .addCard],
            "items: older locked versions fold into one row above the live version", "got \(CardStackLayout.items(d))")
 
     var expanded = d
     expanded.expandedLineages = ["a"]
-    expect(CardStackLayout.items(expanded) == [.card("a1"), .card("a2"), .card("a3"), .card("b"), .addCard],
-           "items: an expanded query shows every version")
+    expect(CardStackLayout.items(expanded) == [.versionGroup(lineageId: "a", cardIds: ["a1", "a2"], isExpanded: true),
+                                               .card("a1"), .card("a2"), .card("a3"), .card("b"), .addCard],
+           "items: an opened query shows its versions under an open header row, which folds them again",
+           "got \(CardStackLayout.items(expanded))")
+    var single = CardDocument(cards: [card("s1")])
+    single.expandedLineages = ["s1"]
+    expect(CardStackLayout.items(single) == [.card("s1"), .addCard], "items: no header row for a query with no earlier versions")
 
     var shown = d
     shown.displayedCardId = "a1"
-    expect(CardStackLayout.items(shown) == [.card("a1"), .versionGroup(lineageId: "a", cardIds: ["a2"]), .card("a3"), .card("b"), .addCard],
+    expect(CardStackLayout.items(shown) == [.card("a1"), .versionGroup(lineageId: "a", cardIds: ["a2"], isExpanded: false), .card("a3"), .card("b"), .addCard],
            "items: the card whose results are shown never folds", "got \(CardStackLayout.items(shown))")
 
     // The latest version folds never, even when locked (no live copy yet).
     var lockedLast = CardDocument(cards: [card("p1", lineage: "p", locked: true), card("p2", lineage: "p", version: 2, locked: true)])
     lockedLast.focusedCardId = "p2"
-    expect(CardStackLayout.items(lockedLast) == [.versionGroup(lineageId: "p", cardIds: ["p1"]), .card("p2"), .addCard],
+    expect(CardStackLayout.items(lockedLast) == [.versionGroup(lineageId: "p", cardIds: ["p1"], isExpanded: false), .card("p2"), .addCard],
            "items: the last version stays open")
 
     expect(CardStackLayout.items(d, filter: "plans") == [.card("b")], "filter: matches the SQL, no add button")

@@ -380,10 +380,20 @@ private func testVersionGroup() {
     let group = VersionGroupView(frame: NSRect(x: 0, y: 0, width: 500, height: VersionGroupView.height))
     group.show(name: "Active users", versions: [("a1", 1), ("a2", 2)])
     expect(group.accessibilityLabel() == "2 earlier versions of Active users", "group: label", "got \(String(describing: group.accessibilityLabel()))")
-    var expanded = false
-    group.onExpand = { expanded = true }
+    var toggled = 0
+    group.onToggle = { toggled += 1 }
     _ = group.accessibilityPerformPress()
-    expect(expanded, "group: VoiceOver press opens the versions")
+    expect(toggled == 1, "group: VoiceOver press opens the versions")
+    expect(!group.disclosure.isExpanded && group.disclosure.accessibilityLabel() == "Show Earlier Versions",
+           "group: folded, the chevron says Show Earlier Versions")
+
+    // Open: the same row is the versions' header, and folds them again.
+    group.show(name: "Active users", versions: [("a1", 1), ("a2", 2)], isExpanded: true)
+    expect(group.disclosure.isExpanded && group.disclosure.accessibilityLabel() == "Hide Earlier Versions",
+           "group: open, the chevron says Hide Earlier Versions")
+    expect(group.accessibilityLabel() == "2 earlier versions of Active users", "group: open, the same label")
+    group.disclosure.performClick(nil)
+    expect(toggled == 2, "group: open, the chevron folds them again")
 }
 
 func runTests() {

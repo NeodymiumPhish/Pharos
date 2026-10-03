@@ -4,8 +4,9 @@ import Foundation
 /// One row of the card stack.
 enum CardStackItem: Hashable {
     case card(String)
-    /// Older versions of one query, folded into one row.
-    case versionGroup(lineageId: String, cardIds: [String])
+    /// Older versions of one query: folded into this one row, or (when
+    /// `isExpanded`) the header row above them that folds them again.
+    case versionGroup(lineageId: String, cardIds: [String], isExpanded: Bool)
     /// The "New query card" button at the end.
     case addCard
 }
@@ -18,8 +19,9 @@ enum CardStackItem: Hashable {
 /// which would move one card's undo history and caret to another card.
 enum CardStackLayout {
     /// The rows for `document`. Older locked versions of a query fold into one
-    /// row above its latest version, unless the user opened that query, or the
-    /// card is focused or showing its results. A filter shows the matching
+    /// row above its latest version, unless the card is focused or showing its
+    /// results. When the user opened a query's versions, an open header row
+    /// stands above them instead, so they can be folded again. A filter shows the matching
     /// cards only, versions included, and no add button.
     static func items(_ document: CardDocument, filter: String? = nil) -> [CardStackItem] {
         let needle = filter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -32,25 +34,38 @@ enum CardStackLayout {
         var lastOfLineage: [String: String] = [:]
         for card in document.cards { lastOfLineage[card.lineageId] = card.id }
 
+        func isOlderVersion(_ card: QueryCard) -> Bool {
+            card.isLocked && lastOfLineage[card.lineageId] != card.id
+        }
+        var olderVersions: [String: [String]] = [:]
+        for card in document.cards where isOlderVersion(card) {
+            olderVersions[card.lineageId, default: []].append(card.id)
+        }
+
         func folds(_ card: QueryCard) -> Bool {
-            card.isLocked
-                && lastOfLineage[card.lineageId] != card.id
+            isOlderVersion(card)
                 && !document.expandedLineages.contains(card.lineageId)
                 && card.id != document.focusedCardId
                 && card.id != document.displayedCardId
         }
 
         var items: [CardStackItem] = []
+        var headed: Set<String> = []
         for card in document.cards {
+            if isOlderVersion(card), document.expandedLineages.contains(card.lineageId),
+               headed.insert(card.lineageId).inserted {
+                items.append(.versionGroup(lineageId: card.lineageId, cardIds: olderVersions[card.lineageId] ?? [],
+                                           isExpanded: true))
+            }
             guard folds(card) else {
                 items.append(.card(card.id))
                 continue
             }
             // Consecutive folded versions of one query share a row.
-            if case let .versionGroup(lineage, ids)? = items.last, lineage == card.lineageId {
-                items[items.count - 1] = .versionGroup(lineageId: lineage, cardIds: ids + [card.id])
+            if case let .versionGroup(lineage, ids, false)? = items.last, lineage == card.lineageId {
+                items[items.count - 1] = .versionGroup(lineageId: lineage, cardIds: ids + [card.id], isExpanded: false)
             } else {
-                items.append(.versionGroup(lineageId: card.lineageId, cardIds: [card.id]))
+                items.append(.versionGroup(lineageId: card.lineageId, cardIds: [card.id], isExpanded: false))
             }
         }
         items.append(.addCard)
