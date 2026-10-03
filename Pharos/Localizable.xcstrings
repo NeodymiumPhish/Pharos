@@ -4,6 +4,42 @@
     "" : {
 
     },
+    "—" : {
+
+    },
+    "“%@” has an open transaction." : {
+
+    },
+    "“%@” returned %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” returned %2$@."
+          }
+        }
+      }
+    },
+    "(%@, %@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "(%1$@, %2$@)"
+          }
+        }
+      }
+    },
+    "(%@, %@) · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "(%1$@, %2$@) · %3$@"
+          }
+        }
+      }
+    },
     "%@" : {
 
     },
@@ -16,6 +52,32 @@
           }
         }
       }
+    },
+    "%@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "%@ · %@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ — %3$@"
+          }
+        }
+      }
+    },
+    "%@ · chart" : {
+
+    },
+    "%@ · Load All" : {
+
     },
     "%@ in %@" : {
       "localizations" : {
@@ -30,28 +92,14 @@
     "%@ ms" : {
 
     },
-    "%@ will be read by the model on this Mac. Nothing leaves this Mac." : {
+    "%@ rows" : {
 
     },
-    "%@ · %@ — %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · %2$@ — %3$@"
-          }
-        }
-      }
+    "%@ rows affected" : {
+
     },
-    "%@ — %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ — %2$@"
-          }
-        }
-      }
+    "%@ will be read by the model on this Mac. Nothing leaves this Mac." : {
+
     },
     "%@, %@ of the plan" : {
       "localizations" : {
@@ -73,11 +121,37 @@
         }
       }
     },
+    "%@+ rows" : {
+
+    },
     "%lld connections" : {
 
     },
+    "%lld earlier versions of %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld earlier versions of %2$@"
+          }
+        }
+      }
+    },
     "%lld entries will be deleted, with the cached results of each. Workspaces left with no entries are removed too. This cannot be undone." : {
 
+    },
+    "%lld h" : {
+
+    },
+    "%lld h %lld min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld h %2$lld min"
+          }
+        }
+      }
     },
     "%lld helpful, %lld not helpful. Kept on this Mac, and never sent anywhere." : {
       "localizations" : {
@@ -89,13 +163,22 @@
         }
       }
     },
+    "%lld min" : {
+
+    },
     "%lld queries running" : {
 
     },
     "%lld queries running — click to manage" : {
 
     },
+    "%lld s" : {
+
+    },
     "%lld saved queries" : {
+
+    },
+    "%lld tabs have open transactions." : {
 
     },
     "%lld workspaces" : {
@@ -119,25 +202,18 @@
     "%llu rows were skipped." : {
 
     },
-    "(%@, %@)" : {
+    "^[%lld %@](inflect: true)" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "(%1$@, %2$@)"
+            "value" : "^[%1$lld %2$@](inflect: true)"
           }
         }
       }
     },
-    "(%@, %@) · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "(%1$@, %2$@) · %3$@"
-          }
-        }
-      }
+    "⌘↩ runs" : {
+
     },
     "0 draws all of them. Copy, export, find and sort always use the whole value." : {
 
@@ -154,28 +230,25 @@
     "0 keeps them for as long as the maximum lifetime allows." : {
 
     },
+    "1 earlier version of %@" : {
+
+    },
     "1 query running" : {
 
     },
+    "1 row" : {
+
+    },
+    "1 row affected" : {
+
+    },
     "1,000 only" : {
-
-    },
-    "10 / 100 / 1,000 / 10,000" : {
-
-    },
-    "10 / 50 / 100 / 500" : {
-
-    },
-    "100 / 1,000 / 10,000 / 100,000" : {
 
     },
     "2 spaces" : {
 
     },
     "3 spaces" : {
-
-    },
-    "30 days" : {
 
     },
     "4 spaces" : {
@@ -187,13 +260,22 @@
     "8 spaces" : {
 
     },
+    "10 / 50 / 100 / 500" : {
+
+    },
+    "10 / 100 / 1,000 / 10,000" : {
+
+    },
+    "30 days" : {
+
+    },
     "90 days" : {
 
     },
-    "A Partitions folder under each partitioned table." : {
+    "100 / 1,000 / 10,000 / 100,000" : {
 
     },
-    "A TSV export always uses a tab, whatever this says." : {
+    "A banner shows while a tab has a transaction open. 0 turns the timeout off; a forgotten transaction then holds its locks until you commit, roll back or close the tab." : {
 
     },
     "A ceiling on the whole history, newest kept. 0 is no ceiling. Both limits apply: whichever removes an entry first wins." : {
@@ -218,6 +300,9 @@
 
     },
     "A log scale needs every value above zero." : {
+
+    },
+    "A Partitions folder under each partitioned table." : {
 
     },
     "A password you type into a connection that does not remember it is held until Pharos quits." : {
@@ -250,6 +335,9 @@
     "A shorter region gets no chevron." : {
 
     },
+    "A small server allows few connections. Over the limit, a tab's cards run on the shared pool, without session state between cards. 0 = no limit." : {
+
+    },
     "A tab that has never been saved is only mentioned while Restore open tabs is off." : {
 
     },
@@ -259,10 +347,10 @@
     "A tab you have named is never touched." : {
 
     },
-    "A year" : {
+    "A TSV export always uses a tab, whatever this says." : {
 
     },
-    "ALTER" : {
+    "A year" : {
 
     },
     "About" : {
@@ -283,13 +371,13 @@
     "Add" : {
 
     },
+    "Add color" : {
+
+    },
     "Add Connection" : {
 
     },
     "Add Tag…" : {
-
-    },
-    "Add color" : {
 
     },
     "Advanced" : {
@@ -323,6 +411,9 @@
 
     },
     "Also guards the destructive actions in the Database Navigator." : {
+
+    },
+    "ALTER" : {
 
     },
     "Alternating row colours" : {
@@ -426,6 +517,12 @@
     "Badge the Dock icon" : {
 
     },
+    "bands" : {
+
+    },
+    "bastion.example.com or a Host from ~/.ssh/config" : {
+
+    },
     "Between probes" : {
 
     },
@@ -439,18 +536,6 @@
 
     },
     "Bring All to Front" : {
-
-    },
-    "CSV" : {
-
-    },
-    "CSV File:" : {
-
-    },
-    "CSV Format" : {
-
-    },
-    "CSV file has headers" : {
 
     },
     "Cached schema metadata cleared." : {
@@ -483,6 +568,12 @@
     "Cancelled. The password stays hidden." : {
 
     },
+    "cannot run" : {
+
+    },
+    "Card %lld" : {
+
+    },
     "Category" : {
 
     },
@@ -501,13 +592,13 @@
     "Charts" : {
 
     },
-    "Check Now" : {
-
-    },
     "Check for updates in the background" : {
 
     },
     "Check now" : {
+
+    },
+    "Check Now" : {
 
     },
     "Checked recently." : {
@@ -522,13 +613,10 @@
     "Choose" : {
 
     },
-    "Choose Connection…" : {
-
-    },
     "Choose a connection for this tab to start." : {
 
     },
-    "Choose the PEM root certificate for this connection." : {
+    "Choose Connection…" : {
 
     },
     "Choose the export options for %@.%@." : {
@@ -540,6 +628,9 @@
           }
         }
       }
+    },
+    "Choose the PEM root certificate for this connection." : {
+
     },
     "Choose the private key file for this tunnel." : {
 
@@ -556,6 +647,9 @@
     "Chosen folder" : {
 
     },
+    "Clear all query history?" : {
+
+    },
     "Clear History" : {
 
     },
@@ -565,16 +659,10 @@
     "Clear Query History…" : {
 
     },
-    "Clear all query history?" : {
+    "Clear Results" : {
 
     },
     "Cleared when you come back." : {
-
-    },
-    "Close Tab" : {
-
-    },
-    "Close Window" : {
 
     },
     "Close brackets automatically" : {
@@ -586,10 +674,22 @@
     "Close quotes automatically" : {
 
     },
+    "Close Tab" : {
+
+    },
     "Close the completion list" : {
 
     },
-    "Closed “%@” — the result tab limit was reached." : {
+    "Close Window" : {
+
+    },
+    "Closing rolls them back." : {
+
+    },
+    "Collapse All Cards" : {
+
+    },
+    "Collapse Card" : {
 
     },
     "Collect performance reports" : {
@@ -614,6 +714,9 @@
 
     },
     "Command" : {
+
+    },
+    "Commit" : {
 
     },
     "Commit every" : {
@@ -646,6 +749,9 @@
     "Connect timeout" : {
 
     },
+    "connect to %@" : {
+
+    },
     "Connect to a database to apply changes." : {
 
     },
@@ -667,13 +773,13 @@
     "Connection" : {
 
     },
-    "Connection Pool" : {
-
-    },
     "Connection error" : {
 
     },
     "Connection for the active tab" : {
+
+    },
+    "Connection Pool" : {
 
     },
     "Connections" : {
@@ -694,10 +800,10 @@
     "Control-Space always opens it, whichever this says. It never opens inside a string or a comment." : {
 
     },
-    "Copied!" : {
+    "Copy" : {
 
     },
-    "Copy" : {
+    "COPY data" : {
 
     },
     "Copy Error" : {
@@ -712,6 +818,9 @@
     "Copy Query" : {
 
     },
+    "Copy SQL" : {
+
+    },
     "Copy the server's EXPLAIN (FORMAT JSON) output." : {
 
     },
@@ -720,6 +829,16 @@
     },
     "Cost" : {
 
+    },
+    "cost %@, %@ of the plan" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "cost %1$@, %2$@ of the plan"
+          }
+        }
+      }
     },
     "Could not check: %@" : {
 
@@ -736,25 +855,28 @@
     "Create" : {
 
     },
-    "Custom delimiter" : {
+    "CSV" : {
 
     },
-    "Customize Toolbar…" : {
+    "CSV file has headers" : {
+
+    },
+    "CSV File:" : {
+
+    },
+    "CSV Format" : {
+
+    },
+    "Custom delimiter" : {
 
     },
     "Custom…" : {
 
     },
+    "Customize Toolbar…" : {
+
+    },
     "Cut" : {
-
-    },
-    "DEFAULT SERIES PALETTE" : {
-
-    },
-    "DELETE" : {
-
-    },
-    "DROP" : {
 
     },
     "Daily" : {
@@ -790,7 +912,19 @@
     "Default schema first lifts the schema the connection names to the top, and leaves the rest by name." : {
 
     },
+    "DEFAULT SERIES PALETTE" : {
+
+    },
+    "DELETE" : {
+
+    },
+    "Delete Card" : {
+
+    },
     "Delete Connection" : {
+
+    },
+    "Delete Version" : {
 
     },
     "Delimiter" : {
@@ -820,9 +954,6 @@
     "Dimmed" : {
 
     },
-    "Direct SQL" : {
-
-    },
     "Disable" : {
 
     },
@@ -836,6 +967,9 @@
 
     },
     "Disconnected" : {
+
+    },
+    "Disconnecting rolls them back." : {
 
     },
     "Dismiss" : {
@@ -874,19 +1008,43 @@
     "Drafting…" : {
 
     },
+    "Drill: %@" : {
+
+    },
+    "DROP" : {
+
+    },
     "Dusk" : {
+
+    },
+    "Each editor tab has its own connection, so a transaction can stay open from one card to the next. This is how long it may sit idle." : {
+
+    },
+    "Each editor tab that runs a query holds one connection, beside the shared pool." : {
 
     },
     "Edit" : {
 
     },
+    "Edit as New Card" : {
+
+    },
     "Edit the selected cell" : {
+
+    },
+    "edited since run" : {
+
+    },
+    "Edited since run" : {
 
     },
     "Editing" : {
 
     },
     "Editor" : {
+
+    },
+    "Editor tab connections per server" : {
 
     },
     "Empty is what Pharos has always used." : {
@@ -902,6 +1060,9 @@
 
     },
     "Engine log level" : {
+
+    },
+    "Enter the password for “%@”." : {
 
     },
     "Enter the SSH key passphrase for %@, the tunnel “%@” connects through." : {
@@ -924,7 +1085,7 @@
         }
       }
     },
-    "Enter the password for “%@”." : {
+    "entries" : {
 
     },
     "Entries to keep" : {
@@ -967,19 +1128,22 @@
     "Every preference goes back to its default, and Pharos forgets where its windows and panels were left. Your connections, saved queries, history and tags are not touched." : {
 
     },
+    "Every version of this query takes the name. Leave the field empty for no name." : {
+
+    },
     "Every workspace and every earlier query." : {
 
     },
     "Everything below is written to your own disk and read by your own Mac." : {
 
     },
-    "Executed At" : {
-
-    },
     "Execution %@" : {
 
     },
-    "Execution Time" : {
+    "Expand All Cards" : {
+
+    },
+    "Expand Card" : {
 
     },
     "Expand or collapse" : {
@@ -994,10 +1158,10 @@
     "Explain Analyze runs the statement." : {
 
     },
-    "Explain Query" : {
+    "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model." : {
 
     },
-    "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model." : {
+    "Explain Query" : {
 
     },
     "Explain query errors" : {
@@ -1024,6 +1188,9 @@
     "Export…" : {
 
     },
+    "failed" : {
+
+    },
     "Failed" : {
 
     },
@@ -1042,13 +1209,16 @@
     "Filter" : {
 
     },
+    "Filter Cards" : {
+
+    },
+    "Filter in Navigator" : {
+
+    },
     "Filter Results…" : {
 
     },
     "Filter Sidebar" : {
-
-    },
-    "Filter in Navigator" : {
 
     },
     "Filter the sidebar list" : {
@@ -1120,7 +1290,7 @@
     "From ~/.ssh/config" : {
 
     },
-    "GRANT and REVOKE" : {
+    "from the SQL before the edit" : {
 
     },
     "General" : {
@@ -1129,7 +1299,13 @@
     "Generated by Apple Intelligence" : {
 
     },
+    "Go to Card" : {
+
+    },
     "Go to Error" : {
+
+    },
+    "GRANT and REVOKE" : {
 
     },
     "Grid" : {
@@ -1145,6 +1321,9 @@
 
     },
     "Grouped adds your region's thousands separators." : {
+
+    },
+    "has results" : {
 
     },
     "Hash Cond" : {
@@ -1177,6 +1356,9 @@
     "Hide Sidebar" : {
 
     },
+    "Hide SQL" : {
+
+    },
     "Highlight the current line" : {
 
     },
@@ -1184,9 +1366,6 @@
 
     },
     "Horizontal" : {
-
-    },
-    "How NULL renders in the grid and the Inspector." : {
 
     },
     "How a NULL is set apart from a real value. Differentiate Without Color keeps the italic face whatever this says." : {
@@ -1231,6 +1410,9 @@
     "How much the database engine writes to the system log." : {
 
     },
+    "How NULL renders in the grid and the Inspector." : {
+
+    },
     "How often the open tabs are written down. Off still saves at quit, so turning it off does not lose the session." : {
 
     },
@@ -1243,13 +1425,10 @@
     "How the find field matches a cell. An expression that cannot be read turns the field red and matches nothing." : {
 
     },
-    "INSERT" : {
-
-    },
-    "ISO 8601" : {
-
-    },
     "Idle transaction timeout" : {
+
+    },
+    "Idle transaction timeout for query cards" : {
 
     },
     "Import" : {
@@ -1297,6 +1476,9 @@
     "Insert" : {
 
     },
+    "INSERT" : {
+
+    },
     "Insert Anyway" : {
 
     },
@@ -1318,6 +1500,9 @@
     "Invalid pattern" : {
 
     },
+    "ISO 8601" : {
+
+    },
     "It changes nothing about the connections you already have." : {
 
     },
@@ -1330,7 +1515,13 @@
     "Italic" : {
 
     },
+    "Its changes are not committed." : {
+
+    },
     "Jump to Selection" : {
+
+    },
+    "just now" : {
 
     },
     "Keep history for" : {
@@ -1339,19 +1530,19 @@
     "Keepalive" : {
 
     },
-    "Key File" : {
-
-    },
     "Key binding" : {
 
     },
-    "Keyboard Shortcuts" : {
+    "Key File" : {
 
     },
     "Keyboard shortcut" : {
 
     },
     "Keyboard shortcuts" : {
+
+    },
+    "Keyboard Shortcuts" : {
 
     },
     "Keyword case" : {
@@ -1387,18 +1578,8 @@
     "Limit the rows View contents fetches" : {
 
     },
-    "Line %lld" : {
+    "lines" : {
 
-    },
-    "Lines %lld–%lld" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Lines %1$lld–%2$lld"
-          }
-        }
-      }
     },
     "Links" : {
 
@@ -1410,6 +1591,15 @@
 
     },
     "Loading…" : {
+
+    },
+    "locked" : {
+
+    },
+    "Locked" : {
+
+    },
+    "Locked: this version keeps the SQL its results came from. Use Edit as New Card to change it." : {
 
     },
     "Log scale" : {
@@ -1425,6 +1615,9 @@
 
     },
     "Longer values are drawn cut short with an ellipsis." : {
+
+    },
+    "lowercase" : {
 
     },
     "Manage Connections…" : {
@@ -1451,9 +1644,6 @@
     "Maximum column width" : {
 
     },
-    "Maximum result tabs" : {
-
-    },
     "Maximum suggestions" : {
 
     },
@@ -1475,6 +1665,12 @@
     "Minimum lines to fold" : {
 
     },
+    "minutes" : {
+
+    },
+    "More" : {
+
+    },
     "More Information" : {
 
     },
@@ -1488,21 +1684,6 @@
 
     },
     "Move up a row" : {
-
-    },
-    "NULL" : {
-
-    },
-    "NULL display" : {
-
-    },
-    "NULL is written as" : {
-
-    },
-    "NULL style" : {
-
-    },
-    "NULL values" : {
 
     },
     "Name" : {
@@ -1532,6 +1713,9 @@
     "Never writes nothing around a field, so it suits only data that cannot hold any of those." : {
 
     },
+    "New Card" : {
+
+    },
     "New Connections" : {
 
     },
@@ -1542,6 +1726,12 @@
 
     },
     "New Query" : {
+
+    },
+    "New Query Card" : {
+
+    },
+    "New Query Card (⌃⌘N)" : {
 
     },
     "New Query Tab" : {
@@ -1559,7 +1749,16 @@
     "New Window" : {
 
     },
+    "Next Card" : {
+
+    },
     "Next suggestion" : {
+
+    },
+    "No assumptions given." : {
+
+    },
+    "No column is ever made wider than this, by fitting or by dragging." : {
 
     },
     "No Connection" : {
@@ -1571,6 +1770,9 @@
     "No Failures" : {
 
     },
+    "No file selected" : {
+
+    },
     "No Folder" : {
 
     },
@@ -1578,6 +1780,18 @@
 
     },
     "No Items" : {
+
+    },
+    "no pre-release was found" : {
+
+    },
+    "No queries running" : {
+
+    },
+    "No quotes" : {
+
+    },
+    "No reason given." : {
 
     },
     "No Results" : {
@@ -1590,24 +1804,6 @@
 
     },
     "No Schema" : {
-
-    },
-    "No assumptions given." : {
-
-    },
-    "No column is ever made wider than this, by fitting or by dragging." : {
-
-    },
-    "No file selected" : {
-
-    },
-    "No queries running" : {
-
-    },
-    "No quotes" : {
-
-    },
-    "No reason given." : {
 
     },
     "No shortcut matches." : {
@@ -1631,7 +1827,10 @@
     "Not helpful" : {
 
     },
-    "Nothing Succeeded Yet" : {
+    "not run" : {
+
+    },
+    "Not run" : {
 
     },
     "Nothing is uploaded." : {
@@ -1643,6 +1842,9 @@
     "Nothing rated yet. The thumbs under a generated answer are recorded here." : {
 
     },
+    "Nothing Succeeded Yet" : {
+
+    },
     "Notifications" : {
 
     },
@@ -1652,10 +1854,25 @@
     "Notify when the app is in the background" : {
 
     },
+    "NULL" : {
+
+    },
+    "NULL display" : {
+
+    },
+    "NULL is written as" : {
+
+    },
+    "NULL style" : {
+
+    },
+    "NULL values" : {
+
+    },
     "Numbers" : {
 
     },
-    "OK" : {
+    "objects" : {
 
     },
     "Objects" : {
@@ -1668,9 +1885,6 @@
 
     },
     "Off drafts reads only: a draft that is not a plain SELECT is refused instead of offered." : {
-
-    },
-    "Off lists them along a bar above the results grid instead." : {
 
     },
     "Off makes every result read-only. An edit is never written until you review and apply it, whichever this says." : {
@@ -1691,6 +1905,9 @@
     "Offer to format a pasted list" : {
 
     },
+    "OK" : {
+
+    },
     "Older entries and their cached results are removed as new queries are recorded. Forever keeps everything." : {
 
     },
@@ -1700,10 +1917,10 @@
     "On launch only" : {
 
     },
-    "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch." : {
+    "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save." : {
 
     },
-    "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save." : {
+    "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch." : {
 
     },
     "One ASCII character, used when the delimiter above is Custom. Anything else falls back to a comma." : {
@@ -1736,12 +1953,6 @@
     "Open Help" : {
 
     },
-    "Open Release Notes" : {
-
-    },
-    "Open Saved Query" : {
-
-    },
     "Open in a tab" : {
 
     },
@@ -1751,7 +1962,10 @@
     "Open in a tab and run it runs the query as soon as its tab is there." : {
 
     },
-    "Open new tabs with the result-tabs panel" : {
+    "Open Release Notes" : {
+
+    },
+    "Open Saved Query" : {
 
     },
     "Open the default schema" : {
@@ -1766,16 +1980,16 @@
     "Open the list" : {
 
     },
-    "Opened a new query tab." : {
+    "Open…" : {
 
     },
     "Opened “%@”." : {
 
     },
-    "Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle." : {
+    "Opened a new query tab." : {
 
     },
-    "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
+    "Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle." : {
 
     },
     "Opens a new query tab in Pharos bound to one of your saved connections, and connects it." : {
@@ -1787,16 +2001,16 @@
     "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens." : {
 
     },
-    "Opens one of your saved queries in Pharos, runs it, and hands back the rows as a CSV file." : {
-
-    },
     "Opens one of your saved queries in a Pharos query tab. The query is not run." : {
 
     },
-    "Opens this connection as Pharos starts, after the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
+    "Opens one of your saved queries in Pharos, runs its cards in order, and hands back the last card's rows as a CSV file." : {
 
     },
-    "Open…" : {
+    "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
+
+    },
+    "Opens this connection as Pharos starts, after the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
 
     },
     "Order objects by" : {
@@ -1815,6 +2029,9 @@
 
     },
     "Outdent the selected lines" : {
+
+    },
+    "Over the limit, the oldest results you have not looked at are let go. The card stays and shows Results removed; run it again to get them back. 0 keeps them all." : {
 
     },
     "Palette" : {
@@ -1850,22 +2067,10 @@
     "Pending changes" : {
 
     },
-    "Per editor tab." : {
-
-    },
     "Pharos %@ is available." : {
 
     },
     "Pharos %@ is the newest version." : {
-
-    },
-    "Pharos Help" : {
-
-    },
-    "Pharos Settings" : {
-
-    },
-    "Pharos Settings — %@" : {
 
     },
     "Pharos could not connect: %@" : {
@@ -1889,6 +2094,9 @@
     "Pharos has no account, no telemetry and no analytics." : {
 
     },
+    "Pharos Help" : {
+
+    },
     "Pharos is built in the open. The repository holds the source, the issue tracker and every release." : {
 
     },
@@ -1901,19 +2109,28 @@
     "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply." : {
 
     },
+    "Pharos Settings" : {
+
+    },
+    "Pharos Settings — %@" : {
+
+    },
     "Pipe  |" : {
 
     },
     "Plain" : {
 
     },
-    "Plan %@" : {
-
-    },
     "Plan JSON copied." : {
 
     },
     "Plan summary" : {
+
+    },
+    "plan, estimated" : {
+
+    },
+    "plan, measured" : {
 
     },
     "Planning %@" : {
@@ -1943,7 +2160,13 @@
     "Press Tab to take it, Esc to leave it. The paste itself is never changed on its own." : {
 
     },
+    "Previous Card" : {
+
+    },
     "Previous suggestion" : {
+
+    },
+    "primary key" : {
 
     },
     "Privacy" : {
@@ -1956,6 +2179,12 @@
 
     },
     "Probes before giving up" : {
+
+    },
+    "psql command" : {
+
+    },
+    "pt" : {
 
     },
     "Puts a restored window back where it was." : {
@@ -1985,16 +2214,19 @@
     "Query" : {
 
     },
-    "Query Detail" : {
+    "Query cards" : {
 
     },
-    "Query Library" : {
+    "Query Cards" : {
 
     },
     "Query completion" : {
 
     },
     "Query history could not be cleared." : {
+
+    },
+    "Query Library" : {
 
     },
     "Query name" : {
@@ -2012,6 +2244,9 @@
     "Quit Pharos" : {
 
     },
+    "Quitting rolls them back." : {
+
+    },
     "Quote character" : {
 
     },
@@ -2024,10 +2259,10 @@
     "Raise keywords to capitals" : {
 
     },
-    "Ratings you have given" : {
+    "ran %@" : {
 
     },
-    "Reaching the limit closes the oldest result you have not looked at and have not renamed; 0 keeps them all." : {
+    "Ratings you have given" : {
 
     },
     "Read-only connection" : {
@@ -2060,10 +2295,10 @@
     "Regular expression" : {
 
     },
-    "Release Notes" : {
+    "Release notes" : {
 
     },
-    "Release notes" : {
+    "Release Notes" : {
 
     },
     "Reloading this result replaces its rows, so the changes can no longer be matched to them." : {
@@ -2075,10 +2310,19 @@
     "Remember last choices" : {
 
     },
+    "Remember the password in the keychain" : {
+
+    },
     "Remember the SSH secret in the keychain" : {
 
     },
-    "Remember the password in the keychain" : {
+    "Rename" : {
+
+    },
+    "Rename Card" : {
+
+    },
+    "Rename…" : {
 
     },
     "Renames a tab still called “Query 1” from its SQL the first time it runs." : {
@@ -2102,10 +2346,10 @@
     "Reset" : {
 
     },
-    "Reset All Settings…" : {
+    "Reset all settings?" : {
 
     },
-    "Reset all settings?" : {
+    "Reset All Settings…" : {
 
     },
     "Reset to defaults" : {
@@ -2120,16 +2364,34 @@
     "Restore window positions" : {
 
     },
-    "Result tabs" : {
+    "Results" : {
 
     },
-    "Results" : {
+    "Results grid" : {
 
     },
     "Results History" : {
 
     },
-    "Results grid" : {
+    "Results kept per tab" : {
+
+    },
+    "Results of “%@” were removed: the result limit was reached. Run the card again to get them back." : {
+
+    },
+    "Results of %@" : {
+
+    },
+    "Results of %lld cards were removed: the result limit was reached." : {
+
+    },
+    "results removed" : {
+
+    },
+    "Results removed" : {
+
+    },
+    "Results removed — run the card again" : {
 
     },
     "Retire connections after" : {
@@ -2150,6 +2412,18 @@
     "Review Changes…" : {
 
     },
+    "Roll Back" : {
+
+    },
+    "Roll Back and Close" : {
+
+    },
+    "Roll Back and Disconnect" : {
+
+    },
+    "Roll Back and Quit" : {
+
+    },
     "Root Certificate" : {
 
     },
@@ -2165,13 +2439,10 @@
     "Row limit" : {
 
     },
+    "rows" : {
+
+    },
     "Rows" : {
-
-    },
-    "Rows Affected" : {
-
-    },
-    "Rows Returned" : {
 
     },
     "Rows are matched on the %@." : {
@@ -2189,10 +2460,34 @@
     "Run" : {
 
     },
-    "Run All Queries" : {
+    "Run (⌘↩)" : {
+
+    },
+    "Run a query to see its rows here." : {
+
+    },
+    "Run All Cards" : {
 
     },
     "Run All Queries always runs every statement, whatever this says." : {
+
+    },
+    "Run All stopped: %@ did not run." : {
+
+    },
+    "Run and Cancel" : {
+
+    },
+    "Run and Replace Results" : {
+
+    },
+    "Run and Replace Results (⇧⌘↩): replace this card's results instead of keeping them as a locked version" : {
+
+    },
+    "Run Card" : {
+
+    },
+    "Run destructive query?" : {
 
     },
     "Run Query" : {
@@ -2201,58 +2496,16 @@
     "Run Query (⌘↩)" : {
 
     },
-    "Run Saved Query" : {
-
-    },
-    "Run a query to see its rows here." : {
-
-    },
-    "Run and Cancel" : {
-
-    },
-    "Run destructive query?" : {
-
-    },
     "Run query that changes the database?" : {
 
     },
+    "Run Saved Query" : {
+
+    },
+    "running" : {
+
+    },
     "Running server aggregation…" : {
-
-    },
-    "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote." : {
-
-    },
-    "SQL" : {
-
-    },
-    "SQL INSERT" : {
-
-    },
-    "SQL WITH" : {
-
-    },
-    "SQL editor" : {
-
-    },
-    "SSH Host" : {
-
-    },
-    "SSH Passphrase Required" : {
-
-    },
-    "SSH Password Required" : {
-
-    },
-    "SSH Port" : {
-
-    },
-    "SSH Tunnel" : {
-
-    },
-    "SSH User" : {
-
-    },
-    "SSH agent" : {
 
     },
     "Safety" : {
@@ -2261,7 +2514,13 @@
     "Save" : {
 
     },
+    "Save a query with ⌘S to keep it here." : {
+
+    },
     "Save All" : {
+
+    },
+    "Save as New" : {
 
     },
     "Save Query" : {
@@ -2271,12 +2530,6 @@
 
     },
     "Save Query… (⌘S)" : {
-
-    },
-    "Save a query with ⌘S to keep it here." : {
-
-    },
-    "Save as New" : {
 
     },
     "Saved Query" : {
@@ -2297,6 +2550,9 @@
     "Schemas" : {
 
     },
+    "Scroll the cards to the one these results belong to" : {
+
+    },
     "Search" : {
 
     },
@@ -2309,7 +2565,13 @@
     "Search shortcuts" : {
 
     },
+    "seconds" : {
+
+    },
     "Security & Privacy" : {
+
+    },
+    "Select a CSV file to import into %@" : {
 
     },
     "Select All" : {
@@ -2318,7 +2580,7 @@
     "Select Connection" : {
 
     },
-    "Select a CSV file to import into %@" : {
+    "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote." : {
 
     },
     "Semicolon  ;" : {
@@ -2357,13 +2619,13 @@
     "Set NULL" : {
 
     },
+    "Settings ▸ General decides whether Pharos looks for a new version by itself." : {
+
+    },
     "Settings could not be read at launch; changes are not saved so the stored settings are kept." : {
 
     },
     "Settings panes" : {
-
-    },
-    "Settings ▸ General decides whether Pharos looks for a new version by itself." : {
 
     },
     "Settings…" : {
@@ -2396,34 +2658,13 @@
     "Show" : {
 
     },
+    "Show a banner" : {
+
+    },
     "Show All" : {
 
     },
     "Show All Columns" : {
-
-    },
-    "Show Editor" : {
-
-    },
-    "Show Inspector" : {
-
-    },
-    "Show Next Result Tab" : {
-
-    },
-    "Show Next Tab" : {
-
-    },
-    "Show Previous Result Tab" : {
-
-    },
-    "Show Previous Tab" : {
-
-    },
-    "Show Results" : {
-
-    },
-    "Show a banner" : {
 
     },
     "Show column type icons" : {
@@ -2432,25 +2673,58 @@
     "Show details when you cancel a query" : {
 
     },
+    "Show Editor" : {
+
+    },
+    "Show Inspector" : {
+
+    },
     "Show leaf partitions" : {
 
     },
     "Show line numbers" : {
 
     },
-    "Show result tabs in a vertical panel" : {
+    "Show new results automatically" : {
+
+    },
+    "Show Next Tab" : {
+
+    },
+    "Show Previous Tab" : {
+
+    },
+    "Show Results" : {
+
+    },
+    "Show Results of Next Card" : {
+
+    },
+    "Show Results of Previous Card" : {
 
     },
     "Show row numbers" : {
 
     },
-    "Show run buttons in the gutter" : {
+    "Show SQL" : {
 
     },
     "Show system schemas" : {
 
     },
     "Show the exact UPDATE statements before anything is written." : {
+
+    },
+    "show the password for %@" : {
+
+    },
+    "Show the results of version %lld" : {
+
+    },
+    "Showing Results" : {
+
+    },
+    "shown" : {
 
     },
     "Shows invisible and direction-changing characters as <U+XXXX>." : {
@@ -2474,13 +2748,10 @@
     "Slowest step: %@" : {
 
     },
-    "Source Line" : {
-
-    },
-    "Source Lines" : {
-
-    },
     "Source code" : {
+
+    },
+    "spaces" : {
 
     },
     "Spaces per level in what the Format button writes. Separate from Tab size above, which is what the Tab key types." : {
@@ -2489,10 +2760,40 @@
     "Spotlight" : {
 
     },
-    "Stable" : {
+    "SQL" : {
 
     },
-    "Stale (editor modified since execution)" : {
+    "SQL editor" : {
+
+    },
+    "SQL INSERT" : {
+
+    },
+    "SQL WITH" : {
+
+    },
+    "SSH agent" : {
+
+    },
+    "SSH Host" : {
+
+    },
+    "SSH Passphrase Required" : {
+
+    },
+    "SSH Password Required" : {
+
+    },
+    "SSH Port" : {
+
+    },
+    "SSH Tunnel" : {
+
+    },
+    "SSH User" : {
+
+    },
+    "Stable" : {
 
     },
     "Start" : {
@@ -2508,9 +2809,6 @@
 
     },
     "Statements to apply" : {
-
-    },
-    "Status" : {
 
     },
     "Stop and undo everything" : {
@@ -2558,12 +2856,6 @@
     "System trust store" : {
 
     },
-    "TRUNCATE" : {
-
-    },
-    "TSV" : {
-
-    },
     "Tab" : {
 
     },
@@ -2606,18 +2898,6 @@
     "That was too much for one request. Choose a schema first, or describe a smaller query." : {
 
     },
-    "The Copy menu still offers every format." : {
-
-    },
-    "The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded." : {
-
-    },
-    "The TimeZone every session asks for, which is what a timestamp with time zone is shown in." : {
-
-    },
-    "The band beside each statement, and the play glyph it shows on hover. ⌘Return still runs the statement at the cursor." : {
-
-    },
     "The cancellation is recorded on its tab either way." : {
 
     },
@@ -2628,6 +2908,9 @@
 
     },
     "The chevrons that collapse a CTE, a subquery, a CASE or a BEGIN block. Turning this off opens everything that is folded." : {
+
+    },
+    "The Copy menu still offers every format." : {
 
     },
     "The default colour for each series. A chart can override it." : {
@@ -2696,6 +2979,9 @@
     "The model would not answer that. Try describing the query another way." : {
 
     },
+    "The most query cards in one editor tab that hold their results in memory." : {
+
+    },
     "The most rows the list ever holds. A large schema can match thousands; building them all is work nobody sees." : {
 
     },
@@ -2729,6 +3015,12 @@
     "The ratings could not be read." : {
 
     },
+    "the release has no version" : {
+
+    },
+    "The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded." : {
+
+    },
     "The rows the Navigator's “View Contents (Limit…)” submenu offers on a table, a view or a partition." : {
 
     },
@@ -2748,6 +3040,12 @@
 
     },
     "The selection, else the statement" : {
+
+    },
+    "The server rolls it back after %@ more idle." : {
+
+    },
+    "The server's idle limit has passed; it has probably rolled the transaction back." : {
 
     },
     "The server's plan could not be read as JSON." : {
@@ -2771,7 +3069,22 @@
     "The system's default notification sound. Notification Centre can silence Pharos entirely." : {
 
     },
+    "The tab's connection was reset: %@. Its settings, temporary tables and any open transaction are gone." : {
+
+    },
+    "The TimeZone every session asks for, which is what a timestamp with time zone is shown in." : {
+
+    },
+    "The transaction failed. Roll it back to run more cards." : {
+
+    },
+    "The transaction had failed, so it was rolled back." : {
+
+    },
     "The user guide, in your browser." : {
+
+    },
+    "the version could not be read" : {
 
     },
     "The wash always stays lighter than the find match you are looking at, so the two can be told apart." : {
@@ -2781,6 +3094,9 @@
 
     },
     "The whole editor" : {
+
+    },
+    "Their changes are not committed: %@." : {
 
     },
     "Theme" : {
@@ -2798,10 +3114,16 @@
     "These changes can no longer be matched to rows. Discard them and try again." : {
 
     },
-    "This Mac cannot ask you to authenticate." : {
+    "They are saved when you commit the tab's transaction." : {
 
     },
-    "This Mac does not support Apple Intelligence." : {
+    "This card is already running." : {
+
+    },
+    "This card ran on a shared connection." : {
+
+    },
+    "this connection" : {
 
     },
     "This connection is read-only." : {
@@ -2816,6 +3138,12 @@
     "This drops it when the Mac goes to sleep instead, so you are asked again on waking. Passwords kept in your keychain are not affected." : {
 
     },
+    "This Mac cannot ask you to authenticate." : {
+
+    },
+    "This Mac does not support Apple Intelligence." : {
+
+    },
     "This query has no SQL yet." : {
 
     },
@@ -2825,22 +3153,34 @@
     "This saved query has no connection, so Pharos cannot run it." : {
 
     },
+    "This server cannot hold a connection for each tab. Cards run on shared connections: SET, temporary tables and transactions do not carry from card to card." : {
+
+    },
     "Throw the pending changes away and reload the rows." : {
 
     },
     "Time" : {
 
     },
-    "Time Zone" : {
+    "Time zone" : {
 
     },
-    "Time zone" : {
+    "Time Zone" : {
 
     },
     "Title" : {
 
     },
-    "Toggling the panel in a tab also sets this. Only used while Appearance ▸ Show result tabs in a vertical panel is on." : {
+    "To keep them, cancel and use Commit in the tab." : {
+
+    },
+    "Transaction open for %@." : {
+
+    },
+    "TRUNCATE" : {
+
+    },
+    "TSV" : {
 
     },
     "Turned off in Pharos settings." : {
@@ -2858,28 +3198,16 @@
     "Typing straight before existing text never pairs." : {
 
     },
-    "UPDATE" : {
-
-    },
-    "UPPERCASE" : {
-
-    },
-    "UTF-16 LE" : {
-
-    },
-    "UTF-8" : {
-
-    },
-    "UTF-8 is what Pharos has always written." : {
-
-    },
-    "UTF-8 with BOM" : {
-
-    },
-    "UTF-8 with BOM is what Excel on Windows expects. Latin-1 cannot carry every character: an export says how many it replaced with a question mark. An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever this says." : {
-
-    },
     "Undo" : {
+
+    },
+    "unique index" : {
+
+    },
+    "Untitled query" : {
+
+    },
+    "UPDATE" : {
 
     },
     "Update checks are turned off." : {
@@ -2888,13 +3216,16 @@
     "Updates" : {
 
     },
+    "UPPERCASE" : {
+
+    },
+    "Use a monospaced font" : {
+
+    },
     "Use Apple Intelligence features" : {
 
     },
     "Use Selection for Find" : {
-
-    },
-    "Use a monospaced font" : {
 
     },
     "Use the Settings default" : {
@@ -2910,6 +3241,21 @@
 
     },
     "Uses Settings ▸ Query ▸ Default row limit." : {
+
+    },
+    "UTF-8" : {
+
+    },
+    "UTF-8 is what Pharos has always written." : {
+
+    },
+    "UTF-8 with BOM" : {
+
+    },
+    "UTF-8 with BOM is what Excel on Windows expects. Latin-1 cannot carry every character: an export says how many it replaced with a question mark. An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever this says." : {
+
+    },
+    "UTF-16 LE" : {
 
     },
     "Value" : {
@@ -2930,16 +3276,31 @@
     "Version %@" : {
 
     },
+    "version %lld" : {
+
+    },
     "View" : {
 
     },
     "View contents" : {
 
     },
+    "View Error" : {
+
+    },
     "View on GitHub" : {
 
     },
+    "View Results" : {
+
+    },
     "Vivid" : {
+
+    },
+    "waiting" : {
+
+    },
+    "Waiting" : {
 
     },
     "Warn before closing unsaved tabs" : {
@@ -2970,6 +3331,9 @@
 
     },
     "What this app calls itself to the server — the name in pg_stat_activity, and in the server log." : {
+
+    },
+    "When a card's run ends, its results take over the results area. Off keeps the results you are looking at." : {
 
     },
     "When a query fails" : {
@@ -3027,99 +3391,6 @@
 
     },
     "Zoom" : {
-
-    },
-    "^[%lld %@](inflect: true)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "^[%1$lld %2$@](inflect: true)"
-          }
-        }
-      }
-    },
-    "bands" : {
-
-    },
-    "bastion.example.com or a Host from ~/.ssh/config" : {
-
-    },
-    "connect to %@" : {
-
-    },
-    "cost %@, %@ of the plan" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "cost %1$@, %2$@ of the plan"
-          }
-        }
-      }
-    },
-    "entries" : {
-
-    },
-    "lines" : {
-
-    },
-    "lowercase" : {
-
-    },
-    "minutes" : {
-
-    },
-    "no pre-release was found" : {
-
-    },
-    "objects" : {
-
-    },
-    "primary key" : {
-
-    },
-    "pt" : {
-
-    },
-    "rows" : {
-
-    },
-    "seconds" : {
-
-    },
-    "show the password for %@" : {
-
-    },
-    "spaces" : {
-
-    },
-    "the release has no version" : {
-
-    },
-    "the version could not be read" : {
-
-    },
-    "this connection" : {
-
-    },
-    "unique index" : {
-
-    },
-    "—" : {
-
-    },
-    "“%@” returned %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "“%1$@” returned %2$@."
-          }
-        }
-      }
-    },
-    "⌘↩ runs" : {
 
     }
   },
