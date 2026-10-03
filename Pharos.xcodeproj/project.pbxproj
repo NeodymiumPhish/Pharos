@@ -195,6 +195,7 @@
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
 		8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7353499DAF1364777E974B1F /* TagConditionRowView.swift */; };
+		85EC5B8FCC50F2491D742AA5 /* SQLSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 926D010C1B262892B7B738FE /* SQLSummary.swift */; };
 		8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */; };
 		894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */; };
 		89EF93E93C0C817C39749B9C /* SettingsTilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */; };
@@ -558,6 +559,7 @@
 		91626816DAC491326EC79F36 /* TabSessionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSessionBanner.swift; sourceTree = "<group>"; };
 		923392DA36283E6B6414BCE3 /* SettingsSectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionHeader.swift; sourceTree = "<group>"; };
 		924134701A5DCF2C9E7981E0 /* ErrorExplanationPrompt+Cache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ErrorExplanationPrompt+Cache.swift"; sourceTree = "<group>"; };
+		926D010C1B262892B7B738FE /* SQLSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSummary.swift; sourceTree = "<group>"; };
 		92E74684F85A0F7FE8A63987 /* CompletionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletionResolver.swift; sourceTree = "<group>"; };
 		935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayEscape.swift; sourceTree = "<group>"; };
 		9389401FF1FEE1ACFA9432A0 /* SettingsSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSplitViewController.swift; sourceTree = "<group>"; };
@@ -1077,6 +1079,7 @@
 				7BE7B34EE17E4997F6314065 /* SettingsEffects.swift */,
 				D2240C5A2BF2FB990EA1C5BF /* SidebarNavigatorPrefs.swift */,
 				2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */,
+				926D010C1B262892B7B738FE /* SQLSummary.swift */,
 				144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */,
 				3D5DB63650337BBCAD1A3FCF /* SshTunnelForm.swift */,
 				5AE8AC43A18243F43B85F32A /* TabSessionBannerModel.swift */,
@@ -1621,6 +1624,7 @@
 				AA85FF8401AA3168DE75F249 /* SQLOrderStability.swift in Sources */,
 				E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */,
 				4B0B8CFAFFFE974941B76BC8 /* SQLStatementScope.swift in Sources */,
+				85EC5B8FCC50F2491D742AA5 /* SQLSummary.swift in Sources */,
 				24701D6C8632E19AF009D196 /* SQLSyntaxHighlighter.swift in Sources */,
 				F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */,
 				894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */,

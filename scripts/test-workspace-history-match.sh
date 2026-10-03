@@ -11,6 +11,7 @@ echo "runTests()" > "$TMPMAIN"
 swiftc -o /tmp/workspace-history-match-tests \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/HistoryRowText.swift \
+  Pharos/Core/SQLSummary.swift \
   Pharos/Views/WorkspacePreviewRowCell.swift \
   Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Models/Workspace.swift \

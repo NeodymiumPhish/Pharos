@@ -101,8 +101,7 @@ class WorkspacePreviewRowCell: NSTableCellView {
         } else if let tableNames = meta.tableNames, !tableNames.isEmpty {
             primaryLabel.stringValue = DisplayEscape.escaped(tableNames)
         } else {
-            let firstLine = meta.sql.components(separatedBy: .newlines).first ?? meta.sql
-            primaryLabel.stringValue = DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces))
+            primaryLabel.stringValue = DisplayEscape.escaped(SQLSummary.oneLine(meta.sql))
         }
 
         var parts: [String] = []

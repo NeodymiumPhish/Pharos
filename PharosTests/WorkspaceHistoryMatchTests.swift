@@ -247,7 +247,10 @@ private func testLabelsPreferCustomLabelThenTableNamesThenSQL() {
     expectEqual(cell.primaryLabel.stringValue, "orders", "table names come next")
 
     cell.configure(meta: makeMeta(sql: "  SELECT 1\nFROM t"), dotColor: .systemBlue, isMatch: false)
-    expectEqual(cell.primaryLabel.stringValue, "SELECT 1", "first SQL line is the fallback")
+    expectEqual(cell.primaryLabel.stringValue, "SELECT 1 FROM t", "the SQL on one line is the fallback")
+    cell.configure(meta: makeMeta(sql: "SELECT\n  id,\n  total\nFROM orders"), dotColor: .systemBlue, isMatch: false)
+    expectEqual(cell.primaryLabel.stringValue, "SELECT id, total FROM orders",
+                "a statement that starts with a lone SELECT line shows its columns and table")
 }
 
 /// SQLite hands back `""` rather than NULL for a label the user cleared, so an
@@ -264,7 +267,7 @@ private func testEmptyStringsFallThroughLikeNil() {
         meta: makeMeta(sql: "  SELECT 1\nFROM t", customLabel: "", tableNames: ""),
         dotColor: .systemBlue, isMatch: false
     )
-    expectEqual(cell.primaryLabel.stringValue, "SELECT 1", "both empty falls through to the first SQL line")
+    expectEqual(cell.primaryLabel.stringValue, "SELECT 1 FROM t", "both empty falls through to the SQL on one line")
 }
 
 /// Every label string the cell holds, so an assertion can ask what the row

@@ -83,7 +83,7 @@ enum HistoryRowText {
     ///   - errorMessage: what the server said, on a row that failed.
     ///   - columnCount: nil on a failed row — it produced no columns.
     ///   - tableNames: escaped, or empty.
-    ///   - firstSQLLine: escaped first line of the SQL, the fallback subject.
+    ///   - sqlSummary: escaped SQL on one line (`SQLSummary`), the fallback subject.
     ///   - flatSQL: escaped, one-line, already clipped, for the tooltip.
     ///   - rowCount: nil on a failed row.
     ///   - connectionName: escaped.
@@ -93,7 +93,7 @@ enum HistoryRowText {
         errorMessage: String?,
         columnCount: Int64?,
         tableNames: String,
-        firstSQLLine: String,
+        sqlSummary: String,
         flatSQL: String,
         rowCount: Int64?,
         connectionName: String,
@@ -114,7 +114,7 @@ enum HistoryRowText {
         } else if !colText.isEmpty {
             subject = colText
         } else {
-            subject = firstSQLLine
+            subject = sqlSummary
         }
 
         guard let label = statusLabel(status) else {

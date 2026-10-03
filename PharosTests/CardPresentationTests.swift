@@ -24,20 +24,7 @@ private func make(_ card: QueryCard, position: Int = 1, versions: Int = 1, edite
                           activity: activity, resultInMemory: inMemory, isDisplayed: displayed)
 }
 
-private func testSQLSummary() {
-    let sql = "SELECT\n  timestamp,\n\tuid,\n  orig_h\nFROM conn\nWHERE ts > now() - interval '1 day'"
-    expect(CardPresentation.sqlSummary(sql) == "SELECT timestamp, uid, orig_h FROM conn WHERE ts > now() - interval '1 day'",
-           "summary: the whole statement on one line, not only its first line", "got \(CardPresentation.sqlSummary(sql))")
-    expect(CardPresentation.sqlSummary("\n\n   SELECT   1  \n") == "SELECT 1", "summary: leading blank lines and runs of spaces go")
-    expect(CardPresentation.sqlSummary("") == "", "summary: an empty card shows nothing")
-    let long = "SELECT " + Array(repeating: "column_name", count: 40).joined(separator: ", ")
-    let cut = CardPresentation.sqlSummary(long)
-    expect(cut.count == CardPresentation.sqlSummaryLimit + 1 && cut.hasSuffix("…") && long.hasPrefix(String(cut.dropLast())),
-           "summary: a long statement stops at the limit with an ellipsis", "got \(cut.count) characters")
-}
-
 func runTests() {
-    testSQLSummary()
     let draft = make(QueryCard(sql: "SELECT 1"))
     expect(draft.state == .draft && draft.badge == .init(text: "Not run", tone: .neutral), "draft: Not run badge")
     expect(draft.resultsButton == nil && draft.canRun && !draft.showsRunAndReplace, "draft: Run only")

@@ -888,13 +888,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
         // The SQL is flattened to one line and clipped: a tooltip holding a
         // 200-line query is a wall, not a hint.
-        let flatSql = entry.sql
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        let clippedSql = flatSql.count > 200 ? String(flatSql.prefix(200)) + "\u{2026}" : flatSql
-        let firstLine = entry.sql.components(separatedBy: .newlines).first ?? entry.sql
+        let summary = DisplayEscape.escaped(SQLSummary.oneLine(entry.sql))
         let relativeTime = formatDate(entry.executedAt)
 
         // Every string is escaped HERE: `HistoryRowText` is pure Foundation
@@ -904,8 +898,8 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             errorMessage: entry.errorMessage.map(DisplayEscape.escaped),
             columnCount: entry.columnCount,
             tableNames: DisplayEscape.escaped(entry.tableNames ?? ""),
-            firstSQLLine: DisplayEscape.escaped(firstLine.trimmingCharacters(in: .whitespaces)),
-            flatSQL: DisplayEscape.escaped(clippedSql),
+            sqlSummary: summary,
+            flatSQL: summary,
             rowCount: entry.rowCount,
             connectionName: DisplayEscape.escaped(entry.connectionName),
             relativeTime: relativeTime

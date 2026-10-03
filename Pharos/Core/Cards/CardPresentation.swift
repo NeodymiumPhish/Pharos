@@ -51,25 +51,6 @@ struct CardPresentation: Equatable {
     let showsCancel: Bool
     let accessibilityLabel: String
 
-    /// Characters a folded card's summary keeps; the name row shows what fits.
-    static let sqlSummaryLimit = 200
-
-    /// A folded card's SQL on one line: every run of whitespace, line breaks
-    /// included, becomes one space, so a statement that starts with a lone
-    /// `SELECT` line still shows its columns and tables.
-    static func sqlSummary(_ sql: String) -> String {
-        let words = sql.split(whereSeparator: { $0.isWhitespace })
-        var summary = ""
-        for word in words {
-            if !summary.isEmpty { summary += " " }
-            summary += word
-            if summary.count > sqlSummaryLimit {
-                return String(summary.prefix(sqlSummaryLimit)) + "…"
-            }
-        }
-        return summary
-    }
-
     static func make(card: QueryCard, position: Int, lineageCount: Int, isEdited: Bool,
                      activity: CardActivity, resultInMemory: Bool, isDisplayed: Bool) -> CardPresentation {
         let state: State
