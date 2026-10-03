@@ -540,7 +540,7 @@ extension MainToolbarController: NSToolbarDelegate {
         case .pharosNewTab:
             return imageItem(itemIdentifier, label: String(localized: "New Tab"), palette: String(localized: "New Tab"),
                              symbol: "plus", tip: String(localized: "New Tab (⌘T)"),
-                             action: #selector(ContentViewController.menuNewTab(_:)))
+                             action: #selector(NSResponder.newWindowForTab(_:)))
 
         case .pharosSaveQuery:
             return imageItem(itemIdentifier, label: String(localized: "Save"), palette: String(localized: "Save Query"),

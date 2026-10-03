@@ -81,3 +81,13 @@ struct QueryTab: Identifiable {
         self.document = document
     }
 }
+
+extension QueryTab {
+    /// An untouched blank tab: no SQL, no file, no saved query or workspace,
+    /// nothing running, nothing unsaved. An item the user opens replaces it
+    /// instead of opening beside it, the way a browser fills an empty tab.
+    var isPristine: Bool {
+        !isDirty && runningQueries.isEmpty && sourceURL == nil && savedQueryId == nil && workspaceId == nil
+            && document.cards.allSatisfy { $0.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.lastRun == nil }
+    }
+}

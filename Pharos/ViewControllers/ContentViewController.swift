@@ -124,7 +124,6 @@ class ContentViewController: NSViewController {
 
     // Toolbar UI elements (owned here, configured in setupActionBar)
     let statusLabel = NSTextField(labelWithString: "")
-    let pinSourceLabel = NSTextField(labelWithString: "")
     let resultBannerLabel = NSTextField(labelWithString: "")
     let resetSortButton = NSButton()
     let resetFiltersButton = NSButton()
@@ -135,7 +134,6 @@ class ContentViewController: NSViewController {
     /// a status strip with the two area toggles.
     private let resultToolsStack = NSStackView()
     let tagButton = NSButton()
-    let pinButton = NSButton()
     let findToolbarButton = NSButton()
     let copyButton = NSButton()
     let exportButton = NSButton()
@@ -420,11 +418,6 @@ class ContentViewController: NSViewController {
             self.cancelQuery(id: id)
         }
 
-        // Wire up pin toggle
-        resultsVC.onPinToggle = { [weak self] pinned in
-            self?.handlePinToggle(pinned)
-        }
-
         // Inline cell editing: the grid owns the pending set, this owns the
         // bar that reports it and the sheet that applies it.
         resultsVC.onPendingEditsChanged = { [weak self] in
@@ -517,14 +510,9 @@ class ContentViewController: NSViewController {
         // run-loop hop: they run on the mutating caller's stack, after the
         // property is set, so `session.selectTab(...)` returns with the
         // grid and the editor already switched. See `AppStateManager.tabsSettled`.
-        // Release the per-editor-tab result state of tabs that no longer exist.
-        // This reacts to the tab actually disappearing from `session.tabs`
-        // rather than hooking each close action, because the close paths are
-        // several and not all of them come through this controller:
-        // `closeOtherTabs` and `closeTabsToRight` are called straight from
-        // `PaneTabBar`, and `AppStateManager.closeTab` replaces the last tab
-        // with a fresh one. One reactive sweep covers all of them, and any
-        // future one.
+        // Release the per-editor-tab result state of a tab that no longer
+        // exists: an opened item installed over an untouched blank tab
+        // (`WindowSession.install`) replaces it.
         //
         // Deduped on the id set so the sweep does not run on every keystroke
         // (tabs republish on each SQL edit). The sweep reads the live
@@ -556,15 +544,6 @@ class ContentViewController: NSViewController {
             .sink { [weak self] _ in
                 guard let self else { return }
                 self.donateWorkspaceActivity(for: self.session.activeTab)
-            }
-            .store(in: &cancellables)
-
-        // Observe pin state changes (e.g. auto-unpin on tab close)
-        session.pinnedTabIdSettled
-            .sink { [weak self] pinnedId in
-                if pinnedId == nil {
-                    self?.resultsVC.setPinState(pinned: false, tabName: nil)
-                }
             }
             .store(in: &cancellables)
 
@@ -735,12 +714,7 @@ class ContentViewController: NSViewController {
             // left to restore into anyway. The guard also covers any mutator
             // that orders the two writes the other way round.
             if session.tabs.contains(where: { $0.id == previousTabId }) {
-                // While pinned, the grid shows the PINNED result, not the tab
-                // we are leaving. Column ids are positional (`col_N`), so its
-                // widths, sort column and filters would be stored on this
-                // tab's result and restored onto the wrong columns later.
-                if session.pinnedResult == nil,
-                   let activeRTId = displayedCardId,
+                if let activeRTId = displayedCardId,
                    let rtIdx = cardResults.firstIndex(where: { $0.id == activeRTId }) {
                     // Save grid state (and any live chart config) to the active
                     // result tab. `cardResults` still views the outgoing tab
@@ -805,23 +779,13 @@ class ContentViewController: NSViewController {
         // `cardResults` / `displayedCardId` already view this tab's store
         // entry: `lastActiveTabId` is `tab.id` by the time this runs.
 
-        // Pin override: while pinned, the grid stays on the pinned result no
-        // matter which editor tab is active. The result-tab surface still
-        // reflects the destination tab — clicking a result tab in it explicitly
-        // unpins.
-        if let pinnedResult = session.pinnedResult {
-            resultsVC.showResult(pinnedResult)
-            resultsVC.setPinState(pinned: true, tabName: session.pinnedTabName)
-        } else {
-            restoreGrid(for: tab)
-        }
+        restoreGrid(for: tab)
         refreshCardResultsUI()
 
         // Update the result banner ("schema · executed-at"). When a CardResult
         // is active, its own timestamp / history fields drive the banner.
         // Otherwise the legacy inline-result path falls back to the editor
-        // tab's stored execution time and schema. Suppressed while pinned
-        // (the grid is showing the pinned tab's data, not the active tab's).
+        // tab's stored execution time and schema.
         applyResultBanner(from: displayedResult)
 
         // Restore grid vs. chart view mode for the newly-active result tab.
@@ -833,7 +797,7 @@ class ContentViewController: NSViewController {
     /// history replays display the original execution time — so the user can
     /// always see at a glance how recent the visible result is.
     private func applyResultBanner(from resultTab: CardResult?) {
-        guard session.pinnedResult == nil, let resultTab else {
+        guard let resultTab else {
             resultsVC.hideResultBanner()
             return
         }
@@ -1021,7 +985,7 @@ class ContentViewController: NSViewController {
         actionBar.drawsBottomSeparator = true
         actionBar.contentViewController = self
 
-        // -- Status Labels (right-justified, order: pinned | history | row/time) --
+        // -- Status Labels (right-justified, order: history | row/time) --
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 11)
@@ -1029,12 +993,6 @@ class ContentViewController: NSViewController {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.setContentHuggingPriority(.required, for: .horizontal)
         statusLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
-
-        pinSourceLabel.translatesAutoresizingMaskIntoConstraints = false
-        pinSourceLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        pinSourceLabel.textColor = .systemOrange
-        pinSourceLabel.isHidden = true
-        pinSourceLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         // The banner ("schema · executed-at") sits next to the status label
         // for every result, so secondaryLabelColor keeps it as quiet metadata
@@ -1047,7 +1005,7 @@ class ContentViewController: NSViewController {
         resultBannerLabel.setContentHuggingPriority(.required, for: .horizontal)
         resultBannerLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
 
-        let labelStack = NSStackView(views: [pinSourceLabel, resultBannerLabel, statusLabel])
+        let labelStack = NSStackView(views: [resultBannerLabel, statusLabel])
         labelStack.orientation = .horizontal
         labelStack.spacing = 8
         labelStack.setHuggingPriority(.required, for: .horizontal)
@@ -1117,8 +1075,6 @@ class ContentViewController: NSViewController {
 
         // -- Action Buttons (left side) --
 
-        configureToolbarButton(pinButton, symbol: "pin",
-                               target: resultsVC, action: #selector(ResultsGridVC.togglePin), tooltip: "Pin Results")
         configureToolbarButtonAppearance(exportButton, symbol: "square.and.arrow.up", tooltip: "Export")
         configureToolbarButtonAppearance(copyButton, symbol: "doc.on.doc", tooltip: "Copy")
         configureToolbarButton(findToolbarButton, symbol: "magnifyingglass",
@@ -1189,7 +1145,7 @@ class ContentViewController: NSViewController {
         chartFilterButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let actionStack = resultToolsStack
-        for view in [chartToggle, chartFilterButton, drillChip, pinButton, exportButton, copyButton,
+        for view in [chartToggle, chartFilterButton, drillChip, exportButton, copyButton,
                      findToolbarButton, tagButton, resetSortButton, resetFiltersButton, clearSelectionButton] {
             actionStack.addArrangedSubview(view)
         }
@@ -2273,26 +2229,10 @@ class ContentViewController: NSViewController {
         }
     }
 
-    /// Release a pin because the grid is about to show something else.
-    ///
-    /// Every path that replaces what the grid displays must call this, or the
-    /// badge goes on claiming a pinned result from another tab while the grid
-    /// shows the new one — and `applyResultBanner` stays suppressed, so the new
-    /// result loses its "schema · executed-at" line too.
-    private func unpinBecauseGridIsChanging() {
-        guard session.pinnedResult != nil else { return }
-        session.unpinResults()
-        resultsVC.setPinState(pinned: false, tabName: nil)
-    }
-
     /// Show one card's results in the results area (View Results, a new run,
     /// a reopen). The card stays where it is in the stack; only the results
     /// area changes.
     func displayResults(ofCard cardId: String, captureOutgoing: Bool = true) {
-        // Asking for a card's results is an explicit request to view them —
-        // unpin so the grid follows.
-        unpinBecauseGridIsChanging()
-
         // Tear down any active drill BEFORE capturing grid state: otherwise the
         // transient drill filter leaks into the outgoing result's saved
         // gridState and the manual filter it displaced is lost.
@@ -2307,8 +2247,7 @@ class ContentViewController: NSViewController {
     /// Save the grid state, pending edits and chart setup of the result on
     /// screen into its card's result, before the grid shows something else.
     private func captureOutgoingResultState() {
-        guard session.pinnedResult == nil,
-              let outgoingId = displayedCardId,
+        guard let outgoingId = displayedCardId,
               let idx = cardResults.firstIndex(where: { $0.id == outgoingId }),
               cardResults[idx].hasPayload else { return }
         cardResults[idx].gridState = resultsVC.captureGridState()
@@ -2362,7 +2301,7 @@ class ContentViewController: NSViewController {
         let candidates = held.enumerated().map { order, r in
             CardResultEviction.Candidate(
                 cardId: r.id, order: order, hasBeenViewed: r.hasBeenViewed || r.id == newId,
-                isDisplayed: r.id == displayed, isPinned: session.pinnedTabId == tabId && r.id == displayed)
+                isDisplayed: r.id == displayed)
         }
         let evicted = CardResultEviction.toEvict(candidates, limit: resultLimit)
         guard !evicted.isEmpty else { return }
@@ -2474,8 +2413,7 @@ class ContentViewController: NSViewController {
 
     /// Whose results are on screen, in the header above the grid.
     private func updateResultsHeader() {
-        guard session.pinnedResult == nil,
-              let tab = session.activeTab, lastActiveTabId == tab.id,
+        guard let tab = session.activeTab, lastActiveTabId == tab.id,
               let cardId = tab.document.displayedCardId,
               let card = tab.document.card(cardId) else {
             cardResultsHeader.isHidden = true
@@ -2535,9 +2473,6 @@ class ContentViewController: NSViewController {
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else { return }
 
-        // Don't paginate a pinned cross-tab snapshot.
-        guard session.pinnedResult == nil else { return }
-
         // The displayed result tab, its SQL, where to write the merged result
         // back, and whether it is still on screen at completion time.
         guard let activeRTId = displayedCardId,
@@ -2557,7 +2492,7 @@ class ContentViewController: NSViewController {
         }
         let isStillDisplaying: () -> Bool = { [weak self] in
             guard let self else { return false }
-            return self.session.pinnedResult == nil && self.displayedCardId == activeRTId
+            return self.displayedCardId == activeRTId
                 && self.displayedResult?.runId == runId
         }
 
@@ -2629,8 +2564,6 @@ class ContentViewController: NSViewController {
         }
     }
 
-    // MARK: - Pin Results
-
     /// The result tab the grid is currently showing for the active editor tab,
     /// or nil when this editor tab's results still live in the legacy inline
     /// fields.
@@ -2638,43 +2571,9 @@ class ContentViewController: NSViewController {
         displayedCardId.flatMap { id in cardResults.first { $0.id == id } }
     }
 
-    /// Put the grid back on whatever the active editor tab owns: the result tab
-    /// the result-tab surface highlights when there is one, else the legacy
-    /// inline fields. Shared by the unpin branch and the (unpinned) tab-switch
-    /// restore, so the two cannot drift apart over what a tab is showing.
+    /// Put the grid back on whatever the active editor tab owns.
     private func restoreGrid(for tab: QueryTab) {
         showDisplayedResult()
-    }
-
-    private func handlePinToggle(_ pinned: Bool) {
-        guard let tab = session.activeTab else {
-            // No active editor tab, so there is nothing to pin or to restore.
-            // The button toggled its own look before calling here, so put it
-            // back rather than leaving an engaged pin over no pinned result.
-            resultsVC.setPinState(pinned: false, tabName: nil)
-            return
-        }
-        if pinned {
-            // Pin what the grid is ACTUALLY showing: the active result tab's
-            // result. Every run puts its result in a CardResult.
-            guard let displayed = displayedResult?.queryResult else {
-                // Nothing pinnable (no result yet, or the active result tab
-                // holds a non-SELECT execute result, which the grid cannot pin).
-                // Reset the button so it does not claim otherwise.
-                resultsVC.setPinState(pinned: false, tabName: nil)
-                return
-            }
-            session.pinnedResult = displayed
-            // The EDITOR tab's id, deliberately: AppStateManager's auto-unpin in
-            // closeTab matches `pinnedTabId` against editor tab ids.
-            session.pinnedTabId = tab.id
-            session.pinnedTabName = tab.name
-            resultsVC.setPinState(pinned: true, tabName: tab.name)
-        } else {
-            session.unpinResults()
-            resultsVC.setPinState(pinned: false, tabName: nil)
-            restoreGrid(for: tab)
-        }
     }
 
     /// The card's Cancel: a waiting card leaves the queue, a running one is
@@ -2780,46 +2679,18 @@ class ContentViewController: NSViewController {
         }
     }
 
-    /// Centralized tab-close helper. Cancellation of in-flight queries is
-    /// handled inside AppStateManager.closeTab via the queriesWillBeCancelled
-    /// notification, which seeds cancelledQueryIds via the observer in viewDidLoad.
-    func closeTab(id: String) {
-        // First the tab's open transaction, which closing rolls back; then
-        // its unsaved text. Cancel at either leaves the tab as it was.
-        confirmRollingBack(tabsWithOpenTransaction(among: [id]), action: .closeTab) { [weak self] proceed in
-            guard let self, proceed else { return }
-            self.closeTabAskingAboutUnsavedWork(id: id)
-        }
+    /// Bring this tab to the front: its window, selected in its tab group.
+    func frontThisTab() {
+        view.window?.makeKeyAndOrderFront(nil)
     }
 
-    private func closeTabAskingAboutUnsavedWork(id: String) {
-        // Plan §5.2 L: ask before the tab takes an unsaved edit with it.
-        // Nothing below runs until the answer is in — Cancel leaves the tab
-        // exactly as it was.
-        let unsaved = unsavedWorkTabs(forTabId: id)
-        guard unsaved.isEmpty else {
-            confirmClosing(unsaved) { [weak self] proceed in
-                guard let self, proceed else { return }
-                self.performCloseTab(id: id)
-            }
-            return
+    /// The window is closing (its tab with it): cards still waiting to run go
+    /// too. The running ones are cancelled by `AppStateManager.retire`.
+    func cancelQueuedRuns() {
+        for tabId in Array(runQueues.keys) {
+            if var queue = runQueues[tabId] { _ = queue.cancelAll() }
         }
-        performCloseTab(id: id)
-    }
-
-    /// The close itself, once there is nothing left to ask about.
-    private func performCloseTab(id: String) {
-        // Cards still waiting to run go with the tab; the running one is
-        // cancelled by `closeTab` with the tab's other queries.
-        if var queue = runQueues[id] {
-            _ = queue.cancelAll()
-            runQueues[id] = nil
-        }
-        // Flush a final editor snapshot for the closing tab's workspace.
-        if let tab = session.tabs.first(where: { $0.id == id }), tab.workspaceId != nil {
-            _ = ensureWorkspace(forEditorTabId: id)
-        }
-        session.closeTab(id: id)
+        runQueues.removeAll()
     }
 
     // MARK: - Query Failures
@@ -3153,8 +3024,7 @@ class ContentViewController: NSViewController {
             }
             await MainActor.run {
                 self.session.resultStore.mutateResult(cardId: resultTabId) { $0.queryResult = refreshed }
-                guard self.session.pinnedResult == nil,
-                      self.displayedCardId == resultTabId else { return }
+                guard self.displayedCardId == resultTabId else { return }
                 // Keep the user's widths, sort and filters across the swap, the
                 // way the Load All snapshot does.
                 let gridState = self.resultsVC.captureGridState()
@@ -3226,7 +3096,7 @@ class ContentViewController: NSViewController {
 
         let channel = QueryFailureChannel.choose(
             appInactive: !NSApp.isActive,
-            isBackgroundTab: session.activeTabId != failure.tabId,
+            isBackgroundTab: (NSApp.delegate as? AppDelegate)?.isTabOutOfSight(failure.tabId) ?? false,
             notifyWhenAppInactive: stateManager.settings.query.notifyWhenAppInactive,
             notifyWhenBackgroundTab: stateManager.settings.query.notifyWhenBackgroundTab
         )
@@ -3257,7 +3127,7 @@ class ContentViewController: NSViewController {
 
     /// Open the sheet on one entry, after a banner click. Goes to the tab first.
     private func openFailure(tabId: String, failureId: String?) {
-        session.selectTab(id: tabId)
+        frontThisTab()
         // `newestUnreadIndex` is nil for an empty log, so this one guard covers
         // both "no such tab" and "nothing to show".
         guard let log = session.tabs.first(where: { $0.id == tabId })?.failureLog,
@@ -3271,8 +3141,8 @@ class ContentViewController: NSViewController {
               let failureId = notification.userInfo?["failureId"] as? String else { return }
         // The window that OWNS the failing tab answers, not every window.
         guard session.tabs.contains(where: { $0.id == tabId }) else { return }
-        // AppDelegate's observer of the same notification also selects the tab.
-        // selectTab is idempotent, so this does not depend on observer order.
+        // AppDelegate's observer of the same notification also fronts the
+        // tab's window. Both are idempotent, so the order does not matter.
         openFailure(tabId: tabId, failureId: failureId)
     }
 }
@@ -3303,14 +3173,6 @@ extension ContentViewController: EditorPaneDelegate {
               let log = session.tabs.first(where: { $0.id == tabId })?.failureLog,
               let index = log.newestUnreadIndex else { return }
         errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
-    }
-
-    func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String) {
-        renameTab(id: tabId)
-    }
-
-    func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String) {
-        closeTab(id: tabId)
     }
 
     func editorPaneDidRequestSave(_ pane: EditorPaneVC) {
@@ -3370,7 +3232,7 @@ extension ContentViewController: EditorPaneDelegate {
         }
         let held = session.resultStore[tabId].result(forCard: card.id)
         st.resultInMemory = held?.hasPayload == true
-        st.isDisplayed = tab.document.displayedCardId == card.id && session.pinnedResult == nil
+        st.isDisplayed = tab.document.displayedCardId == card.id
         if card.lastRun != nil, card.kind == .sql {
             let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.variables).sql
             st.isEdited = tab.document.isEdited(cardId: card.id, renderedSQL: rendered)
@@ -3405,37 +3267,61 @@ extension ContentViewController {
         return AppStateManager.shared.keySession === session
     }
 
+    // MARK: - Opening items into tabs
+
+    /// The content controller of the tab, in any window, that `predicate`
+    /// matches — brought to the front. Every tab is its own window, so "is it
+    /// already open?" is a question about all of them.
+    private func frontExistingTab(where predicate: (QueryTab) -> Bool) -> ContentViewController? {
+        guard let found = AppStateManager.shared.findTab(where: predicate),
+              let target = (NSApp.delegate as? AppDelegate)?.contentController(for: found.session) else { return nil }
+        target.frontThisTab()
+        return target
+    }
+
+    /// A new tab for an opened item, on this tab's connection and schema.
+    private func newTab(name: String, document: CardDocument) -> QueryTab {
+        QueryTab(name: name, connectionId: session.tab?.connectionId, schemaName: session.tab?.schemaName,
+                 document: document)
+    }
+
+    /// Put `tab` where an opened item goes, and return the content controller
+    /// that shows it. A broadcast that names this window (session restore,
+    /// which built the window for this tab) fills this window's own tab;
+    /// otherwise this tab when it is untouched, else a new tab beside it.
+    private func open(_ tab: QueryTab, from notification: Notification) -> ContentViewController? {
+        if notification.userInfo?["sessionId"] != nil {
+            session.install(tab)
+            return self
+        }
+        return (NSApp.delegate as? AppDelegate)?.openItem(tab).splitViewController.contentVC
+    }
+
     @objc private func handleOpenSavedQuery(_ notification: Notification) {
         guard ownsBroadcast(notification) else { return }
         guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
         // Settings ▸ Library & History ▸ On double-click, decided by the
         // sender. Absent means "just open", which every other sender wants.
         let run = notification.userInfo?["run"] as? Bool ?? false
-        if let existingTab = session.tabs.first(where: { $0.savedQueryId == query.id }) {
-            session.selectTab(id: existingTab.id)
-            if run { runSavedQuery(inTab: existingTab.id) }
+        if let target = frontExistingTab(where: { $0.savedQueryId == query.id }) {
+            if run { target.runSavedQuery() }
             return
         }
         // A saved query is a whole tab of cards.
         let document = CardPersistence.decode(json: query.cardsJson, text: query.sql).forReuse()
-        let tab = session.createTab(document: document, name: query.name)
-        session.updateTab(id: tab.id) {
-            $0.savedQueryId = query.id
-        }
-        if run { runSavedQuery(inTab: tab.id) }
+        var tab = newTab(name: query.name, document: document)
+        tab.savedQueryId = query.id
+        guard let target = open(tab, from: notification) else { return }
+        if run { target.runSavedQuery() }
     }
 
     /// Run every card of a saved query's tab, top to bottom.
     ///
-    /// Deferred one turn of the run loop: `createTab`/`selectTab` publish the
-    /// new active tab, and the run reads `session.activeTab` and its
-    /// connection. The tab still has to be CONNECTED; a double-click on a
+    /// Deferred one turn of the run loop, so the tab's window has finished
+    /// showing it. The tab still has to be CONNECTED; a double-click on a
     /// query whose tab has no connection opens it and stops there.
-    private func runSavedQuery(inTab tabId: String) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.session.activeTabId == tabId else { return }
-            self.runAllCards()
-        }
+    private func runSavedQuery() {
+        DispatchQueue.main.async { [weak self] in self?.runAllCards() }
     }
 
     @objc private func handleOpenHistoryEntry(_ notification: Notification) {
@@ -3451,7 +3337,7 @@ extension ContentViewController {
         // the statement, run it again.
         guard entry.isSucceeded,
               let resultData = try? PharosCore.getQueryHistoryResult(id: entry.id) else {
-            session.createTab(document: CardDocument(cards: [card]), name: tabName)
+            _ = open(newTab(name: tabName, document: CardDocument(cards: [card])), from: notification)
             return
         }
         let result = QueryResult.fromHistory(
@@ -3476,12 +3362,12 @@ extension ContentViewController {
         cr.historyResultId = entry.id
         cr.hasBeenViewed = true
 
-        let tab = session.createTab(document: doc, name: tabName)
-        // `createTab` has already switched the live surface to the new tab —
-        // delivery is synchronous. Seed the store entry and apply it, so the
-        // grid and the history banner show now.
-        session.resultStore[tab.id] = EditorTabResults(results: [cr])
-        applySeededResultState(forTabId: tab.id)
+        let tab = newTab(name: tabName, document: doc)
+        guard let target = open(tab, from: notification) else { return }
+        // The target already shows the tab — delivery is synchronous. Seed its
+        // store entry and apply it, so the grid and the history banner show now.
+        target.session.resultStore[tab.id] = EditorTabResults(results: [cr])
+        target.applySeededResultState(forTabId: tab.id)
     }
 
     @objc private func handleShowSQLInInspector(_ notification: Notification) {
@@ -3499,13 +3385,10 @@ extension ContentViewController {
         let sessionText = notification.userInfo?["sessionText"] as? String
         let sessionCardsJson = notification.userInfo?["sessionCardsJson"] as? String
 
-        // Already open in a live tab? Just focus it (and the requested result, if any).
-        if let existing = session.tabs.first(where: { $0.workspaceId == wsId }) {
-            // Synchronous: `cardResults` is this tab's when `selectTab` returns.
-            session.selectTab(id: existing.id)
-            if let fid = focusResultId {
-                focusResult(historyId: fid)
-            }
+        // Already open in a tab, in any window? Just front it (and the
+        // requested result, if any).
+        if let target = frontExistingTab(where: { $0.workspaceId == wsId }) {
+            if let fid = focusResultId { target.focusResult(historyId: fid) }
             return
         }
 
@@ -3528,9 +3411,8 @@ extension ContentViewController {
 
                 // Re-check already-open: another reopen request could have
                 // created a tab for this workspace while we were off-main.
-                if let existing = self.session.tabs.first(where: { $0.workspaceId == wsId }) {
-                    self.session.selectTab(id: existing.id)
-                    if let fid = focusResultId { self.focusResult(historyId: fid) }
+                if let target = self.frontExistingTab(where: { $0.workspaceId == wsId }) {
+                    if let fid = focusResultId { target.focusResult(historyId: fid) }
                     return
                 }
 
@@ -3542,21 +3424,20 @@ extension ContentViewController {
                 let focus = focusResultId.flatMap { fid in results.first(where: { $0.historyResultId == fid }) } ?? results.last
                 document.displayedCardId = focus?.id
 
-                let tab = self.session.createTab(document: document, name: detail.name)
-                self.session.updateTab(id: tab.id) {
-                    $0.workspaceId = detail.id
-                    $0.connectionId = detail.connectionId
-                }
+                var tab = self.newTab(name: detail.name, document: document)
+                tab.workspaceId = detail.id
+                tab.connectionId = detail.connectionId
+                guard let target = self.open(tab, from: notification) else { return }
 
-                // Seed the store entry, then apply it: the live surface already
-                // switched to the new tab inside `createTab` (synchronous
-                // delivery) and read it empty. Results run later go AFTER the
-                // restored ones: from MAX(result_order)+1, not the count, so a
-                // workspace whose middle results were deleted cannot collide.
-                self.session.resultStore[tab.id] = EditorTabResults(
+                // Seed the store entry, then apply it: the target already shows
+                // the tab (synchronous delivery) and read it empty. Results run
+                // later go AFTER the restored ones: from MAX(result_order)+1,
+                // not the count, so a workspace whose middle results were
+                // deleted cannot collide.
+                target.session.resultStore[tab.id] = EditorTabResults(
                     results: results,
                     nextOrder: (detail.results.compactMap { $0.resultOrder }.max() ?? -1) + 1)
-                self.applySeededResultState(forTabId: tab.id)
+                target.applySeededResultState(forTabId: tab.id)
             }
         }
     }
@@ -4208,8 +4089,7 @@ extension ContentViewController {
     /// the displayed result's statement through a server cursor in one
     /// transaction and replaces the result with a consistent snapshot.
     private func loadAllRowsSnapshot() {
-        guard session.pinnedResult == nil,
-              let id = displayedCardId,
+        guard let id = displayedCardId,
               let idx = cardResults.firstIndex(where: { $0.id == id }),
               cardResults[idx].queryResult?.hasMore == true else { return }
         runSnapshotLoad(forCard: id, cap: Self.snapshotRowCap, showInGrid: true) { [weak self] capped in
@@ -4277,7 +4157,6 @@ extension ContentViewController {
             MainActor.assumeIsolated {
                 guard let self, showInGrid,
                       self.snapshotQueryId == queryId,
-                      self.session.pinnedResult == nil,
                       self.displayedCardId == rtId else { return }
                 self.resultsVC.updateLoadingAll(rows: rows)
             }
@@ -4310,7 +4189,7 @@ extension ContentViewController {
             await MainActor.run {
                 self.session.updateTab(id: editorTabId) { $0.runningQueries.removeAll { $0.id == queryId } }
                 let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
-                let stillDisplaying = self.session.pinnedResult == nil && self.displayedCardId == rtId
+                let stillDisplaying = self.displayedCardId == rtId
                 if self.snapshotQueryId == queryId { self.snapshotQueryId = nil }
                 if showInGrid { self.resultsVC.endLoadingAll() }
 
@@ -4763,46 +4642,31 @@ extension ContentViewController {
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 
-    @objc func menuNewTab(_: Any?) {
-        session.createTab()
-    }
-
-    @objc func menuCloseTab(_: Any?) {
+    /// File ▸ Rename Tab…: the native tab bar has no rename of its own.
+    @objc func menuRenameTab(_: Any?) {
         guard let tabId = session.activeTabId else { return }
-        closeTab(id: tabId)
+        renameTab(id: tabId)
     }
 
-    @objc func menuReopenTab(_: Any?) {
-        session.reopenLastClosedTab()
+    /// File ▸ Duplicate Tab: a copy beside this tab, with fresh card ids —
+    /// results are filed by card, and the copy has none.
+    @objc func menuDuplicateTab(_: Any?) {
+        guard let tab = session.tab,
+              let delegate = NSApp.delegate as? AppDelegate,
+              let controller = view.window?.windowController as? MainWindowController else { return }
+        let copy = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, schemaName: tab.schemaName,
+                            document: tab.document.forReuse())
+        delegate.openTab(copy, beside: controller)
     }
 
-    @objc func menuSelectTab(_ sender: NSMenuItem) {
-        let index = sender.tag
-        session.selectTabByIndex(index)
-    }
-
-    @objc func menuSelectNextTab(_: Any?) {
-        let tabs = session.tabs
-        guard tabs.count > 1, let activeId = session.activeTabId,
-              let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
-        session.selectTab(id: tabs[(idx + 1) % tabs.count].id)
-    }
-
-    @objc func menuSelectPreviousTab(_: Any?) {
-        let tabs = session.tabs
-        guard tabs.count > 1, let activeId = session.activeTabId,
-              let idx = tabs.firstIndex(where: { $0.id == activeId }) else { return }
-        session.selectTab(id: tabs[(idx - 1 + tabs.count) % tabs.count].id)
-    }
-
-    /// The cards with results in memory, in stack order: what ⌃Tab cycles.
+    /// The cards with results in memory, in stack order: what ⌥⌘] cycles.
     private var cardsWithResults: [String] {
         guard let doc = session.activeTab?.document else { return [] }
         let held = Set(cardResults.filter(\.hasPayload).map(\.id))
         return doc.cards.map(\.id).filter(held.contains)
     }
 
-    /// ⌃Tab: show the results of the next card that has some.
+    /// ⌥⌘]: show the results of the next card that has some.
     @objc func menuSelectNextResultTab(_: Any?) {
         let ids = cardsWithResults
         guard ids.count > 1 else { return }
@@ -4970,8 +4834,9 @@ extension ContentViewController {
             name = url.lastPathComponent
         }
 
-        let tab = session.createTab(document: CardText.document(from: text), name: name)
-        session.updateTab(id: tab.id) { $0.sourceURL = url }
+        var tab = newTab(name: name, document: CardText.document(from: text))
+        tab.sourceURL = url
+        (NSApp.delegate as? AppDelegate)?.openItem(tab)
     }
 }
 
@@ -5018,7 +4883,7 @@ extension ContentViewController: QueryErrorSheetDelegate {
     /// "Go to Error", from the sheet or from the inline banner: go to the tab
     /// the failure belongs to and put the editor on the failing text.
     func revealFailure(_ failure: QueryFailure) {
-        session.selectTab(id: failure.tabId)
+        frontThisTab()
         if let cardId = failure.cardId { editorPane.cardStack.focusCard(cardId) }
         guard failure.location != nil else { return }
         let pane = editorPane
@@ -5074,8 +4939,8 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
-        if menuItem.action == #selector(menuSelectNextTab(_:)) || menuItem.action == #selector(menuSelectPreviousTab(_:)) {
-            return session.tabs.count >= 2
+        if menuItem.action == #selector(menuRenameTab(_:)) || menuItem.action == #selector(menuDuplicateTab(_:)) {
+            return session.tab != nil
         }
         if menuItem.action == #selector(menuSelectNextResultTab(_:)) || menuItem.action == #selector(menuSelectPreviousResultTab(_:)) {
             return cardsWithResults.count >= 2

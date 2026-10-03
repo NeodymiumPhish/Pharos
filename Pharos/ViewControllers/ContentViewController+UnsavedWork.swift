@@ -114,7 +114,7 @@ extension ContentViewController {
         guard view.window != nil else { then(false); return }
         // Bring the tab the sheet is about to the front: a Save Query sheet
         // over somebody else's SQL is worse than no sheet at all.
-        session.selectTab(id: tab.id)
+        frontThisTab()
         presentSaveQuerySheet(tab: tab) { [weak self] saved in
             guard let self else { then(false); return }
             guard saved else { then(false); return }

@@ -4,8 +4,6 @@ import Combine
 /// Delegate for EditorPaneVC events that need to be handled by the parent.
 protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
-    func editorPane(_ pane: EditorPaneVC, didRequestRenameTab tabId: String)
-    func editorPane(_ pane: EditorPaneVC, didRequestCloseTab tabId: String)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
@@ -37,7 +35,6 @@ class EditorPaneVC: NSViewController {
     /// One completion list for every card of the window.
     let completionProvider = SQLCompletionProvider()
     let cardStack: CardStackVC
-    private(set) var paneTabBar: PaneTabBar!
 
     // Editor toolbar (below tab bar)
     /// The header row under the tab bar. Painted the same ground as the tab
@@ -86,48 +83,18 @@ class EditorPaneVC: NSViewController {
 
     // MARK: - View Lifecycle
 
-    private let tabBarHeight: CGFloat = 32
     /// 28, the sidebar filter bar's height — one height for every secondary
-    /// row of chrome in the window.
+    /// row of chrome in the window. The tab bar is the window's own (native
+    /// window tabs), so this row is the pane's whole header.
     private let editorToolbarHeight: CGFloat = 28
-    private var totalHeaderHeight: CGFloat {
-        tabBarHeight + editorToolbarHeight
-    }
+    private var totalHeaderHeight: CGFloat { editorToolbarHeight }
 
     override func loadView() {
         let container = NSView()
         container.wantsLayer = true
         self.view = container
 
-        // Tab bar
-        paneTabBar = PaneTabBar()
-        paneTabBar.session = session
-        paneTabBar.translatesAutoresizingMaskIntoConstraints = false
-        // A plain NSView wrapper is accessibility-ignored by default, which
-        // would flatten its identifier away and expose only its child
-        // segmented control to the AX tree — force it to be a real element
-        // so `editor.tabBar` is reachable by the AX walker and UI tests.
-        paneTabBar.setAccessibilityElement(true)
-        paneTabBar.setAccessibilityIdentifier("editor.tabBar")
-
-        paneTabBar.onSelectTab = { [weak self] tabId in
-            guard let self else { return }
-            self.session.selectTab(id: tabId)
-        }
-        paneTabBar.onCloseTab = { [weak self] tabId in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestCloseTab: tabId)
-        }
-        paneTabBar.onNewTab = { [weak self] in
-            guard let self else { return }
-            self.session.createTab()
-        }
-        paneTabBar.onDoubleClickTab = { [weak self] tabId in
-            guard let self else { return }
-            self.delegate?.editorPane(self, didRequestRenameTab: tabId)
-        }
-
-        // Editor toolbar (below tab bar)
+        // Editor toolbar
         setupEditorToolbar()
 
         wireCardStack()
@@ -141,7 +108,6 @@ class EditorPaneVC: NSViewController {
             self, selector: #selector(queryVariablesDidChange(_:)),
             name: QueryVariableStore.didChange, object: nil)
 
-        container.addSubview(paneTabBar)
         container.addSubview(editorToolbar)
         container.addSubview(cardStack.view)
         sessionBanner.isHidden = true
@@ -152,12 +118,7 @@ class EditorPaneVC: NSViewController {
             name: TabSessionMonitor.didChange, object: nil)
 
         NSLayoutConstraint.activate([
-            paneTabBar.topAnchor.constraint(equalTo: container.topAnchor),
-            paneTabBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            paneTabBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            paneTabBar.heightAnchor.constraint(equalToConstant: tabBarHeight),
-
-            editorToolbar.topAnchor.constraint(equalTo: paneTabBar.bottomAnchor),
+            editorToolbar.topAnchor.constraint(equalTo: container.topAnchor),
             editorToolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             editorToolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             editorToolbar.heightAnchor.constraint(equalToConstant: editorToolbarHeight),
@@ -204,7 +165,6 @@ class EditorPaneVC: NSViewController {
             }
             .sink { [weak self] _ in
                 guard let self else { return }
-                self.refreshTabBar()
                 self.updateEditorToolbarState()
                 self.cardStack.refreshStatus()
             }
@@ -417,7 +377,6 @@ class EditorPaneVC: NSViewController {
     private var lastActiveTabId: String?
 
     private func activeTabIdChanged(_ tabId: String?) {
-        refreshTabBar()
         refreshSessionBanner()
 
         // Detect active tab change (the publisher also fires on a re-select).
@@ -427,10 +386,6 @@ class EditorPaneVC: NSViewController {
             tabChanged(from: oldTabId, to: tabId)
             delegate?.editorPane(self, didChangeActiveTab: tabId)
         }
-    }
-
-    private func refreshTabBar() {
-        paneTabBar.update(tabs: session.tabs, activeTabId: session.activeTabId)
     }
 
     // MARK: - Tab Switching

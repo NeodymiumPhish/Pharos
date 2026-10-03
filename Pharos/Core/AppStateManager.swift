@@ -82,9 +82,10 @@ final class AppStateManager: ObservableObject {
 
     // MARK: - Window sessions
 
-    /// One per open main window, in the order the windows were made. The tabs,
-    /// the active tab, the window's connection and its results all live there
-    /// (`WindowSession`); this class keeps only what is app-wide.
+    /// One per open main window — and so one per query tab, since every tab is
+    /// a native window tab — in the order the windows were made. The tab, the
+    /// window's connection and its results live there (`WindowSession`); this
+    /// class keeps only what is app-wide.
     private(set) var sessions: [WindowSession] = []
 
     /// Build a session and wire it to the app around it. The caller
@@ -123,6 +124,9 @@ final class AppStateManager: ObservableObject {
         session.hooks.isRestoringSession = { [weak self] in
             self?.isRestoringSession ?? false
         }
+        session.hooks.nextTabName = { [weak self] in
+            self?.nextTabName() ?? "Query 1"
+        }
         sessions.append(session)
         return session
     }
@@ -140,6 +144,10 @@ final class AppStateManager: ObservableObject {
     func beginTerminating() { isTerminating = true }
 
     func retire(_ session: WindowSession) {
+        if !isTerminating, let tab = session.tab, !tab.isPristine {
+            closedTabs.append(tab)
+            if closedTabs.count > Self.maxClosedTabs { closedTabs.removeFirst() }
+        }
         session.cancelAllRunningQueries()
         if isTerminating {
             sessions.removeAll { $0 === session }
@@ -156,6 +164,36 @@ final class AppStateManager: ObservableObject {
         // closed one does not come back. With none left, this is a no-op and
         // the snapshot above stands.
         snapshotSession()
+    }
+
+    // MARK: - Tab names and closed tabs (app-wide: every tab is a window)
+
+    /// "Query N", one past the highest N any open tab uses.
+    func nextTabName() -> String {
+        let generated = try? Regex<(Substring, Substring)>("^Query ([0-9]+)$")
+        let used = sessions.flatMap(\.tabs).compactMap { tab -> Int? in
+            guard let generated, let match = tab.name.wholeMatch(of: generated) else { return nil }
+            return Int(match.output.1)
+        }
+        return "Query \((used.max() ?? 0) + 1)"
+    }
+
+    /// Tabs closed this run, newest last, for File ▸ Reopen Closed Tab.
+    private var closedTabs: [QueryTab] = []
+    private static let maxClosedTabs = 20
+
+    var canReopenClosedTab: Bool { !closedTabs.isEmpty }
+
+    /// Put the last closed tab back, beside the tab the user is in. A copy:
+    /// fresh card ids, because its results went with it.
+    func reopenLastClosedTab() {
+        guard let tab = closedTabs.popLast(), let delegate = NSApp.delegate as? AppDelegate else { return }
+        var reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, schemaName: tab.schemaName,
+                                document: tab.document.forReuse())
+        reopened.nameIsSuggested = tab.nameIsSuggested
+        reopened.sourceURL = tab.sourceURL
+        reopened.savedQueryId = tab.savedQueryId
+        delegate.openTab(reopened, beside: delegate.frontmostWindowController)
     }
 
     /// The session of the window the user is working in.
@@ -631,9 +669,13 @@ final class AppStateManager: ObservableObject {
         return name.wholeMatch(of: generated) == nil
     }
 
-    /// Write every open window — its frame, its tabs, their order and its
-    /// active tab — to the store. Called from the autosave timer and from
+    /// Write every open tab group — its frame, its tabs in tab-bar order and
+    /// its selected tab — to the store. Called from the autosave timer and from
     /// `applicationShouldTerminate`.
+    ///
+    /// Every query tab is a window, and the store's "window" row is a native
+    /// TAB GROUP: its tabs are the group's windows, in the order the user left
+    /// them (dragged tabs included), and `isActive` marks the selected one.
     ///
     /// With NO window open this writes nothing at all. The app outlives its
     /// last window (`applicationShouldTerminateAfterLastWindowClosed` is
@@ -641,9 +683,11 @@ final class AppStateManager: ObservableObject {
     /// set the user left behind — the damage the Phase 6 disclosure names.
     func snapshotSession() {
         guard !isRestoringSession else { return }
-        guard !sessions.isEmpty else { return }
-        let windows = sessions.enumerated().map { windowIndex, session -> SessionWindow in
-            let saved = session.tabs.enumerated().map { idx, tab -> SessionTab in
+        let groups = tabGroups()
+        guard !groups.isEmpty else { return }
+        let windows = groups.enumerated().map { groupIndex, group -> SessionWindow in
+            let saved = group.sessions.enumerated().compactMap { idx, session -> SessionTab? in
+                guard let tab = session.tab else { return nil }
                 let stored = CardPersistence.encode(tab.document)
                 return SessionTab(
                     tabIndex: idx,
@@ -656,16 +700,16 @@ final class AppStateManager: ObservableObject {
                     cursorPosition: 0,
                     // Legacy field, kept for the wire shape; never read back.
                     variablesJson: nil,
-                    isActive: tab.id == session.activeTabId,
+                    isActive: session === group.selected,
                     cardsJson: stored.json,
                     sourcePath: tab.sourceURL?.path,
                     savedQueryId: tab.savedQueryId
                 )
             }
             return SessionWindow(
-                windowId: session.id,
-                windowIndex: windowIndex,
-                frame: session.frameDescription,
+                windowId: group.sessions[0].id,
+                windowIndex: groupIndex,
+                frame: (group.selected ?? group.sessions[0]).frameDescription,
                 tabs: saved
             )
         }
@@ -675,6 +719,28 @@ final class AppStateManager: ObservableObject {
         } catch {
             Log.state.error("Failed to save session: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// The open tab groups, each in tab-bar order, the groups in the order
+    /// their first window was made. A window not in a group is a group of one.
+    private func tabGroups() -> [(sessions: [WindowSession], selected: WindowSession?)] {
+        let controllers = (NSApp.delegate as? AppDelegate)?.windowControllers ?? []
+        func session(of window: NSWindow) -> WindowSession? {
+            (window.windowController as? MainWindowController)?.session
+        }
+        var seen = Set<ObjectIdentifier>()
+        var groups: [(sessions: [WindowSession], selected: WindowSession?)] = []
+        for session in sessions {
+            guard !seen.contains(ObjectIdentifier(session)),
+                  let window = controllers.first(where: { $0.session === session })?.window else { continue }
+            let members = (window.tabGroup?.windows ?? [window]).compactMap(session(of:))
+                .filter { member in sessions.contains { $0 === member } }
+            guard !members.isEmpty else { continue }
+            members.forEach { seen.insert(ObjectIdentifier($0)) }
+            let selected = window.tabGroup?.selectedWindow.flatMap(session(of:)) ?? members.first
+            groups.append((members, selected))
+        }
+        return groups
     }
 
     /// Start the session autosave at the interval the user chose
@@ -729,26 +795,49 @@ final class AppStateManager: ObservableObject {
             .frame.flatMap(SessionWindow.rect(from:))
     }
 
-    /// Put the stored windows and their tabs back. Call AFTER the first main
-    /// window is on screen: a tab bound to a workspace is rebuilt by that
-    /// window's `ContentViewController`, which must be alive and observing
-    /// `.openWorkspace`.
+    /// Put the stored tab groups back: each stored "window" is one native tab
+    /// group, its tabs in order, its selected tab in front. Call AFTER the
+    /// first main window is on screen: it takes the first stored tab, and a
+    /// tab bound to a workspace is rebuilt by its window's
+    /// `ContentViewController`, which must be alive and observing.
     func restoreSession() {
-        guard let stored = pendingSession else {
+        guard let stored = pendingSession, let delegate = NSApp.delegate as? AppDelegate else {
             startSessionAutosave()
             return
         }
         pendingSession = nil
 
         Task { @MainActor in
-            let windows = stored.windows.sorted { $0.windowIndex < $1.windowIndex }
-            // One WINDOW at a time, and one TAB at a time inside it: the
-            // workspace handler rebuilds off the main thread, so two windows
-            // restoring at once would put two rebuilds in flight and land the
-            // tabs in completion order rather than the order they were saved.
-            for (index, window) in windows.enumerated() {
-                guard let session = self.sessionForRestore(at: index, stored: window) else { continue }
-                await self.restore(window, into: session)
+            let groups = stored.windows.sorted { $0.windowIndex < $1.windowIndex }
+            // One tab at a time: the workspace handler rebuilds off the main
+            // thread, so two at once would land in completion order rather
+            // than the order they were saved.
+            var first = delegate.windowControllers.first
+            for group in groups {
+                let tabs = group.tabs.sorted { $0.tabIndex < $1.tabIndex }
+                var members: [MainWindowController] = []
+                for saved in tabs {
+                    let draft = self.draftTab(saved)
+                    let controller: MainWindowController
+                    if let launch = first {
+                        // The window the delegate already built and showed.
+                        launch.session.install(draft)
+                        controller = launch
+                        first = nil
+                    } else if let head = members.first {
+                        controller = delegate.openTab(draft, beside: head, select: false)
+                    } else {
+                        let frame = self.settings.session.restoreWindowFrames
+                            ? group.frame.flatMap(SessionWindow.rect(from:)) : nil
+                        controller = delegate.openMainWindow(frame: frame, tab: draft)
+                    }
+                    members.append(controller)
+                    if let wsId = saved.workspaceId {
+                        await self.restoreWorkspaceTab(saved, workspaceId: wsId, in: controller.session)
+                    }
+                }
+                let active = tabs.firstIndex(where: \.isActive).flatMap { $0 < members.count ? members[$0] : nil }
+                (active ?? members.first)?.window?.makeKeyAndOrderFront(nil)
             }
 
             self.isRestoringSession = false
@@ -758,36 +847,10 @@ final class AppStateManager: ObservableObject {
         }
     }
 
-    /// The session a stored window restores into. The first one is the window
-    /// the delegate already built and showed; the rest are opened here, in
-    /// stored order, each with its own frame.
-    private func sessionForRestore(at index: Int, stored: SessionWindow) -> WindowSession? {
-        if index == 0 { return sessions.first }
-        guard let delegate = NSApp.delegate as? AppDelegate else { return nil }
-        let frame = stored.frame.flatMap(SessionWindow.rect(from:))
-        return delegate.openMainWindow(frame: frame).session
-    }
-
-    private func restore(_ window: SessionWindow, into session: WindowSession) async {
-        var restoredIds: [String] = []
-        for saved in window.tabs.sorted(by: { $0.tabIndex < $1.tabIndex }) {
-            if let wsId = saved.workspaceId,
-               let id = await restoreWorkspaceTab(saved, workspaceId: wsId, in: session) {
-                restoredIds.append(id)
-            } else {
-                // No workspace, or the workspace row is gone: the session's
-                // own copy of the editor text still brings the tab back.
-                restoredIds.append(restoreDraftTab(saved, in: session).id)
-            }
-        }
-        if let idx = window.tabs.firstIndex(where: { $0.isActive }), idx < restoredIds.count {
-            session.selectTab(id: restoredIds[idx])
-        }
-    }
-
     /// Ask the window's `ContentViewController` to rebuild a workspace tab, then
     /// wait for it to appear. Returns nil when the workspace no longer exists
     /// (the handler stays silent in that case, so the wait is what detects it).
+    @discardableResult
     private func restoreWorkspaceTab(_ saved: SessionTab,
                                      workspaceId: String,
                                      in session: WindowSession) async -> String? {
@@ -815,19 +878,16 @@ final class AppStateManager: ObservableObject {
         return nil
     }
 
-    /// Rebuild a tab that never ran a query straight from the session row.
-    @discardableResult
-    private func restoreDraftTab(_ saved: SessionTab, in session: WindowSession) -> QueryTab {
-        let tab = session.createTab(document: CardPersistence.decode(json: saved.cardsJson, text: saved.sql), name: saved.name)
+    /// A tab rebuilt straight from its session row. A workspace tab opens as
+    /// this draft first, and its window then swaps the workspace in; when the
+    /// workspace row is gone, the draft is what the user gets back.
+    private func draftTab(_ saved: SessionTab) -> QueryTab {
         // The connection is recorded, not dialled: restoring must never open a
         // database connection the user did not ask for.
-        session.updateTab(id: tab.id) {
-            $0.connectionId = saved.connectionId
-            $0.schemaName = saved.schemaName
-            $0.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }
-            $0.savedQueryId = saved.savedQueryId
-            $0.isDirty = false
-        }
+        var tab = QueryTab(name: saved.name, connectionId: saved.connectionId, schemaName: saved.schemaName,
+                           document: CardPersistence.decode(json: saved.cardsJson, text: saved.sql))
+        tab.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }
+        tab.savedQueryId = saved.savedQueryId
         return tab
     }
 

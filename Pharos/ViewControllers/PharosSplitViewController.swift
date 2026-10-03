@@ -100,7 +100,7 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     // The Query and File menu items target `ContentViewController` selectors
     // with a nil target. The content controller is a SIBLING of the sidebar
     // and the inspector in the responder chain, so with the focus in either
-    // of those the chain never reaches it and ⌘↩, ⌘., ⌘T, ⌘W go dead. This
+    // of those the chain never reaches it and ⌘↩ and ⌘. go dead. This
     // controller is an ancestor of all three panes; it forwards those items
     // and their validation to the content controller. When the focus is
     // inside the content pane the chain finds the content controller first,
@@ -121,12 +121,8 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuDisconnect(_ sender: Any?) { contentVC.menuDisconnect(sender) }
     @objc func menuRefreshMetadata(_ sender: Any?) { contentVC.menuRefreshMetadata(sender) }
     @objc func menuFormatSQL(_ sender: Any?) { contentVC.menuFormatSQL(sender) }
-    @objc func menuNewTab(_ sender: Any?) { contentVC.menuNewTab(sender) }
-    @objc func menuCloseTab(_ sender: Any?) { contentVC.menuCloseTab(sender) }
-    @objc func menuReopenTab(_ sender: Any?) { contentVC.menuReopenTab(sender) }
-    @objc func menuSelectTab(_ sender: NSMenuItem) { contentVC.menuSelectTab(sender) }
-    @objc func menuSelectNextTab(_ sender: Any?) { contentVC.menuSelectNextTab(sender) }
-    @objc func menuSelectPreviousTab(_ sender: Any?) { contentVC.menuSelectPreviousTab(sender) }
+    @objc func menuRenameTab(_ sender: Any?) { contentVC.menuRenameTab(sender) }
+    @objc func menuDuplicateTab(_ sender: Any?) { contentVC.menuDuplicateTab(sender) }
     @objc func menuSelectNextResultTab(_ sender: Any?) { contentVC.menuSelectNextResultTab(sender) }
     @objc func menuSelectPreviousResultTab(_ sender: Any?) { contentVC.menuSelectPreviousResultTab(sender) }
     @objc func menuSaveQuery(_ sender: Any?) { contentVC.menuSaveQuery(sender) }
@@ -220,6 +216,17 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
     /// Whether the sidebar is hidden.
     var isSidebarCollapsed: Bool { sidebarItem?.isCollapsed ?? false }
+
+    /// A new tab is a new window: it opens with the layout of the tab it opens
+    /// from — sidebar shown or hidden, the same navigator, inspector shown or
+    /// hidden — so switching between the two tabs does not move the panes.
+    func adoptLayout(from other: PharosSplitViewController) {
+        splitViewItems.first?.isCollapsed = other.isSidebarCollapsed
+        if let inspector = splitViewItems.last, let source = other.splitViewItems.last {
+            inspector.isCollapsed = source.isCollapsed
+        }
+        sidebarVC.showNavigator(other.sidebarVC.currentNavigator)
+    }
 
     /// Shows or hides the sidebar, animated, and does nothing if it is already
     /// in that state.

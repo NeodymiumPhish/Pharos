@@ -65,16 +65,24 @@ enum MainMenu {
         newWindow.keyEquivalentModifierMask = [.command]
         newWindow.image = NSImage(systemSymbolName: "macwindow.badge.plus", accessibilityDescription: nil)
 
-        let newTab = fileMenu.addItem(withTitle: String(localized: "New Tab"), action: #selector(ContentViewController.menuNewTab(_:)), keyEquivalent: "t")
+        // Every query tab is a native window tab: New Tab is AppKit's own
+        // `newWindowForTab:` (the tab bar's + button sends the same), and Close
+        // Tab closes the tab's window.
+        let newTab = fileMenu.addItem(withTitle: String(localized: "New Tab"), action: #selector(NSResponder.newWindowForTab(_:)), keyEquivalent: "t")
         newTab.keyEquivalentModifierMask = [.command]
         newTab.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
 
-        let closeTab = fileMenu.addItem(withTitle: String(localized: "Close Tab"), action: #selector(ContentViewController.menuCloseTab(_:)), keyEquivalent: "w")
+        let closeTab = fileMenu.addItem(withTitle: String(localized: "Close Tab"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         closeTab.keyEquivalentModifierMask = [.command]
         closeTab.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
 
-        let reopenTab = fileMenu.addItem(withTitle: String(localized: "Reopen Closed Tab"), action: #selector(ContentViewController.menuReopenTab(_:)), keyEquivalent: "T")
+        let reopenTab = fileMenu.addItem(withTitle: String(localized: "Reopen Closed Tab"), action: #selector(AppDelegate.menuReopenTab(_:)), keyEquivalent: "T")
         reopenTab.keyEquivalentModifierMask = [.command, .shift]
+
+        // The native tab bar has no Rename or Duplicate, and its menu cannot
+        // be extended, so both live here.
+        fileMenu.addItem(withTitle: String(localized: "Rename Tab…"), action: #selector(ContentViewController.menuRenameTab(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: String(localized: "Duplicate Tab"), action: #selector(ContentViewController.menuDuplicateTab(_:)), keyEquivalent: "")
 
         fileMenu.addItem(.separator())
 
@@ -86,7 +94,8 @@ enum MainMenu {
         exportEditor.keyEquivalentModifierMask = [.command, .option]
 
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: String(localized: "Close Window"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
+        // Closes every tab of the window (its tab group), asking about each.
+        fileMenu.addItem(withTitle: String(localized: "Close Window"), action: #selector(MainWindowController.menuCloseWindow(_:)), keyEquivalent: "W")
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -284,11 +293,11 @@ enum MainMenu {
 
         viewMenu.addItem(.separator())
 
-        // Tab switching shortcuts Cmd+1-9
+        // Tab switching shortcuts Cmd+1-9: the nth tab of the window's group.
         for i in 1...9 {
             let item = viewMenu.addItem(
                 withTitle: String(localized: "Tab \(i)"),
-                action: #selector(ContentViewController.menuSelectTab(_:)),
+                action: #selector(MainWindowController.menuSelectTab(_:)),
                 keyEquivalent: "\(i)"
             )
             item.keyEquivalentModifierMask = [.command]
@@ -297,33 +306,36 @@ enum MainMenu {
 
         viewMenu.addItem(.separator())
 
+        // AppKit's own tab commands. Its Window menu adds them on ⌃Tab and
+        // ⌃⇧Tab as well; these are the ⇧⌘] / ⇧⌘[ that Safari and Xcode use.
         let nextTabItem = viewMenu.addItem(
             withTitle: String(localized: "Show Next Tab"),
-            action: #selector(ContentViewController.menuSelectNextTab(_:)),
+            action: #selector(NSWindow.selectNextTab(_:)),
             keyEquivalent: "]"
         )
         nextTabItem.keyEquivalentModifierMask = [.command, .shift]
 
         let previousTabItem = viewMenu.addItem(
             withTitle: String(localized: "Show Previous Tab"),
-            action: #selector(ContentViewController.menuSelectPreviousTab(_:)),
+            action: #selector(NSWindow.selectPreviousTab(_:)),
             keyEquivalent: "["
         )
         previousTabItem.keyEquivalentModifierMask = [.command, .shift]
 
+        // ⌥⌘] / ⌥⌘[, not ⌃Tab: ⌃Tab belongs to the native tabs.
         let nextResultTabItem = viewMenu.addItem(
             withTitle: String(localized: "Show Results of Next Card"),
             action: #selector(ContentViewController.menuSelectNextResultTab(_:)),
-            keyEquivalent: "\t"
+            keyEquivalent: "]"
         )
-        nextResultTabItem.keyEquivalentModifierMask = [.control]
+        nextResultTabItem.keyEquivalentModifierMask = [.command, .option]
 
         let previousResultTabItem = viewMenu.addItem(
             withTitle: String(localized: "Show Results of Previous Card"),
             action: #selector(ContentViewController.menuSelectPreviousResultTab(_:)),
-            keyEquivalent: "\t"
+            keyEquivalent: "["
         )
-        previousResultTabItem.keyEquivalentModifierMask = [.control, .shift]
+        previousResultTabItem.keyEquivalentModifierMask = [.command, .option]
 
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)

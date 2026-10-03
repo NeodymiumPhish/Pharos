@@ -32,15 +32,16 @@ struct OpenConnectionIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let session = try PharosIntentBridge.showMainWindow().session
+        _ = try PharosIntentBridge.showMainWindow()
 
         let state = AppStateManager.shared
         guard state.connections.contains(where: { $0.id == connection.id }) else {
             throw PharosIntentError.unknownConnection
         }
 
-        let tab = session.createTab()
-        state.useConnection(connection.id, forTabId: tab.id, in: session)
+        guard let controller = (NSApp.delegate as? AppDelegate)?.openItem(QueryTab(name: state.nextTabName())),
+              let tab = controller.session.tab else { throw PharosIntentError.unknownConnection }
+        state.useConnection(connection.id, forTabId: tab.id, in: controller.session)
         try await PharosIntentBridge.ensureConnected(connection.id)
 
         Log.ui.info("Intent opened connection \(self.connection.id, privacy: .public)")
@@ -76,9 +77,9 @@ struct NewQueryTabIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let session = try PharosIntentBridge.showMainWindow().session
-        let tab = session.createTab(document: CardText.document(from: sql))
-        session.selectTab(id: tab.id)
+        _ = try PharosIntentBridge.showMainWindow()
+        (NSApp.delegate as? AppDelegate)?.openItem(
+            QueryTab(name: AppStateManager.shared.nextTabName(), document: CardText.document(from: sql)))
         Log.ui.info("Intent opened a new query tab")
         // Deliberately NOT run: an intent fires from an automation, where a
         // DELETE would have nothing in front of it. This mirrors the "Run in
@@ -163,7 +164,6 @@ struct RunSavedQueryIntent: AppIntent {
             }
             (NSApp.delegate as? AppDelegate)?.front(found.session)
             state.useConnection(connId, forTabId: found.tab.id, in: found.session)
-            found.session.selectTab(id: found.tab.id)
             return connId
         }
         try await PharosIntentBridge.ensureConnected(connectionId)

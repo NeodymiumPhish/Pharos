@@ -53,13 +53,11 @@ class ResultsGridVC: NSViewController {
 
     // Toolbar elements — owned by ContentViewController, accessed via contentVC
     var statusLabel: NSTextField { contentVC?.statusLabel ?? NSTextField(labelWithString: "") }
-    var pinSourceLabel: NSTextField { contentVC?.pinSourceLabel ?? NSTextField(labelWithString: "") }
     var resultBannerLabel: NSTextField { contentVC?.resultBannerLabel ?? NSTextField(labelWithString: "") }
     var resetSortButton: NSButton { contentVC?.resetSortButton ?? NSButton() }
     var resetFiltersButton: NSButton { contentVC?.resetFiltersButton ?? NSButton() }
     var clearSelectionButton: NSButton { contentVC?.clearSelectionButton ?? NSButton() }
     var tagButton: NSButton { contentVC?.tagButton ?? NSButton() }
-    var pinButton: NSButton { contentVC?.pinButton ?? NSButton() }
     var copyButton: NSButton { contentVC?.copyButton ?? NSButton() }
     var exportButton: NSButton { contentVC?.exportButton ?? NSButton() }
 
@@ -189,12 +187,8 @@ class ResultsGridVC: NSViewController {
     var onLoadAll: (() -> Void)?
     /// Cancel the running "Load All" snapshot. The owner knows its query id.
     var onCancelLoad: (() -> Void)?
-    var onPinToggle: ((Bool) -> Void)?
     var onSelectionChanged: ((IndexSet) -> Void)?
 
-
-    // Pin state
-    private var isPinned = false
 
     /// Token for the TagStore observer. The BLOCK form of `addObserver` keeps its
     /// closure alive until this is removed — unlike the selector form, it is not
@@ -390,8 +384,10 @@ class ResultsGridVC: NSViewController {
             }
         }
         appearanceObservers = [
-            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: keyChanged),
-            center.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main, using: keyChanged),
+            // This grid's own window only: every tab is a window, so `nil`
+            // here would wake every grid on every key change.
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: view.window, queue: .main, using: keyChanged),
+            center.addObserver(forName: NSWindow.didResignKeyNotification, object: view.window, queue: .main, using: keyChanged),
         ]
 
         // The accent colour. `currentControlTintDidChangeNotification` is
@@ -1129,34 +1125,6 @@ class ResultsGridVC: NSViewController {
         }
         guard let displayRow = state.selectedRowIndices().first else { return nil }
         return value(displayRow: displayRow, column: fdc)
-    }
-
-    // MARK: - Pin Results
-
-    @objc func togglePin() {
-        isPinned.toggle()
-        updatePinUI()
-        onPinToggle?(isPinned)
-    }
-
-    func setPinState(pinned: Bool, tabName: String?) {
-        isPinned = pinned
-        if let name = tabName {
-            pinSourceLabel.stringValue = "Pinned: \(DisplayEscape.escaped(name))"
-        }
-        updatePinUI()
-    }
-
-    private func updatePinUI() {
-        if isPinned {
-            pinButton.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: "Unpin Results")
-            pinButton.contentTintColor = .systemOrange
-            pinSourceLabel.isHidden = false
-        } else {
-            pinButton.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "Pin Results")
-            pinButton.contentTintColor = .secondaryLabelColor
-            pinSourceLabel.isHidden = true
-        }
     }
 
     // MARK: - Copy (Forwarding)

@@ -12,8 +12,8 @@ private func expect(_ condition: Bool, _ name: String, _ detail: @autoclosure ()
     }
 }
 
-private func held(_ id: String, _ order: Int, viewed: Bool = false, displayed: Bool = false, pinned: Bool = false) -> CardResultEviction.Candidate {
-    .init(cardId: id, order: order, hasBeenViewed: viewed, isDisplayed: displayed, isPinned: pinned)
+private func held(_ id: String, _ order: Int, viewed: Bool = false, displayed: Bool = false) -> CardResultEviction.Candidate {
+    .init(cardId: id, order: order, hasBeenViewed: viewed, isDisplayed: displayed)
 }
 
 private func testEviction() {
@@ -22,8 +22,8 @@ private func testEviction() {
     expect(CardResultEviction.toEvict(three, limit: 3).isEmpty, "evict: at the limit nothing goes")
     expect(CardResultEviction.toEvict(three, limit: 2) == ["a"], "evict: over the limit the oldest goes")
     expect(CardResultEviction.toEvict(three, limit: 1) == ["a", "b"], "evict: as many as needed, oldest first")
-    let guarded = [held("a", 0, viewed: true), held("b", 1, displayed: true), held("c", 2, pinned: true), held("d", 3)]
-    expect(CardResultEviction.toEvict(guarded, limit: 2) == ["d"], "evict: viewed, displayed and pinned results are kept")
+    let guarded = [held("a", 0, viewed: true), held("b", 1, displayed: true), held("c", 2), held("d", 3)]
+    expect(CardResultEviction.toEvict(guarded, limit: 2) == ["c", "d"], "evict: viewed and displayed results are kept")
     let allViewed = [held("a", 0, viewed: true), held("b", 1, viewed: true)]
     expect(CardResultEviction.toEvict(allViewed, limit: 1).isEmpty, "evict: when only viewed results are left, the tab goes over the limit")
     let unordered = [held("c", 9), held("a", 2), held("b", 5)]

@@ -68,13 +68,4 @@ final class SettingsWindowController: NSWindowController {
         show()
         splitVC.navigate(to: pane, source: .deepLink)
     }
-
-    /// ⌘W in this app is File ▸ Close Tab, and only the editor's content
-    /// controller answers it — so with Settings key the shortcut did nothing
-    /// at all. An `NSWindowController` is in its window's responder chain, so
-    /// answering the same selector here gives the window the close that ⌘W
-    /// means for a window with no tabs in it.
-    @objc func menuCloseTab(_ sender: Any?) {
-        window?.performClose(sender)
-    }
 }

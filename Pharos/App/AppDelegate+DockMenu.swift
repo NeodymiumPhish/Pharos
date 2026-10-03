@@ -33,14 +33,14 @@ extension AppDelegate {
 
     @MainActor
     @objc private func dockMenuNewTab(_ sender: Any?) {
-        showMainWindow().session.createTab()
+        openTab(nil, beside: frontmostWindowController)
     }
 
     @MainActor
     @objc private func dockMenuUseConnection(_ sender: NSMenuItem) {
         guard let connectionId = sender.representedObject as? String else { return }
-        let session = showMainWindow().session
-        let newTab = session.createTab()
-        AppStateManager.shared.useConnection(connectionId, forTabId: newTab.id, in: session)
+        let controller = openItem(QueryTab(name: AppStateManager.shared.nextTabName()))
+        guard let tab = controller.session.tab else { return }
+        AppStateManager.shared.useConnection(connectionId, forTabId: tab.id, in: controller.session)
     }
 }

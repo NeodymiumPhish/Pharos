@@ -5,8 +5,8 @@ import UniformTypeIdentifiers
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    /// Every open main window, in the order they were opened. That order is
-    /// the order they are stored in and the order they come back in.
+    /// Every open main window — one per query tab — in the order they were
+    /// opened.
     private(set) var windowControllers: [MainWindowController] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -113,13 +113,59 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// the last one built (or centres, when it is the first).
     @MainActor
     @discardableResult
-    func openMainWindow(frame: NSRect? = nil, connectionId: String? = nil) -> MainWindowController {
-        let controller = MainWindowController(initialConnectionId: connectionId)
+    func openMainWindow(frame: NSRect? = nil, connectionId: String? = nil, tab: QueryTab? = nil) -> MainWindowController {
+        let controller = MainWindowController(tab: tab, initialConnectionId: connectionId)
         windowControllers.append(controller)
         if let frame { controller.applyStoredFrame(frame) }
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         return controller
+    }
+
+    /// A new query tab: a window added to `source`'s tab group, or a window of
+    /// its own when there is no source. With no `tab`, a blank one on the
+    /// source tab's connection and schema. `select: false` adds it behind the
+    /// selected tab (session restore puts a group back that way).
+    @MainActor
+    @discardableResult
+    func openTab(_ tab: QueryTab?, beside source: MainWindowController?, select: Bool = true) -> MainWindowController {
+        var tab = tab
+        if tab == nil, let sourceTab = source?.session.tab {
+            tab = QueryTab(name: AppStateManager.shared.nextTabName(),
+                           connectionId: sourceTab.connectionId, schemaName: sourceTab.schemaName)
+        }
+        let controller = MainWindowController(tab: tab, initialConnectionId: source?.session.activeConnectionId)
+        windowControllers.append(controller)
+        if let source, let sourceWindow = source.window, let window = controller.window {
+            controller.splitViewController.adoptLayout(from: source.splitViewController)
+            sourceWindow.addTabbedWindow(window, ordered: .above)
+        }
+        if select {
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+        }
+        return controller
+    }
+
+    /// Where an item the user opens lands — a saved query, a history entry, a
+    /// workspace, a file, Services text: the tab the user is in when that tab
+    /// is untouched (a fresh blank "Query 1"), else a new tab beside it.
+    /// Returns the controller whose tab now holds `tab`.
+    @MainActor
+    @discardableResult
+    func openItem(_ tab: QueryTab) -> MainWindowController {
+        let current = frontmostWindowController
+        if let current, let existing = current.session.tab, existing.isPristine,
+           TabSessionMonitor.shared.report(for: existing.id) == nil {
+            current.session.install(tab)
+            // The blank tab is gone: close its own connection, if it ever
+            // opened one.
+            current.session.hooks.tabsDidClose([existing.id])
+            current.showWindow(nil)
+            current.window?.makeKeyAndOrderFront(nil)
+            return current
+        }
+        return openTab(tab, beside: current)
     }
 
     /// Drop a window that has closed. Called by the controller's
@@ -151,6 +197,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 
+    /// Whether tab `tabId` is out of sight: its window has closed or is
+    /// minimised, or another tab of its group is the one showing. Every tab
+    /// is a window, so "a background tab" is a question about the window.
+    @MainActor
+    func isTabOutOfSight(_ tabId: String) -> Bool {
+        guard let session = AppStateManager.shared.session(owningTabId: tabId),
+              let window = windowControllers.first(where: { $0.session === session })?.window,
+              window.isVisible else { return true }
+        if window.isMiniaturized { return true }
+        if let group = window.tabGroup, group.selectedWindow !== window { return true }
+        return false
+    }
+
+    /// The content controller of the window holding `session`.
+    @MainActor
+    func contentController(for session: WindowSession) -> ContentViewController? {
+        windowControllers.first { $0.session === session }?.splitViewController.contentVC
+    }
+
     /// Bring the window holding `session` to the front. Used by every path
     /// that names a TAB — a notification tap, an App Intent, a Spotlight or
     /// Handoff activity — which must front the window that OWNS it.
@@ -159,6 +224,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let controller = windowControllers.first(where: { $0.session === session }) else { return }
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// File ▸ Reopen Closed Tab (⇧⌘T): app-wide, since every tab is a window.
+    @MainActor
+    @objc func menuReopenTab(_ sender: Any?) {
+        AppStateManager.shared.reopenLastClosedTab()
+    }
+
+    /// File ▸ New Tab when no Pharos window is key (another app is in front,
+    /// or a panel is): a tab beside the frontmost Pharos window, or a window of
+    /// its own when there is none. With a window key,
+    /// `MainWindowController.newWindowForTab(_:)` answers first.
+    @MainActor
+    @objc func newWindowForTab(_ sender: Any?) {
+        guard let front = frontmostWindowController else {
+            openMainWindow()
+            return
+        }
+        openTab(nil, beside: front)
+    }
+
+    /// The key window's controller, else the frontmost Pharos window's.
+    @MainActor
+    var frontmostWindowController: MainWindowController? {
+        keyWindowController
+            ?? NSApp.orderedWindows.lazy.compactMap { $0.windowController as? MainWindowController }.first
+            ?? windowControllers.first
     }
 
     /// File ▸ New Window (⌘N). A new window starts empty, with one "Query 1"
@@ -324,7 +416,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         front(session)
-        session.selectTab(id: tabId)
     }
 
     @MainActor
@@ -452,9 +543,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             error.pointee = String(localized: "The selection has no SQL in it.") as NSString
             return
         }
-        let session = showMainWindow().session
-        let tab = session.createTab(document: CardText.document(from: sql))
-        session.selectTab(id: tab.id)
+        showMainWindow()
+        openItem(QueryTab(name: AppStateManager.shared.nextTabName(), document: CardText.document(from: sql)))
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -493,5 +583,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let dir = baseURL.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.pharos.client")
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.path
+    }
+}
+
+// MARK: - Menu validation
+
+extension AppDelegate: NSMenuItemValidation {
+    @MainActor
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(menuReopenTab(_:)) {
+            return AppStateManager.shared.canReopenClosedTab
+        }
+        return true
     }
 }

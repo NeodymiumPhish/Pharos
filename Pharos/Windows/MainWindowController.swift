@@ -3,8 +3,8 @@ import Combine
 
 class MainWindowController: NSWindowController {
 
-    /// This window's state: its tabs, its active tab, its connection and its
-    /// results. Made here and handed down the controller tree, so no pane ever
+    /// This window's state: its one query tab (every query tab is a native
+    /// window tab), its connection and its results. Made here and handed down the controller tree, so no pane ever
     /// has to ask `view.window` which session it belongs to.
     let session: WindowSession
 
@@ -26,14 +26,17 @@ class MainWindowController: NSWindowController {
     /// share `window.main.1`, even after the first is closed.
     private static var windowCount = 0
 
-    /// `initialConnectionId` seeds the new window's connection BEFORE its
-    /// content controller loads. That controller calls `ensureTab()` as soon
-    /// as its view appears, and the tab it makes takes its connection and
-    /// default schema from the session — so a value set afterwards would
-    /// arrive one tab too late.
-    init(initialConnectionId: String? = nil) {
+    /// `tab` is the query tab this window shows; nil makes a blank one.
+    /// `initialConnectionId` seeds a blank tab's connection BEFORE the content
+    /// controller loads: it calls `ensureTab()` as soon as its view appears,
+    /// and the tab it makes takes its connection and default schema from the
+    /// session. A given `tab` is installed AFTER the panes load — they react
+    /// to a tab at once, and must exist first — with `awaitsTab` holding back
+    /// a blank one in between.
+    init(tab: QueryTab? = nil, initialConnectionId: String? = nil) {
         let session = AppStateManager.shared.makeSession()
         session.activeConnectionId = initialConnectionId
+        session.awaitsTab = tab != nil
         self.session = session
         self.splitViewController = PharosSplitViewController(session: session)
 
@@ -44,13 +47,16 @@ class MainWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Pharos"
-        window.titleVisibility = .hidden
+        // The tab's name, kept current by `WindowTabPresenter`: a native tab
+        // shows its window's title.
+        window.title = tab?.name ?? "Pharos"
+        window.titleVisibility = .visible
         window.toolbarStyle = .unified
         window.minSize = NSSize(width: 800, height: 400)
-        // Native window tabs. The identifier is what lets two main windows form
-        // one tab group; AppKit then supplies Show Tab Bar, Show All Tabs, Move
-        // Tab to New Window and Merge All Windows by itself.
+        // Native window tabs: every query tab is one of these windows. The
+        // identifier is what lets them form one tab group; AppKit then supplies
+        // the tab bar and its + button (through `newWindowForTab(_:)`), Show
+        // All Tabs, Move Tab to New Window and Merge All Windows by itself.
         //
         // `.automatic`, not `.preferred`: `.preferred` makes every new window
         // open as a TAB whatever the user has chosen under Desktop & Dock ▸
@@ -81,6 +87,7 @@ class MainWindowController: NSWindowController {
 
         window.delegate = self
         window.contentViewController = splitViewController
+        if let tab { session.install(tab) }
 
         placeWindow(defaultContentRect: defaultContentRect)
 
@@ -103,6 +110,18 @@ class MainWindowController: NSWindowController {
         )
         toolbarController.install(on: window)
         self.toolbarController = toolbarController
+
+        tabPresenter = WindowTabPresenter(window: window, session: session)
+    }
+
+    /// Keeps the window title, subtitle, edited dot and native tab in step
+    /// with the window's query tab.
+    private var tabPresenter: WindowTabPresenter?
+
+    /// The tab bar's + button and File ▸ New Tab (⌘T): a new query tab beside
+    /// this one, on this tab's connection and schema.
+    override func newWindowForTab(_ sender: Any?) {
+        (NSApp.delegate as? AppDelegate)?.openTab(nil, beside: self)
     }
 
     /// Put the window somewhere sensible: the frame a caller restored from the
@@ -157,6 +176,60 @@ class MainWindowController: NSWindowController {
         fatalError("init(coder:) not implemented")
     }
 
+    // MARK: - Tab group (every query tab is one of these windows)
+
+    /// The windows of this window's tab group, in tab-bar order.
+    var tabGroupControllers: [MainWindowController] {
+        (window?.tabGroup?.windows ?? [window].compactMap { $0 })
+            .compactMap { $0.windowController as? MainWindowController }
+    }
+
+    /// View ▸ Tab 1–9 (⌘1–9): the nth tab of this window's group.
+    @objc func menuSelectTab(_ sender: NSMenuItem) {
+        let windows = window?.tabGroup?.windows ?? [window].compactMap { $0 }
+        guard sender.tag >= 0, sender.tag < windows.count else { return }
+        windows[sender.tag].makeKeyAndOrderFront(nil)
+    }
+
+    /// File ▸ Close Window (⇧⌘W): every tab of the group, each asked about in
+    /// turn, in its own tab. A Cancel stops there and keeps the rest.
+    @objc func menuCloseWindow(_ sender: Any?) {
+        Self.close(tabGroupControllers)
+    }
+
+    private static func close(_ controllers: [MainWindowController]) {
+        guard let first = controllers.first else { return }
+        let rest = Array(controllers.dropFirst())
+        first.window?.makeKeyAndOrderFront(nil)
+        first.closeAskingFirst { closed in
+            if closed { close(rest) }
+        }
+    }
+
+    /// Close this tab's window, after asking about its open transaction and
+    /// its unsaved work. `then(true)` once it has closed.
+    func closeAskingFirst(then: @escaping (Bool) -> Void) {
+        let contentVC = splitViewController.contentVC
+        let open = contentVC.tabsWithOpenTransaction()
+        let unsaved = contentVC.unsavedWorkTabs
+        guard !open.isEmpty || !unsaved.isEmpty else {
+            isCloseConfirmed = true
+            window?.close()
+            then(true)
+            return
+        }
+        // Open transactions first (closing rolls them back), then unsaved text.
+        contentVC.confirmRollingBack(open, action: .closeTab) { [weak self] proceed in
+            guard let self, proceed else { then(false); return }
+            contentVC.confirmClosing(contentVC.unsavedWorkTabs) { [weak self] proceed in
+                guard let self, proceed else { then(false); return }
+                self.isCloseConfirmed = true
+                self.window?.close()
+                then(true)
+            }
+        }
+    }
+
     // MARK: - Connection Actions (called from menu bar)
 
     @objc func showConnectionsManager() {
@@ -168,9 +241,8 @@ class MainWindowController: NSWindowController {
 
 extension MainWindowController: NSWindowDelegate {
 
-    /// Plan §5.2 L: a window close takes every one of its tabs with it, so it
-    /// asks about all of them at once, in the same words a single tab close
-    /// uses.
+    /// Closing a tab (⌘W, the tab's close button) closes its window, so it
+    /// asks about the tab's open transaction and unsaved work first.
     ///
     /// The answer arrives later, so the close is refused now and made again
     /// from the completion. `window.close()` does not consult this delegate,
@@ -184,18 +256,8 @@ extension MainWindowController: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if isCloseConfirmed || stateManager.isTerminating { return true }
         let contentVC = splitViewController.contentVC
-        let open = contentVC.tabsWithOpenTransaction()
-        let unsaved = contentVC.unsavedWorkTabs
-        guard !open.isEmpty || !unsaved.isEmpty else { return true }
-        // Open transactions first (closing rolls them back), then unsaved text.
-        contentVC.confirmRollingBack(open, action: .closeWindow) { [weak self] proceed in
-            guard let self, proceed else { return }
-            contentVC.confirmClosing(contentVC.unsavedWorkTabs) { [weak self] proceed in
-                guard let self, proceed else { return }
-                self.isCloseConfirmed = true
-                self.window?.close()
-            }
-        }
+        guard !contentVC.tabsWithOpenTransaction().isEmpty || !contentVC.unsavedWorkTabs.isEmpty else { return true }
+        closeAskingFirst { _ in }
         return false
     }
 
@@ -206,6 +268,7 @@ extension MainWindowController: NSWindowDelegate {
     /// The editor text of its workspace-bound tabs is flushed FIRST, while the
     /// tabs still exist; after `retire` there is nothing left to read.
     func windowWillClose(_ notification: Notification) {
+        splitViewController.contentVC.cancelQueuedRuns()
         stateManager.snapshotWorkspaces()
         stateManager.retire(session)
         (NSApp.delegate as? AppDelegate)?.forget(self)
