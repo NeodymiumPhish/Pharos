@@ -179,6 +179,12 @@ class EditorPaneVC: NSViewController {
                 self.refreshTabContext()
             }
             .store(in: &cancellables)
+        // A card added, deleted or edited while a filter is typed changes the
+        // count. Every keystroke republishes the tabs; the update is a no-op
+        // when the text is unchanged.
+        session.tabsSettled
+            .sink { [weak self] _ in self?.updateCardFilterCount() }
+            .store(in: &cancellables)
 
         // Push THIS window's connection's metadata to the completion list, once
         // per change to it. Another window's connection never reaches it.
@@ -389,6 +395,7 @@ class EditorPaneVC: NSViewController {
         if !cardFilterField.stringValue.isEmpty {
             cardFilterField.stringValue = ""
             cardStack.filter = ""
+            updateCardFilterCount()
         }
         guard let newTabId,
               let tab = session.tabs.first(where: { $0.id == newTabId }) else {
@@ -647,6 +654,17 @@ class EditorPaneVC: NSViewController {
         cardFilterField.setAccessibilityIdentifier("editor.filterCards")
         editorToolbar.addSubview(cardFilterField)
 
+        cardFilterCountLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        cardFilterCountLabel.textColor = .secondaryLabelColor
+        cardFilterCountLabel.alignment = .right
+        cardFilterCountLabel.lineBreakMode = .byTruncatingHead
+        cardFilterCountLabel.isHidden = true
+        cardFilterCountLabel.translatesAutoresizingMaskIntoConstraints = false
+        // It gives way before the field and the buttons in a narrow pane.
+        cardFilterCountLabel.setContentCompressionResistancePriority(.init(200), for: .horizontal)
+        cardFilterCountLabel.setAccessibilityIdentifier("editor.filterCount")
+        editorToolbar.addSubview(cardFilterCountLabel)
+
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 24),
             formatButton.heightAnchor.constraint(equalToConstant: 24),
@@ -682,7 +700,12 @@ class EditorPaneVC: NSViewController {
               width.priority = .defaultHigh
               return width }(),
             cardFilterField.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            cardFilterCountLabel.trailingAnchor.constraint(equalTo: cardFilterField.leadingAnchor, constant: -8),
+            cardFilterCountLabel.firstBaselineAnchor.constraint(equalTo: cardFilterField.firstBaselineAnchor),
             { let gap = cardFilterField.leadingAnchor.constraint(greaterThanOrEqualTo: toolbarStack.trailingAnchor, constant: 8)
+              gap.priority = NSLayoutConstraint.Priority(999)
+              return gap }(),
+            { let gap = cardFilterCountLabel.leadingAnchor.constraint(greaterThanOrEqualTo: toolbarStack.trailingAnchor, constant: 8)
               gap.priority = NSLayoutConstraint.Priority(999)
               return gap }(),
         ])
@@ -693,6 +716,24 @@ class EditorPaneVC: NSViewController {
 
     @objc private func cardFilterChanged(_ sender: NSSearchField) {
         cardStack.filter = sender.stringValue
+        updateCardFilterCount()
+    }
+
+    /// "3 of 12 cards" left of the Filter Cards field while a filter is
+    /// typed, so the user sees how much of the tab the filter hides.
+    let cardFilterCountLabel = NSTextField(labelWithString: "")
+
+    private func updateCardFilterCount() {
+        guard let document = session.tab?.document,
+              let count = CardStackLayout.filterCount(document, filter: cardFilterField.stringValue) else {
+            cardFilterCountLabel.isHidden = true
+            cardFilterCountLabel.stringValue = ""
+            return
+        }
+        let text = CardStackLayout.filterCountText(shown: count.shown, total: count.total)
+        guard cardFilterCountLabel.stringValue != text || cardFilterCountLabel.isHidden else { return }
+        cardFilterCountLabel.stringValue = text
+        cardFilterCountLabel.isHidden = false
     }
 
     @objc private func showErrors() {

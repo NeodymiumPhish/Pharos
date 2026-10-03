@@ -85,7 +85,7 @@ Other actions also add a card to the active tab:
 
 ### Filtering cards
 
-Type in the **Filter Cards** field in the editor toolbar to show only the cards whose name or SQL contains the text. Each tab keeps its own filter.
+Type in the **Filter Cards** field in the editor toolbar to show only the cards whose name or SQL contains the text. While a filter is typed, the text to the left of the field shows how many cards it shows out of all the tab's cards ("6 of 9 cards"; every version counts). Each tab keeps its own filter.
 
 ### Find
 

@@ -559,6 +559,9 @@
     "Cells" : {
 
     },
+    "Changing the connection rolls them back." : {
+
+    },
     "Channel" : {
 
     },
@@ -590,6 +593,12 @@
 
     },
     "Choose a connection for this tab to start." : {
+
+    },
+    "Choose a database for this tab." : {
+
+    },
+    "Choose Connection" : {
 
     },
     "Choose Connection…" : {
@@ -701,6 +710,9 @@
     "Commit every" : {
 
     },
+    "Commit Transaction" : {
+
+    },
     "Compact" : {
 
     },
@@ -752,16 +764,19 @@
     "Connecting to “%@”. You can run this card when the connection is ready." : {
 
     },
+    "Connecting…" : {
+
+    },
     "Connection" : {
 
     },
-    "Connection error" : {
-
-    },
-    "Connection for the active tab" : {
+    "Connection failed" : {
 
     },
     "Connection Pool" : {
+
+    },
+    "Connection reset" : {
 
     },
     "Connections" : {
@@ -823,6 +838,9 @@
       }
     },
     "Could not check: %@" : {
+
+    },
+    "Could not connect" : {
 
     },
     "Could not connect to “%@”. Choose Connect from the Connection menu in the toolbar to try again." : {
@@ -951,9 +969,6 @@
     "Disconnect" : {
 
     },
-    "Disconnected" : {
-
-    },
     "Disconnecting rolls them back." : {
 
     },
@@ -997,6 +1012,9 @@
 
     },
     "DROP" : {
+
+    },
+    "Duplicate Tab" : {
 
     },
     "Dusk" : {
@@ -1752,6 +1770,9 @@
     "No column is ever made wider than this, by fitting or by dragging." : {
 
     },
+    "No connection" : {
+
+    },
     "No Connection" : {
 
     },
@@ -1810,6 +1831,9 @@
 
     },
     "Not checked yet." : {
+
+    },
+    "Not connected" : {
 
     },
     "Not connected to “%@”. Choose Connect from the Connection menu in the toolbar to run this card." : {
@@ -2313,6 +2337,9 @@
     "Rename Card" : {
 
     },
+    "Rename Tab…" : {
+
+    },
     "Rename…" : {
 
     },
@@ -2413,6 +2440,12 @@
 
     },
     "Roll Back and Quit" : {
+
+    },
+    "Roll Back and Switch" : {
+
+    },
+    "Roll Back Transaction" : {
 
     },
     "Root Certificate" : {
@@ -2529,9 +2562,6 @@
     "Schema cache" : {
 
     },
-    "Schema for the active tab" : {
-
-    },
     "Schemas" : {
 
     },
@@ -2560,9 +2590,6 @@
 
     },
     "Select All" : {
-
-    },
-    "Select Connection" : {
 
     },
     "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote." : {
@@ -3147,6 +3174,12 @@
     "This tab has no database connection. Choose one from the Connection menu in the toolbar to run this card." : {
 
     },
+    "This tab's database connection" : {
+
+    },
+    "This tab's schema" : {
+
+    },
     "Throw the pending changes away and reload the rows." : {
 
     },
@@ -3162,13 +3195,22 @@
     "Title" : {
 
     },
-    "To keep them, cancel and use Commit in the tab." : {
+    "To keep them, cancel, then choose Commit from the tab's transaction button." : {
+
+    },
+    "Transaction failed" : {
+
+    },
+    "Transaction open · %@" : {
 
     },
     "Transaction open for %@." : {
 
     },
     "TRUNCATE" : {
+
+    },
+    "Try Again" : {
 
     },
     "TSV" : {

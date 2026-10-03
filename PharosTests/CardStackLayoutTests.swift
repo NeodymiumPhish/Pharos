@@ -129,7 +129,21 @@ private func testRotor() {
     expect(CardStackLayout.rotorTarget(ids: ids, labels: labels, current: nil, forward: true, filter: "zzz") == nil, "rotor: no match")
 }
 
+private func testFilterCount() {
+    let d = versioned()   // a1, a2, a3 (Active users) and b (plans): 4 cards
+    expect(CardStackLayout.filterCount(d, filter: nil) == nil, "count: no filter, no count")
+    expect(CardStackLayout.filterCount(d, filter: "  ") == nil, "count: a blank filter is no filter")
+    let users = CardStackLayout.filterCount(d, filter: "active users")
+    expect(users?.shown == 3 && users?.total == 4, "count: every version that matches, out of every card",
+           "\(String(describing: users))")
+    expect(CardStackLayout.filterCount(d, filter: "zzz")?.shown == 0, "count: nothing matches is 0, not no count")
+    expect(CardStackLayout.filterCountText(shown: 3, total: 4) == "3 of 4 cards", "text: 3 of 4 cards")
+    expect(CardStackLayout.filterCountText(shown: 0, total: 1) == "0 of 1 card", "text: one card is singular")
+    expect(CardStackLayout.filterCountText(shown: 1200, total: 1500) == "1,200 of 1,500 cards", "text: grouped numbers")
+}
+
 func runTests() {
+    testFilterCount()
     testRotor()
     testExpandScroll()
     testItems()

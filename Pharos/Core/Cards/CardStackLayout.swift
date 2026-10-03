@@ -72,6 +72,23 @@ enum CardStackLayout {
         return items
     }
 
+    /// How many cards a filter shows, out of every card in the tab (each
+    /// version counts, as the filter shows matching versions too). Nil when
+    /// there is no filter: the count is only shown while one is typed.
+    static func filterCount(_ document: CardDocument, filter: String?) -> (shown: Int, total: Int)? {
+        let needle = filter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !needle.isEmpty else { return nil }
+        let shown = items(document, filter: needle).filter { if case .card = $0 { return true } else { return false } }.count
+        return (shown, document.cards.count)
+    }
+
+    /// "3 of 12 cards", beside the Filter Cards field.
+    static func filterCountText(shown: Int, total: Int) -> String {
+        total == 1
+            ? String(localized: "\(shown.formatted()) of \(total.formatted()) card")
+            : String(localized: "\(shown.formatted()) of \(total.formatted()) cards")
+    }
+
     /// Top-down frames: `inset` around the stack, `spacing` between rows.
     static func frames(_ items: [CardStackItem], height: (CardStackItem) -> CGFloat,
                        width: CGFloat, spacing: CGFloat, inset: CGFloat) -> [CGRect] {
