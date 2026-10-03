@@ -8,7 +8,6 @@ swiftc -o /tmp/pharos-tab-session-tests \
   Pharos/Models/RowEdit.swift \
   Pharos/Core/TabSessionMonitor.swift \
   Pharos/Core/TabSessionBannerModel.swift \
-  Pharos/Views/TabSessionBanner.swift \
   PharosTests/TabSessionTests.swift \
   PharosTests/main.swift
 /tmp/pharos-tab-session-tests

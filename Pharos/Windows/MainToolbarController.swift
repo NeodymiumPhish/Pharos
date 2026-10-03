@@ -2,8 +2,6 @@ import AppKit
 import Combine
 
 extension NSToolbarItem.Identifier {
-    static let pharosConnection = NSToolbarItem.Identifier("PharosConnection")
-    static let pharosSchema = NSToolbarItem.Identifier("PharosSchema")
     static let pharosFilterSidebar = NSToolbarItem.Identifier("PharosFilterSidebar")
     static let pharosFormatSQL = NSToolbarItem.Identifier("PharosFormatSQL")
     static let pharosNewTab = NSToolbarItem.Identifier("PharosNewTab")
@@ -14,23 +12,22 @@ extension NSToolbarItem.Identifier {
 
 /// Delegate and state driver for the main window's `NSToolbar`.
 ///
-/// Default set, left to right: navigator group | tracking separator |
-/// connection pull-down, schema pull-down | flexible space |
-/// tracking separator | flexible space | inspector toggle. The inspector
-/// toggle holds the window's right edge whether the inspector is open or
-/// closed. The navigator group stands where the
-/// sidebar toggle used to: it both picks the sidebar's list and, when the lit
-/// segment is pressed again, collapses the pane — the way Calendar's
-/// Calendars/Invites control behaves. The connection and schema pull-downs
-/// are two adjacent items with the same bezel, so the pair reads as "this
-/// database, this schema"; both follow the active tab. (Measured 2026-09-17: an
-/// `NSToolbarItemGroup` of two view-based items gives each its own glass
-/// platter, with the same 8pt gap as two separate items — a group would buy
-/// nothing but a shared Customize Toolbar… entry.) There is no Run or Cancel
-/// item: each query card has its own Run button, which becomes Cancel while
-/// the card runs, and the Query menu has both commands. Every item
-/// here has a menu command or an editor-side equivalent; the toolbar adds
-/// nothing that cannot be reached another way.
+/// Default set, left to right: navigator group | tracking separator | flexible
+/// space | tracking separator | flexible space | inspector toggle. The
+/// inspector toggle holds the window's right edge whether the inspector is
+/// open or closed. The navigator group stands where the sidebar toggle used
+/// to: it both picks the sidebar's list and, when the lit segment is pressed
+/// again, collapses the pane — the way Calendar's Calendars/Invites control
+/// behaves.
+///
+/// Only window-wide items live here. Every query tab is its own window (a
+/// native window tab), and what belongs to one tab — its connection, schema
+/// and transaction — is in the tab's context row in the editor pane (HIG,
+/// Tab views: controls in a pane affect only that pane). There is no Run or
+/// Cancel item: each card has its own. The window title is the tab's name,
+/// with "connection · schema" under it. Every item here has a menu command or
+/// an editor-side equivalent; the toolbar adds nothing that cannot be reached
+/// another way.
 ///
 /// The user can customize the toolbar (View > Customize Toolbar…). The
 /// allowed-but-not-default items are the sidebar filter field, Format SQL,
@@ -45,42 +42,21 @@ final class MainToolbarController: NSObject {
     private var contentVC: ContentViewController? { splitVC?.contentVC }
     private var sidebarVC: SidebarViewController? { splitVC?.sidebarVC }
     private let session: WindowSession
-    private let stateManager = AppStateManager.shared
-    private let metadataCache = MetadataCache.shared
-    private var cancellables = Set<AnyCancellable>()
 
     /// One toolbar per window; the items are created on demand and kept
     /// weakly so state updates reach the live ones.
     private weak var toolbar: NSToolbar?
     private weak var navigatorItem: NSToolbarItemGroup?
 
-    private let connectionButton = NSPopUpButton(frame: .zero, pullsDown: true)
-    /// The schema for the active tab. Presents `SchemaSelectorPopoverVC` rather
-    /// than a menu, so a long schema list scrolls and can be searched.
-    private let schemaButton = SchemaPopUpButton(frame: .zero, pullsDown: true)
-    private let schemaSpinner = NSProgressIndicator()
-    private var schemaPopover: NSPopover?
-    private var schemaPopoverCloseObserver: NSObjectProtocol?
-
     init(session: WindowSession, splitVC: PharosSplitViewController) {
         self.session = session
         self.splitVC = splitVC
         super.init()
-        configureConnectionButton()
-        configureSchemaButton()
-        subscribe()
         // ⌥⌘1/2/3 go straight to the sidebar; this is how the group hears about
         // them. Weak, or the sidebar (owned by the window) would keep this
-        // controller alive past `windowWillClose` and its `deinit` would never
-        // remove the schema popover observer.
+        // controller alive past `windowWillClose`.
         splitVC.sidebarVC.onNavigatorChanged = { [weak self] navigator in
             self?.navigatorItem?.selectedIndex = navigator.rawValue
-        }
-    }
-
-    deinit {
-        if let observer = schemaPopoverCloseObserver {
-            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -93,8 +69,9 @@ final class MainToolbarController: NSObject {
         // items became the one Run | Cancel control (as, one bump earlier, it
         // would never have shown the schema pull-down). The new name costs one
         // reset of the user's own toolbar customisation, display mode and size
-        // mode. The same rule made removing the Run | Cancel item free: a
-        // saved "PharosRunControl" is an unknown identifier now, and is dropped.
+        // mode. The same rule made removing items free: a saved
+        // "PharosRunControl", "PharosConnection" or "PharosSchema" is an
+        // unknown identifier now, and is dropped.
         let toolbar = NSToolbar(identifier: "PharosToolbar4")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -104,337 +81,10 @@ final class MainToolbarController: NSObject {
         self.toolbar = toolbar
     }
 
-    // MARK: - State
-
-    private func subscribe() {
-        // Tabs: the connection and schema titles follow the active tab.
-        // Dedup on the fields read here so a keystroke (which republishes
-        // the tabs) does not rebuild the menu.
-        session.tabsSettled
-            .removeDuplicates { lhs, rhs in
-                guard lhs.count == rhs.count else { return false }
-                for i in 0..<lhs.count {
-                    if lhs[i].id != rhs[i].id
-                        || lhs[i].connectionId != rhs[i].connectionId
-                        || lhs[i].schemaName != rhs[i].schemaName
-                    {
-                        return false
-                    }
-                }
-                return true
-            }
-            .sink { [weak self] _ in self?.refresh() }
-            .store(in: &cancellables)
-
-        session.activeTabIdSettled
-            .sink { [weak self] _ in self?.refresh() }
-            .store(in: &cancellables)
-
-        Publishers.CombineLatest(stateManager.$connections, stateManager.$connectionStatuses)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in self?.refresh() }
-            .store(in: &cancellables)
-
-        // The schema pull-down also follows the metadata cache, read for THIS
-        // window's connection. `receive(on:)` hops, so the entry is current.
-        metadataCache.$entries
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.refreshSchemaButton() }
-            .store(in: &cancellables)
-    }
-
-    private func refresh() {
-        rebuildConnectionMenu()
-        refreshSchemaButton()
-        toolbar?.validateVisibleItems()
-    }
-
-    private var activeTab: QueryTab? { session.activeTab }
-    private var tabConnectionId: String? { activeTab?.connectionId }
-    private var tabSchemaName: String? { activeTab?.schemaName }
-
     // MARK: - Actions
 
     @objc private func filterChanged(_ sender: NSSearchField) {
         sidebarVC?.setFilterText(sender.stringValue)
-    }
-
-    // MARK: - Connection pull-down
-
-    /// The one look both pull-downs share: bezel, size, arrow, title alignment
-    /// and — the part that made them read as two different controls — the same
-    /// width range. With 150 vs 100 as their minimums the connection read as a
-    /// wide dropdown and the schema as a chip hugging its title.
-    private static func configureToolbarPullDown(_ button: NSPopUpButton, label: String, identifier: String) {
-        button.bezelStyle = .toolbar
-        button.controlSize = .regular
-        button.translatesAutoresizingMaskIntoConstraints = false
-        if let cell = button.cell as? NSPopUpButtonCell {
-            cell.arrowPosition = .arrowAtBottom
-            cell.alignment = .left
-        }
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: pullDownMinWidth),
-            button.widthAnchor.constraint(lessThanOrEqualToConstant: pullDownMaxWidth),
-        ])
-        button.setAccessibilityLabel(label)
-        button.setAccessibilityIdentifier(identifier)
-    }
-
-    static let pullDownMinWidth: CGFloat = 150
-    static let pullDownMaxWidth: CGFloat = 260
-
-    private func configureConnectionButton() {
-        Self.configureToolbarPullDown(connectionButton, label: String(localized: "Connection"),
-                                      identifier: "toolbar.connection")
-    }
-
-    private func rebuildConnectionMenu() {
-        connectionButton.removeAllItems()
-
-        let connections = stateManager.connections
-        let activeId = tabConnectionId
-
-        // First item in a pull-down button is the button's displayed title.
-        let buttonTitle: String
-        if let activeId, let config = connections.first(where: { $0.id == activeId }) {
-            let status = stateManager.status(for: config.id)
-            buttonTitle = "\(statusString(for: status))\(DisplayEscape.escaped(config.name))"
-        } else if connections.isEmpty {
-            buttonTitle = String(localized: "No Connections")
-        } else {
-            buttonTitle = String(localized: "Select Connection")
-        }
-        connectionButton.addItem(withTitle: buttonTitle)
-        if let activeId, let config = connections.first(where: { $0.id == activeId }),
-           let titleItem = connectionButton.item(at: 0) {
-            let status = stateManager.status(for: config.id)
-            titleItem.attributedTitle = styledTitle(buttonTitle, status: status)
-            // A failed connect carries its reason; "Connection error" alone
-            // sent the user to the Connections window to find out why.
-            // `humanised` takes off the `[SSH AUTH]` marker the core puts in
-            // front of a tunnel authentication failure. The marker is for the
-            // app — `SshSecretPrompt` reads it — never for the reader.
-            let reason = status == .error
-                ? stateManager.connectionError(for: config.id)
-                    .map { DisplayEscape.escaped(SshTunnelAuthError.humanised($0)) }
-                : nil
-            // The bastion, when there is one: the tooltip is the only place
-            // in the main window that says a query is travelling through an
-            // SSH tunnel.
-            let via = SshTunnelForm.viaPhrase(config.sshTunnel, escape: DisplayEscape.escaped)
-            connectionButton.toolTip = [
-                DisplayEscape.escaped(config.name), statusName(for: status), via, reason,
-            ].compactMap { $0 }.joined(separator: " — ")
-            connectionButton.setAccessibilityValue(
-                [statusName(for: status), reason].compactMap { $0 }.joined(separator: ", "))
-        } else {
-            connectionButton.toolTip = String(localized: "Connection for the active tab")
-            connectionButton.setAccessibilityValue(nil)
-        }
-
-        if !connections.isEmpty {
-            connectionButton.menu?.addItem(.separator())
-            for config in connections {
-                let status = stateManager.status(for: config.id)
-                let title = "\(statusString(for: status))\(DisplayEscape.escaped(config.name))"
-                let item = NSMenuItem(title: title, action: #selector(connectionItemClicked(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = config.id
-                item.attributedTitle = styledTitle(title, status: status)
-                if config.id == activeId { item.state = .on }
-                connectionButton.menu?.addItem(item)
-            }
-
-            connectionButton.menu?.addItem(.separator())
-
-            let connect = NSMenuItem(title: String(localized: "Connect"), action: #selector(connectSelected), keyEquivalent: "")
-            connect.target = self
-            connect.isEnabled = contentVC?.canConnect ?? false
-            connectionButton.menu?.addItem(connect)
-
-            let disconnect = NSMenuItem(title: String(localized: "Disconnect"), action: #selector(disconnectSelected), keyEquivalent: "")
-            disconnect.target = self
-            disconnect.isEnabled = contentVC?.canDisconnect ?? false
-            connectionButton.menu?.addItem(disconnect)
-
-            let refresh = NSMenuItem(title: String(localized: "Refresh Metadata"), action: #selector(refreshMetadata), keyEquivalent: "")
-            refresh.target = self
-            refresh.isEnabled = contentVC?.canRefreshMetadata ?? false
-            connectionButton.menu?.addItem(refresh)
-        }
-
-        connectionButton.menu?.addItem(.separator())
-        let manage = NSMenuItem(title: String(localized: "Manage Connections…"), action: #selector(showConnectionsManager), keyEquivalent: "")
-        manage.target = self
-        connectionButton.menu?.addItem(manage)
-        connectionButton.menu?.autoenablesItems = false
-    }
-
-    /// One glyph per state, so the state reads without its colour
-    /// (Differentiate Without Color, monochrome menus, VoiceOver text).
-    private func statusString(for status: ConnectionStatus) -> String {
-        switch status {
-        case .connected: return "\u{25CF} "    // ● filled circle
-        case .connecting: return "\u{25D0} "   // ◐ half circle
-        case .error: return "\u{2715} "        // ✕ multiplication x
-        case .disconnected: return "\u{25CB} " // ○ empty circle
-        }
-    }
-
-    private func statusName(for status: ConnectionStatus) -> String {
-        switch status {
-        case .connected: return String(localized: "Connected")
-        case .connecting: return String(localized: "Connecting")
-        case .error: return String(localized: "Connection error")
-        case .disconnected: return String(localized: "Disconnected")
-        }
-    }
-
-    private func styledTitle(_ title: String, status: ConnectionStatus) -> NSAttributedString {
-        let attributed = NSMutableAttributedString(string: title)
-        let color: NSColor?
-        switch status {
-        case .connected: color = .systemGreen
-        case .error: color = .systemRed
-        default: color = nil
-        }
-        if let color {
-            attributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 2))
-        }
-        return attributed
-    }
-
-    @objc private func connectionItemClicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String, let tab = activeTab else { return }
-        let tabId = tab.id
-        // Moving the tab to another connection closes its own connection,
-        // rolling back an open transaction there: ask first.
-        guard id != tab.connectionId, let contentVC,
-              !contentVC.tabsWithOpenTransaction(among: [tabId]).isEmpty else {
-            stateManager.useConnection(id, forTabId: tabId, in: session)
-            return
-        }
-        contentVC.confirmRollingBack(contentVC.tabsWithOpenTransaction(among: [tabId]), action: .disconnect) { [weak self] proceed in
-            guard let self, proceed else { return }
-            Task { @MainActor in
-                _ = await TabSessionMonitor.shared.close(tabId)
-                self.stateManager.useConnection(id, forTabId: tabId, in: self.session)
-            }
-        }
-    }
-
-    @objc private func connectSelected() { contentVC?.menuConnect(nil) }
-    @objc private func disconnectSelected() { contentVC?.menuDisconnect(nil) }
-    @objc private func refreshMetadata() { contentVC?.menuRefreshMetadata(nil) }
-    @objc private func showConnectionsManager() { ConnectionsManagerWindowController.show() }
-
-    // MARK: - Schema pull-down
-
-    private func configureSchemaButton() {
-        Self.configureToolbarPullDown(schemaButton, label: String(localized: "Schema"),
-                                      identifier: "toolbar.schema")
-        schemaButton.toolTip = String(localized: "Schema for the active tab")
-        schemaButton.onActivate = { [weak self] button in
-            self?.presentSchemaPopover(from: button)
-        }
-
-        // Spinner overlay for "Loading…"
-        schemaSpinner.style = .spinning
-        schemaSpinner.controlSize = .small
-        schemaSpinner.isDisplayedWhenStopped = false
-        schemaSpinner.translatesAutoresizingMaskIntoConstraints = false
-        schemaButton.addSubview(schemaSpinner)
-        NSLayoutConstraint.activate([
-            schemaSpinner.trailingAnchor.constraint(equalTo: schemaButton.trailingAnchor, constant: -20),
-            schemaSpinner.centerYAnchor.constraint(equalTo: schemaButton.centerYAnchor),
-        ])
-    }
-
-    /// Title, enabled state and spinner from `SchemaButtonState` — the pure
-    /// rule — fed from this window's active tab and the shared cache.
-    private func refreshSchemaButton() {
-        let connectionId = tabConnectionId
-        let metadata = metadataCache.metadata(for: connectionId)
-        let state = SchemaButtonState(
-            hasConnection: connectionId != nil,
-            isConnected: connectionId.map { stateManager.status(for: $0) == .connected } ?? false,
-            isLoading: metadata.isLoading,
-            hasSchemas: !metadata.schemas.isEmpty,
-            activeSchema: tabSchemaName)
-
-        // The button shows a single title item; the full schema list and the
-        // "All Schemas" / "Set as Default" actions live in the popover.
-        schemaButton.removeAllItems()
-        schemaButton.addItem(withTitle: state.title)
-        schemaButton.isEnabled = state.isEnabled
-        schemaButton.setAccessibilityValue(state.title)
-        if state.showsSpinner {
-            schemaSpinner.startAnimation(nil)
-        } else {
-            schemaSpinner.stopAnimation(nil)
-        }
-    }
-
-    /// Update the active tab's schema and the window's schema-following state
-    /// (the Database Navigator reads `activeSchema`).
-    private func setTabSchema(_ schemaName: String?) {
-        guard let tab = activeTab else { return }
-        session.updateTab(id: tab.id) { $0.schemaName = schemaName }
-        session.activeSchema = schemaName
-    }
-
-    private func presentSchemaPopover(from button: NSView) {
-        let schemaNames = metadataCache.metadata(for: tabConnectionId).schemas.map { $0.name }
-        let defaultSchema: String? = {
-            guard let connId = tabConnectionId else { return nil }
-            return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema
-        }()
-
-        let vc = SchemaSelectorPopoverVC(
-            schemas: schemaNames,
-            activeSchema: tabSchemaName,
-            defaultSchema: defaultSchema
-        )
-        vc.onSelectSchema = { [weak self] schema in
-            self?.setTabSchema(schema)
-            self?.schemaPopover?.close()
-        }
-        vc.onSetDefault = { [weak self] in
-            self?.setDefaultSchema()
-            self?.schemaPopover?.close()
-        }
-
-        let popover = NSPopover()
-        popover.contentViewController = vc
-        popover.behavior = .transient
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-        schemaPopover = popover
-
-        // Pressed while open, released when it closes — the look AppKit gives
-        // the connection pull-down while its menu is up.
-        schemaButton.isPresenting = true
-        if let existing = schemaPopoverCloseObserver {
-            NotificationCenter.default.removeObserver(existing)
-        }
-        schemaPopoverCloseObserver = NotificationCenter.default.addObserver(
-            forName: NSPopover.didCloseNotification, object: popover, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.schemaButton.isPresenting = false
-                self?.schemaPopover = nil
-            }
-        }
-    }
-
-    /// The tab's current schema becomes the connection's default (nil — "All
-    /// Schemas" — clears it). The connection store republishes, which
-    /// refreshes this button.
-    private func setDefaultSchema() {
-        guard let connId = tabConnectionId,
-              var config = stateManager.connections.first(where: { $0.id == connId }) else { return }
-        config.defaultSchema = tabSchemaName
-        stateManager.saveConnection(config)
     }
 
     // MARK: - Navigator group
@@ -497,28 +147,6 @@ extension MainToolbarController: NSToolbarDelegate {
             }
             return group
 
-        case .pharosConnection:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = String(localized: "Connection")
-            item.paletteLabel = String(localized: "Connection")
-            item.toolTip = String(localized: "Connection for the active tab")
-            item.view = connectionButton
-            item.visibilityPriority = .high
-            if flag { rebuildConnectionMenu() }
-            return item
-
-        case .pharosSchema:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = String(localized: "Schema")
-            item.paletteLabel = String(localized: "Schema")
-            item.toolTip = String(localized: "Schema for the active tab")
-            item.view = schemaButton
-            // `.standard`, below the connection's `.high`: in a narrow
-            // window the schema goes to the overflow menu before it does.
-            item.visibilityPriority = .standard
-            if flag { refreshSchemaButton() }
-            return item
-
         case .pharosFilterSidebar:
             let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
             item.label = String(localized: "Filter")
@@ -572,8 +200,6 @@ extension MainToolbarController: NSToolbarDelegate {
         [
             .pharosNavigator,
             .sidebarTrackingSeparator,
-            .pharosConnection,
-            .pharosSchema,
             .flexibleSpace,
             .inspectorTrackingSeparator,
             // The separator is pinned to the inspector's divider, so a second
@@ -594,8 +220,6 @@ extension MainToolbarController: NSToolbarDelegate {
             // controller, never to a toolbar item.
             .toggleSidebar,
             .sidebarTrackingSeparator,
-            .pharosConnection,
-            .pharosSchema,
             .pharosFilterSidebar,
             .pharosFormatSQL,
             .pharosNewTab,

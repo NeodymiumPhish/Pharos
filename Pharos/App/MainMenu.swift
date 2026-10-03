@@ -180,6 +180,15 @@ enum MainMenu {
 
         queryMenu.addItem(.separator())
 
+        // The transaction on the tab's own connection, also in the tab's
+        // transaction button (HIG, Toolbars: every command in the menu bar).
+        queryMenu.addItem(withTitle: String(localized: "Commit Transaction"),
+                          action: #selector(ContentViewController.menuCommitTransaction(_:)), keyEquivalent: "")
+        queryMenu.addItem(withTitle: String(localized: "Roll Back Transaction"),
+                          action: #selector(ContentViewController.menuRollBackTransaction(_:)), keyEquivalent: "")
+
+        queryMenu.addItem(.separator())
+
         // ⌘E is Edit > Find > Use Selection for Find, the only other "e" in the
         // menu bar; ⇧⌘E and ⌥⇧⌘E are free.
         let explainItem = queryMenu.addItem(withTitle: String(localized: "Explain Query"), action: #selector(ContentViewController.menuExplainQuery(_:)), keyEquivalent: "e")

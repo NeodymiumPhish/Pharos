@@ -3175,6 +3175,29 @@ extension ContentViewController: EditorPaneDelegate {
         errorPresenter.open(entries: log.entries, index: index, tabId: tabId, delegate: self)
     }
 
+    func editorPane(_ pane: EditorPaneVC, didChooseConnection connectionId: String) {
+        guard let tab = session.tab else { return }
+        let tabId = tab.id
+        let open = tabsWithOpenTransaction(among: [tabId])
+        // Moving the tab to another connection closes its own connection,
+        // rolling back an open transaction there: ask first.
+        guard connectionId != tab.connectionId, !open.isEmpty else {
+            stateManager.useConnection(connectionId, forTabId: tabId, in: session)
+            return
+        }
+        confirmRollingBack(open, action: .switchConnection) { [weak self] proceed in
+            guard let self, proceed else { return }
+            Task { @MainActor in
+                _ = await TabSessionMonitor.shared.close(tabId)
+                self.stateManager.useConnection(connectionId, forTabId: tabId, in: self.session)
+            }
+        }
+    }
+
+    func editorPaneDidRequestConnect(_ pane: EditorPaneVC) {
+        menuConnect(nil)
+    }
+
     func editorPaneDidRequestSave(_ pane: EditorPaneVC) {
         menuSaveQuery(nil)
     }
@@ -4642,6 +4665,16 @@ extension ContentViewController {
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 
+    /// Query ▸ Commit Transaction: the tab's own connection's transaction.
+    @objc func menuCommitTransaction(_: Any?) {
+        editorPane.sessionBannerAction(.commit)
+    }
+
+    /// Query ▸ Roll Back Transaction.
+    @objc func menuRollBackTransaction(_: Any?) {
+        editorPane.sessionBannerAction(.rollBack)
+    }
+
     /// File ▸ Rename Tab…: the native tab bar has no rename of its own.
     @objc func menuRenameTab(_: Any?) {
         guard let tabId = session.activeTabId else { return }
@@ -4939,6 +4972,12 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
+        if menuItem.action == #selector(menuCommitTransaction(_:)) || menuItem.action == #selector(menuRollBackTransaction(_:)) {
+            guard let tabId = session.activeTabId, let report = TabSessionMonitor.shared.report(for: tabId),
+                  report.open else { return false }
+            if menuItem.action == #selector(menuCommitTransaction(_:)) { return report.txn == .inTransaction }
+            return report.txn == .inTransaction || report.txn == .failed
+        }
         if menuItem.action == #selector(menuRenameTab(_:)) || menuItem.action == #selector(menuDuplicateTab(_:)) {
             return session.tab != nil
         }

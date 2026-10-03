@@ -27,6 +27,19 @@ enum TabSessionBannerState: Equatable {
         }
     }
 
+    /// The short title on the transaction chip in the tab's context row; the
+    /// full `message` is its tooltip and the first line of its menu.
+    var chipTitle: String {
+        switch self {
+        case let .transaction(elapsed, _):
+            return String(localized: "Transaction open · \(TabSessionBannerModel.duration(elapsed))")
+        case .failed:
+            return String(localized: "Transaction failed")
+        case .reset:
+            return String(localized: "Connection reset")
+        }
+    }
+
     /// The banner's buttons, in reading order.
     var actions: [TabSessionBannerAction] {
         switch self {
@@ -83,19 +96,20 @@ enum TabSessionBannerModel {
 }
 
 /// The question asked before something would roll back a tab's open
-/// transaction: closing the tab or its window, quitting, disconnecting.
+/// transaction: closing the tab, quitting, disconnecting, moving the tab to
+/// another connection.
 /// Pharos never commits for the user; the only way out is a rollback, so the
 /// destructive button names it (Apple HIG, Alerts: name the action).
 enum OpenTransactionWarning {
     enum Action: Equatable {
-        case closeTab, closeWindow, quit, disconnect
+        case closeTab, quit, disconnect, switchConnection
 
         var buttonTitle: String {
             switch self {
             case .closeTab: return String(localized: "Roll Back and Close")
-            case .closeWindow: return String(localized: "Roll Back and Close")
             case .quit: return String(localized: "Roll Back and Quit")
             case .disconnect: return String(localized: "Roll Back and Disconnect")
+            case .switchConnection: return String(localized: "Roll Back and Switch")
             }
         }
     }
@@ -112,10 +126,12 @@ enum OpenTransactionWarning {
             ? String(localized: "Its changes are not committed.")
             : String(localized: "Their changes are not committed: \(ListFormatter.localizedString(byJoining: tabNames)).")
         let then: String = switch action {
-        case .closeTab, .closeWindow: String(localized: "Closing rolls them back.")
+        case .closeTab: String(localized: "Closing rolls them back.")
         case .quit: String(localized: "Quitting rolls them back.")
         case .disconnect: String(localized: "Disconnecting rolls them back.")
+        case .switchConnection: String(localized: "Changing the connection rolls them back.")
         }
-        return what + " " + then + " " + String(localized: "To keep them, cancel and use Commit in the tab.")
+        return what + " " + then + " "
+            + String(localized: "To keep them, cancel, then choose Commit from the tab's transaction button.")
     }
 }

@@ -4,6 +4,11 @@ import Combine
 /// Delegate for EditorPaneVC events that need to be handled by the parent.
 protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didChangeActiveTab tabId: String?)
+    /// The context row's connection pop-up: move the tab to this connection
+    /// (asking first when that would roll back an open transaction).
+    func editorPane(_ pane: EditorPaneVC, didChooseConnection connectionId: String)
+    /// The context row's Connect / Try Again.
+    func editorPaneDidRequestConnect(_ pane: EditorPaneVC)
     func editorPaneDidRequestSave(_ pane: EditorPaneVC)
     func editorPaneDidRequestSaveAs(_ pane: EditorPaneVC)
     func editorPaneDidRequestExportAsSQL(_ pane: EditorPaneVC)
@@ -65,8 +70,13 @@ class EditorPaneVC: NSViewController {
     weak var delegate: EditorPaneDelegate?
 
     let session: WindowSession
-    private let stateManager = AppStateManager.shared
-    private let metadataCache = MetadataCache.shared
+    let stateManager = AppStateManager.shared
+    let metadataCache = MetadataCache.shared
+    /// The tab's connection › schema, its state and its transaction chip, at
+    /// the start of the header row (`EditorPaneVC+TabContext.swift`).
+    let tabContextBar = TabContextBar()
+    /// Ticks once a second while a transaction is open, for the chip's age.
+    var transactionChipTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Init
@@ -83,10 +93,11 @@ class EditorPaneVC: NSViewController {
 
     // MARK: - View Lifecycle
 
-    /// 28, the sidebar filter bar's height — one height for every secondary
-    /// row of chrome in the window. The tab bar is the window's own (native
-    /// window tabs), so this row is the pane's whole header.
-    private let editorToolbarHeight: CGFloat = 28
+    /// The pane's whole header: the tab's context row (connection › schema,
+    /// state, transaction chip, then the editor's buttons). The tab bar is the
+    /// window's own (native window tabs). 36, to hold regular-size pop-up
+    /// buttons; the pane is still shorter than it was with its own tab bar.
+    private let editorToolbarHeight: CGFloat = 36
     private var totalHeaderHeight: CGFloat { editorToolbarHeight }
 
     override func loadView() {
@@ -110,9 +121,7 @@ class EditorPaneVC: NSViewController {
 
         container.addSubview(editorToolbar)
         container.addSubview(cardStack.view)
-        sessionBanner.isHidden = true
-        sessionBanner.onAction = { [weak self] action in self?.sessionBannerAction(action) }
-        container.addSubview(sessionBanner)
+        wireTabContext()
         NotificationCenter.default.addObserver(
             self, selector: #selector(tabSessionDidChange(_:)),
             name: TabSessionMonitor.didChange, object: nil)
@@ -167,6 +176,7 @@ class EditorPaneVC: NSViewController {
                 guard let self else { return }
                 self.updateEditorToolbarState()
                 self.cardStack.refreshStatus()
+                self.refreshTabContext()
             }
             .store(in: &cancellables)
 
@@ -223,6 +233,7 @@ class EditorPaneVC: NSViewController {
             .sink { [weak self] _ in
                 self?.updateDescribeQueryButton()
                 self?.cardStack.refreshStatus()
+                self?.refreshTabContext()
             }
             .store(in: &cancellables)
         stateManager.$connections
@@ -231,6 +242,20 @@ class EditorPaneVC: NSViewController {
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.cardStack.refreshStatus() }
+            .store(in: &cancellables)
+        // The context row lists every connection (and its default schema), and
+        // shows a failed connect's reason.
+        Publishers.CombineLatest(stateManager.$connections, stateManager.$connectionErrors)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _, _ in self?.refreshTabContext() }
+            .store(in: &cancellables)
+        // The schema pop-up's title follows this tab's connection's metadata.
+        session.$activeConnectionId
+            .removeDuplicates()
+            .map { [metadataCache] id in metadataCache.publisher(for: id) }
+            .switchToLatest()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshTabContext() }
             .store(in: &cancellables)
     }
 
@@ -302,52 +327,21 @@ class EditorPaneVC: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        // Non-flipped: y=0 is bottom. Tab bar + editor toolbar at top via
-        // Auto Layout; the session banner (when shown) directly under them.
-        let bannerHeight = sessionBanner.isHidden ? 0 : TabSessionBanner.height
+        // Non-flipped: y=0 is bottom. The header row is at the top via Auto
+        // Layout; the cards fill the rest.
         let below = max(0, view.bounds.height - totalHeaderHeight)
-        sessionBanner.frame = NSRect(x: 0, y: below - bannerHeight, width: view.bounds.width, height: bannerHeight)
-        cardStack.view.frame = NSRect(x: 0, y: 0, width: view.bounds.width, height: max(0, below - bannerHeight))
+        cardStack.view.frame = NSRect(x: 0, y: 0, width: view.bounds.width, height: below)
     }
 
-    // MARK: - Tab session banner
-
-    /// The active tab's connection: an open or failed transaction, or a reset.
-    private let sessionBanner = TabSessionBanner(frame: .zero)
-    /// Ticks once a second while a transaction is shown, for its age and countdown.
-    private var sessionBannerTimer: Timer?
+    // MARK: - Tab session (the transaction chip)
 
     @objc private func tabSessionDidChange(_ note: Notification) {
         guard let tabId = note.userInfo?["tabId"] as? String, tabId == session.activeTabId else { return }
-        refreshSessionBanner()
+        refreshTransactionChip()
     }
 
-    func refreshSessionBanner() {
-        let monitor = TabSessionMonitor.shared
-        let state = session.activeTabId.flatMap { tabId in
-            TabSessionBannerModel.state(
-                report: monitor.report(for: tabId), receivedAt: monitor.receivedAt[tabId],
-                pendingReset: monitor.pendingResets[tabId], now: Date())
-        }
-        let wasHidden = sessionBanner.isHidden
-        sessionBanner.apply(state)
-        if wasHidden != sessionBanner.isHidden { view.needsLayout = true }
-        if case .transaction = state {
-            if sessionBannerTimer == nil {
-                let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.refreshSessionBanner() }
-                }
-                timer.tolerance = 0.3
-                RunLoop.main.add(timer, forMode: .common)
-                sessionBannerTimer = timer
-            }
-        } else {
-            sessionBannerTimer?.invalidate()
-            sessionBannerTimer = nil
-        }
-    }
-
-    private func sessionBannerAction(_ action: TabSessionBannerAction) {
+    /// The chip's menu, and Query ▸ Commit / Roll Back Transaction.
+    func sessionBannerAction(_ action: TabSessionBannerAction) {
         guard let tabId = session.activeTabId else { return }
         switch action {
         case .dismiss:
@@ -377,7 +371,7 @@ class EditorPaneVC: NSViewController {
     private var lastActiveTabId: String?
 
     private func activeTabIdChanged(_ tabId: String?) {
-        refreshSessionBanner()
+        refreshTabContext()
 
         // Detect active tab change (the publisher also fires on a re-select).
         if tabId != lastActiveTabId {
@@ -611,9 +605,8 @@ class EditorPaneVC: NSViewController {
         newCardButton.translatesAutoresizingMaskIntoConstraints = false
         newCardButton.setAccessibilityIdentifier("editor.newCard")
 
-        // All controls in one row: Format, Describe, Save, New Card,
-        // Format-as-SQL-list. The schema selector is in the window toolbar,
-        // beside the connection.
+        // After the tab's context: Format, Describe, Save, New Card,
+        // Format-as-SQL-list.
         let toolbarStack = NSStackView(
             views: [formatButton, describeQueryButton, saveDropdown, newCardButton, formatListButton])
         toolbarStack.orientation = .horizontal
@@ -621,6 +614,8 @@ class EditorPaneVC: NSViewController {
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
 
         editorToolbar.addSubview(toolbarStack)
+        tabContextBar.translatesAutoresizingMaskIntoConstraints = false
+        editorToolbar.addSubview(tabContextBar)
 
         // The error badge and Collapse All, right-aligned as one group and
         // not part of the leading stack.
@@ -661,7 +656,13 @@ class EditorPaneVC: NSViewController {
             newCardButton.widthAnchor.constraint(equalToConstant: 24),
             newCardButton.heightAnchor.constraint(equalToConstant: 24),
 
-            toolbarStack.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 8),
+            tabContextBar.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor, constant: 10),
+            tabContextBar.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
+            // 999: holds whenever the row has a width; gives way quietly in
+            // the first layout at width 0 instead of breaking a required one.
+            { let gap = toolbarStack.leadingAnchor.constraint(equalTo: tabContextBar.trailingAnchor, constant: 14)
+              gap.priority = NSLayoutConstraint.Priority(999)
+              return gap }(),
             toolbarStack.centerYAnchor.constraint(equalTo: editorToolbar.centerYAnchor),
 
             separator.leadingAnchor.constraint(equalTo: editorToolbar.leadingAnchor),
@@ -885,11 +886,14 @@ extension EditorPaneVC: NSPopoverDelegate {
     /// A transient popover closes itself when the analyst clicks elsewhere,
     /// and nothing else would tell the pane about it — leaving a stale
     /// reference that makes the next press on the button a no-op toggle.
+    /// The schema popover's close releases the schema pop-up's pressed look.
     func popoverDidClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover, popover === describeQueryPopover else {
-            return
+        guard let popover = notification.object as? NSPopover else { return }
+        if popover === describeQueryPopover {
+            describeQueryPopover = nil
+        } else {
+            tabContextBar.schemaButton.isPresenting = false
         }
-        describeQueryPopover = nil
     }
 }
 

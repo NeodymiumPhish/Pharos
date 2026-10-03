@@ -113,6 +113,11 @@ private func testWarning() {
     let message = OpenTransactionWarning.message(tabNames: ["A", "B"], action: .quit)
     expect(message.contains("A and B") && message.contains("Quitting rolls them back."), "warning: names the tabs and the action", message)
     expect(OpenTransactionWarning.Action.disconnect.buttonTitle == "Roll Back and Disconnect", "warning: button names the rollback")
+    expect(OpenTransactionWarning.Action.switchConnection.buttonTitle == "Roll Back and Switch",
+           "warning: switching the tab's connection has its own button")
+    let switching = OpenTransactionWarning.message(tabNames: ["A"], action: .switchConnection)
+    expect(switching.contains("Changing the connection rolls them back."), "warning: says what switching does", switching)
+    expect(switching.contains("transaction button"), "warning: points to the tab's transaction button", switching)
 }
 
 @MainActor
@@ -151,97 +156,6 @@ private func testMonitor() {
     expect(monitor.report(for: "t3") == nil && monitor.canUseSession(connectionId: "c9"), "monitor: disconnect forgets the tabs")
 }
 
-/// Required horizontal constraints under `view` that the laid-out alignment
-/// rectangles do not satisfy — what Xcode reports as "Conflicting constraints
-/// detected … will attempt to recover by breaking". A standalone binary does
-/// not print those reports, so the test measures the result instead.
-/// Intrinsic-size constraints are skipped: their real priorities are the
-/// hugging and compression priorities.
-private func brokenRequiredConstraints(in view: NSView, root: NSView) -> [NSLayoutConstraint] {
-    func x(_ item: AnyObject?, _ a: NSLayoutConstraint.Attribute) -> CGFloat? {
-        let rect: NSRect
-        if let v = item as? NSView, let sup = v.superview { rect = sup.convert(v.alignmentRect(forFrame: v.frame), to: root) }
-        else if let g = item as? NSLayoutGuide, let owner = g.owningView { rect = owner.convert(g.frame, to: root) }
-        else { return nil }
-        switch a {
-        case .leading, .left: return rect.minX
-        case .trailing, .right: return rect.maxX
-        case .width: return rect.width
-        case .centerX: return rect.midX
-        default: return nil
-        }
-    }
-    var broken: [NSLayoutConstraint] = []
-    var views = [view]
-    while let v = views.popLast() {
-        views.append(contentsOf: v.subviews)
-        for c in v.constraints where c.isActive && c.priority == .required
-            && !String(describing: type(of: c)).contains("ContentSize") {
-            guard let v1 = x(c.firstItem, c.firstAttribute) else { continue }
-            var v2: CGFloat = 0
-            if c.secondItem != nil { guard let s = x(c.secondItem, c.secondAttribute) else { continue }; v2 = s }
-            let rhs = c.multiplier * v2 + c.constant
-            let holds: Bool = switch c.relation {
-            case .equal: abs(v1 - rhs) < 0.5
-            case .lessThanOrEqual: v1 <= rhs + 0.5
-            case .greaterThanOrEqual: v1 >= rhs - 0.5
-            @unknown default: true
-            }
-            if !holds { broken.append(c) }
-        }
-    }
-    return broken
-}
-
-/// The banner is laid out at width 0 while hidden; no required constraint
-/// may break there (found 2026-10-03 in Xcode's log).
-@MainActor
-private func testBannerAtZeroWidth() {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-    let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
-    window.contentView = root
-    let banner = TabSessionBanner(frame: .zero)
-    root.addSubview(banner)
-    banner.apply(.transaction(elapsed: 5, idleRemaining: 500))
-    root.layoutSubtreeIfNeeded()
-    let atZero = brokenRequiredConstraints(in: banner, root: root)
-    expect(atZero.isEmpty, "zero width: no required constraint breaks in the banner", atZero.map(\.description).joined(separator: "\n  "))
-}
-
-@MainActor
-private func testBannerView() {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
-    let root = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 100))
-    window.contentView = root
-    let banner = TabSessionBanner(frame: NSRect(x: 0, y: 40, width: 700, height: TabSessionBanner.height))
-    root.addSubview(banner)
-    window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
-    window.orderFrontRegardless()
-
-    banner.apply(nil)
-    expect(banner.isHidden, "view: nil hides the banner")
-    banner.apply(.transaction(elapsed: 65, idleRemaining: 300))
-    expect(!banner.isHidden, "view: a transaction shows it")
-    expect(banner.button(for: .commit) != nil && banner.button(for: .rollBack) != nil, "view: Commit and Roll Back")
-    expect(banner.accessibilityLabel()?.hasPrefix("Transaction open for 1 min.") == true, "view: VoiceOver reads the message")
-    expect(banner.button(for: .commit)?.accessibilityIdentifier() == "editor.sessionBanner.commit", "view: AX id")
-
-    var pressed: [TabSessionBannerAction] = []
-    banner.onAction = { pressed.append($0) }
-    banner.layoutSubtreeIfNeeded()
-    for action in [TabSessionBannerAction.rollBack, .commit] {
-        guard let button = banner.button(for: action) else { continue }
-        let centre = root.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button)
-        if let hit = root.hitTest(centre) as? NSButton, hit === button { hit.performClick(nil) }
-    }
-    expect(pressed == [.rollBack, .commit], "view: clicks reach the buttons through hit-testing", "\(pressed)")
-
-    banner.apply(.failed)
-    expect(banner.button(for: .commit) == nil && banner.button(for: .rollBack) != nil, "view: failed has no Commit")
-    banner.apply(.reset(reason: "lost"))
-    expect(banner.button(for: .dismiss)?.title == "OK", "view: reset has OK")
-}
-
 func runTests() {
     testDecoding()
     testMarkers()
@@ -249,8 +163,6 @@ func runTests() {
     testWarning()
     MainActor.assumeIsolated {
         testMonitor()
-        testBannerView()
-        testBannerAtZeroWidth()
     }
     if failures == 0 { print("\nAll tab session tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
