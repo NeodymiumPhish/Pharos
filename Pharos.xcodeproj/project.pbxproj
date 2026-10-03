@@ -104,6 +104,7 @@
 		419548440610B3FAF2841187 /* TagPredicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4DF712BE5E256C3E932817 /* TagPredicate.swift */; };
 		43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */; };
 		440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */; };
+		445C2450A99170B573A8C90A /* MetadataCache+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */; };
 		44BC0BED6488F665BF3EB2EA /* PharosCore+Tags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */; };
 		45243992B54979AB0FC28073 /* QueryErrorPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */; };
 		452A085D482CF6012AA5CAF9 /* PharosCore+Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */; };
@@ -482,6 +483,7 @@
 		4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceOwnerGateRecency.swift; sourceTree = "<group>"; };
 		4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDataSource.swift; sourceTree = "<group>"; };
 		4FB647788D503E3A7B42788F /* CardStackVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardStackVC.swift; sourceTree = "<group>"; };
+		51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MetadataCache+Shared.swift"; sourceTree = "<group>"; };
 		52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMatchDecoration.swift; sourceTree = "<group>"; };
 		55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordPromptCoordinator.swift; sourceTree = "<group>"; };
 		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
@@ -1044,6 +1046,7 @@
 				E46AFACD95D022C934A3AD80 /* LaunchConnectPolicy.swift */,
 				15F15F6D530ED4B08BF8F19F /* Log.swift */,
 				21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */,
+				51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */,
 				43BCD1752648CB825D07D2BB /* PasswordAvailability.swift */,
 				55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */,
 				EBB204A7203DFE7F75AE059A /* PharosCore.swift */,
@@ -1514,6 +1517,7 @@
 				BB0BE290763FF8F637A390F2 /* MainToolbarController.swift in Sources */,
 				BB1229C6E14E7962D3B22387 /* MainWindowController.swift in Sources */,
 				A38FB70285E0DB76A4DC045E /* MarkerShape.swift in Sources */,
+				445C2450A99170B573A8C90A /* MetadataCache+Shared.swift in Sources */,
 				19877E64248CE46809E223BA /* MetadataCache.swift in Sources */,
 				23E22A80E39B50A59CA7E425 /* ModelAvailability.swift in Sources */,
 				60583C76A34589B8A9F81380 /* ModelFeedbackEntry.swift in Sources */,

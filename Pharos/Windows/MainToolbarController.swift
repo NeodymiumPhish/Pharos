@@ -135,11 +135,11 @@ final class MainToolbarController: NSObject {
             .sink { [weak self] _, _ in self?.refresh() }
             .store(in: &cancellables)
 
-        // The schema pull-down also follows the (app-wide) metadata cache; the
-        // tab it describes is always THIS window's, through `session` above.
-        Publishers.CombineLatest(metadataCache.$schemas, metadataCache.$isLoading)
+        // The schema pull-down also follows the metadata cache, read for THIS
+        // window's connection. `receive(on:)` hops, so the entry is current.
+        metadataCache.$entries
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in self?.refreshSchemaButton() }
+            .sink { [weak self] _ in self?.refreshSchemaButton() }
             .store(in: &cancellables)
     }
 
@@ -355,11 +355,12 @@ final class MainToolbarController: NSObject {
     /// rule — fed from this window's active tab and the shared cache.
     private func refreshSchemaButton() {
         let connectionId = tabConnectionId
+        let metadata = metadataCache.metadata(for: connectionId)
         let state = SchemaButtonState(
             hasConnection: connectionId != nil,
             isConnected: connectionId.map { stateManager.status(for: $0) == .connected } ?? false,
-            isLoading: metadataCache.isLoading,
-            hasSchemas: !metadataCache.schemas.isEmpty,
+            isLoading: metadata.isLoading,
+            hasSchemas: !metadata.schemas.isEmpty,
             activeSchema: tabSchemaName)
 
         // The button shows a single title item; the full schema list and the
@@ -384,7 +385,7 @@ final class MainToolbarController: NSObject {
     }
 
     private func presentSchemaPopover(from button: NSView) {
-        let schemaNames = metadataCache.schemas.map { $0.name }
+        let schemaNames = metadataCache.metadata(for: tabConnectionId).schemas.map { $0.name }
         let defaultSchema: String? = {
             guard let connId = tabConnectionId else { return nil }
             return stateManager.connections.first(where: { $0.id == connId })?.defaultSchema

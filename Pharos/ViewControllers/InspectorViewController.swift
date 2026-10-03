@@ -19,6 +19,9 @@ class InspectorViewController: NSViewController {
     /// columns are already cached needs no reload, and a pane owned by anything
     /// else must not be repainted out from under its owner.
     private var columnsSectionKey: String?
+    /// The window's connection, whose cached columns the inspector reads. Set
+    /// by `PharosSplitViewController` from the window's session.
+    var connectionId: () -> String? = { nil }
     private var columnsSectionReload: (() -> Void)?
 
     /// True only while row detail is on screen. This pane is SHARED — the
@@ -108,11 +111,14 @@ class InspectorViewController: NSViewController {
 
         // A table selected before its columns have been fetched shows
         // "Loading…"; this is what replaces it when they land.
-        MetadataCache.shared.$columnsByTable
+        // `receive(on:)` is a hop, so the cache already holds the new entry
+        // when the sink reads it.
+        MetadataCache.shared.$entries
             .receive(on: RunLoop.main)
-            .sink { [weak self] map in
+            .sink { [weak self] _ in
                 guard let self, let key = self.columnsSectionKey,
-                      map[key]?.isEmpty == false else { return }
+                      MetadataCache.shared.metadata(for: self.connectionId()).columnsByTable[key]?.isEmpty == false
+                else { return }
                 self.columnsSectionReload?()
             }
             .store(in: &cancellables)
@@ -336,7 +342,7 @@ class InspectorViewController: NSViewController {
     /// to re-run once the columns arrive.
     private func addColumnsSection(schema: String, table: String, reload: @escaping () -> Void) {
         let key = "\(schema).\(table)"
-        let columns = MetadataCache.shared.columnsByTable[key] ?? []
+        let columns = MetadataCache.shared.metadata(for: connectionId()).columnsByTable[key] ?? []
 
         let header = NSTextField(labelWithString: columns.isEmpty ? "Columns" : "Columns (\(columns.count))")
         header.font = .systemFont(ofSize: 11, weight: .semibold)

@@ -140,22 +140,12 @@ final class SQLDrafter {
 
 extension SchemaSnapshot {
 
-    /// Everything the schema cache holds for the connection it is currently
-    /// showing.
-    ///
-    /// `MetadataCache`'s published properties belong to the ACTIVE connection,
-    /// which is the tab's own connection whenever a tab is in front — the
-    /// caller checks that the tab has one before asking.
+    /// Everything the schema cache holds for one connection — the tab's own.
     ///
     /// Columns arrive keyed `"schema.table"`; a table whose columns have not
     /// been fetched yet contributes its name with no columns, so the model can
     /// still see that it exists and ask about it.
-    @MainActor
-    /// The cache is passed, never defaulted: a `= .shared` default argument is
-    /// evaluated in the CALLER's context, which is not the main actor, while
-    /// `MetadataCache.shared` is main-actor isolated. The one caller already
-    /// passes its own cache.
-    static func fromMetadataCache(_ cache: MetadataCache) -> SchemaSnapshot {
+    static func from(_ cache: MetadataCache.ConnectionMetadata) -> SchemaSnapshot {
         var schemas: [String: [TableSummary]] = [:]
         for schema in cache.schemas {
             let tables = cache.tables[schema.name] ?? []

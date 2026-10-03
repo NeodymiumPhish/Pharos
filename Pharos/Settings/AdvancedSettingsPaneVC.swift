@@ -64,7 +64,7 @@ final class AdvancedSettingsPaneVC: SettingsFormPaneVC {
     }
 
     private func clearMetadataCache() {
-        MetadataCache.shared.clearAll()
+        MetadataCache.shared.clearAllAndReloadOpenConnections()
         Toast.show(in: view,
                    message: String(localized: "Cached schema metadata cleared."),
                    style: .success)

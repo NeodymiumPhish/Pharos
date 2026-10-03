@@ -210,17 +210,18 @@ class EditorPaneVC: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Push schema metadata to the shared completion list, once per push.
-        Publishers.CombineLatest3(
-            metadataCache.$schemas,
-            metadataCache.$tables,
-            metadataCache.$columnsByTable
-        )
-        .receive(on: RunLoop.main)
-        .sink { [weak self] schemas, tables, columns in
-            self?.completionProvider.updateMetadata(schemas: schemas, tables: tables, columnsByTable: columns)
-        }
-        .store(in: &cancellables)
+        // Push THIS window's connection's metadata to the completion list, once
+        // per change to it. Another window's connection never reaches it.
+        session.$activeConnectionId
+            .removeDuplicates()
+            .map { [metadataCache] id in metadataCache.publisher(for: id) }
+            .switchToLatest()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] metadata in
+                self?.completionProvider.updateMetadata(
+                    schemas: metadata.schemas, tables: metadata.tables, columnsByTable: metadata.columnsByTable)
+            }
+            .store(in: &cancellables)
 
         // The schema completion looks in first: the toolbar's pick for this
         // connection, else the connection's default.
@@ -235,8 +236,9 @@ class EditorPaneVC: NSViewController {
 
         // Columns load per schema, lazily: the list asks for the schemas the
         // statement names so they are there by the next keystroke.
-        completionProvider.onSchemaNeeded = { schema in
-            MetadataCache.shared.prioritize(schema: schema)
+        completionProvider.onSchemaNeeded = { [weak self] schema in
+            guard let self, let connectionId = self.session.activeConnectionId else { return }
+            self.metadataCache.prioritize(schema: schema, connectionId: connectionId)
         }
 
         // "Describe the query…" appears and disappears with Apple
@@ -858,7 +860,7 @@ class EditorPaneVC: NSViewController {
         // The snapshot is taken now, so the model reads the schema as it
         // stands rather than whatever the cache held when the pane was built.
         let popoverVC = DescribeQueryPopoverVC(
-            snapshot: .fromMetadataCache(metadataCache), defaultSchema: tabSchemaName)
+            snapshot: .from(metadataCache.metadata(for: session.activeConnectionId)), defaultSchema: tabSchemaName)
         popoverVC.onInsert = { [weak self] sql in
             guard let self else { return }
             // Close first: the editor can only take the keyboard back once

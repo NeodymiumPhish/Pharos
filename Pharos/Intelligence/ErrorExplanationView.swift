@@ -161,8 +161,11 @@ final class ErrorExplanationView: NSView, QueryErrorExplaining {
     }
 
     private func start(_ failure: QueryFailure) {
+        // The failing tab's own connection: another tab's tables would be
+        // worse than none.
+        let connectionId = AppStateManager.shared.session(owningTabId: failure.tabId)?.activeConnectionId
         let known = ErrorExplanationPrompt.KnownObjects.from(
-            cache: MetadataCache.shared, sql: failure.sql)
+            cache: MetadataCache.shared.metadata(for: connectionId), sql: failure.sql)
         let run: ErrorExplanationRun
         do {
             run = try explainer.explain(failure: failure, knownObjects: known)

@@ -6,19 +6,14 @@ import Foundation
 /// without `MetadataCache`, `AppKit` or an initialised Rust core behind them.
 extension ErrorExplanationPrompt.KnownObjects {
 
-    /// Everything the cache holds for the connection on screen, narrowed to the
-    /// tables `sql` names.
+    /// Everything the cache holds for the failing tab's connection, narrowed to
+    /// the tables `sql` names.
     ///
     /// The narrowing happens twice: once here, so a large schema is not copied
     /// into a value that is thrown away a moment later, and once inside
     /// `ErrorExplanationPrompt.describe` — which is the one that counts, and the
     /// one that is tested. Read-only: nothing here asks the cache to load.
-    ///
-    /// The cache publishes the ACTIVE connection's metadata, so there is no
-    /// connection id to pass; a tab on another connection gets `.none` rather
-    /// than another connection's tables.
-    @MainActor
-    static func from(cache: MetadataCache, sql: String) -> ErrorExplanationPrompt.KnownObjects {
+    static func from(cache: MetadataCache.ConnectionMetadata, sql: String) -> ErrorExplanationPrompt.KnownObjects {
         let names = ErrorExplanationPrompt.identifiers(in: sql)
         guard !names.isEmpty else { return .none }
 

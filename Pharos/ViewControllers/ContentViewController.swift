@@ -466,14 +466,7 @@ class ContentViewController: NSViewController {
         session.$activeConnectionId
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] connectionId in
-                self?.updateVisibility()
-                if let connectionId, self?.stateManager.status(for: connectionId) == .connected {
-                    self?.metadataCache.load(connectionId: connectionId)
-                } else {
-                    self?.metadataCache.clear()
-                }
-            }
+            .sink { [weak self] _ in self?.updateVisibility() }
             .store(in: &cancellables)
 
         // Dedup the whole dict first — many publishes don't actually change
@@ -490,11 +483,13 @@ class ContentViewController: NSViewController {
             }
             .store(in: &cancellables)
 
-        // Metadata load reacts to the *active* connection's status only.
+        // Metadata load reacts to THIS window's connection's status only.
         // Combining activeConnectionId with the statuses dict and mapping down
-        // to the active's status avoids the original problem (a removeDuplicates
-        // on activeConnectionId alone would suppress the connected→ready
-        // transition) while still firing only on real status changes.
+        // to its status avoids the original problem (a removeDuplicates on
+        // activeConnectionId alone would suppress the connected→ready
+        // transition) while still firing only on real status changes. The
+        // cache keeps one entry per connection, so a window that changes or
+        // drops its connection clears nothing other windows use.
         Publishers.CombineLatest(session.$activeConnectionId, stateManager.$connectionStatuses)
             .map { activeId, statuses in
                 ActiveConnectionStatus(id: activeId, status: activeId.flatMap { statuses[$0] })
@@ -505,18 +500,15 @@ class ContentViewController: NSViewController {
                 guard let self else { return }
                 if let id = snapshot.id, snapshot.status == .connected {
                     self.metadataCache.load(connectionId: id)
-                } else if snapshot.id == nil {
-                    self.metadataCache.clear()
                 }
             }
             .store(in: &cancellables)
 
-        session.$activeSchema
-            .removeDuplicates()
+        Publishers.CombineLatest(session.$activeSchema, session.$activeConnectionId)
             .receive(on: RunLoop.main)
-            .sink { [weak self] schema in
-                if let schema {
-                    self?.metadataCache.prioritize(schema: schema)
+            .sink { [weak self] schema, connectionId in
+                if let schema, let connectionId {
+                    self?.metadataCache.prioritize(schema: schema, connectionId: connectionId)
                 }
             }
             .store(in: &cancellables)

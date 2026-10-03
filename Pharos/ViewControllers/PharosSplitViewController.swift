@@ -26,6 +26,7 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         self.sidebarVC = SidebarViewController(session: session)
         self.contentVC = ContentViewController(session: session)
         super.init(nibName: nil, bundle: nil)
+        inspectorVC.connectionId = { [weak session] in session?.activeConnectionId }
     }
 
     required init?(coder: NSCoder) {
