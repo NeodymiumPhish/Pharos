@@ -128,17 +128,17 @@ final class ChartSuggester {
         }
     }
 
-    /// One short sentence per failure the model can report.
+    /// One short sentence per failure the model can report. Read through
+    /// `ModelErrorKind`: macOS 27 throws `LanguageModelError`, not
+    /// `GenerationError`, and a switch on the old type alone gave every
+    /// failure there the generic sentence.
     static func userMessage(for error: Error) -> String {
         if let failure = error as? Failure { return failure.localizedDescription }
         if let intelligence = error as? IntelligenceError { return intelligence.localizedDescription }
-        guard let generation = error as? LanguageModelSession.GenerationError else {
-            return String(localized: "The model could not suggest a chart. Try again.")
-        }
-        switch generation {
+        switch ModelErrorKind.of(error) {
         case .guardrailViolation:
             return String(localized: "The model would not answer for this result.")
-        case .exceededContextWindowSize:
+        case .contextSizeExceeded:
             return String(localized: "This result has too many columns for one request.")
         case .unsupportedLanguageOrLocale:
             return String(localized: "The model does not support this language yet.")
@@ -152,9 +152,6 @@ final class ChartSuggester {
     /// The failure KIND, for the log. Never the prompt, never the answer.
     static func kind(of error: Error) -> String {
         if let failure = error as? Failure { return String(describing: failure) }
-        guard let generation = error as? LanguageModelSession.GenerationError else {
-            return String(describing: type(of: error))
-        }
-        return String(describing: generation).components(separatedBy: "(").first ?? "generation"
+        return ModelErrorKind.of(error).name
     }
 }
