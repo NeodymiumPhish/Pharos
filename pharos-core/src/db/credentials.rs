@@ -17,7 +17,8 @@ fn service_name() -> String {
     })
 }
 
-#[cfg(test)]
+/// Not `#[cfg(test)]`: `cfg!(test)` above is an ordinary boolean, so both
+/// branches compile in every build and the name must exist in a release one.
 const TEST_FALLBACK_SERVICE_NAME: &str = "com.pharos.test.unit";
 
 /// Serializes the tests that use the real Keychain.
