@@ -7,8 +7,54 @@ const CREDENTIALS_KEY: &str = "connection-passwords";
 /// Keychain service name. `PHAROS_KEYCHAIN_SERVICE` overrides it so a
 /// re-identified test copy of the app keeps its passwords apart from the
 /// user's; the shipped app never sets it.
+///
+/// In a test build the fallback is a test-only service, never the app's:
+/// whatever a test does or forgets to do with the variable, it cannot read
+/// or write the user's saved passwords.
 fn service_name() -> String {
-    std::env::var("PHAROS_KEYCHAIN_SERVICE").unwrap_or_else(|_| DEFAULT_SERVICE_NAME.to_string())
+    std::env::var("PHAROS_KEYCHAIN_SERVICE").unwrap_or_else(|_| {
+        if cfg!(test) { TEST_FALLBACK_SERVICE_NAME } else { DEFAULT_SERVICE_NAME }.to_string()
+    })
+}
+
+#[cfg(test)]
+const TEST_FALLBACK_SERVICE_NAME: &str = "com.pharos.test.unit";
+
+/// Serializes the tests that use the real Keychain.
+///
+/// `PHAROS_KEYCHAIN_SERVICE` is process-wide and cargo runs tests on
+/// parallel threads. Two Keychain tests that each set their own service
+/// overwrote each other's (one failed per parallel run), and the first to
+/// finish REMOVED the variable while the other still ran, so its writes went
+/// to the fallback service. Holding this guard for a test's whole body gives
+/// it the variable to itself.
+#[cfg(test)]
+pub(crate) struct KeychainTestGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+static KEYCHAIN_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Takes the Keychain for one test, under a service name of its own
+/// (`com.pharos.test.<tag>.<uuid>`), until the guard drops.
+#[cfg(test)]
+pub(crate) fn isolated_keychain(tag: &str) -> KeychainTestGuard {
+    // A test that panicked while holding the lock poisons it; the next test
+    // still gets a clean variable, so the poison carries no meaning here.
+    let lock = KEYCHAIN_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let service = format!("com.pharos.test.{}.{}", tag, uuid::Uuid::new_v4());
+    std::env::set_var("PHAROS_KEYCHAIN_SERVICE", service);
+    KeychainTestGuard { _lock: lock }
+}
+
+#[cfg(test)]
+impl Drop for KeychainTestGuard {
+    /// Runs before `_lock` is released, so no other Keychain test can see
+    /// the variable half-way through being cleared.
+    fn drop(&mut self) {
+        std::env::remove_var("PHAROS_KEYCHAIN_SERVICE");
+    }
 }
 
 /// Key convention inside the one Keychain blob.
