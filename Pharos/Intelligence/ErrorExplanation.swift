@@ -118,17 +118,17 @@ final class ErrorExplainer: ObservableObject {
 
     /// One short line for the user, under the Retry button.
     ///
-    /// Every `GenerationError` gets a sentence saying what to do, because the
+    /// Every model failure gets a sentence saying what to do, because the
     /// framework's own `localizedDescription` is written for a developer.
+    /// Read through `ModelErrorKind`: macOS 27 throws `LanguageModelError`,
+    /// not `GenerationError`, and a switch on the old type alone gave every
+    /// failure there the generic sentence.
     static func userMessage(for error: Error) -> String {
         if let error = error as? IntelligenceError {
             return error.localizedDescription
         }
-        guard let error = error as? LanguageModelSession.GenerationError else {
-            return String(localized: "The explanation could not be generated.")
-        }
-        switch error {
-        case .exceededContextWindowSize:
+        switch ModelErrorKind.of(error) {
+        case .contextSizeExceeded:
             return String(localized: "The statement is too long to explain.")
         case .guardrailViolation:
             return String(localized: "The model declined to explain this error.")
@@ -136,29 +136,13 @@ final class ErrorExplainer: ObservableObject {
             return String(localized: "The model does not support this language.")
         case .assetsUnavailable:
             return String(localized: "The on-device model is not ready. Try again shortly.")
-        case .decodingFailure, .unsupportedGuide, .rateLimited, .refusal, .concurrentRequests:
-            return String(localized: "The explanation could not be generated.")
-        @unknown default:
+        default:
             return String(localized: "The explanation could not be generated.")
         }
     }
 
     /// The failure KIND, for the log. Never the prompt, never the answer.
     static func kind(of error: Error) -> String {
-        guard let error = error as? LanguageModelSession.GenerationError else {
-            return String(describing: type(of: error))
-        }
-        switch error {
-        case .exceededContextWindowSize: return "exceededContextWindowSize"
-        case .assetsUnavailable: return "assetsUnavailable"
-        case .guardrailViolation: return "guardrailViolation"
-        case .unsupportedGuide: return "unsupportedGuide"
-        case .unsupportedLanguageOrLocale: return "unsupportedLanguageOrLocale"
-        case .decodingFailure: return "decodingFailure"
-        case .rateLimited: return "rateLimited"
-        case .refusal: return "refusal"
-        case .concurrentRequests: return "concurrentRequests"
-        @unknown default: return "unknown"
-        }
+        ModelErrorKind.of(error).name
     }
 }
