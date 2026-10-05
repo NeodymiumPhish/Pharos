@@ -854,10 +854,17 @@ class EditorPaneVC: NSViewController {
             return
         }
 
-        // The snapshot is taken now, so the model reads the schema as it
-        // stands rather than whatever the cache held when the pane was built.
+        // The keys, enum labels and comments are fetched now, while the
+        // analyst types; the catalogue itself is read when Draft is pressed,
+        // so it holds whatever the cache has loaded by then.
+        let connectionId = session.activeConnectionId
+        let facts = Self.fetchDraftFacts(
+            metadataCache.metadata(for: connectionId), connectionId: connectionId, defaultSchema: tabSchemaName)
         let popoverVC = DescribeQueryPopoverVC(
-            snapshot: .from(metadataCache.metadata(for: session.activeConnectionId)), defaultSchema: tabSchemaName)
+            catalog: { [metadataCache] in
+                DraftCatalog.from(metadataCache.metadata(for: connectionId), facts: await facts.value)
+            },
+            defaultSchema: tabSchemaName)
         popoverVC.onInsert = { [weak self] sql in
             guard let self else { return }
             // Close first: the editor can only take the keyboard back once
@@ -902,6 +909,42 @@ class EditorPaneVC: NSViewController {
     /// The active tab.
     private var activeTab: QueryTab? {
         session.activeTab
+    }
+
+    /// The most schemas whose draft facts are fetched for one popover. Keys
+    /// are stored on the referencing side, so a schema left out still shows
+    /// the keys that point INTO it from the schemas fetched.
+    private static let draftFactsSchemaLimit = 12
+
+    /// Starts one facts query per schema, in parallel: the tab's schema
+    /// first, then `public`, then the rest in catalogue order. A schema that
+    /// fails is left out, and its tables keep the cache's types and no keys.
+    private static func fetchDraftFacts(
+        _ metadata: MetadataCache.ConnectionMetadata, connectionId: String?, defaultSchema: String?
+    ) -> Task<[String: SchemaDraftFacts], Never> {
+        var names = metadata.schemas.map(\.name)
+        for first in [defaultSchema, "public"].compactMap({ $0 }).reversed() {
+            if let at = names.firstIndex(of: first) { names.insert(names.remove(at: at), at: 0) }
+        }
+        let schemas = Array(names.prefix(draftFactsSchemaLimit))
+        return Task {
+            guard let connectionId else { return [:] }
+            return await withTaskGroup(of: (String, SchemaDraftFacts?).self) { group in
+                for schema in schemas {
+                    group.addTask {
+                        do {
+                            return (schema, try await PharosCore.getSchemaDraftFacts(connectionId: connectionId, schema: schema))
+                        } catch {
+                            Log.intelligence.error("draft-sql: facts for a schema failed")
+                            return (schema, nil)
+                        }
+                    }
+                }
+                var out: [String: SchemaDraftFacts] = [:]
+                for await (schema, facts) in group { out[schema] = facts }
+                return out
+            }
+        }
     }
 
     /// The connection ID for the active tab.

@@ -157,6 +157,57 @@ pub struct ConstraintInfo {
     pub check_clause: Option<String>,
 }
 
+/// What "Describe a query" adds to the cached catalogue for one schema
+/// (`schema_draft_facts.sql`). Names, types, keys and comments only: no
+/// column default and no CHECK clause, because both can hold literal values.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaDraftFacts {
+    /// Table name → its comment, cut to 80 characters.
+    #[serde(default)]
+    pub table_comments: std::collections::BTreeMap<String, String>,
+    /// Only the columns whose type information_schema cannot name (enum,
+    /// domain, composite, range, array) or that carry a comment.
+    #[serde(default)]
+    pub columns: Vec<DraftColumnFact>,
+    #[serde(default)]
+    pub foreign_keys: Vec<DraftForeignKey>,
+    /// Enum types the schema's columns use, wherever the type lives.
+    #[serde(default)]
+    pub enums: Vec<DraftEnum>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftColumnFact {
+    pub table: String,
+    pub name: String,
+    /// `format_type` — `sales.order_status`, `integer[]`, `numeric(10,2)`.
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftForeignKey {
+    pub table: String,
+    pub columns: Vec<String>,
+    pub ref_schema: String,
+    pub ref_table: String,
+    pub ref_columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftEnum {
+    /// `format_type` of the enum, matching `DraftColumnFact::type_name`.
+    #[serde(rename = "type")]
+    pub type_name: String,
+    /// At most 20, in sort order.
+    pub labels: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FunctionInfo {

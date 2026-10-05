@@ -73,6 +73,18 @@ extension PharosCore {
         }
     }
 
+    /// Foreign keys, enum labels, real type names and comments for one schema:
+    /// what "Describe a query" adds to the cached catalogue.
+    static func getSchemaDraftFacts(connectionId: String, schema: String) async throws -> SchemaDraftFacts {
+        return try await withAsyncCallback { callback, context in
+            connectionId.withCString { cConn in
+                schema.withCString { cSchema in
+                    pharos_get_schema_draft_facts(cConn, cSchema, callback, context)
+                }
+            }
+        }
+    }
+
     /// Analyze a schema (populate row count estimates).
     static func analyzeSchema(connectionId: String, schema: String) async throws -> AnalyzeResult {
         return try await withAsyncCallback { callback, context in

@@ -1,6 +1,6 @@
 
 use crate::db::postgres;
-use crate::models::{AnalyzeResult, ColumnInfo, ConstraintInfo, FunctionInfo, IndexInfo, PartitionRef, SchemaColumnInfo, SchemaInfo, TableInfo};
+use crate::models::{AnalyzeResult, ColumnInfo, ConstraintInfo, FunctionInfo, IndexInfo, PartitionRef, SchemaColumnInfo, SchemaDraftFacts, SchemaInfo, TableInfo};
 use crate::state::AppState;
 
 /// Get all schemas for a connection
@@ -111,6 +111,18 @@ pub async fn get_schema_columns(
     postgres::get_schema_columns(&pool, &schema_name)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Foreign keys, enum labels, real type names and comments for one schema —
+/// what "Describe a query" adds to the cached catalogue.
+pub async fn get_schema_draft_facts(
+    connection_id: String,
+    schema_name: String,
+    state: &AppState,
+) -> Result<SchemaDraftFacts, String> {
+    let pool = state.require_pool(&connection_id)?;
+
+    postgres::get_schema_draft_facts(&pool, &schema_name).await
 }
 
 /// Get indexes for a table

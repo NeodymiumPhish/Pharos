@@ -4,8 +4,8 @@ import FoundationModels
 /// "Describe the query…" — the popover behind the editor toolbar's
 /// Apple Intelligence button.
 ///
-/// The analyst writes a sentence; the model answers with one statement and a
-/// note about what it assumed. Nothing is run. The draft reaches the editor
+/// The analyst writes a sentence; `SQLDraftPipeline` answers with one
+/// statement and the tables it reads. Nothing is run. The draft reaches the editor
 /// only when Insert is pressed, and a draft that is not a plain `SELECT` asks
 /// once more before it goes in.
 @MainActor
@@ -19,7 +19,10 @@ final class DescribeQueryPopoverVC: NSViewController {
 
     // MARK: - Inputs
 
-    private let snapshot: SchemaSnapshot
+    /// The catalogue as it stands when Draft is pressed. Async because the
+    /// host fetches the schemas' keys and enum labels when the popover opens,
+    /// and a fast analyst can press Draft before they arrive.
+    private let catalog: () async -> DraftCatalog
     private let defaultSchema: String?
 
     // MARK: - Views
@@ -27,6 +30,7 @@ final class DescribeQueryPopoverVC: NSViewController {
     private let generatedLabel = GeneratedContentLabel(feature: "draft-sql")
     private let promptField = NSTextField()
     private let spinner = NSProgressIndicator()
+    private let progressLabel = NSTextField(labelWithString: "")
     private let progressRow = NSStackView()
     private let noteLabel = NSTextField(wrappingLabelWithString: "")
     private let draftButton = NSButton()
@@ -42,14 +46,13 @@ final class DescribeQueryPopoverVC: NSViewController {
 
     private var draftTask: Task<Void, Never>?
 
-    /// Stops a session that will not finish.
+    /// Stops a draft that will not finish.
     ///
-    /// A model that loops on its own tools answers nothing and shows the
-    /// analyst a spinner for as long as they are willing to watch it. The
-    /// instructions are written to prevent that (see `SQLDrafter`), and this
-    /// is the floor under them: a minute, then the retry.
+    /// The pipeline makes two to four model requests, each in its own
+    /// session and none with tools, so it cannot loop; this is the floor
+    /// under a model that is slow to load or busy elsewhere.
     private var timeoutTask: Task<Void, Never>?
-    private let draftTimeout: Duration = .seconds(60)
+    private let draftTimeout: Duration = .seconds(90)
 
     /// The words the current draft was asked for, so Retry asks the same
     /// question of a NEW session rather than of the one that just answered.
@@ -57,8 +60,8 @@ final class DescribeQueryPopoverVC: NSViewController {
 
     // MARK: - Init
 
-    init(snapshot: SchemaSnapshot, defaultSchema: String?) {
-        self.snapshot = snapshot
+    init(catalog: @escaping () async -> DraftCatalog, defaultSchema: String?) {
+        self.catalog = catalog
         self.defaultSchema = defaultSchema
         super.init(nibName: nil, bundle: nil)
     }
@@ -98,7 +101,7 @@ final class DescribeQueryPopoverVC: NSViewController {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
 
-        let progressLabel = NSTextField(labelWithString: String(localized: "Drafting\u{2026}"))
+        progressLabel.stringValue = String(localized: "Drafting\u{2026}")
         progressLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         progressLabel.textColor = .secondaryLabelColor
 
@@ -183,8 +186,9 @@ final class DescribeQueryPopoverVC: NSViewController {
 
     @objc private func draftPressed() { startDraft() }
 
-    /// Retry asks the SAME question of a NEW `SQLDrafter`, so the model does
-    /// not treat its previous answer as something to keep.
+    /// Retry asks the SAME question of a new pipeline, whose sessions are all
+    /// new, so the model does not treat its previous answer as something to
+    /// keep.
     @objc private func retryPressed() {
         promptField.stringValue = lastDescription.isEmpty ? promptField.stringValue : lastDescription
         startDraft()
@@ -243,15 +247,16 @@ final class DescribeQueryPopoverVC: NSViewController {
         review = nil
         showDrafting()
 
-        // A fresh drafter per attempt: one session per interaction, as every
-        // Phase 8 feature does it.
-        let drafter = SQLDrafter(snapshot: snapshot, defaultSchema: defaultSchema)
+        let catalog = self.catalog
+        let defaultSchema = self.defaultSchema
         draftTask = Task { [weak self] in
             do {
-                let draft = try await drafter.draft(description)
+                let pipeline = SQLDraftPipeline(catalog: await catalog(), defaultSchema: defaultSchema)
+                pipeline.onStage = { [weak self] stage in self?.show(stage: stage) }
+                let result = try await pipeline.draft(description)
                 guard !Task.isCancelled else { return }
                 self?.timeoutTask?.cancel()
-                self?.show(draft: draft, for: description)
+                self?.show(result: result, for: description)
             } catch is CancellationError {
                 return
             } catch {
@@ -288,6 +293,7 @@ final class DescribeQueryPopoverVC: NSViewController {
     }
 
     private func showDrafting() {
+        progressLabel.stringValue = String(localized: "Drafting\u{2026}")
         spinner.startAnimation(nil)
         progressRow.isHidden = false
         generatedLabel.isHidden = true
@@ -298,14 +304,24 @@ final class DescribeQueryPopoverVC: NSViewController {
         promptField.isEnabled = false
     }
 
-    private func show(draft: SQLDraft, for description: String) {
+    private func show(stage: SQLDraftPipeline.Stage) {
+        switch stage {
+        case .finding: progressLabel.stringValue = String(localized: "Finding tables\u{2026}")
+        case .choosing: progressLabel.stringValue = String(localized: "Choosing tables\u{2026}")
+        case .writing: progressLabel.stringValue = String(localized: "Writing the query\u{2026}")
+        case .checking: progressLabel.stringValue = String(localized: "Checking names\u{2026}")
+        case .repairing: progressLabel.stringValue = String(localized: "Fixing names\u{2026}")
+        }
+    }
+
+    private func show(result: SQLDraftPipeline.Result, for description: String) {
         spinner.stopAnimation(nil)
         progressRow.isHidden = true
         draftButton.isEnabled = true
         promptField.isEnabled = true
 
         let reviewed = SQLDraftPolicy.review(
-            draft.sql,
+            result.sql,
             allowWriteStatements: ModelAvailability.shared.isAvailable(for: .draftWriteStatements))
         review = reviewed
 
@@ -332,12 +348,29 @@ final class DescribeQueryPopoverVC: NSViewController {
         generatedLabel.promptHash = ModelFeedbackStore.promptHash(description)
         generatedLabel.isHidden = false
 
-        let note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sentence = note.isEmpty ? String(localized: "No assumptions given.") : note
+        // What the statement reads, worked out by Pharos rather than told by
+        // the model (see `SQLDraft`).
+        var sentence = result.reads.isEmpty
+            ? String(localized: "Reads no table Pharos knows.")
+            : String(localized: "Reads \(ListFormatter.localizedString(byJoining: result.reads.map(\.description))).")
+        // Names the check could not match are said, not hidden: the draft
+        // may still be the right shape, and the analyst can fix a name.
+        if let first = result.problems.first {
+            let more = result.problems.count - 1
+            let problem = more > 0
+                ? String(localized: "Check before running: \(first) (\(more) more)")
+                : String(localized: "Check before running: \(first)")
+            sentence = problem + "\n" + sentence
+        }
+        // Pharos's own corrections are said too: the statement is no longer
+        // exactly what the model wrote.
+        if !result.fixes.isEmpty {
+            sentence += "\n" + String(localized: "Pharos corrected: \(result.fixes.joined(separator: " "))")
+        }
         if let warning = reviewed.warning {
             show(message: "\(warning)\n\(sentence)", isFailure: true)
         } else {
-            show(message: sentence, isFailure: false)
+            show(message: sentence, isFailure: !result.problems.isEmpty)
         }
 
         // Insert gets no Return key equivalent: the description field keeps
@@ -372,16 +405,23 @@ final class DescribeQueryPopoverVC: NSViewController {
         if let intelligence = error as? IntelligenceError {
             return intelligence.localizedDescription
         }
-        guard let generation = error as? LanguageModelSession.GenerationError else {
-            return String(localized: "The model could not draft a query. Try again.")
+        if let failure = error as? SQLDraftPipeline.Failure {
+            return failure.localizedDescription
         }
-        switch generation {
-        case .guardrailViolation:
+        // `ModelErrorKind`, not `GenerationError`: macOS 27 throws
+        // `LanguageModelError`, and a switch on the old type alone showed
+        // the generic sentence for every failure there.
+        switch ModelErrorKind.of(error) {
+        case .guardrailViolation, .refusal:
             return String(localized: "The model would not answer that. Try describing the query another way.")
-        case .exceededContextWindowSize:
+        case .contextSizeExceeded:
             return String(localized: "That was too much for one request. Choose a schema first, or describe a smaller query.")
         case .unsupportedLanguageOrLocale:
             return String(localized: "The model does not support this language yet.")
+        case .rateLimited, .concurrentRequests:
+            return String(localized: "The model is busy. Try again in a moment.")
+        case .assetsUnavailable:
+            return String(localized: "The model is not ready yet. Try again when Apple Intelligence has finished downloading.")
         default:
             return String(localized: "The model could not draft a query. Try again.")
         }

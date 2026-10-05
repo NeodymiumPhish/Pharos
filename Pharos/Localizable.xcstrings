@@ -571,6 +571,12 @@
     "Charts" : {
 
     },
+    "Check before running: %@" : {
+
+    },
+    "Check before running: %@ (%lld more)" : {
+
+    },
     "Check for updates in the background" : {
 
     },
@@ -581,6 +587,9 @@
 
     },
     "Checked recently." : {
+
+    },
+    "Checking names…" : {
 
     },
     "Checking…" : {
@@ -624,6 +633,9 @@
 
     },
     "Choose…" : {
+
+    },
+    "Choosing tables…" : {
 
     },
     "Chosen file" : {
@@ -1248,6 +1260,9 @@
     "Find…" : {
 
     },
+    "Finding tables…" : {
+
+    },
     "Fit to content" : {
 
     },
@@ -1255,6 +1270,9 @@
 
     },
     "Fixed width" : {
+
+    },
+    "Fixing names…" : {
 
     },
     "Folder" : {
@@ -1764,9 +1782,6 @@
     "Next suggestion" : {
 
     },
-    "No assumptions given." : {
-
-    },
     "No column is ever made wider than this, by fitting or by dragging." : {
 
     },
@@ -1816,6 +1831,9 @@
 
     },
     "No shortcut matches." : {
+
+    },
+    "No table matches that description. Name a table or column, or choose the schema that holds the data." : {
 
     },
     "Node" : {
@@ -2088,6 +2106,9 @@
     "Pharos %@ is the newest version." : {
 
     },
+    "Pharos corrected: %@" : {
+
+    },
     "Pharos could not connect: %@" : {
 
     },
@@ -2284,6 +2305,12 @@
 
     },
     "Reading schemas…" : {
+
+    },
+    "Reads %@." : {
+
+    },
+    "Reads no table Pharos knows." : {
 
     },
     "Rebind a command" : {
@@ -2970,6 +2997,9 @@
     "The model could not draft a query. Try again." : {
 
     },
+    "The model could not draft a query. Try describing it another way." : {
+
+    },
     "The model could not suggest a chart. Try again." : {
 
     },
@@ -2986,6 +3016,12 @@
 
     },
     "The model does not support this language." : {
+
+    },
+    "The model is busy. Try again in a moment." : {
+
+    },
+    "The model is not ready yet. Try again when Apple Intelligence has finished downloading." : {
 
     },
     "The model would not answer for this result." : {
@@ -3406,6 +3442,9 @@
 
     },
     "Writes this secret to your login keychain and turns this tunnel's “Remember the SSH secret in the keychain” on, so you are not asked again. Left clear, it is kept in memory until Pharos quits and never written to disk. This is the tunnel's own switch; the database password's is separate." : {
+
+    },
+    "Writing the query…" : {
 
     },
     "X" : {
