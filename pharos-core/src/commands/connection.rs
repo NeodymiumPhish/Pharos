@@ -1070,12 +1070,11 @@ mod remember_password_tests {
     ///
     /// Against the real Keychain, under a service name of this test's own —
     /// `PHAROS_KEYCHAIN_SERVICE`, the same hook the re-identified test build
-    /// of the app uses. Serial: the env var is process-wide, and the suite is
-    /// run with `--test-threads=1`.
+    /// of the app uses. The variable is process-wide, so the guard holds it
+    /// for this test alone (`credentials::isolated_keychain`).
     #[test]
     fn clearing_the_switch_deletes_the_stored_password() {
-        let service = format!("com.pharos.test.remember.{}", uuid::Uuid::new_v4());
-        std::env::set_var("PHAROS_KEYCHAIN_SERVICE", &service);
+        let _keychain = credentials::isolated_keychain("remember");
 
         let dir = temp_db_dir("remember");
         let db = sqlite::init_database(&dir).expect("sqlite");
@@ -1130,7 +1129,6 @@ mod remember_password_tests {
         let _ = credentials::delete_connection_secrets_with_cache("c2", &mut cache);
         drop(cache);
         let _ = std::fs::remove_dir_all(&dir);
-        std::env::remove_var("PHAROS_KEYCHAIN_SERVICE");
     }
 }
 
@@ -1213,12 +1211,11 @@ mod remember_ssh_secret_tests {
     ///
     /// Against the real Keychain, under a service name of this test's own —
     /// `PHAROS_KEYCHAIN_SERVICE`, the same hook the re-identified test build
-    /// uses. Serial: the env var is process-wide, and the suite is run with
-    /// `--test-threads=1`.
+    /// uses. The variable is process-wide, so the guard holds it for this
+    /// test alone (`credentials::isolated_keychain`).
     #[test]
     fn clearing_the_switch_deletes_the_stored_ssh_secret() {
-        let service = format!("com.pharos.test.sshremember.{}", uuid::Uuid::new_v4());
-        std::env::set_var("PHAROS_KEYCHAIN_SERVICE", &service);
+        let _keychain = credentials::isolated_keychain("sshremember");
 
         let dir = temp_db_dir("sshremember");
         let db = sqlite::init_database(&dir).expect("sqlite");
@@ -1302,6 +1299,5 @@ mod remember_ssh_secret_tests {
         let _ = credentials::delete_connection_secrets_with_cache("t2", &mut cache);
         drop(cache);
         let _ = std::fs::remove_dir_all(&dir);
-        std::env::remove_var("PHAROS_KEYCHAIN_SERVICE");
     }
 }
