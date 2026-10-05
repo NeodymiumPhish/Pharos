@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionMechanism, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
+use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo, FunctionInfo, IndexInfo, KeyCandidate, PartitionMechanism, PartitionRef, PartitionStrategy, SchemaColumnInfo, SchemaDraftFacts, SchemaInfo, SslMode, TableInfo, TableKeyInfo, TableType};
 use crate::models::ConnectionSettings;
 use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
@@ -1660,6 +1660,28 @@ pub async fn get_table_indexes(
         .collect();
 
     Ok(indexes)
+}
+
+/// The facts query for one schema, with the schema name as an escaped literal.
+pub(crate) fn schema_draft_facts_sql(schema_name: &str) -> String {
+    include_str!("sql/schema_draft_facts.sql")
+        .replace("$SCHEMA", &format!("'{}'", escape_sql_literal(schema_name)))
+}
+
+/// Foreign keys, enum labels, real type names and short comments for one
+/// schema, in one round trip. The server builds the JSON; it is decoded here
+/// so a shape change fails in Rust rather than as a silent nil in Swift.
+pub async fn get_schema_draft_facts(
+    pool: &PgPool,
+    schema_name: &str,
+) -> Result<SchemaDraftFacts, String> {
+    let sql = schema_draft_facts_sql(schema_name);
+    let row = sqlx::raw_sql(&sql)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let json = raw_str(&row, "facts").ok_or_else(|| "the facts query returned NULL".to_string())?;
+    serde_json::from_str(&json).map_err(|e| format!("the facts query returned an unexpected shape: {e}"))
 }
 
 /// Get constraints for a table
@@ -3734,6 +3756,152 @@ mod live_schemas_tests {
                     "a pg_temp_ schema reached the tree: {list:?}"
                 );
             }
+        });
+    }
+}
+
+#[cfg(test)]
+mod schema_draft_facts_tests {
+    use super::schema_draft_facts_sql;
+    use crate::models::SchemaDraftFacts;
+
+    #[test]
+    fn the_schema_is_a_quoted_escaped_literal_and_no_placeholder_survives() {
+        let sql = schema_draft_facts_sql("o'brien");
+        assert!(sql.contains("n.nspname = 'o''brien'"), "{sql}");
+        assert!(!sql.contains("$SCHEMA"), "{sql}");
+    }
+
+    #[test]
+    fn nothing_that_can_hold_a_literal_value_is_read() {
+        // Strip the comment lines: they NAME the excluded sources on purpose.
+        let sql: String = schema_draft_facts_sql("s")
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for forbidden in ["pg_get_expr", "adbin", "pg_attrdef", "pg_get_constraintdef", "consrc", "conbin"] {
+            assert!(!sql.contains(forbidden), "the facts query reads {forbidden}");
+        }
+    }
+
+    #[test]
+    fn every_char_catalogue_column_is_cast_to_text() {
+        let sql = schema_draft_facts_sql("s");
+        for column in ["relkind", "contype", "typtype", "typcategory"] {
+            let bare = sql.matches(&format!(".{column}")).count();
+            let cast = sql.matches(&format!(".{column}::text")).count();
+            assert!(bare > 0, "{column} is not used any more; drop it from this test");
+            assert_eq!(bare, cast, "{column} is used without ::text");
+        }
+    }
+
+    /// Every key present: a mis-cased key would decode as an empty default
+    /// and no sparse document could see it (tasks/lessons.md, FFI key names).
+    #[test]
+    fn a_full_document_decodes_every_key() {
+        let json = r#"{
+            "tableComments": {"orders": "one row per order"},
+            "columns": [{"table": "orders", "name": "status", "type": "sales.order_status", "comment": "lifecycle"}],
+            "foreignKeys": [{"table": "orders", "columns": ["customer_id"], "refSchema": "sales",
+                             "refTable": "customers", "refColumns": ["id"]}],
+            "enums": [{"type": "sales.order_status", "labels": ["pending", "paid"]}]
+        }"#;
+        let facts: SchemaDraftFacts = serde_json::from_str(json).expect("decodes");
+        assert_eq!(facts.table_comments.get("orders").map(String::as_str), Some("one row per order"));
+        assert_eq!(facts.columns[0].type_name, "sales.order_status");
+        assert_eq!(facts.columns[0].comment.as_deref(), Some("lifecycle"));
+        assert_eq!(facts.foreign_keys[0].ref_schema, "sales");
+        assert_eq!(facts.foreign_keys[0].ref_table, "customers");
+        assert_eq!(facts.foreign_keys[0].ref_columns, vec!["id"]);
+        assert_eq!(facts.enums[0].labels, vec!["pending", "paid"]);
+
+        // And what Swift reads back is the same set of keys.
+        let out = serde_json::to_string(&facts).unwrap();
+        for key in ["tableComments", "columns", "foreignKeys", "refSchema", "refTable", "refColumns", "enums", "\"type\""] {
+            assert!(out.contains(key), "{key} missing from {out}");
+        }
+    }
+
+    #[test]
+    fn an_empty_document_decodes_to_empty_facts() {
+        let facts: SchemaDraftFacts = serde_json::from_str("{}").expect("decodes");
+        assert_eq!(facts, SchemaDraftFacts::default());
+    }
+}
+
+#[cfg(test)]
+mod live_schema_draft_facts_tests {
+    use super::get_schema_draft_facts;
+    use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
+
+    const SCHEMA: &str = "pharos_draft_facts_test";
+    const OTHER: &str = "pharos_draft_facts_test_ref";
+
+    fn url() -> String {
+        std::env::var("PHAROS_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://nfinn@localhost:5432/nfinn".to_string())
+    }
+
+    /// The query against a real server: a cross-schema foreign key, an enum
+    /// from another schema, a mixed-case table, comments, and a column default
+    /// and CHECK whose literals must not appear anywhere in the answer.
+    #[test]
+    #[ignore = "needs a live PostgreSQL on localhost:5432"]
+    fn the_facts_cover_keys_enums_and_comments_and_no_literal() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let pool = PgPoolOptions::new()
+                .max_connections(1)
+                .acquire_timeout(Duration::from_secs(5))
+                .connect(&url())
+                .await
+                .expect("connect to the live server");
+
+            let setup = format!(
+                "DROP SCHEMA IF EXISTS {SCHEMA} CASCADE; DROP SCHEMA IF EXISTS {OTHER} CASCADE;
+                 CREATE SCHEMA {OTHER}; CREATE SCHEMA {SCHEMA};
+                 CREATE TYPE {OTHER}.mood AS ENUM ('calm', 'cross');
+                 CREATE TABLE {OTHER}.people (id int PRIMARY KEY);
+                 CREATE TABLE {SCHEMA}.\"Visits\" (
+                     id int PRIMARY KEY,
+                     person_id int REFERENCES {OTHER}.people(id),
+                     mood {OTHER}.mood DEFAULT 'calm',
+                     tags text[],
+                     note text DEFAULT 'SECRET_DEFAULT' CHECK (note <> 'SECRET_CHECK'));
+                 COMMENT ON TABLE {SCHEMA}.\"Visits\" IS 'one row per visit';
+                 COMMENT ON COLUMN {SCHEMA}.\"Visits\".note IS 'free text';"
+            );
+            sqlx::raw_sql(&setup).execute(&pool).await.expect("fixture");
+
+            let result = get_schema_draft_facts(&pool, SCHEMA).await;
+
+            let teardown = format!("DROP SCHEMA {SCHEMA} CASCADE; DROP SCHEMA {OTHER} CASCADE;");
+            sqlx::raw_sql(&teardown).execute(&pool).await.expect("teardown");
+
+            let facts = result.expect("facts");
+            println!("{facts:#?}");
+
+            assert_eq!(facts.table_comments.get("Visits").map(String::as_str), Some("one row per visit"));
+
+            let fk = facts.foreign_keys.iter().find(|f| f.table == "Visits").expect("the foreign key");
+            assert_eq!(fk.columns, vec!["person_id"]);
+            assert_eq!((fk.ref_schema.as_str(), fk.ref_table.as_str()), (OTHER, "people"));
+            assert_eq!(fk.ref_columns, vec!["id"]);
+
+            let mood = facts.columns.iter().find(|c| c.name == "mood").expect("the enum column");
+            assert_eq!(mood.type_name, format!("{OTHER}.mood"));
+            let labels = facts.enums.iter().find(|e| e.type_name == mood.type_name).expect("its labels");
+            assert_eq!(labels.labels, vec!["calm", "cross"]);
+
+            assert!(facts.columns.iter().any(|c| c.name == "tags" && c.type_name == "text[]"), "the array column");
+            let note = facts.columns.iter().find(|c| c.name == "note").expect("the commented column");
+            assert_eq!(note.comment.as_deref(), Some("free text"));
+            assert!(!facts.columns.iter().any(|c| c.name == "id"), "a plain base-type column with no comment");
+
+            let all = serde_json::to_string(&facts).unwrap();
+            assert!(!all.contains("SECRET_"), "a literal leaked: {all}");
         });
     }
 }

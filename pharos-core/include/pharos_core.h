@@ -419,6 +419,16 @@ void pharos_get_schema_columns(const char *connection_id,
                                void *context);
 
 /**
+ * Get the "Describe a query" facts for one schema. Returns JSON
+ * SchemaDraftFacts via callback.
+ */
+
+void pharos_get_schema_draft_facts(const char *connection_id,
+                                   const char *schema_name,
+                                   AsyncCallback callback,
+                                   void *context);
+
+/**
  * Analyze a schema. Returns JSON AnalyzeResult via callback.
  */
 
