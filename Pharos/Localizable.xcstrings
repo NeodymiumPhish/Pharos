@@ -86,6 +86,26 @@
     "%@ ms" : {
 
     },
+    "%@ of %@ card" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@ card"
+          }
+        }
+      }
+    },
+    "%@ of %@ cards" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@ cards"
+          }
+        }
+      }
+    },
     "%@ rows" : {
 
     },
