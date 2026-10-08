@@ -4,7 +4,7 @@ import AppKit
 /// to the navigator that can hold them, and a filter field. Xcode puts its
 /// filter here rather than at the top, and so does this.
 ///
-/// The Query Library's "+" is a pull-down `NSPopUpButton` (New Query, New
+/// The Sessions navigator's "+" is a pull-down `NSPopUpButton` (New Session, New
 /// Folder). Its image has to live on `menu.items[0]` — the hidden title item —
 /// or the button draws the first real item's title instead of the glyph. The
 /// Variables navigator can make only one thing, so its "+" is a plain button
@@ -30,7 +30,7 @@ final class SidebarFilterBar: NSView {
 
     // MARK: - Views
 
-    /// The Query Library's "+" pull-down.
+    /// The Sessions navigator's "+" pull-down.
     let addButton = NSPopUpButton(frame: .zero, pullsDown: true)
     /// The Variables navigator's "+", which makes a variable at once.
     let newVariableButton = NSButton()
@@ -40,7 +40,7 @@ final class SidebarFilterBar: NSView {
     private let trailingSlot = NSView()
     private let stack = NSStackView()
 
-    /// Show the "+" that belongs to `navigator`. Only the Query Library and
+    /// Show the "+" that belongs to `navigator`. Only the Sessions navigator and
     /// the Variables navigator can create things, so the others show none;
     /// the stack closes the gap.
     func configureAddControl(for navigator: Navigator) {
@@ -102,7 +102,7 @@ final class SidebarFilterBar: NSView {
         titleItem.image = Self.plusImage(accessibilityDescription: String(localized: "Add"))
         menu.addItem(titleItem)
 
-        let newQuery = NSMenuItem(title: String(localized: "New Query"),
+        let newQuery = NSMenuItem(title: String(localized: "New Session"),
                                   action: #selector(newQueryChosen), keyEquivalent: "")
         newQuery.target = self
         menu.addItem(newQuery)

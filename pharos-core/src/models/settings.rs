@@ -1127,13 +1127,23 @@ pub enum SavedQuerySortMode {
     RecentlyUpdated,
 }
 
-/// What a double-click on a saved query does. `Open` is today's.
+/// What a double-click on a saved Session does.
+///
+/// The aliases read the values stored before saved queries became Sessions.
+/// They must stay: one value that does not parse resets EVERY setting
+/// (`load_settings` falls back to the defaults).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum SavedQueryDoubleClickAction {
+    /// Restore the Session: its cards and their saved results.
     #[default]
-    Open,
-    OpenAndRun,
+    #[serde(alias = "open")]
+    Restore,
+    /// Open the cards only, as a new unsaved tab.
+    OpenAsTemplate,
+    /// Open the Session without its saved results and run every card.
+    #[serde(alias = "openAndRun")]
+    RestoreAndRun,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -1373,7 +1383,7 @@ pub(crate) mod fixture {
                 library: LibrarySettings {
                     default_folder: "Reports".to_string(),
                     sort_mode: SavedQuerySortMode::RecentlyUpdated,
-                    double_click_action: SavedQueryDoubleClickAction::OpenAndRun,
+                    double_click_action: SavedQueryDoubleClickAction::OpenAsTemplate,
                 },
                 history: HistorySettings {
                     maximum_entries: 201,
@@ -1535,6 +1545,21 @@ pub(crate) mod fixture {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Saved queries became Sessions: the stored "open" and "openAndRun" must
+    /// still parse (one bad value resets every setting), and are written back
+    /// under the new names.
+    #[test]
+    fn saved_query_double_click_reads_the_old_values() {
+        let old: LibrarySettings = serde_json::from_str(r#"{"doubleClickAction":"open"}"#).expect("open");
+        assert_eq!(old.double_click_action, SavedQueryDoubleClickAction::Restore);
+        let old: LibrarySettings = serde_json::from_str(r#"{"doubleClickAction":"openAndRun"}"#).expect("openAndRun");
+        assert_eq!(old.double_click_action, SavedQueryDoubleClickAction::RestoreAndRun);
+        let written = serde_json::to_string(&old).unwrap();
+        assert!(written.contains(r#""doubleClickAction":"restoreAndRun""#), "{written}");
+        let new: LibrarySettings = serde_json::from_str(r#"{"doubleClickAction":"openAsTemplate"}"#).unwrap();
+        assert_eq!(new.double_click_action, SavedQueryDoubleClickAction::OpenAsTemplate);
+    }
 
     /// Settings stored before this field existed must still load. Without the
     /// serde default, the whole settings blob fails to parse and the app falls

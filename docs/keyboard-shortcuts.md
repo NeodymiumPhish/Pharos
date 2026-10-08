@@ -40,7 +40,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | New Tab | Cmd+T |
 | Close Tab | Cmd+W |
 | Reopen Closed Tab | Cmd+Shift+T |
-| Save Query… | Cmd+S |
+| Save Session… | Cmd+S |
 | Export Query as SQL File… | Cmd+Opt+S |
 | Close Window (every tab of the window) | Cmd+Shift+W |
 
@@ -81,7 +81,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 |--------|----------|
 | Show / Hide Sidebar | Cmd+Ctrl+S |
 | Show / Hide Inspector | Cmd+Opt+I |
-| Query Library navigator | Cmd+Opt+1 |
+| Sessions navigator | Cmd+Opt+1 |
 | Variables navigator | Cmd+Opt+2 |
 | Results History navigator | Cmd+Opt+3 |
 | Database Navigator navigator | Cmd+Opt+4 |

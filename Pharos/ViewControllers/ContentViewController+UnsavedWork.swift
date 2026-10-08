@@ -89,7 +89,8 @@ extension ContentViewController {
 
     /// Save each tab in turn, stopping at the first the user backs out of.
     ///
-    /// A BOUND tab (a saved query, a file) is written straight back. A dirty
+    /// A BOUND tab (a Session, a file) is written straight back; a Session's
+    /// results finish writing before the next tab is asked about. A dirty
     /// SCRATCH tab — which only reaches here while **Restore open tabs** is off
     /// — has nowhere to write to, so it gets the Save Query sheet; cancelling
     /// that sheet cancels the close, because the alternative is to close a tab
@@ -99,8 +100,10 @@ extension ContentViewController {
         let rest = Array(tabs.dropFirst())
 
         if UnsavedWorkPolicy.canSaveInPlace(head) {
-            guard saveTabInPlace(id: head.id) else { then(false); return }
-            saveEach(rest, then: then)
+            saveTabInPlace(id: head.id) { [weak self] saved in
+                guard let self, saved else { then(false); return }
+                self.saveEach(rest, then: then)
+            }
             return
         }
 

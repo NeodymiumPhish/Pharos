@@ -58,10 +58,11 @@ private func makeHostedCell() -> (window: NSWindow, cell: SavedQueryCellView) {
 }
 
 /// What the row DRAWS, read out of the view hierarchy rather than through an
-/// accessor added for the tests. The cell holds exactly one text field.
+/// accessor added for the tests. With no detail ("3 results"), the cell shows
+/// exactly one text field: the detail label is there, hidden.
 private func drawnTitle(_ cell: SavedQueryCellView) -> String {
-    let fields = cell.subviews.compactMap { $0 as? NSTextField }
-    guard fields.count == 1 else { return "<expected exactly 1 NSTextField, found \(fields.count)>" }
+    let fields = cell.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
+    guard fields.count == 1 else { return "<expected exactly 1 visible NSTextField, found \(fields.count)>" }
     return fields[0].stringValue
 }
 
@@ -87,6 +88,17 @@ private final class RecordingDelegate: SavedQueryCellEditingDelegate {
 func runTests() {
     // AppKit needs the shared application before any window is made.
     _ = NSApplication.shared
+
+    // MARK: A Session's saved-result count shows beside its name, and goes again
+
+    do {
+        let (_, cell) = makeHostedCell()
+        cell.configure(icon: nil, tint: .labelColor, title: "Monthly Revenue", detail: "3 results")
+        let visible = cell.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }.map(\.stringValue).joined(separator: " | ")
+        expectEqual(visible, "Monthly Revenue | 3 results", "a Session with results shows its count")
+        cell.configure(icon: nil, tint: .labelColor, title: "Monthly Revenue")
+        expectEqual(drawnTitle(cell), "Monthly Revenue", "a reused row with no results hides the count")
+    }
 
     // MARK: A plain name reads as itself
 

@@ -120,6 +120,38 @@ func runTests() {
     let result2 = QueryResult.fromHistory(withoutIdentity, historyEntryId: "hist-3", executionTimeMs: 7)
     expectNil(result2.rowIdentity, "a payload with nil rowIdentity gives a result with nil rowIdentity")
 
+    // MARK: 6 — a saved Session's rows come back with hasMore and no history id.
+
+    let saved = QueryResult.fromSavedSession(withIdentity, hasMore: true, executionTimeMs: 12)
+    expectTrue(saved.hasMore, "a Session result keeps hasMore, so Load More can go on")
+    expectNil(saved.historyEntryId, "a Session result has no history entry")
+    expectNotNil(saved.rowIdentity, "a Session result keeps its rowIdentity")
+    expectEqual(saved.rowCount, 2, "a Session result's rowCount equals rows.count")
+
+    // MARK: 7 — what a Session save sends decodes back as a history payload.
+    //
+    // pharos-core stores `columns`, `rows` and `rowIdentity` verbatim and hands
+    // them back under the same keys, so the round trip is pure Swift.
+
+    let stage = StageSavedQueryResult(
+        savedQueryId: "s", snapshotId: "snap", runId: "run", cardId: "c", priority: 0, kind: .rows,
+        sql: "SELECT 1", rawSql: nil, schemaName: nil, executedAt: "t", executionTimeMs: 1, rowsAffected: nil,
+        rowCount: 2, hasMore: false, chartViewStateJson: nil, columns: columns, rows: rows, rowIdentity: identity)
+    if let sent = try? JSONEncoder().encode(stage),
+       let object = try? JSONSerialization.jsonObject(with: sent) as? [String: Any],
+       let back = try? JSONSerialization.data(withJSONObject: [
+           "columns": object["columns"]!, "rows": object["rows"]!, "rowIdentity": object["rowIdentity"]!,
+       ]),
+       let decoded = try? JSONDecoder().decode(QueryHistoryResultData.self, from: back) {
+        expectEqual(decoded.columns.map(\.dataType), ["int4", "text"], "staged columns decode back")
+        expectEqual(decoded.rows.map { $0.map(\.stringValue) }, [["1", "ada@example.com"], ["2", "grace@example.com"]],
+                    "staged rows decode back")
+        expectEqual(decoded.rowIdentity?.candidates.count, 2, "staged row identity decodes back")
+    } else {
+        failures += 1
+        print("FAIL a staged Session result does not decode as a history payload")
+    }
+
     print(failures == 0 ? "\nAll tests passed." : "\n\(failures) test(s) FAILED.")
     exit(failures == 0 ? 0 : 1)
 }

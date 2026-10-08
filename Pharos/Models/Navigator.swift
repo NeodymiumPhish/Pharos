@@ -5,7 +5,7 @@ import AppKit
 /// order must not be rearranged without also bumping the preference key in
 /// `SidebarNavigatorPrefs` (the stored value is this raw value).
 ///
-/// Order: Query Library, Variables, Results History, Database Navigator. The
+/// Order: Sessions, Variables, Results History, Database Navigator. The
 /// Variables navigator is the ONE app-wide list of `{{name}}` variables —
 /// see `QueryVariableStore` — not a per-tab panel.
 ///
@@ -22,7 +22,7 @@ enum Navigator: Int, CaseIterable, Sendable {
 
     var symbolName: String {
         switch self {
-        case .library: return "folder"
+        case .library: return "rectangle.stack"
         case .variables: return "curlybraces"
         case .history: return "clock.arrow.circlepath"
         case .schema: return "cylinder.split.1x2"
@@ -31,7 +31,7 @@ enum Navigator: Int, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .library: return String(localized: "Query Library")
+        case .library: return String(localized: "Sessions")
         case .variables: return String(localized: "Variables")
         case .history: return String(localized: "Results History")
         case .schema: return String(localized: "Database Navigator")

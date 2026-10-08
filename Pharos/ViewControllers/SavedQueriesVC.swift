@@ -37,7 +37,7 @@ class SavedQueryNode: NSObject {
         case .folder:
             return NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
         case .query:
-            return NSImage(systemSymbolName: "doc.text.fill", accessibilityDescription: "Query")
+            return NSImage(systemSymbolName: "rectangle.stack.fill", accessibilityDescription: String(localized: "Session"))
         }
     }
 
@@ -164,9 +164,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     private func updateEmptyState() {
         if allQueries.isEmpty {
             emptyState.show(
-                symbol: "folder",
-                title: String(localized: "No Saved Queries"),
-                message: String(localized: "Save a query with \u{2318}S to keep it here.")
+                symbol: "rectangle.stack",
+                title: String(localized: "No Saved Sessions"),
+                message: String(localized: "Save a tab with \u{2318}S to keep its queries and results here.")
             )
         } else {
             emptyState.isHidden = true
@@ -283,9 +283,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             alert.messageText = DestructiveConfirmationText
                 .deleteSavedQueryConfirmTitle(name: name)
         } else {
-            alert.messageText = "Delete \(selectedIds.count) queries?"
+            alert.messageText = String(localized: "Delete \(selectedIds.count) Sessions?")
         }
-        alert.informativeText = "This action cannot be undone."
+        alert.informativeText = String(localized: "Their saved results are deleted too. This action cannot be undone.")
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
@@ -416,25 +416,34 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         guard row >= 0, let node = outlineView.item(atRow: row) as? SavedQueryNode else { return }
         if case .query(let q) = node.kind {
             // Settings ▸ Library & History ▸ On double-click. The context
-            // menu's "Open in Tab" always just opens, whichever this says.
-            let run = AppStateManager.shared.settings.library.doubleClickAction == .openAndRun
-            openQueryInTab(q, run: run)
+            // menu offers each way, whichever this says.
+            switch AppStateManager.shared.settings.library.doubleClickAction {
+            case .restore: openSession(q, mode: .restore)
+            case .openAsTemplate: openSession(q, mode: .template)
+            case .restoreAndRun: openSession(q, mode: .restore, run: true)
+            }
         }
     }
 
-    /// Open `query` in a tab. `run` also runs it once the tab is there — the
+    /// Open `query` in a tab: the whole Session, or its queries only as a
+    /// template. `run` also runs every card once the tab is there — the
     /// receiving window decides, because it owns the tab and its connection.
-    private func openQueryInTab(_ query: SavedQuery, run: Bool = false) {
+    private func openSession(_ query: SavedQuery, mode: SessionOpenMode, run: Bool = false) {
         NotificationCenter.default.post(
             name: .openSavedQuery,
             object: nil,
-            userInfo: ["query": query, "run": run]
+            userInfo: ["query": query, "mode": mode.rawValue, "run": run]
         )
     }
 
     @objc private func contextOpenInTab(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
-        openQueryInTab(q)
+        openSession(q, mode: .restore)
+    }
+
+    @objc private func contextOpenAsTemplate(_: Any?) {
+        guard let node = clickedNode(), case .query(let q) = node.kind else { return }
+        openSession(q, mode: .template)
     }
 
     @objc private func contextCopySQL(_: Any?) {
@@ -494,7 +503,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         guard !queries.isEmpty else {
             let alert = NSAlert()
             alert.messageText = "Folder is empty"
-            alert.informativeText = "\u{201C}\(folderName)\u{201D} has no saved queries to export."
+            alert.informativeText = String(localized: "\u{201C}\(folderName)\u{201D} has no Sessions to export.")
             alert.runModal()
             return
         }
@@ -652,13 +661,20 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
         switch node.kind {
         case .query(let q):
-            do {
-                _ = try PharosCore.deleteSavedQuery(id: q.id)
-                reload()
-                NotificationCoalescer.post(.savedQueriesDidChange)
-            } catch {
-                Log.ui.error("Failed to delete saved query: \(error.localizedDescription, privacy: .public)")
-                showDeleteFailure(error)
+            // A Session with saved results holds rows that cannot be fetched
+            // again as they were, so its delete asks first. One with none
+            // goes at once, as a saved query always did.
+            guard q.hasSavedResults else { deleteSession(q); return }
+            let alert = NSAlert()
+            alert.messageText = DestructiveConfirmationText.deleteSavedQueryConfirmTitle(name: q.name)
+            alert.informativeText = String(localized: "Its saved results are deleted too. This action cannot be undone.")
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: String(localized: "Delete"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            guard let window = view.window else { return }
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.deleteSession(q)
             }
 
         case .folder(let name):
@@ -671,7 +687,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             let alert = NSAlert()
             alert.messageText = DestructiveConfirmationText
                 .deleteFolderConfirmTitle(name: name)
-            alert.informativeText = "This will delete \(count) saved quer\(count == 1 ? "y" : "ies") in this folder."
+            alert.informativeText = count == 1
+                ? String(localized: "This will delete 1 Session in this folder, with its saved results.")
+                : String(localized: "This will delete \(count) Sessions in this folder, with their saved results.")
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Delete")
             alert.addButton(withTitle: "Cancel")
@@ -694,6 +712,17 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 self?.reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
             }
+        }
+    }
+
+    private func deleteSession(_ q: SavedQuery) {
+        do {
+            _ = try PharosCore.deleteSavedQuery(id: q.id)
+            reload()
+            NotificationCoalescer.post(.savedQueriesDidChange)
+        } catch {
+            Log.ui.error("Failed to delete saved query: \(error.localizedDescription, privacy: .public)")
+            showDeleteFailure(error)
         }
     }
 
@@ -751,7 +780,8 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     private func createEmptyFolder(name: String) {
         // Create a placeholder query in the folder so the folder persists
-        let query = CreateSavedQuery(name: "New Query", folder: name, sql: "", connectionId: nil, variables: nil)
+        let query = CreateSavedQuery(name: String(localized: "New Session"), folder: name, sql: "", connectionId: nil,
+                                     variables: nil)
         do {
             _ = try PharosCore.createSavedQuery(query)
             reload()
@@ -765,15 +795,16 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         createNewQuery()
     }
 
-    /// Creates an empty saved query and opens it in a tab. Called by the
+    /// Creates an empty Session and opens it in a tab. Called by the
     /// context menu and by the sidebar filter bar's "+" pull-down.
     func createNewQuery() {
-        let query = CreateSavedQuery(name: "Untitled Query", folder: nil, sql: "", connectionId: nil, variables: nil)
+        let query = CreateSavedQuery(name: String(localized: "Untitled Session"), folder: nil, sql: "", connectionId: nil,
+                                     variables: nil)
         do {
             let saved = try PharosCore.createSavedQuery(query)
             reload()
             NotificationCoalescer.post(.savedQueriesDidChange)
-            openQueryInTab(saved)
+            openSession(saved, mode: .restore)
         } catch {
             Log.ui.error("Failed to create query: \(error.localizedDescription, privacy: .public)")
         }
@@ -889,9 +920,15 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         let cell = outlineView.makeView(withIdentifier: cellId, owner: self) as? SavedQueryCellView
             ?? SavedQueryCellView(identifier: cellId)
         let isHighlighted = node.queryId != nil && node.queryId == highlightedQueryId
-        cell.configure(icon: node.icon, tint: node.tintColor, title: node.title, isHighlighted: isHighlighted)
+        var detail: String?
+        if case .query(let q) = node.kind, q.hasSavedResults, let count = q.resultCount {
+            detail = count == 1 ? String(localized: "1 result") : String(localized: "\(count) results")
+        }
+        cell.configure(icon: node.icon, tint: node.tintColor, title: node.title, isHighlighted: isHighlighted,
+                       detail: detail)
 
-        // Show SQL preview as tooltip for query nodes
+        // Show SQL preview as tooltip for query nodes, and what the Session
+        // keeps besides.
         if case .query(let q) = node.kind {
             let flat = q.sql
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -899,7 +936,10 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " ")
-            cell.toolTip = flat.isEmpty ? nil : (flat.count > 80 ? String(flat.prefix(80)) + "..." : flat)
+            let preview = flat.isEmpty ? nil : (flat.count > 80 ? String(flat.prefix(80)) + "..." : flat)
+            let saved = SessionSnapshot.caption(resultCount: q.resultCount, bytes: q.resultsBytes)
+            let tip = [preview, saved].compactMap { $0 }.joined(separator: "\n")
+            cell.toolTip = tip.isEmpty ? nil : tip
         } else {
             cell.toolTip = nil
         }
@@ -975,7 +1015,7 @@ extension SavedQueriesVC: NSMenuDelegate {
         {
             // Multi-select context menu: only batch operations
             let deleteItem = NSMenuItem(
-                title: "Delete \(selectedQueryCount) Queries",
+                title: String(localized: "Delete \(selectedQueryCount) Sessions"),
                 action: #selector(contextDeleteSelected),
                 keyEquivalent: ""
             )
@@ -987,7 +1027,11 @@ extension SavedQueriesVC: NSMenuDelegate {
 
         switch node.kind {
         case .query:
-            menu.addItem(withTitle: "Open in Tab", action: #selector(contextOpenInTab), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Open Session"), action: #selector(contextOpenInTab),
+                         keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "Open as Template (No Results)"),
+                         action: #selector(contextOpenAsTemplate), keyEquivalent: "")
+            menu.addItem(.separator())
             menu.addItem(withTitle: "Copy SQL", action: #selector(contextCopySQL), keyEquivalent: "")
             menu.addItem(withTitle: "Export as SQL File…", action: #selector(contextExportQueryAsSQL), keyEquivalent: "")
             menu.addItem(withTitle: String(localized: "Share…"), action: #selector(contextShareSQL), keyEquivalent: "")
@@ -997,7 +1041,7 @@ extension SavedQueriesVC: NSMenuDelegate {
             menu.addItem(withTitle: "Delete", action: #selector(contextDelete), keyEquivalent: "")
 
         case .folder:
-            menu.addItem(withTitle: "New Query", action: #selector(contextNewQuery), keyEquivalent: "")
+            menu.addItem(withTitle: String(localized: "New Session"), action: #selector(contextNewQuery), keyEquivalent: "")
             menu.addItem(withTitle: "Export Folder as SQL Files…", action: #selector(contextExportFolderAsSQL), keyEquivalent: "")
             menu.addItem(.separator())
             menu.addItem(withTitle: "Rename...", action: #selector(contextRename), keyEquivalent: "")

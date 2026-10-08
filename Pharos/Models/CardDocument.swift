@@ -320,6 +320,21 @@ struct CardDocument: Equatable, Codable {
     /// Names, versions, locks and SQL stay. A duplicated tab and a saved
     /// query opened twice use this.
     func forReuse() -> CardDocument {
+        copied(keepingRuns: false)
+    }
+
+    /// The same cards for a restored Session: fresh ids, as `forReuse`, but
+    /// each card keeps its run record and colour, so the results saved with
+    /// the Session go back on it (a restore matches them by `lastRun.runId`,
+    /// which stays). The run's history link does not come along: the Session
+    /// has its own copy of the rows, and a rename or chart change must not
+    /// write to a history row the Session does not own. Failures do not
+    /// come along either; the failure log is the old tab's.
+    func forRestore() -> CardDocument {
+        copied(keepingRuns: true)
+    }
+
+    private func copied(keepingRuns: Bool) -> CardDocument {
         var lineageMap: [String: String] = [:]
         var idMap: [String: String] = [:]
         var copy = self
@@ -332,10 +347,15 @@ struct CardDocument: Equatable, Codable {
             c.isLocked = old.isLocked
             c.isCollapsed = old.isCollapsed
             c.cursorPosition = old.cursorPosition
+            if keepingRuns {
+                c.lastRun = old.lastRun
+                c.lastRun?.historyResultId = nil
+                c.colorIndex = old.colorIndex
+            }
             return c
         }
         copy.focusedCardId = focusedCardId.flatMap { idMap[$0] } ?? copy.cards.first?.id
-        copy.displayedCardId = nil
+        copy.displayedCardId = keepingRuns ? displayedCardId.flatMap { idMap[$0] } : nil
         copy.expandedLineages = Set(expandedLineages.compactMap { lineageMap[$0] })
         return copy
     }

@@ -5,7 +5,7 @@ use crate::models::{AddTagRules, AppSettings, ConnectionConfig, CreateSavedQuery
 
 // ==================== Compression Helpers ====================
 
-fn compress_data(data: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn compress_data(data: &str) -> Result<Vec<u8>, String> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::io::Write;
@@ -14,7 +14,7 @@ fn compress_data(data: &str) -> Result<Vec<u8>, String> {
     encoder.finish().map_err(|e| e.to_string())
 }
 
-fn decompress_or_passthrough(data: Vec<u8>) -> Result<String, String> {
+pub(crate) fn decompress_or_passthrough(data: Vec<u8>) -> Result<String, String> {
     if data.len() >= 2 && data[0] == 0x1f && data[1] == 0x8b {
         // Gzip compressed data
         use flate2::read::GzDecoder;
@@ -849,6 +849,20 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
     )?;
 
+    // Migration: saved Sessions. A saved query keeps the tab's schema and the
+    // snapshot of results saved with it (`saved_query_results`). All nullable:
+    // a saved query from before Sessions is a Session with no results.
+    for (column, decl) in [
+        ("schema_name", "TEXT"),
+        ("results_snapshot_id", "TEXT"),
+        ("results_saved_at", "TEXT"),
+        ("results_bytes", "INTEGER"),
+        ("result_count", "INTEGER"),
+    ] {
+        add_column_if_missing(conn, "saved_queries", column, decl)?;
+    }
+    super::saved_query_results::create_schema(conn)?;
+
     Ok(())
 }
 
@@ -1352,8 +1366,8 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
 
     conn.execute(
         r#"
-        INSERT INTO saved_queries (id, name, folder, sql, connection_id, variables, created_at, updated_at, cards_json)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        INSERT INTO saved_queries (id, name, folder, sql, connection_id, variables, created_at, updated_at, cards_json, schema_name)
+        VALUES (?1, ?2, ?3, ?4, (SELECT id FROM connections WHERE id = ?5), ?6, ?7, ?8, ?9, ?10)
         "#,
         (
             id,
@@ -1365,68 +1379,48 @@ pub fn create_saved_query(conn: &Connection, id: &str, query: &CreateSavedQuery)
             &now,
             &now,
             &query.cards_json,
+            &query.schema_name,
         ),
     )?;
 
+    // Read back: a connection id that no longer exists was stored as NULL.
+    get_saved_query(conn, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+}
+
+const SAVED_QUERY_COLUMNS: &str = "id, name, folder, sql, connection_id, created_at, updated_at, variables, cards_json, \
+     schema_name, results_snapshot_id, results_saved_at, results_bytes, result_count";
+
+fn saved_query_from_row(row: &rusqlite::Row) -> SqliteResult<SavedQuery> {
     Ok(SavedQuery {
-        id: id.to_string(),
-        name: query.name.clone(),
-        folder: query.folder.clone(),
-        sql: query.sql.clone(),
-        connection_id: query.connection_id.clone(),
-        variables: query.variables.clone(),
-        cards_json: query.cards_json.clone(),
-        created_at: now.clone(),
-        updated_at: now,
+        id: row.get(0)?,
+        name: row.get(1)?,
+        folder: row.get(2)?,
+        sql: row.get(3)?,
+        connection_id: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        variables: row.get(7)?,
+        cards_json: row.get(8)?,
+        schema_name: row.get(9)?,
+        results_snapshot_id: row.get(10)?,
+        results_saved_at: row.get(11)?,
+        results_bytes: row.get(12)?,
+        result_count: row.get(13)?,
     })
 }
 
 /// Load all saved queries
 pub fn load_saved_queries(conn: &Connection) -> SqliteResult<Vec<SavedQuery>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables, cards_json FROM saved_queries ORDER BY name",
-    )?;
-
-    let queries = stmt.query_map([], |row| {
-        Ok(SavedQuery {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            folder: row.get(2)?,
-            sql: row.get(3)?,
-            connection_id: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-            variables: row.get(7)?,
-            cards_json: row.get(8)?,
-        })
-    })?;
-
+    let mut stmt = conn.prepare(&format!("SELECT {} FROM saved_queries ORDER BY name", SAVED_QUERY_COLUMNS))?;
+    let queries = stmt.query_map([], saved_query_from_row)?;
     queries.collect()
 }
 
 /// Get a single saved query by ID
 pub fn get_saved_query(conn: &Connection, query_id: &str) -> SqliteResult<Option<SavedQuery>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, folder, sql, connection_id, created_at, updated_at, variables, cards_json FROM saved_queries WHERE id = ?1",
-    )?;
-
+    let mut stmt = conn.prepare(&format!("SELECT {} FROM saved_queries WHERE id = ?1", SAVED_QUERY_COLUMNS))?;
     let mut rows = stmt.query([query_id])?;
-
-    if let Some(row) = rows.next()? {
-        Ok(Some(SavedQuery {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            folder: row.get(2)?,
-            sql: row.get(3)?,
-            connection_id: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-            variables: row.get(7)?,
-            cards_json: row.get(8)?,
-        }))
-    } else {
-        Ok(None)
-    }
+    rows.next()?.map(saved_query_from_row).transpose()
 }
 
 /// Update a saved query
@@ -3855,7 +3849,7 @@ mod workspace_roundtrip_tests {
 
         let q = create_saved_query(&conn, "q1", &CreateSavedQuery {
             name: "Q".to_string(), folder: None, sql: "SELECT 1;".to_string(), connection_id: None,
-            variables: None, cards_json: Some("C1".to_string()),
+            variables: None, cards_json: Some("C1".to_string()), schema_name: None,
         }).expect("create saved query");
         assert_eq!(q.cards_json.as_deref(), Some("C1"));
         let kept = update_saved_query(&conn, &UpdateSavedQuery {

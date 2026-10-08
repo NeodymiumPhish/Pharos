@@ -6,6 +6,8 @@ class SavedQueryCellView: NSTableCellView {
 
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
+    /// "3 results" at the trailing edge of a Session that has saved results.
+    private let detailLabel = NSTextField(labelWithString: "")
     private weak var editingDelegate: SavedQueryCellEditingDelegate?
 
     /// The name as the STORE holds it, kept because neither of the two things
@@ -33,8 +35,16 @@ class SavedQueryCellView: NSTableCellView {
         titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+        detailLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.setContentHuggingPriority(.required, for: .horizontal)
+        detailLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        detailLabel.isHidden = true
+
         addSubview(iconView)
         addSubview(titleLabel)
+        addSubview(detailLabel)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
@@ -43,17 +53,22 @@ class SavedQueryCellView: NSTableCellView {
             iconView.heightAnchor.constraint(equalToConstant: 16),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: detailLabel.leadingAnchor, constant: -4),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            detailLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            detailLabel.firstBaselineAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor),
         ])
     }
 
-    func configure(icon: NSImage?, tint: NSColor, title: String, isHighlighted: Bool = false) {
+    func configure(icon: NSImage?, tint: NSColor, title: String, isHighlighted: Bool = false, detail: String? = nil) {
         iconView.image = icon
         iconView.contentTintColor = tint
         rawTitle = title
         titleLabel.stringValue = displayTitle
         titleLabel.font = isHighlighted ? .boldSystemFont(ofSize: 13) : .systemFont(ofSize: 13)
+        detailLabel.stringValue = detail ?? ""
+        detailLabel.isHidden = detail == nil
     }
 
     /// The row as it is READ: escaped, so a bidi override cannot reorder the

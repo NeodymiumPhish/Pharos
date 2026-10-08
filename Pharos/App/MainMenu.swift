@@ -86,7 +86,7 @@ enum MainMenu {
 
         fileMenu.addItem(.separator())
 
-        let saveQuery = fileMenu.addItem(withTitle: String(localized: "Save Query…"), action: #selector(ContentViewController.menuSaveQuery(_:)), keyEquivalent: "s")
+        let saveQuery = fileMenu.addItem(withTitle: String(localized: "Save Session…"), action: #selector(ContentViewController.menuSaveQuery(_:)), keyEquivalent: "s")
         saveQuery.keyEquivalentModifierMask = [.command]
         saveQuery.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
 

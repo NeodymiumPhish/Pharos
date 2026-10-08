@@ -868,10 +868,10 @@ struct NavigatorSettings: Codable, Equatable {
 
 // MARK: - Query Library and History
 
-/// How the Query Library navigator orders what it shows.
+/// How the Sessions navigator orders what it shows.
 enum SavedQuerySortMode: String, Codable, CaseIterable {
-    /// Folders by name, then the unfiled queries by name. What the Query
-    /// Library has always done.
+    /// Folders by name, then the unfiled Sessions by name. What the
+    /// navigator has always done.
     case folder
     /// One flat list, by name, with no folder rows.
     case name
@@ -887,30 +887,38 @@ enum SavedQuerySortMode: String, Codable, CaseIterable {
     }
 }
 
-/// What a double-click on a saved query does.
+/// What a double-click on a saved Session does.
+///
+/// The raw values before Sessions were `open` and `openAndRun`. The core reads
+/// them as `restore` and `restoreAndRun` (serde aliases in `settings.rs`) and
+/// Swift only ever decodes what the core writes back, so no old value reaches
+/// this enum.
 enum SavedQueryDoubleClickAction: String, Codable, CaseIterable {
-    /// Open it in a tab. What it has always done.
-    case open
-    /// Open it in a tab and run it at once.
-    case openAndRun
+    /// Restore the Session: its cards and the results saved with them.
+    case restore
+    /// Open the cards only, as a new unsaved tab.
+    case openAsTemplate
+    /// Open the Session without its saved results and run every card.
+    case restoreAndRun
 
     var displayLabel: String {
         switch self {
-        case .open: return String(localized: "Open in a tab")
-        case .openAndRun: return String(localized: "Open in a tab and run it")
+        case .restore: return String(localized: "Restore the Session")
+        case .openAsTemplate: return String(localized: "Open as a template (no results)")
+        case .restoreAndRun: return String(localized: "Open the Session and run it")
         }
     }
 }
 
-/// The Query Library's own settings.
+/// The Sessions navigator's own settings.
 struct LibrarySettings: Codable, Equatable {
-    /// The folder the Save Query sheet opens on. Empty means unfiled, which
+    /// The folder the Save Session sheet opens on. Empty means unfiled, which
     /// is what the sheet has always opened on.
     var defaultFolder: String = ""
-    /// The order the Query Library navigator lists queries in.
+    /// The order the Sessions navigator lists Sessions in.
     var sortMode: SavedQuerySortMode = .folder
-    /// What a double-click on a query does.
-    var doubleClickAction: SavedQueryDoubleClickAction = .open
+    /// What a double-click on a Session does.
+    var doubleClickAction: SavedQueryDoubleClickAction = .restore
 }
 
 /// The Results History navigator's own settings.

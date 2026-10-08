@@ -9,6 +9,11 @@
 #include <stdlib.h>
 
 /**
+ * Compressed bytes of results one Session may keep.
+ */
+#define SAVED_SESSION_BUDGET_BYTES ((100 * 1024) * 1024)
+
+/**
  * Callback invoked when an async operation completes.
  * - `context`: opaque pointer passed through from the caller (e.g. Swift continuation)
  * - `result_json`: JSON-encoded result on success, NULL on error
@@ -365,6 +370,35 @@ void pharos_apply_row_updates(const char *connection_id,
  * Extract table names from SQL for display. Returns comma-separated names or NULL.
  */
  char *pharos_extract_table_names(const char *sql);
+
+/**
+ * Stage one result of a Session save. `json` is JSON-encoded
+ * StageSavedQueryResult. Returns JSON StagedSavedQueryResult.
+ */
+ char *pharos_stage_saved_query_result(const char *json);
+
+/**
+ * Make a staged snapshot the Session's own. `json` is JSON-encoded
+ * CommitSavedQuerySnapshot. Returns JSON CommittedSavedQuerySnapshot.
+ */
+ char *pharos_commit_saved_query_snapshot(const char *json);
+
+/**
+ * Discard the rows a failed Session save staged. Returns the count removed.
+ */
+ char *pharos_abort_saved_query_snapshot(const char *saved_query_id, const char *snapshot_id);
+
+/**
+ * A Session's stored results, without rows. Returns a JSON array of
+ * SavedQueryResultMeta.
+ */
+ char *pharos_load_saved_query_results(const char *saved_query_id);
+
+/**
+ * One stored Session result, in the shape of a history result. Returns JSON
+ * or NULL when its rows are not stored.
+ */
+ char *pharos_get_saved_query_result(const char *result_id);
 
 /**
  * Get schemas. Returns JSON array via callback.

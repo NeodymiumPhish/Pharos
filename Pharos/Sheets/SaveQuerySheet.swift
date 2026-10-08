@@ -73,12 +73,12 @@ class SaveQuerySheet: NSViewController {
         existingQueries = (try? PharosCore.loadSavedQueries()) ?? []
 
         // Title
-        let titleLabel = NSTextField(labelWithString: String(localized: "Save Query"))
+        let titleLabel = NSTextField(labelWithString: String(localized: "Save Session"))
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
 
         // Name
         let nameLabel = NSTextField.formLabel(String(localized: "Name"))
-        nameField.placeholderString = String(localized: "Query name")
+        nameField.placeholderString = String(localized: "Session name")
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(initialName)
         defaultName = nameField.stringValue
 
@@ -247,14 +247,14 @@ class SaveQuerySheet: NSViewController {
             } catch {
                 Log.intelligence.error(
                     "Name suggestion failed: \(error.localizedDescription, privacy: .public)")
-                self?.nameField.placeholderString = String(localized: "Query name")
+                self?.nameField.placeholderString = String(localized: "Session name")
                 self?.nameField.toolTip = nil
             }
         }
     }
 
     private func apply(_ suggestion: NameSuggestion) {
-        nameField.placeholderString = String(localized: "Query name")
+        nameField.placeholderString = String(localized: "Session name")
         guard !nameWasEdited, nameField.stringValue == defaultName,
               !suggestion.title.isEmpty else {
             nameField.toolTip = nil
@@ -349,8 +349,8 @@ class SaveQuerySheet: NSViewController {
 
     private func showDuplicateAlert(name: String, folder: String?, duplicate: SavedQuery) {
         let alert = NSAlert()
-        alert.messageText = String(localized: "A query named '\(name)' already exists in this folder.")
-        alert.informativeText = String(localized: "Do you want to replace it or save as a new query?")
+        alert.messageText = String(localized: "A Session named '\(name)' already exists in this folder.")
+        alert.informativeText = String(localized: "Replacing it replaces its queries and its saved results. Do you want to replace it or save as a new Session?")
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "Replace"))
         alert.addButton(withTitle: String(localized: "Save as New"))
@@ -383,7 +383,7 @@ class SaveQuerySheet: NSViewController {
         } catch {
             Log.ui.error("Failed to replace saved query: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
-            alert.messageText = String(localized: "Failed to Save Query")
+            alert.messageText = String(localized: "Failed to Save Session")
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
             alert.runModal()
@@ -400,7 +400,7 @@ class SaveQuerySheet: NSViewController {
         } catch {
             Log.ui.error("Failed to save query: \(error.localizedDescription, privacy: .public)")
             let alert = NSAlert()
-            alert.messageText = String(localized: "Failed to Save Query")
+            alert.messageText = String(localized: "Failed to Save Session")
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
             alert.runModal()

@@ -33,7 +33,7 @@ There is no Save button. **Every change applies at once**: a checkbox, popup, or
 | Restore open tabs | On/Off | On | Reopen the editor tabs that were open when you last quit. Each window comes back with its tabs in the same order and the selected tab in front. A tab that had run a query comes back as its [workspace](query-history.md), with its cards and their results; a tab that never ran comes back with its editor text and variables. No connection is opened automatically. Turn this off to start every launch with one empty tab. |
 | Restore window positions | On/Off | On | Puts a restored window back where it was. Off still restores the tabs and lets macOS place the window, which is what you want after your displays change. Only applies while **Restore open tabs** is on. |
 | Autosave the session | Every 10 seconds, Every 30 seconds, Every minute, Off | Every 30 seconds | How often the open tabs are written down. **Off still saves at quit**, so turning it off does not lose the session. |
-| Warn before closing unsaved tabs | On/Off | On | Asks before closing a tab, closing a window or quitting Pharos when a tab has edits that have not been written back. **Save** writes each one back to its saved query or its file and then closes; **Don't Save** closes and loses the edits; **Cancel** leaves everything as it was. A tab bound to a [saved query](saved-queries.md) or to a file always counts. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text. An empty tab never counts. Off is exactly what Pharos did before this setting existed: no warning at all. |
+| Warn before closing unsaved tabs | On/Off | On | Asks before closing a tab, closing a window or quitting Pharos when a tab has edits that have not been written back. **Save** writes each one back to its saved Session or its file and then closes; **Don't Save** closes and loses the edits; **Cancel** leaves everything as it was. A tab bound to a [saved Session](saved-queries.md) or to a file always counts; a Session tab also counts once its results change. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text. An empty tab never counts. Off is exactly what Pharos did before this setting existed: no warning at all. |
 | Check for updates in the background | On/Off | On | Periodically checks GitHub Releases and posts a notification when a newer version is available (see below). |
 | Frequency | On launch only, Daily, Weekly | Daily | How often the background check repeats. It also sets how stale a stored answer may be before the next check asks GitHub again. |
 | Channel | Stable, Pre-release | Stable | Stable follows GitHub's own latest release. Pre-release takes the newest release marked pre-release that is not a draft. |
@@ -83,16 +83,16 @@ before the setting existed, so nothing changes until you touch a control.
 
 ## Library & History Pane
 
-The [Query Library](saved-queries.md) navigator and the Save Query sheet, then
+The [Sessions](saved-queries.md) navigator and the Save Session sheet, then
 the [Results History](query-history.md) navigator.
 
-### Query Library
+### Sessions
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Default folder | Any folder name, or empty | *(empty)* | The folder the Save Query sheet opens on. Empty opens on **No Folder**, which is what the sheet has always done. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and **New Folder…** still makes one. |
-| Order queries by | Folder, then name; Name; Recently updated | Folder, then name | Folder, then name is the grouped tree with a row per folder, then the unfiled queries. Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden. Recently updated puts the newest first and breaks a tie by name. |
-| On double-click | Open in a tab, Open in a tab and run it | Open in a tab | Open in a tab and run it runs the query's cards with **Run All Cards** as soon as its tab is there. A tab with no connection opens the query and stops. The context menu's **Open in Tab** always just opens, whichever this says. |
+| Default folder | Any folder name, or empty | *(empty)* | The folder the Save Session sheet opens on. Empty opens on **No Folder**, which is what the sheet has always done. A name no folder carries yet is ignored — the sheet lists the folders your Sessions are in, and **New Folder…** still makes one. |
+| Order Sessions by | Folder, then name; Name; Recently updated | Folder, then name | Folder, then name is the grouped tree with a row per folder, then the Sessions in no folder. Name and Recently updated are one flat list, with no folder rows — the folder a Session is in is unchanged, only hidden. Recently updated puts the newest first and breaks a tie by name. |
+| On double-click | Restore the Session; Open as a template (no results); Open the Session and run it | Restore the Session | Restore the Session opens the cards with the results saved with them. Open as a template opens the cards only, in a new tab that is not linked to the Session. Open the Session and run it opens the cards without their saved results and runs them with **Run All Cards**; a tab with no connection opens and stops. The context menu offers **Open Session** and **Open as Template (No Results)**, whichever this says. The settings from before Sessions carry over: Open in a tab became Restore the Session, Open in a tab and run it became Open the Session and run it. |
 
 ### History
 
@@ -287,7 +287,7 @@ one. Nothing here sends anything anywhere.
 | Explain query errors | On/Off | On | The explanation block on the [query-error sheet](query-errors.md). Off leaves the error's own text, which is unchanged. |
 | Summarise query plans | On/Off | On | The generated sentence above an `EXPLAIN` result. The plan tree itself is not generated and is always shown. |
 | Suggest charts | On/Off | On | Whether **Suggest chart** asks the model. Off, the button stays and applies the chart Pharos recommends for these columns from the column shapes alone. |
-| Suggest names | On/Off | On | Fills the name field in the **Save Query** sheet and in the two rename dialogs with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
+| Suggest names | On/Off | On | Fills the name field in the **Save Session** sheet and in the two rename dialogs with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
 | Name tabs automatically | On/Off | On | Renames an editor tab still called "Query 1" from its SQL the first time it runs, and gives a query card with no name a suggested name at its first run. A tab or card you have named yourself is never touched. |
 
 ### Feedback
@@ -423,7 +423,7 @@ switches take effect at once — neither needs a relaunch.
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Find saved queries in Spotlight | On/Off | On | Puts each saved query's name, folder and SQL in the system index, so Spotlight finds it and opens it in Pharos. Turning this off does not merely stop indexing: it removes everything Pharos has already put in Spotlight. |
+| Find saved queries in Spotlight | On/Off | On | Puts each saved Session's name, folder and SQL in the system index, so Spotlight finds it and opens it in Pharos. Turning this off does not merely stop indexing: it removes everything Pharos has already put in Spotlight. |
 | Collect performance reports | On/Off | On | Subscribes to the system's daily MetricKit payloads and writes them to `~/Library/Logs/Pharos` as `metrickit-*.json`, for you to read or attach to a bug report. Nothing is uploaded. Off unsubscribes at once. |
 
 Passwords are held in the macOS Keychain and are not settings; see
@@ -440,7 +440,7 @@ Passwords are held in the macOS Keychain and are not settings; see
 |--------|--------------|
 | Clear Metadata Cache | Drops every connection's cached schemas, tables and columns. The next use of a connection fetches them again. Completion has nothing to offer until it does. |
 | Reveal Logs in Finder | Opens `~/Library/Logs/Pharos` in the Finder — the crash logs, and the performance reports if they are being collected. |
-| Reset All Settings… | Asks once, then puts every preference in this window back to its default and forgets where the windows, panels and split views were left. Your connections, saved queries, history, variables and tags are not touched. |
+| Reset All Settings… | Asks once, then puts every preference in this window back to its default and forgets where the windows, panels and split views were left. Your connections, saved Sessions, history, variables and tags are not touched. |
 
 ## Update Checks
 

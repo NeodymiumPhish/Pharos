@@ -100,7 +100,7 @@
   },
   "library": {
     "defaultFolder": "",
-    "doubleClickAction": "open",
+    "doubleClickAction": "restore",
     "sortMode": "folder"
   },
   "navigator": {

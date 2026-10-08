@@ -4,7 +4,7 @@ import AppIntents
 /// gallery without the user building anything first.
 ///
 /// Every phrase names `\(.applicationName)` — the system requires it, so Siri
-/// can tell "run a saved query" in Pharos from the same words meant for another
+/// can tell "run a saved Session" in Pharos from the same words meant for another
 /// app. The parameter-carrying phrases need their entity queries to be
 /// `EntityStringQuery`, which is why `ConnectionQuery` matches on text as well
 /// as on id.
@@ -23,10 +23,10 @@ struct PharosShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: RunSavedQueryIntent(),
             phrases: [
-                "Run a saved query in \(.applicationName)",
+                "Run a saved Session in \(.applicationName)",
                 "Run \(\.$query) in \(.applicationName)"
             ],
-            shortTitle: "Run Saved Query",
+            shortTitle: "Run Saved Session",
             systemImageName: "play.rectangle"
         )
     }

@@ -108,4 +108,23 @@ extension QueryResult {
             rowIdentity: data.rowIdentity
         )
     }
+
+    /// Build a result from a saved Session's stored rows. Unlike history, the
+    /// Session stored every row the grid held and whether the server had
+    /// more, so `hasMore` comes back and Load More can go on from there.
+    static func fromSavedSession(
+        _ data: QueryHistoryResultData,
+        hasMore: Bool,
+        executionTimeMs: UInt64
+    ) -> QueryResult {
+        QueryResult(
+            columns: data.columns,
+            rows: data.rows,
+            rowCount: data.rows.count,
+            executionTimeMs: executionTimeMs,
+            hasMore: hasMore,
+            historyEntryId: nil,
+            rowIdentity: data.rowIdentity
+        )
+    }
 }

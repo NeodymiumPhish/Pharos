@@ -1,7 +1,7 @@
 import AppKit
 
-/// Settings ▸ Library & History. The Query Library navigator and the Save
-/// Query sheet, then the Results History navigator.
+/// Settings ▸ Library & History. The Sessions navigator and the Save Session
+/// sheet, then the Results History navigator.
 ///
 /// Every default is what these two navigators did before the setting existed.
 /// Retention and the result-cache ceiling are not here: both are decided in
@@ -15,27 +15,27 @@ final class LibrarySettingsPaneVC: SettingsFormPaneVC {
 
     override var sections: [SettingsSection] {
         [
-            SettingsSection(title: String(localized: "Query Library"), items: [
+            SettingsSection(title: String(localized: "Sessions"), items: [
                 SettingsItem(
                     id: "defaultFolder",
                     title: String(localized: "Default folder"),
-                    caption: String(localized: "The folder the Save Query sheet opens on."),
+                    caption: String(localized: "The folder the Save Session sheet opens on."),
                     icon: "folder",
-                    help: String(localized: "Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and New Folder… still makes one."),
+                    help: String(localized: "Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your Sessions are in, and New Folder… still makes one."),
                     kind: .text(.settings(\.library.defaultFolder), width: 180)),
                 SettingsItem(
                     id: "sortMode",
-                    title: String(localized: "Order queries by"),
+                    title: String(localized: "Order Sessions by"),
                     caption: String(localized: "Folder, then name is the grouped tree with a row per folder."),
                     icon: "arrow.up.arrow.down",
-                    help: String(localized: "Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden."),
+                    help: String(localized: "Name and Recently updated are one flat list, with no folder rows — the folder a Session is in is unchanged, only hidden."),
                     kind: .popup(.cases(\.library.sortMode, title: { $0.displayLabel }))),
                 SettingsItem(
                     id: "doubleClickAction",
                     title: String(localized: "On double-click"),
-                    caption: String(localized: "Open in a tab and run it runs the query as soon as its tab is there."),
+                    caption: String(localized: "Restore the Session opens its queries with the results saved with them."),
                     icon: "cursorarrow.click.2",
-                    help: String(localized: "A tab with no connection opens the query and stops, and the context menu's Open in Tab always just opens."),
+                    help: String(localized: "Open as a template opens the queries only, in a new unsaved tab. Open the Session and run it runs every query instead of showing the saved results; a tab with no connection opens and stops. The context menu offers each way, whichever this says."),
                     kind: .popup(.cases(\.library.doubleClickAction, title: { $0.displayLabel }))),
             ]),
 

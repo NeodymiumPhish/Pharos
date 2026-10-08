@@ -44,9 +44,9 @@ enum PharosIntentError: Error, CustomLocalizedStringResourceConvertible {
         case .connectionFailed(let reason):
             return "Pharos could not connect: \(reason)"
         case .unknownSavedQuery:
-            return "That saved query is no longer in Pharos."
+            return "That saved Session is no longer in Pharos."
         case .noConnectionForQuery:
-            return "This saved query has no connection, so Pharos cannot run it."
+            return "This saved Session has no connection, so Pharos cannot run it."
         case .queryTimedOut:
             return "The query did not finish in time."
         case .noResult:

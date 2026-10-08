@@ -22,7 +22,7 @@ The query editor provides SQL editing with syntax highlighting, auto-completion,
 
 ## Editor Toolbar
 
-The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of four icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Query, a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of four icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Session, a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
 ### The context row
 
@@ -162,7 +162,7 @@ The window title is the tab's name. Under it, the subtitle reads "connection · 
 
 ### Where opened items go
 
-Opening a saved query, a history entry, a workspace from Results History, a `.sql` file, **Run in Pharos** text, a Shortcuts action or a Dock menu item puts it in the current tab when that tab is untouched. Untouched means blank, never typed in, with no file, saved query or workspace, and nothing running. Otherwise it opens in a new tab beside the current one. A saved query or workspace that is already open in any window is brought to the front instead.
+Opening a saved Session, a history entry, a workspace from Results History, a `.sql` file, **Run in Pharos** text, a Shortcuts action or a Dock menu item puts it in the current tab when that tab is untouched. Untouched means blank, never typed in, with no file, saved Session or workspace, and nothing running. Otherwise it opens in a new tab beside the current one. A saved Session or workspace that is already open in any window is brought to the front instead.
 
 ## Windows
 
@@ -176,11 +176,11 @@ A tab with an open transaction asks before it closes, and so does a window or Ph
 
 Closing a tab, closing a window or quitting Pharos asks first when a tab holds edits that have not been written back:
 
-- **Save** writes each tab back to its [saved query](saved-queries.md) or to its file, then closes. A tab that has never been saved gets the Save Query sheet; cancelling that sheet cancels the close.
+- **Save** writes each tab back to its [saved Session](saved-queries.md) or to its file, then closes. A tab that has never been saved gets the Save Session sheet; cancelling that sheet cancels the close.
 - **Don't Save** closes and loses the edits.
 - **Cancel** leaves every tab open, exactly as it was.
 
-A tab bound to a saved query or to a file always counts as unsaved once you edit it. A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text, so there is nothing to warn about. An empty tab never counts. Turn the whole warning off with **Warn before closing unsaved tabs** in [Settings > General](settings.md#general-pane).
+A tab bound to a saved Session or to a file always counts as unsaved once you edit it. A Session tab also counts once its results change (a run, Load More Rows, Load All Rows). A tab that has never been saved counts only while **Restore open tabs** is off — with it on, that tab comes back at the next launch with its text, so there is nothing to warn about. An empty tab never counts. Turn the whole warning off with **Warn before closing unsaved tabs** in [Settings > General](settings.md#general-pane).
 
 Windows tab together the way the system does everywhere else. **Window > Merge All Windows** makes one window with a tab for each; **Window > Move Tab to New Window** takes one back out. You can also drag a tab out of the tab bar to make a window of it, or drag it into another window's tab bar. Whether **Cmd+N** opens a window or a tab follows your own setting in **System Settings > Desktop & Dock > Prefer tabs when opening documents**.
 

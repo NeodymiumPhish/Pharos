@@ -1887,6 +1887,7 @@ class ContentViewController: NSViewController {
             finishJob(jobId, inTab: tabId, .succeeded)
             return
         }
+        markSessionResultsChanged(tabId: tabId)
         // The result belongs to the card that owns it now.
         var owned = CardResult(cardId: ownerId, runId: result.runId, sql: result.sql, rawSQL: result.rawSQL, timestamp: result.timestamp)
         owned.queryResult = result.queryResult
@@ -2576,6 +2577,7 @@ class ContentViewController: NSViewController {
                                              count: result.rows.count, hasMore: result.hasMore)
         }
         guard changed else { return }
+        markSessionResultsChanged(tabId: tabId)
         if editorPane.showsTab(tabId) { editorPane.refreshCards() }
         if cardId == displayedCardId { updateResultsHeader() }
     }
@@ -3336,22 +3338,56 @@ extension ContentViewController {
         return (NSApp.delegate as? AppDelegate)?.openItem(tab).splitViewController.contentVC
     }
 
+    /// Open a saved Session (`.openSavedQuery`).
+    ///
+    /// userInfo: `query` (the `SavedQuery`); `mode`, a `SessionOpenMode` raw
+    /// value, `.restore` when absent; `run`, run every card once the tab is
+    /// there (Settings ▸ Library & History ▸ On double-click); `results`,
+    /// false to open a Session without its saved results (a Shortcut that
+    /// runs it).
     @objc private func handleOpenSavedQuery(_ notification: Notification) {
         guard ownsBroadcast(notification) else { return }
         guard let query = notification.userInfo?["query"] as? SavedQuery else { return }
-        // Settings ▸ Library & History ▸ On double-click, decided by the
-        // sender. Absent means "just open", which every other sender wants.
+        let mode = (notification.userInfo?["mode"] as? String).flatMap(SessionOpenMode.init(rawValue:)) ?? .restore
         let run = notification.userInfo?["run"] as? Bool ?? false
-        if let target = frontExistingTab(where: { $0.savedQueryId == query.id }) {
+        let wantsResults = notification.userInfo?["results"] as? Bool ?? true
+        // A Session is a whole tab of cards.
+        let stored = CardPersistence.decode(json: query.cardsJson, text: query.sql)
+
+        switch mode {
+        case .template:
+            // A new document from the Session's cards: no runs, no results,
+            // and not bound to the Session, so ⌘S asks for a name.
+            var tab = newTab(name: query.name, document: stored.forReuse())
+            applySessionConnection(of: query, to: &tab)
+            _ = open(tab, from: notification)
+
+        case .restore:
+            if let target = frontExistingTab(where: { $0.savedQueryId == query.id }) {
+                if run { target.runSavedQuery() }
+                return
+            }
+            // A run replaces every result, so a Session opened to run comes
+            // without its saved ones. A Session saved before Sessions had
+            // results has run records and nothing behind them: no runs.
+            let withResults = query.hasSavedResults && !run && wantsResults
+            var tab = newTab(name: query.name, document: withResults ? stored.forRestore() : stored.forReuse())
+            applySessionConnection(of: query, to: &tab)
+            tab.savedQueryId = query.id
+            // The tab goes in now, because a Shortcut looks for it at once;
+            // the results follow it from disk.
+            guard let target = open(tab, from: notification) else { return }
+            if withResults { target.restoreSessionResults(tabId: tab.id, savedQueryId: query.id) }
             if run { target.runSavedQuery() }
-            return
         }
-        // A saved query is a whole tab of cards.
-        let document = CardPersistence.decode(json: query.cardsJson, text: query.sql).forReuse()
-        var tab = newTab(name: query.name, document: document)
-        tab.savedQueryId = query.id
-        guard let target = open(tab, from: notification) else { return }
-        if run { target.runSavedQuery() }
+    }
+
+    /// The Session's own connection and schema, when that connection still
+    /// exists; otherwise the tab keeps the current tab's. Nothing connects.
+    private func applySessionConnection(of query: SavedQuery, to tab: inout QueryTab) {
+        guard let id = query.connectionId, stateManager.connections.contains(where: { $0.id == id }) else { return }
+        tab.connectionId = id
+        tab.schemaName = query.schemaName
     }
 
     /// Run every card of a saved query's tab, top to bottom.
@@ -3531,7 +3567,7 @@ extension ContentViewController {
     }
 
     /// Apply results seeded into the store for a tab that is already active.
-    private func applySeededResultState(forTabId tabId: String) {
+    func applySeededResultState(forTabId tabId: String) {
         guard session.activeTabId == tabId,
               let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         editorPane.reloadCards()
@@ -4445,45 +4481,45 @@ extension ContentViewController {
 
     @objc func menuSaveQuery(_: Any?) {
         guard let tab = session.activeTab else { return }
+        // The Session's results are still being written: a second write now
+        // would only race the first.
+        guard !Self.sessionWritesInFlight.contains(tab.id) else { NSSound.beep(); return }
 
         // A bound tab writes back where it came from. A scratch tab has
         // nowhere to write to, so it asks.
         if UnsavedWorkPolicy.canSaveInPlace(unsavedWorkTab(tab)) {
-            saveTabInPlace(id: tab.id)
+            saveTabInPlace(id: tab.id) { _ in }
             return
         }
 
-        // New tab: prompt to save into the saved-queries store.
+        // New tab: prompt to save it as a Session.
         presentSaveQuerySheet(tab: tab)
     }
 
-    /// Write one tab's edits back to whatever binds it — its file, or its saved
-    /// query — and mark it clean. Returns false when the tab is bound to
-    /// nothing (the caller must present the Save Query sheet instead) or the
-    /// write failed.
+    /// Write one tab back to whatever binds it — its file, or its Session —
+    /// and mark it clean. `completion(false)` when the tab is bound to nothing
+    /// (the caller must present the Save Session sheet instead) or the write
+    /// failed.
     ///
-    /// Works for ANY tab, not only the one on screen: the SQL comes from the
-    /// editor for the visible tab and from the tab's own `sql` otherwise, and
-    /// `EditorPaneVC` writes every keystroke into the tab (`onTextEdited`), so a
-    /// background tab's `sql` is current. That is what lets the close and quit
-    /// warnings save tabs the user is not looking at.
+    /// Works for ANY tab, not only the one on screen: `EditorPaneVC` writes
+    /// every keystroke into the tab's document (`onTextEdited`), and each
+    /// tab's results are in the window's result store. That is what lets the
+    /// close and quit warnings save tabs the user is not looking at.
     ///
-    /// Clearing `isDirty` is the point of the "in place" in the name: before
-    /// this existed, only the FILE branch cleared it, so a tab bound to a
-    /// saved query stayed dirty for the rest of its life after one edit.
-    @discardableResult
-    func saveTabInPlace(id: String, reportErrors: Bool = true) -> Bool {
-        guard let tab = session.tabs.first(where: { $0.id == id }) else { return false }
-        // Every version, with its name and lock, as `-- name:` comments.
-        let currentSQL = CardText.text(of: tab.document)
+    /// A file is written at once. A Session also stores every card's result,
+    /// which can be large, so it completes later (`writeSession`).
+    func saveTabInPlace(id: String, reportErrors: Bool = true, completion: @escaping (Bool) -> Void) {
+        guard let tab = session.tabs.first(where: { $0.id == id }) else { completion(false); return }
 
         if let url = tab.sourceURL {
+            // Every version, with its name and lock, as `-- name:` comments.
+            let currentSQL = CardText.text(of: tab.document)
             do {
                 try SQLFileWriter.write(currentSQL, to: url)
                 session.updateTab(id: id) {
                     $0.isDirty = false
                 }
-                return true
+                completion(true)
             } catch {
                 Log.query.error("Failed to save \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 if reportErrors {
@@ -4493,39 +4529,17 @@ extension ContentViewController {
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 }
-                return false
+                completion(false)
             }
+            return
         }
 
         if let savedId = tab.savedQueryId {
-            do {
-                // The latest version of each query as the text (Spotlight,
-                // Shortcuts, Copy), every card in the JSON.
-                let stored = CardPersistence.encode(tab.document, mode: .latest)
-                let update = UpdateSavedQuery(id: savedId, name: nil, folder: nil, sql: stored.text, variables: nil,
-                                              cardsJson: stored.json)
-                _ = try PharosCore.updateSavedQuery(update)
-                session.updateTab(id: id) {
-                    // The bug this line fixes: the saved query HAS been
-                    // written, so the tab is no longer dirty.
-                    $0.isDirty = false
-                }
-                NotificationCoalescer.post(.savedQueriesDidChange)
-                return true
-            } catch {
-                Log.query.error("Failed to update saved query: \(error.localizedDescription, privacy: .public)")
-                if reportErrors {
-                    let alert = NSAlert()
-                    alert.messageText = String(localized: "Couldn't save “\(tab.name)”")
-                    alert.informativeText = error.localizedDescription
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
-                return false
-            }
+            writeSession(tabId: id, savedQueryId: savedId, reportErrors: reportErrors, completion: completion)
+            return
         }
 
-        return false
+        completion(false)
     }
 
     @objc func menuSaveQueryAs(_: Any?) {
@@ -4562,15 +4576,26 @@ extension ContentViewController {
         }
     }
 
-    /// Ask for a name and a folder, then put this tab's SQL in the library.
+    /// Ask for a name and a folder, then save this tab as a Session: its
+    /// cards, then the results its cards hold.
     ///
-    /// `onFinish` reports whether the tab came out of the sheet SAVED. The
-    /// close/quit warning needs that answer: a cancelled sheet has to cancel
-    /// the close rather than drop the tab the user just declined to save. The
-    /// SQL is taken from the editor for the visible tab and from the tab's own
-    /// `sql` otherwise, so the sheet can serve a background tab too.
+    /// `onFinish` reports whether the tab came out of the sheet SAVED, and
+    /// fires only once the results are written too. The close/quit warning
+    /// needs that answer: a cancelled sheet has to cancel the close rather
+    /// than drop the tab the user just declined to save. The cards come from
+    /// the tab's own document, so the sheet can serve a background tab too.
     func presentSaveQuerySheet(tab: QueryTab, onFinish: ((Bool) -> Void)? = nil) {
+        // The sheet ends (dismissed) and the results finish writing (written)
+        // in either order; the answer goes out once both are known.
         var didSave = false
+        var dismissed = false
+        var written: Bool?
+        var reported = false
+        let report = {
+            guard dismissed, let saved = written, !reported else { return }
+            reported = true
+            onFinish?(saved)
+        }
         let stored = CardPersistence.encode(tab.document, mode: .latest)
         let sheet = SaveQuerySheet(
             tabName: tab.name,
@@ -4578,7 +4603,7 @@ extension ContentViewController {
             cardsJson: stored.json
         ) { [weak self] action in
             didSave = true
-            guard let self else { return }
+            guard let self else { written = false; report(); return }
             let savedQuery: SavedQuery
             switch action {
             case .created(let q): savedQuery = q
@@ -4586,15 +4611,21 @@ extension ContentViewController {
             }
             self.session.updateTab(id: tab.id) {
                 $0.savedQueryId = savedQuery.id
-                // The sheet wrote this tab's cards into the store, so the tab
-                // matches what is saved: it is no longer dirty.
-                $0.isDirty = false
             }
-            NotificationCoalescer.post(.savedQueriesDidChange)
+            // The sheet stored the cards. The results, the connection and the
+            // clean state come with the Session write.
+            self.writeSession(tabId: tab.id, savedQueryId: savedQuery.id) { ok in
+                written = ok
+                report()
+            }
         }
         // Fires however the sheet ends — Save, Cancel or Escape — and after
-        // the save callback above, so `didSave` is settled by now.
-        sheet.onDismiss = { onFinish?(didSave) }
+        // the save callback above, so a save has started by now.
+        sheet.onDismiss = {
+            dismissed = true
+            if !didSave { written = false }
+            report()
+        }
         presentAsSheet(sheet)
     }
 }

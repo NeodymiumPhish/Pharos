@@ -35,7 +35,7 @@ Variable names are identifiers (letters, digits, underscores; not starting with 
 
 ## The Variables Navigator
 
-Variables live in the sidebar, as the **Variables** navigator — the second icon (braces) of the grouped navigator selector in the window toolbar, between Query Library and Results History; **View > Navigators > Variables**, **Cmd+Opt+2**. Pressing the icon that is already selected hides the sidebar; pressing it again brings it back.
+Variables live in the sidebar, as the **Variables** navigator — the second icon (braces) of the grouped navigator selector in the window toolbar, between Sessions and Results History; **View > Navigators > Variables**, **Cmd+Opt+2**. Pressing the icon that is already selected hides the sidebar; pressing it again brings it back.
 
 The navigator is a two-level list and detail, similar to Settings on iOS:
 
@@ -59,7 +59,7 @@ Four types, chosen from the detail level's type popup. When you run the query, e
 | Number | Validated as numeric, inserted bare | `42.5` → `42.5` |
 | Bool | One of three values — `True`, `False`, or `NULL`, chosen from a segmented control rather than typed — normalized to lowercase `true`/`false` or the SQL keyword `NULL` | `False` → `false` |
 
-Substitution happens at execution time — the editor text always keeps the `{{token}}` form. A locked [query card](query-editor.md#versions) run again with different values counts as edited, so it makes a new version. It is also applied to **EXPLAIN**, when exporting a query as a SQL file, and when copying or sharing a saved query's SQL.
+Substitution happens at execution time — the editor text always keeps the `{{token}}` form. A locked [query card](query-editor.md#versions) run again with different values counts as edited, so it makes a new version. It is also applied to **EXPLAIN**, when exporting a query as a SQL file, and when copying or sharing a saved Session's SQL.
 
 ## Duplicate Names
 
@@ -79,4 +79,4 @@ Use the **Literal** type for anything that isn't a quoted value — table names,
 
 ## Persistence
 
-The variable list is stored in Pharos's local database and restored, in order, at the next launch. Saving a query (**Cmd+S**) keeps the placeholders intact and stores no values with it: a [saved query](saved-queries.md) is rendered against whatever the app-wide list holds when you copy, share, export or run it.
+The variable list is stored in Pharos's local database and restored, in order, at the next launch. Saving a Session (**Cmd+S**) keeps the placeholders intact and stores no values with it: a [saved Session](saved-queries.md) is rendered against whatever the app-wide list holds when you copy, share, export or run it.

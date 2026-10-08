@@ -42,6 +42,43 @@ extension PharosCore {
         return count
     }
 
+    // MARK: Session results
+
+    /// Stage one result of a Session save. See `SessionSnapshotWriter`.
+    static func stageSavedQueryResult(_ row: StageSavedQueryResult) throws -> StagedSavedQueryResult {
+        try callSync(input: row) { pharos_stage_saved_query_result($0) }
+    }
+
+    /// Make a staged snapshot the Session's own, with the Session's cards.
+    static func commitSavedQuerySnapshot(_ commit: CommitSavedQuerySnapshot) throws -> CommittedSavedQuerySnapshot {
+        try callSync(input: commit) { pharos_commit_saved_query_snapshot($0) }
+    }
+
+    /// Discard what a failed save staged. The stored snapshot is untouched.
+    static func abortSavedQuerySnapshot(savedQueryId: String, snapshotId: String) throws {
+        _ = try scalarResult {
+            savedQueryId.withCString { id in snapshotId.withCString { pharos_abort_saved_query_snapshot(id, $0) } }
+        }
+    }
+
+    /// A Session's stored results, without rows, highest priority first.
+    static func loadSavedQueryResults(savedQueryId: String) throws -> [SavedQueryResultMeta] {
+        guard let ptr = savedQueryId.withCString({ pharos_load_saved_query_results($0) }) else {
+            throw PharosCoreError.nullResult
+        }
+        defer { pharos_free_string(ptr) }
+        return try decodeNoCopy(ptr)
+    }
+
+    /// One stored result's rows, or nil when they are not stored. Decodes
+    /// straight from the C buffer, as `getQueryHistoryResult` does: this can
+    /// be a large result.
+    static func getSavedQueryResult(id: String) throws -> QueryHistoryResultData? {
+        guard let ptr = id.withCString({ pharos_get_saved_query_result($0) }) else { return nil }
+        defer { pharos_free_string(ptr) }
+        return try decodeNoCopy(ptr)
+    }
+
     /// Extract table names from SQL for display.
     ///
     /// This does not throw, because the core answers NULL for SQL it cannot read

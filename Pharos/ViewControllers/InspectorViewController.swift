@@ -401,8 +401,9 @@ class InspectorViewController: NSViewController {
         addSQLBody(sql)
     }
 
-    /// Previews a saved query on a single click in the Query Library: the
-    /// query's name as the title, its folder as the subtitle, then the SQL as
+    /// Previews a saved Session on a single click in the Sessions navigator:
+    /// its name as the title, its folder as the subtitle, what it keeps
+    /// besides its queries (results, size, when saved), then the SQL as
     /// stored — `{{name}}` placeholders and all, since the preview is the text
     /// that would open in a tab, not a rendering of it.
     ///
@@ -410,8 +411,15 @@ class InspectorViewController: NSViewController {
     /// leaves the query, and cannot take a schema or row detail with it.
     func showSavedQuery(_ query: SavedQuery) {
         beginDetailSection(title: query.name,
-                           subtitle: query.folder ?? String(localized: "Saved Query"),
+                           subtitle: query.folder ?? String(localized: "Session"),
                            owner: .savedQuery)
+        if let saved = SessionSnapshot.caption(resultCount: query.resultCount, bytes: query.resultsBytes) {
+            var line = saved
+            if let iso = query.resultsSavedAt, let date = ISO8601DateFormatter().date(from: iso) {
+                line += " · " + String(localized: "saved \(date.formatted(date: .abbreviated, time: .shortened))")
+            }
+            stackView.addArrangedSubview(makeFieldValueLabel(line, color: .secondaryLabelColor))
+        }
         if query.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let empty = makeFieldValueLabel(String(localized: "This query has no SQL yet."), color: .tertiaryLabelColor)
             stackView.addArrangedSubview(empty)

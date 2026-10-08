@@ -185,15 +185,22 @@ final class AppStateManager: ObservableObject {
     var canReopenClosedTab: Bool { !closedTabs.isEmpty }
 
     /// Put the last closed tab back, beside the tab the user is in. A copy:
-    /// fresh card ids, because its results went with it.
+    /// fresh card ids, because its results went with it. A Session tab keeps
+    /// its runs and gets back the results its Session stored for them, so a
+    /// save from the reopened tab does not write the Session's results away.
     func reopenLastClosedTab() {
         guard let tab = closedTabs.popLast(), let delegate = NSApp.delegate as? AppDelegate else { return }
+        let isSession = tab.savedQueryId != nil
         var reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, schemaName: tab.schemaName,
-                                document: tab.document.forReuse())
+                                document: isSession ? tab.document.forRestore() : tab.document.forReuse())
         reopened.nameIsSuggested = tab.nameIsSuggested
         reopened.sourceURL = tab.sourceURL
         reopened.savedQueryId = tab.savedQueryId
-        delegate.openTab(reopened, beside: delegate.frontmostWindowController)
+        let controller = delegate.openTab(reopened, beside: delegate.frontmostWindowController)
+        if let savedId = tab.savedQueryId {
+            delegate.contentController(for: controller.session)?
+                .restoreSessionResults(tabId: reopened.id, savedQueryId: savedId)
+        }
     }
 
     /// The session of the window the user is working in.
@@ -832,8 +839,17 @@ final class AppStateManager: ObservableObject {
                         controller = delegate.openMainWindow(frame: frame, tab: draft)
                     }
                     members.append(controller)
-                    if let wsId = saved.workspaceId {
-                        await self.restoreWorkspaceTab(saved, workspaceId: wsId, in: controller.session)
+                    var tabId = draft.id
+                    if let wsId = saved.workspaceId,
+                       let restored = await self.restoreWorkspaceTab(saved, workspaceId: wsId, in: controller.session) {
+                        tabId = restored
+                    }
+                    // A Session's saved results go back on the cards that
+                    // still show the saved runs; cards run since then have
+                    // their results from the workspace.
+                    if let savedId = saved.savedQueryId {
+                        delegate.contentController(for: controller.session)?
+                            .restoreSessionResults(tabId: tabId, savedQueryId: savedId)
                     }
                 }
                 let active = tabs.firstIndex(where: \.isActive).flatMap { $0 < members.count ? members[$0] : nil }

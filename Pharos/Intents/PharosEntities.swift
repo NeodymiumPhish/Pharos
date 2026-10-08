@@ -66,7 +66,9 @@ struct ConnectionQuery: EntityStringQuery {
 
 // MARK: - Saved query
 
-/// A saved query, as Shortcuts, Siri and Spotlight see it.
+/// A saved Session (a saved query, internally), as Shortcuts, Siri and
+/// Spotlight see it. The type keeps its old name: Shortcuts users have built
+/// store it.
 ///
 /// `IndexedEntity` is what puts it in Spotlight: `SavedQuerySpotlightIndexer`
 /// hands these to `CSSearchableIndex.indexAppEntities`, and the system opens the
@@ -74,7 +76,7 @@ struct ConnectionQuery: EntityStringQuery {
 struct SavedQueryEntity: AppEntity, IndexedEntity {
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation {
-        TypeDisplayRepresentation(name: "Saved Query", numericFormat: "\(placeholder: .int) saved queries")
+        TypeDisplayRepresentation(name: "Saved Session", numericFormat: "\(placeholder: .int) saved Sessions")
     }
 
     static var defaultQuery = SavedQueryQuery()

@@ -19,7 +19,7 @@ nav_order: 19
 ## Overview
 
 Pharos can ask the Apple Intelligence model built into macOS for help with five
-things: explaining an error, naming a tab, a query card or a saved query,
+things: explaining an error, naming a tab, a query card or a saved Session,
 drafting SQL from a sentence, and summarising a query plan.
 
 The model runs on this Mac. Pharos uses Apple's on-device `SystemLanguageModel`
@@ -116,7 +116,7 @@ anywhere; the answer is written on this Mac and is gone when the sheet closes.
 
 ### Suggest a name
 
-Names a query tab, a [query card](query-editor.md#query-cards) or a saved query
+Names a query tab, a [query card](query-editor.md#query-cards) or a saved Session
 from the SQL it holds, so a tab reads as *Recent orders by region* rather than
 *Query 4*. Schema only; you can edit the
 suggestion before it is used.
@@ -128,7 +128,7 @@ each of them shows you its usual text first — nothing waits for the model:
 |---|---|
 | A tab's **first successful run** | A tab still called *Query 4* is renamed from the statement it just ran. A tab you have named yourself is never touched. |
 | A card's **first run** | A card with no name gets a suggested name. A name you type always wins. |
-| **Save Query…** (⌘S) | The name field fills with a suggestion, selected, so your first keystroke replaces it. If your folders match, the folder is picked too. |
+| **Save Session…** (⌘S) | The name field fills with a suggestion, selected, so your first keystroke replaces it. If your folders match, the folder is picked too. |
 | **Rename…** on a query card | The dialog opens with the name it has; the suggestion arrives and replaces it, selected. |
 | **File > Rename Tab…** | The same. |
 
@@ -137,7 +137,7 @@ is discarded, and the field says where the text came from — hover it for
 *Name suggested by Apple Intelligence*.
 
 **What the model is given.** The statement (its first 2,000 characters), the
-table names it mentions, and — for a saved query — the names of the folders you
+table names it mentions, and — for a saved Session — the names of the folders you
 already have. No rows, no cell values, no result.
 
 **What Pharos does to the answer.** Two to four words are asked for and the

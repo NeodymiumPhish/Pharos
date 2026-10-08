@@ -96,14 +96,14 @@ struct NewQueryTabIntent: AppIntent {
 /// handler having to guess. `OpenIntent` names its parameter `target`.
 struct OpenSavedQueryIntent: OpenIntent {
 
-    static var title: LocalizedStringResource = "Open Saved Query"
+    static var title: LocalizedStringResource = "Open Saved Session"
 
     static var description = IntentDescription(
-        "Opens one of your saved queries in a Pharos query tab. The query is not run.",
+        "Opens one of your saved Sessions in a Pharos query tab, with the results saved with it. Nothing is run.",
         categoryName: "Queries"
     )
 
-    @Parameter(title: "Saved Query")
+    @Parameter(title: "Saved Session")
     var target: SavedQueryEntity
 
     init() {}
@@ -123,16 +123,16 @@ struct OpenSavedQueryIntent: OpenIntent {
 
 struct RunSavedQueryIntent: AppIntent {
 
-    static var title: LocalizedStringResource = "Run Saved Query"
+    static var title: LocalizedStringResource = "Run Saved Session"
 
     static var description = IntentDescription(
-        "Opens one of your saved queries in Pharos, runs its cards in order, and hands back the last card's rows as a CSV file.",
+        "Opens one of your saved Sessions in Pharos, runs its queries in order, and hands back the last query's rows as a CSV file.",
         categoryName: "Queries"
     )
 
     static var openAppWhenRun = true
 
-    @Parameter(title: "Saved Query")
+    @Parameter(title: "Saved Session")
     var query: SavedQueryEntity
 
     init() {}
@@ -147,7 +147,9 @@ struct RunSavedQueryIntent: AppIntent {
     private static let resultTimeout: TimeInterval = 60
 
     func perform() async throws -> some IntentResult & ReturnsValue<IntentFile> & ProvidesDialog {
-        let stored = try await MainActor.run { try SavedQueryOpener.open(id: query.id) }
+        // Without the saved results: this run replaces them, and the CSV
+        // must come from it, not from a stored copy.
+        let stored = try await MainActor.run { try SavedQueryOpener.open(id: query.id, withResults: false) }
 
         // Bind and dial the connection. The tab may already carry one (the
         // sidebar's open path seeds it from the active connection); the saved
@@ -309,7 +311,7 @@ struct ExportTableIntent: AppIntent {
 
 // MARK: - Shared open path
 
-/// Opening a saved query in a tab, the one way the sidebar does it.
+/// Opening a saved Session in a tab, the one way the sidebar does it.
 ///
 /// The record is re-read from the core first: a Shortcut can hold an entity for
 /// weeks, and the SQL and variables the user expects are the stored ones, not
@@ -318,7 +320,7 @@ enum SavedQueryOpener {
 
     @MainActor
     @discardableResult
-    static func open(id: String) throws -> SavedQuery {
+    static func open(id: String, withResults: Bool = true) throws -> SavedQuery {
         guard let stored = SavedQueryEntity.stored(id: id) else {
             throw PharosIntentError.unknownSavedQuery
         }
@@ -327,7 +329,8 @@ enum SavedQueryOpener {
         // already-open tab instead of making a second one, which is the
         // behaviour an automation wants too.
         NotificationCenter.default.post(
-            name: .openSavedQuery, object: nil, userInfo: ["query": stored]
+            name: .openSavedQuery, object: nil,
+            userInfo: ["query": stored, "mode": SessionOpenMode.restore.rawValue, "results": withResults]
         )
         Log.ui.info("Intent opened saved query \(id, privacy: .public)")
         return stored

@@ -78,12 +78,12 @@ private func testNavigatorModel() {
     expect(Navigator.schema.rawValue, 3, "schema is raw value 3")
     expect(Navigator.allCases.count, 4, "four navigators")
 
-    expect(Navigator.library.title, "Query Library", "library title")
+    expect(Navigator.library.title, "Sessions", "library title")
     expect(Navigator.variables.title, "Variables", "variables title")
     expect(Navigator.history.title, "Results History", "history title")
     expect(Navigator.schema.title, "Database Navigator", "schema title")
 
-    expect(Navigator.library.symbolName, "folder", "library symbol")
+    expect(Navigator.library.symbolName, "rectangle.stack", "library symbol")
     expect(Navigator.variables.symbolName, "curlybraces", "variables symbol")
     expect(Navigator.history.symbolName, "clock.arrow.circlepath", "history symbol")
     expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
@@ -185,7 +185,7 @@ private func testFilterBar() {
     // A pull-down draws item 0, not its title: the glyph has to be there.
     expectTrue(bar.addButton.menu?.items.first?.image != nil, "item 0 carries the plus image")
     expect(bar.addButton.menu?.items.count ?? 0, 3, "item 0 plus two real items")
-    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Query", "first action is New Query")
+    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Session", "first action is New Session")
     expect(bar.addButton.menu?.items[2].title ?? "nil", "New Folder", "second action is New Folder")
 
     var newQueries = 0
@@ -242,7 +242,7 @@ private func testFilterBar() {
     bar.configureAddControl(for: .library)
     expectFalse(bar.addButton.isHidden, "library again: the pull-down shows")
     expectTrue(variableButton.isHidden, "library again: the new-variable button hides")
-    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Query", "library again: first action is New Query")
+    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Session", "library again: first action is New Session")
     expect(bar.addButton.menu?.items[2].title ?? "nil", "New Folder", "library again: second action is New Folder")
 
     // Nothing to add: the stack closes the gap so the field starts at the

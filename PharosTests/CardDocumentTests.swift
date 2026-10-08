@@ -249,6 +249,29 @@ private func testForReuse() {
     expect(copy.focusedCardId == copy.cards[1].id && copy.displayedCardId == nil, "reuse: focus follows, nothing displayed")
 }
 
+private func testForRestore() {
+    var (d, a) = doc("SELECT 1")
+    _ = d.rename(cardId: a, name: "Q")
+    _ = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
+    _ = d.updateSQL(cardId: a, "SELECT 2")
+    guard case let .split(_, b) = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 2")!,
+                                                outcome: rows(2)) else { return }
+    d.displayedCardId = b
+    let failed = d.beginRun(cardId: b, mode: .run, renderedSQL: "SELECT 2")!
+    _ = d.completeRun(failed, outcome: .failure(failureId: "f1"))
+
+    let copy = d.forRestore()
+    expect(Set(copy.cards.map(\.id)).isDisjoint(with: Set(d.cards.map(\.id))), "restore: fresh ids")
+    expect(copy.cards.map { $0.lastRun?.runId } == d.cards.map { $0.lastRun?.runId },
+           "restore: each card keeps its run id, the key its saved result matches on")
+    expect(copy.cards.allSatisfy { $0.lastRun?.historyResultId == nil }, "restore: no history link")
+    expect(copy.cards.map(\.lastRun?.summary) == d.cards.map(\.lastRun?.summary), "restore: the run summary stays")
+    expect(copy.cards.map(\.colorIndex) == d.cards.map(\.colorIndex), "restore: colours stay")
+    expect(copy.cards.allSatisfy { $0.lastFailureId == nil }, "restore: no failures")
+    expect(copy.displayedCardId == copy.cards[1].id, "restore: the displayed card follows its new id")
+    expect(copy.cards[0].isLocked && copy.cards[1].name == "Q", "restore: locks and names stay")
+}
+
 private func testRowsLoadedGrowsTheRunCount() {
     var (d, a) = doc("SELECT * FROM big")
     let first = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT * FROM big")!
@@ -292,5 +315,6 @@ func runTests() {
     testOnlySQLCardsRun()
     testCodableRoundTrip()
     testRowsLoadedGrowsTheRunCount()
+    testForRestore()
     if failures == 0 { print("\nAll CardDocument tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

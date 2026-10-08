@@ -31,7 +31,7 @@ extension NSToolbarItem.Identifier {
 ///
 /// The user can customize the toolbar (View > Customize Toolbar…). The
 /// allowed-but-not-default items are the sidebar filter field, Format SQL,
-/// New Tab and Save Query.
+/// New Tab and Save Session.
 @MainActor
 final class MainToolbarController: NSObject {
 
@@ -142,7 +142,7 @@ extension MainToolbarController: NSToolbarDelegate {
                 // sidebar restores its last navigator in `loadView`, which runs
                 // when the window's content view controller is set — before this
                 // controller exists — so the callback would fire into nothing and
-                // the group would always launch lit on Query Library.
+                // the group would always launch lit on Sessions.
                 syncNavigatorSelection(group: group)
             }
             return group
@@ -171,8 +171,8 @@ extension MainToolbarController: NSToolbarDelegate {
                              action: #selector(NSResponder.newWindowForTab(_:)))
 
         case .pharosSaveQuery:
-            return imageItem(itemIdentifier, label: String(localized: "Save"), palette: String(localized: "Save Query"),
-                             symbol: "square.and.arrow.down", tip: String(localized: "Save Query… (⌘S)"),
+            return imageItem(itemIdentifier, label: String(localized: "Save"), palette: String(localized: "Save Session"),
+                             symbol: "square.and.arrow.down", tip: String(localized: "Save Session… (⌘S)"),
                              action: #selector(ContentViewController.menuSaveQuery(_:)))
 
         default:
