@@ -30,7 +30,8 @@ struct CardRunRecord: Equatable, Codable {
     let renderedSQL: String
     let finishedAt: Date
     let executionTimeMs: UInt64
-    let summary: Summary
+    /// Load More and Load All grow a row count after the run (`rowsLoaded`).
+    var summary: Summary
     /// The `query_history` row of this run, when it has one.
     var historyResultId: String?
 }
@@ -201,6 +202,20 @@ struct CardDocument: Equatable, Codable {
             cards[i].name = trimmed
             cards[i].nameIsSuggested = true
         }
+        return true
+    }
+
+    /// Load More or Load All changed how many rows the result of `runId`
+    /// holds. The name row and the results header read the count from the
+    /// run record, so it takes the new count. A later run of the card owns
+    /// the record by then and keeps its own count. Returns whether it changed.
+    @discardableResult
+    mutating func rowsLoaded(cardId: String, runId: String, count: Int, hasMore: Bool) -> Bool {
+        guard let i = index(of: cardId), let run = cards[i].lastRun, run.runId == runId,
+              case .rows = run.summary else { return false }
+        let summary = CardRunRecord.Summary.rows(count: count, hasMore: hasMore)
+        guard run.summary != summary else { return false }
+        cards[i].lastRun?.summary = summary
         return true
     }
 

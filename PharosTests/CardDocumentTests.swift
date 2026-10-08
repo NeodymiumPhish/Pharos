@@ -249,6 +249,33 @@ private func testForReuse() {
     expect(copy.focusedCardId == copy.cards[1].id && copy.displayedCardId == nil, "reuse: focus follows, nothing displayed")
 }
 
+private func testRowsLoadedGrowsTheRunCount() {
+    var (d, a) = doc("SELECT * FROM big")
+    let first = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT * FROM big")!
+    _ = d.completeRun(first, outcome: .success(summary: .rows(count: 5000, hasMore: true), finishedAt: t0,
+                                               executionTimeMs: 5, historyResultId: "h"))
+    expect(d.rowsLoaded(cardId: a, runId: first.runId, count: 10000, hasMore: true),
+           "rows loaded: Load More changes the count")
+    expect(d.card(a)?.lastRun?.summary == .rows(count: 10000, hasMore: true), "rows loaded: the page's count, still more")
+    _ = d.rowsLoaded(cardId: a, runId: first.runId, count: 12345, hasMore: false)
+    expect(d.card(a)?.lastRun?.summary == .rows(count: 12345, hasMore: false), "rows loaded: Load All ends the '+'")
+    expect(!d.rowsLoaded(cardId: a, runId: first.runId, count: 12345, hasMore: false), "rows loaded: no change, no write")
+    expect(d.card(a)?.lastRun?.historyResultId == "h" && d.card(a)?.lastRun?.runId == first.runId,
+           "rows loaded: the rest of the record stays")
+
+    // A page that lands after the card ran again belongs to the old run.
+    let second = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT * FROM big")!
+    _ = d.completeRun(second, outcome: rows(7))
+    expect(!d.rowsLoaded(cardId: a, runId: first.runId, count: 99, hasMore: false), "rows loaded: a stale run is ignored")
+    expect(d.card(a)?.lastRun?.summary == .rows(count: 7, hasMore: false), "rows loaded: the new run keeps its count")
+
+    var (e, b) = doc("DELETE FROM t")
+    let del = e.beginRun(cardId: b, mode: .run, renderedSQL: "DELETE FROM t")!
+    _ = e.completeRun(del, outcome: .success(summary: .affected(3), finishedAt: t0, executionTimeMs: 1, historyResultId: nil))
+    expect(!e.rowsLoaded(cardId: b, runId: del.runId, count: 9, hasMore: false), "rows loaded: an affected count stays")
+    expect(!e.rowsLoaded(cardId: "missing", runId: del.runId, count: 9, hasMore: false), "rows loaded: unknown card")
+}
+
 func runTests() {
     testForReuse()
     testNewDocument()
@@ -264,5 +291,6 @@ func runTests() {
     testRenameDeleteRestore()
     testOnlySQLCardsRun()
     testCodableRoundTrip()
+    testRowsLoadedGrowsTheRunCount()
     if failures == 0 { print("\nAll CardDocument tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -2489,6 +2489,7 @@ class ContentViewController: NSViewController {
             self?.session.resultStore.mutateResult(cardId: activeRTId) {
                 if $0.runId == runId { $0.queryResult = merged }
             }
+            self?.noteRowsLoaded(forCard: activeRTId, runId: runId, result: merged)
         }
         let isStillDisplaying: () -> Bool = { [weak self] in
             guard let self else { return false }
@@ -2562,6 +2563,21 @@ class ContentViewController: NSViewController {
                 }
             }
         }
+    }
+
+    /// Load More and Load All grow a card's result after its run. The card's
+    /// name row and the results header show the run record's row count, so
+    /// give the record the count the result holds now.
+    private func noteRowsLoaded(forCard cardId: String, runId: String, result: QueryResult) {
+        guard let tabId = session.resultStore.editorTabId(forCard: cardId) else { return }
+        var changed = false
+        session.updateTab(id: tabId) {
+            changed = $0.document.rowsLoaded(cardId: cardId, runId: runId,
+                                             count: result.rows.count, hasMore: result.hasMore)
+        }
+        guard changed else { return }
+        if editorPane.showsTab(tabId) { editorPane.refreshCards() }
+        if cardId == displayedCardId { updateResultsHeader() }
     }
 
     /// The result tab the grid is currently showing for the active editor tab,
@@ -4237,10 +4253,11 @@ extension ContentViewController {
                         historyEntryId: current.historyEntryId,
                         rowIdentity: snapshot.rowIdentity ?? current.rowIdentity
                     )
-                    self.session.resultStore.mutateResult(cardId: rtId) {
+                    let held = self.session.resultStore.mutateResult(cardId: rtId) {
                         $0.queryResult = replaced
                         if !snapshot.hasMore { $0.totalRowCountHint = snapshot.rows.count }
                     }
+                    if let held { self.noteRowsLoaded(forCard: rtId, runId: held.runId, result: replaced) }
                     if showInGrid && stillDisplaying {
                         // Keep the user's widths, sort and filters across the swap.
                         let gridState = self.resultsVC.captureGridState()
