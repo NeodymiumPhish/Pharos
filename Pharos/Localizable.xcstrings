@@ -10,6 +10,9 @@
     "“%@” has an open transaction." : {
 
     },
+    "“%@” has no Sessions to export." : {
+
+    },
     "“%@” returned %@." : {
       "localizations" : {
         "en" : {
@@ -180,10 +183,16 @@
     "%lld min" : {
 
     },
+    "%lld results" : {
+
+    },
+    "%lld results were saved without their rows" : {
+
+    },
     "%lld s" : {
 
     },
-    "%lld saved queries" : {
+    "%lld saved Sessions" : {
 
     },
     "%lld tabs have open transactions." : {
@@ -239,6 +248,12 @@
 
     },
     "1 earlier version of %@" : {
+
+    },
+    "1 result" : {
+
+    },
+    "1 result was saved without its rows" : {
 
     },
     "1 row" : {
@@ -319,9 +334,6 @@
     "A pool is built when a connection opens, so these numbers reach a connection the next time you connect it — never a connection that is already open." : {
 
     },
-    "A query named '%@' already exists in this folder." : {
-
-    },
     "A query that fails leaves a row in the history, with the server's message, beside the ones that worked." : {
 
     },
@@ -337,6 +349,12 @@
     "A sentence above an EXPLAIN result saying what the planner chose." : {
 
     },
+    "A Session can keep %@ of results. The queries were saved; run them again after you open the Session." : {
+
+    },
+    "A Session named '%@' already exists in this folder." : {
+
+    },
     "A shorter region gets no chevron." : {
 
     },
@@ -344,9 +362,6 @@
 
     },
     "A tab that has never been saved is only mentioned while Restore open tabs is off." : {
-
-    },
-    "A tab with no connection opens the query and stops, and the context menu's Open in Tab always just opens." : {
 
     },
     "A tab you have named is never touched." : {
@@ -950,7 +965,16 @@
     "DEFAULT SERIES PALETTE" : {
 
     },
+    "Delete" : {
+
+    },
     "DELETE" : {
+
+    },
+    "Delete %lld Sessions" : {
+
+    },
+    "Delete %lld Sessions?" : {
 
     },
     "Delete Card" : {
@@ -1008,9 +1032,6 @@
 
     },
     "Dismiss All" : {
-
-    },
-    "Do you want to replace it or save as a new query?" : {
 
     },
     "Do you want to save the changes you made to “%@”?" : {
@@ -1235,7 +1256,7 @@
     "Failed" : {
 
     },
-    "Failed to Save Query" : {
+    "Failed to Save Session" : {
 
     },
     "Feedback" : {
@@ -1565,6 +1586,9 @@
     "Its changes are not committed." : {
 
     },
+    "Its saved results are deleted too. This action cannot be undone." : {
+
+    },
     "Jump to Selection" : {
 
     },
@@ -1610,7 +1634,7 @@
     "Leave it empty for Pharos and the version number." : {
 
     },
-    "Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your saved queries are in, and New Folder… still makes one." : {
+    "Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your Sessions are in, and New Folder… still makes one." : {
 
     },
     "Legend" : {
@@ -1736,7 +1760,7 @@
     "Name" : {
 
     },
-    "Name and Recently updated are one flat list, with no folder rows — the folder a query is in is unchanged, only hidden." : {
+    "Name and Recently updated are one flat list, with no folder rows — the folder a Session is in is unchanged, only hidden." : {
 
     },
     "Name suggested by Apple Intelligence" : {
@@ -1772,9 +1796,6 @@
     "New Folder..." : {
 
     },
-    "New Query" : {
-
-    },
     "New Query Card" : {
 
     },
@@ -1782,6 +1803,9 @@
 
     },
     "New Query Tab" : {
+
+    },
+    "New Session" : {
 
     },
     "New Tab" : {
@@ -1844,7 +1868,7 @@
     "No Rows" : {
 
     },
-    "No Saved Queries" : {
+    "No Saved Sessions" : {
 
     },
     "No Schema" : {
@@ -2000,25 +2024,28 @@
     "Only when needed quotes a field that holds the delimiter, a quote or a line break — this is what Pharos has always written." : {
 
     },
+    "Open as a template (no results)" : {
+
+    },
+    "Open as a template opens the queries only, in a new unsaved tab. Open the Session and run it runs every query instead of showing the saved results; a tab with no connection opens and stops. The context menu offers each way, whichever this says." : {
+
+    },
+    "Open as Template (No Results)" : {
+
+    },
     "Open Connection" : {
 
     },
     "Open Help" : {
 
     },
-    "Open in a tab" : {
-
-    },
-    "Open in a tab and run it" : {
-
-    },
-    "Open in a tab and run it runs the query as soon as its tab is there." : {
-
-    },
     "Open Release Notes" : {
 
     },
-    "Open Saved Query" : {
+    "Open Saved Session" : {
+
+    },
+    "Open Session" : {
 
     },
     "Open the default schema" : {
@@ -2031,6 +2058,9 @@
 
     },
     "Open the list" : {
+
+    },
+    "Open the Session and run it" : {
 
     },
     "Open…" : {
@@ -2054,10 +2084,10 @@
     "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens." : {
 
     },
-    "Opens one of your saved queries in a Pharos query tab. The query is not run." : {
+    "Opens one of your saved Sessions in a Pharos query tab, with the results saved with it. Nothing is run." : {
 
     },
-    "Opens one of your saved queries in Pharos, runs its cards in order, and hands back the last card's rows as a CSV file." : {
+    "Opens one of your saved Sessions in Pharos, runs its queries in order, and hands back the last query's rows as a CSV file." : {
 
     },
     "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
@@ -2072,10 +2102,10 @@
     "Order partitions by" : {
 
     },
-    "Order queries by" : {
+    "Order schemas by" : {
 
     },
-    "Order schemas by" : {
+    "Order Sessions by" : {
 
     },
     "Orders per region this year" : {
@@ -2282,12 +2312,6 @@
     "Query history could not be cleared." : {
 
     },
-    "Query Library" : {
-
-    },
-    "Query name" : {
-
-    },
     "Query plan" : {
 
     },
@@ -2402,6 +2426,9 @@
     "Replace" : {
 
     },
+    "Replacing it replaces its queries and its saved results. Do you want to replace it or save as a new Session?" : {
+
+    },
     "Require" : {
 
     },
@@ -2424,6 +2451,12 @@
 
     },
     "Restore open tabs" : {
+
+    },
+    "Restore the Session" : {
+
+    },
+    "Restore the Session opens its queries with the results saved with them." : {
 
     },
     "Restore window positions" : {
@@ -2564,7 +2597,7 @@
     "Run query that changes the database?" : {
 
     },
-    "Run Saved Query" : {
+    "Run Saved Session" : {
 
     },
     "running" : {
@@ -2579,7 +2612,7 @@
     "Save" : {
 
     },
-    "Save a query with ⌘S to keep it here." : {
+    "Save a tab with ⌘S to keep its queries and results here." : {
 
     },
     "Save All" : {
@@ -2588,16 +2621,19 @@
     "Save as New" : {
 
     },
-    "Save Query" : {
+    "Save Session" : {
 
     },
-    "Save Query…" : {
+    "Save Session…" : {
 
     },
-    "Save Query… (⌘S)" : {
+    "Save Session… (⌘S)" : {
 
     },
-    "Saved Query" : {
+    "saved %@" : {
+
+    },
+    "Saved Session" : {
 
     },
     "Say nothing" : {
@@ -2673,6 +2709,12 @@
 
     },
     "Session" : {
+
+    },
+    "Session name" : {
+
+    },
+    "Sessions" : {
 
     },
     "Set NULL" : {
@@ -2954,7 +2996,7 @@
     "That connection is no longer saved in Pharos." : {
 
     },
-    "That saved query is no longer in Pharos." : {
+    "That saved Session is no longer in Pharos." : {
 
     },
     "That was too much for one request. Choose a schema first, or describe a smaller query." : {
@@ -2996,7 +3038,7 @@
     "The first failure" : {
 
     },
-    "The folder the Save Query sheet opens on." : {
+    "The folder the Save Session sheet opens on." : {
 
     },
     "The format the Export Data sheet opens on. You can still pick another one for any single export." : {
@@ -3170,6 +3212,9 @@
     "Their changes are not committed: %@." : {
 
     },
+    "Their saved results are deleted too. This action cannot be undone." : {
+
+    },
     "Theme" : {
 
     },
@@ -3221,7 +3266,7 @@
     "This result has too many columns for one request." : {
 
     },
-    "This saved query has no connection, so Pharos cannot run it." : {
+    "This saved Session has no connection, so Pharos cannot run it." : {
 
     },
     "This server cannot hold a connection for each tab. Cards run on shared connections: SET, temporary tables and transactions do not carry from card to card." : {
@@ -3234,6 +3279,12 @@
 
     },
     "This tab's schema" : {
+
+    },
+    "This will delete %lld Sessions in this folder, with their saved results." : {
+
+    },
+    "This will delete 1 Session in this folder, with its saved results." : {
 
     },
     "Throw the pending changes away and reload the rows." : {
@@ -3294,6 +3345,9 @@
 
     },
     "Untitled query" : {
+
+    },
+    "Untitled Session" : {
 
     },
     "UPDATE" : {
