@@ -118,10 +118,17 @@ final class SQLDraftPipeline {
     private let model = SystemLanguageModel.default
 
     /// Greedy: the same request against the same schema gives the same
-    /// draft, so a bad one can be reproduced. `sampling:` is the spelling
-    /// both the macOS 26 SDK (release CI) and the macOS 27 SDK accept; 27
-    /// deprecates it in favour of `samplingMode:`, which 26 does not have.
+    /// draft, so a bad one can be reproduced. The macOS 27 SDK renames
+    /// `sampling:` to `samplingMode:` (back-deployed, so it runs on macOS 26
+    /// too) and deprecates the old name; the macOS 26 SDK of release CI
+    /// (Xcode 26.6, Swift 6.3) has only the old name. Swift 6.4 comes with
+    /// the macOS 27 SDK, so the compiler version picks the spelling. Drop the
+    /// `#else` once release CI builds with Xcode 27.
+    #if compiler(>=6.4)
+    private let options = GenerationOptions(samplingMode: .greedy)
+    #else
     private let options = GenerationOptions(sampling: .greedy)
+    #endif
 
     private var trace: [String] = []
 

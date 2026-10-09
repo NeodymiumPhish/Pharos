@@ -35,13 +35,16 @@ extension ContentViewController {
         let tabName = tab.name
         Self.sessionWritesInFlight.insert(tabId)
 
-        Self.sessionWriteQueue.async {
+        // Weak from the outer closure on: a `[weak self]` on the inner one
+        // alone still has the outer closure hold `self` strongly to hand it
+        // in, so the write would keep the tab's controller alive.
+        Self.sessionWriteQueue.async { [weak self] in
             let outcome = Result {
                 try Self.writeSnapshot(savedQueryId: savedQueryId, document: document, text: stored.text,
                                        json: stored.json, held: held, connectionId: connectionId,
                                        schemaName: schemaName)
             }
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.async {
                 Self.sessionWritesInFlight.remove(tabId)
                 switch outcome {
                 case .success(let committed):
