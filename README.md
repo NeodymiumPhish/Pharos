@@ -1,3 +1,5 @@
+# README
+
 <p align="center">
   <img src="docs/assets/images/pharos-logo.png" width="128" height="128" alt="Pharos">
 </p>
