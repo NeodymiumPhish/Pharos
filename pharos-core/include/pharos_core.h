@@ -58,6 +58,13 @@ typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
  char *pharos_cards_serialize(const char *request_json);
 
 /**
+ * Take the comments before a card's statement as notes. Returns
+ * `{"notes":"…","sql":"…"}`, or `{"notes":null,"sql":<input>}` when no
+ * comment comes before a statement. A null pointer is empty text.
+ */
+ char *pharos_cards_extract_notes(const char *sql);
+
+/**
  * Load all connection configs. Returns JSON array. Caller must free.
  */
  char *pharos_load_connections(void);
@@ -726,7 +733,7 @@ void pharos_import_csv(const char *connection_id,
  char *pharos_delete_workspace_result(const char *id);
 
 /**
- * Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?}.
+ * Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?, cardNotes?}.
  */
  char *pharos_update_result_meta(const char *json);
 

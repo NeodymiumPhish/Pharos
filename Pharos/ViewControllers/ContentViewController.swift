@@ -44,6 +44,9 @@ class ContentViewController: NSViewController {
     /// each, keyed by result-tab id so concurrent edits to different tabs don't
     /// cancel each other's pending write.
     private var chartPersistWorkItems: [String: DispatchWorkItem] = [:]
+    /// A card's notes reach its history rows a moment after the last
+    /// keystroke, not on every one. Keyed by card id.
+    private var notesHistoryWorkItems: [String: DispatchWorkItem] = [:]
 
     /// The in-flight server-aggregation (push-down) query id — tracked so a
     /// superseded run can be cancelled server-side (`pg_cancel_backend`) and its
@@ -2406,6 +2409,28 @@ class ContentViewController: NSViewController {
         NotificationCoalescer.post(.workspaceHistoryDidChange)
     }
 
+    /// Write the card's current notes to the history rows of every version
+    /// that has one, so Results History search finds them.
+    private func applyCardNotesToHistory(cardId: String, inTab tabId: String) {
+        guard let document = session.tabs.first(where: { $0.id == tabId })?.document,
+              let lineage = document.card(cardId)?.lineageId else { return }
+        let lineageCards = document.cards.filter { $0.lineageId == lineage }
+        // The empty string CLEARS the stored notes (see `updateResultMeta`).
+        let notes = lineageCards.first.flatMap { $0.hasNotes ? $0.notes : nil } ?? ""
+        var wrote = false
+        for card in lineageCards {
+            guard let historyResultId = session.resultStore[tabId].result(forCard: card.id)?.historyResultId
+                    ?? card.lastRun?.historyResultId else { continue }
+            do {
+                try PharosCore.updateResultMeta(resultId: historyResultId, cardNotes: notes)
+                wrote = true
+            } catch {
+                Log.query.error("updateResultMeta (notes) failed for result \(historyResultId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if wrote { NotificationCoalescer.post(.workspaceHistoryDidChange) }
+    }
+
     /// Refresh the results header and the cards' name rows.
     private func refreshCardResultsUI() {
         updateResultsHeader()
@@ -2689,7 +2714,8 @@ class ContentViewController: NSViewController {
                 rawSql: card?.lastRun?.rawSQL ?? card?.sql,
                 lineStart: nil, lineEnd: nil,
                 customLabel: card?.name,
-                cardId: cardId, cardVersion: card?.version
+                cardId: cardId, cardVersion: card?.version,
+                cardNotes: card?.hasNotes == true ? card?.notes : nil
             ))
             NotificationCoalescer.post(.workspaceHistoryDidChange)
         } catch {
@@ -2700,6 +2726,17 @@ class ContentViewController: NSViewController {
     /// Bring this tab to the front: its window, selected in its tab group.
     func frontThisTab() {
         view.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The window is closing (its tab with it): notes typed in the last
+    /// moment reach history now, not after the tab is gone.
+    func flushPendingNotesHistory() {
+        let pending = notesHistoryWorkItems
+        notesHistoryWorkItems.removeAll()
+        for work in pending.values {
+            work.perform()
+            work.cancel()
+        }
     }
 
     /// The window is closing (its tab with it): cards still waiting to run go
@@ -2800,7 +2837,8 @@ class ContentViewController: NSViewController {
             // still recorded.
             workspaceId: tab?.workspaceId,
             executionTimeMs: 0,
-            cardId: failure.cardId
+            cardId: failure.cardId,
+            cardNotes: failure.cardId.flatMap { tab?.document.card($0) }.flatMap { $0.hasNotes ? $0.notes : nil }
         )
 
         // Off the main thread: this is SQLite IO on the way out of a failure,
@@ -3261,6 +3299,21 @@ extension ContentViewController: EditorPaneDelegate {
     func editorPane(_ pane: EditorPaneVC, didEditCard cardId: String) {
         // The header's "from the SQL before the edit" follows the typing.
         if cardId == displayedCardId { updateResultsHeader() }
+    }
+
+    func editorPane(_ pane: EditorPaneVC, didEditNotesOfCard cardId: String, final: Bool) {
+        guard let tabId = pane.cardStack.tabId else { return }
+        notesHistoryWorkItems.removeValue(forKey: cardId)?.cancel()
+        if final {
+            applyCardNotesToHistory(cardId: cardId, inTab: tabId)
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            self?.notesHistoryWorkItems[cardId] = nil
+            self?.applyCardNotesToHistory(cardId: cardId, inTab: tabId)
+        }
+        notesHistoryWorkItems[cardId] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: work)
     }
 
     func editorPane(_ pane: EditorPaneVC, statusOf card: QueryCard, inTab tabId: String) -> CardStackVC.CardStatus {
@@ -4550,9 +4603,8 @@ extension ContentViewController {
     @objc func menuExportEditorAsSQL(_: Any?) {
         guard let tab = session.activeTab else { return }
         // A script to run elsewhere: the latest version of each query, with
-        // the variables substituted.
-        let raw = CardText.text(of: tab.document, mode: .latest)
-        let text = VariableSubstitutor.render(raw, with: QueryVariableStore.shared.variables).sql
+        // the variables substituted (in the SQL, not in the notes).
+        let text = CardText.renderedText(of: tab.document, mode: .latest, variables: QueryVariableStore.shared.variables)
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]
@@ -4915,7 +4967,7 @@ extension ContentViewController {
             name = url.lastPathComponent
         }
 
-        var tab = newTab(name: name, document: CardText.document(from: text))
+        var tab = newTab(name: name, document: CardText.document(fromFile: text))
         tab.sourceURL = url
         (NSApp.delegate as? AppDelegate)?.openItem(tab)
     }

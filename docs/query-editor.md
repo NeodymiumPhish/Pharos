@@ -49,9 +49,20 @@ Each card has a name row above its SQL. From left to right it shows:
 - a large **View Results** button. It reads **Showing Results · N rows**, and is filled, while that card's results are on screen;
 - **Run**, and **Run and Replace Results** (shown only after you edit a card that has results). Both are greyed out while the tab has no connected database. Rest the pointer on a greyed-out button, or click it, to see why and how to connect;
 - **Cancel**, while the card runs;
+- the **Notes** button (see [Notes](#notes));
 - the **⋯** menu.
 
 With [Apple Intelligence](apple-intelligence.md#suggest-a-name) on, a card with no name gets a suggested name at its first run. A name you type always wins.
+
+### Notes
+
+Every card can keep notes: why the query exists, how to read its results, what to compare them with. Click the **Notes** button, left of **⋯**, or choose **Show Notes** from the **⋯** menu. The notes open to the right of the SQL; click the button again to close them. The button's icon is filled when the card has notes and hollow when it has none.
+
+- Notes belong to the query, so every [version](#versions) of it shows the same notes, and a new version keeps them.
+- Drag the line between the SQL and the notes to make the notes wider or narrower; double-click the line to go back to the default width. Each card keeps its own width, saved with the tab and with Sessions. The notes stay at least 180 pt wide, and the SQL at least 240 pt.
+- The card grows to fit its notes, as it grows to fit its SQL.
+- Notes are saved with the tab, with [Sessions](saved-queries.md) and with each run in [Results History](query-history.md), and the history filter finds text in them.
+- Notes are plain text. When you [save or export](#opening-and-saving-sql-files) the tab as a `.sql` file, they are written as a comment above the query.
 
 ### Size and scrolling
 
@@ -130,10 +141,26 @@ Suggestions come from the connected database's schema metadata: schema, table, a
 
 - **File > Open…** (**Cmd+O**) opens `.sql` or plain-text files; you can also double-click SQL files in Finder, drop them on the Dock icon, or **drop them onto the editor**. Each file opens in its own tab (see [Where opened items go](#where-opened-items-go)). Files over 50 MB prompt before opening.
 - Opening a file splits it into **one card per statement**. A `-- name: X` comment line gives the card below it the name X.
+- A comment block between two lines of `=` (the form Pharos writes, below) right before a statement becomes that card's [notes](#notes).
+- Other comments before a statement stay in the SQL. The card's Notes button then reads **Import Comments to Note**: click it to move those comments into the notes, without their `--`, `/* */` and `=` border lines. Choose **Keep Comments in Query** from the **⋯** menu to leave them where they are.
 - psql meta-commands (such as `\set …`) and the data of a `COPY … FROM STDIN` become cards that Pharos shows but does not run.
 - A tab opened from a file stays linked to it: **Cmd+S** writes straight back to the file, and the tab shows a dirty indicator for unsaved edits.
 - Saving writes each card as a `-- name: X` line followed by its statement. Locked [earlier versions](#versions) are kept as comments (`-- version: 1 locked`), so psql runs only the current versions and nothing is lost.
-- **File > Export Query as SQL File…** (**Cmd+Opt+S**) saves any tab's SQL to a new `.sql` file (with [query variables](query-variables.md) rendered into the output).
+- A card's notes are written between its `-- name:` line and its statement, as a `/* … */` comment with a line of `=` above and below them:
+
+  ```sql
+  -- name: New JA4T Fingerprints
+  /*
+  =====================================================================
+  Q8. NEW TCP CLIENT FINGERPRINTS (JA4T) FROM THE HONEYPOT
+  Compare first_seen with the times from Q2 and Q5.
+  =====================================================================
+  */
+  WITH params AS (
+  ```
+
+  A `/*` or `*/` inside the notes is written as `/ *` or `* /`, so it cannot end the comment early.
+- **File > Export Query as SQL File…** (**Cmd+Opt+S**) saves any tab's SQL to a new `.sql` file (with [query variables](query-variables.md) rendered into the output). Variables are rendered in the SQL only: `{{name}}` tokens in [notes](#notes) are written as you typed them, and stay as they are when you open the file or import comments into notes.
 
 ## The "Run in Pharos" Service
 

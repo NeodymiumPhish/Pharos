@@ -27,6 +27,9 @@ final class CardHeaderView: NSView {
     var onRunReplace: (() -> Void)?
     var onCancel: (() -> Void)?
     var onRename: (() -> Void)?
+    /// The Notes button: open or close the notes, or import comments into
+    /// them while the button offers that.
+    var onNotes: (() -> Void)?
     /// The ⋯ menu, built fresh by the owner each time it opens.
     var menuProvider: (() -> NSMenu)?
 
@@ -41,6 +44,7 @@ final class CardHeaderView: NSView {
     let runButton = CardRunButton()
     let runReplaceButton = CardRunButton()
     let cancelButton = NSButton()
+    let notesButton = NSButton()
     let moreButton = NSButton()
     private var cardColor: NSColor = .controlAccentColor
     var onToggleCollapse: (() -> Void)?
@@ -102,6 +106,12 @@ final class CardHeaderView: NSView {
         runReplaceButton.availableToolTip = String(localized: "Run and Replace Results (⇧⌘↩): replace this card's results instead of keeping them as a locked version")
         cancelButton.contentTintColor = .systemRed
 
+        notesButton.bezelStyle = .push
+        notesButton.target = self
+        notesButton.action = #selector(notes)
+        notesButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        applyNotes(hasNotes: false, isOpen: false, offersImport: false)
+
         moreButton.bezelStyle = .push
         moreButton.image = symbol("ellipsis", String(localized: "More"))
         moreButton.imagePosition = .imageOnly
@@ -114,7 +124,7 @@ final class CardHeaderView: NSView {
         leading.spacing = 6
         leading.alignment = .centerY
         leading.setHuggingPriority(.defaultLow, for: .horizontal)
-        let trailing = NSStackView(views: [resultsButton, runButton, runReplaceButton, cancelButton, moreButton])
+        let trailing = NSStackView(views: [resultsButton, runButton, runReplaceButton, cancelButton, notesButton, moreButton])
         trailing.orientation = .horizontal
         trailing.spacing = 4
         trailing.alignment = .centerY
@@ -184,6 +194,29 @@ final class CardHeaderView: NSView {
         disclosure.isExpanded = !isCollapsed
     }
 
+    /// The Notes button: a filled symbol when the card has notes, a hollow
+    /// one when it has none, accent-tinted while the notes are open (as the
+    /// grid's tag button). While `offersImport`, it says what a click does.
+    func applyNotes(hasNotes: Bool, isOpen: Bool, offersImport: Bool) {
+        if offersImport {
+            let title = String(localized: "Import Comments to Note")
+            notesButton.image = symbol("doc.text", title)
+            notesButton.title = title
+            notesButton.imagePosition = .imageLeading
+            notesButton.toolTip = String(localized: "Move the comments before this query into its notes")
+            notesButton.setAccessibilityLabel(title)
+        } else {
+            let label = String(localized: "Notes")
+            notesButton.image = symbol(hasNotes ? "doc.text.fill" : "doc.text", label)
+            notesButton.title = ""
+            notesButton.imagePosition = .imageOnly
+            notesButton.toolTip = isOpen ? String(localized: "Hide Notes") : String(localized: "Show Notes")
+            notesButton.setAccessibilityLabel(label)
+        }
+        notesButton.contentTintColor = isOpen ? .controlAccentColor : nil
+        notesButton.setAccessibilityValue(hasNotes ? String(localized: "has notes") : String(localized: "no notes"))
+    }
+
     /// Accessibility identifiers for card `n` (1-based).
     func setIdentifiers(prefix: String) {
         setAccessibilityIdentifier("\(prefix).header")
@@ -193,6 +226,7 @@ final class CardHeaderView: NSView {
         runButton.setAccessibilityIdentifier("\(prefix).run")
         runReplaceButton.setAccessibilityIdentifier("\(prefix).runReplace")
         cancelButton.setAccessibilityIdentifier("\(prefix).cancel")
+        notesButton.setAccessibilityIdentifier("\(prefix).notes")
         moreButton.setAccessibilityIdentifier("\(prefix).more")
     }
 
@@ -200,6 +234,7 @@ final class CardHeaderView: NSView {
     @objc private func run() { onRun?() }
     @objc private func runReplace() { onRunReplace?() }
     @objc private func cancel() { onCancel?() }
+    @objc private func notes() { onNotes?() }
     @objc private func toggleCollapse() { onToggleCollapse?() }
 
     @objc private func showMenu() {
@@ -452,11 +487,43 @@ final class CardView: NSView {
     var isCollapsed = false { didSet { needsLayout = true } }
     /// Height of the body when shown.
     var bodyHeight: CGFloat = 0 { didSet { needsLayout = true } }
+    /// The notes, on the body's right side while `showsNotes`. Owned here,
+    /// not by the body: the body is swapped between a live editor and a
+    /// preview, and the notes stay through that.
+    private(set) var notesView: CardNotesView?
+    var showsNotes = false { didSet { if oldValue != showsNotes { needsLayout = true } } }
+    /// The part of the body the notes take; nil for the default.
+    var notesFraction: CGFloat? { didSet { if oldValue != notesFraction { needsLayout = true } } }
+    /// The handle on the line between the SQL and the notes.
+    let notesDivider = CardNotesDivider()
+
+    /// The width of the body inside a card `width` wide.
+    static func contentWidth(cardWidth width: CGFloat) -> CGFloat {
+        max(0, width - stripeWidth - bodyTrailingInset)
+    }
+
+    /// How a body `contentWidth` wide splits between the SQL and the notes.
+    static func split(contentWidth: CGFloat, showsNotes: Bool, fraction: CGFloat? = nil) -> (sql: CGFloat, notes: CGFloat) {
+        guard showsNotes else { return (contentWidth, 0) }
+        let notes = CardNotesView.width(forBody: contentWidth, fraction: fraction)
+        return (contentWidth - notes, notes)
+    }
+
+    /// The notes fraction for the divider at `x` (card coordinates), kept
+    /// inside the width limits.
+    func notesFraction(forDividerAt x: CGFloat) -> CGFloat {
+        let content = Self.contentWidth(cardWidth: bounds.width)
+        guard content > 0 else { return CardNotesView.defaultFraction }
+        let notes = CardNotesView.width(forBody: content, fraction: (Self.stripeWidth + content - x) / content)
+        return notes / content
+    }
 
     init(cardId: String) {
         self.cardId = cardId
         super.init(frame: .zero)
         addSubview(header)
+        notesDivider.isHidden = true
+        addSubview(notesDivider)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
@@ -470,11 +537,21 @@ final class CardView: NSView {
         CardHeaderView.height + (isCollapsed ? 0 : bodyHeight + 1 + Self.bodyBottomInset)
     }
 
+    func setNotesView(_ view: CardNotesView?) {
+        guard view !== notesView else { return }
+        notesView?.removeFromSuperview()
+        notesView = view
+        // Under the divider, so the divider takes the clicks on the line.
+        if let view { addSubview(view, positioned: .below, relativeTo: notesDivider) }
+        needsLayout = true
+    }
+
     func setBody(_ view: NSView?) {
         guard view !== body else { return }
         body?.removeFromSuperview()
         body = view
-        if let view { addSubview(view) }
+        // Under the notes divider, which must take the clicks on the line.
+        if let view { addSubview(view, positioned: .below, relativeTo: notesDivider) }
         needsLayout = true
     }
 
@@ -482,8 +559,19 @@ final class CardView: NSView {
         super.layout()
         header.frame = NSRect(x: Self.stripeWidth, y: 0, width: bounds.width - Self.stripeWidth, height: CardHeaderView.height)
         body?.isHidden = isCollapsed
-        body?.frame = NSRect(x: Self.stripeWidth, y: CardHeaderView.height + 1,
-                             width: max(0, bounds.width - Self.stripeWidth - Self.bodyTrailingInset), height: max(0, bodyHeight))
+        let notesShown = showsNotes && notesView != nil && !isCollapsed
+        let widths = Self.split(contentWidth: Self.contentWidth(cardWidth: bounds.width), showsNotes: notesShown,
+                                fraction: notesFraction)
+        body?.frame = NSRect(x: Self.stripeWidth, y: CardHeaderView.height + 1, width: widths.sql, height: max(0, bodyHeight))
+        notesView?.isHidden = !notesShown
+        notesDivider.isHidden = !notesShown
+        if notesShown {
+            let x = Self.stripeWidth + widths.sql
+            notesView?.frame = NSRect(x: x, y: CardHeaderView.height + 1, width: widths.notes, height: max(0, bodyHeight))
+            notesDivider.frame = NSRect(x: x - CardNotesDivider.hitWidth / 2, y: CardHeaderView.height + 1,
+                                        width: CardNotesDivider.hitWidth, height: max(0, bodyHeight))
+            notesDivider.setAccessibilityValue(Int((widths.notes / max(1, widths.sql + widths.notes) * 100).rounded()))
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {

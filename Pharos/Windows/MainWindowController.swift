@@ -268,6 +268,7 @@ extension MainWindowController: NSWindowDelegate {
     /// The editor text of its workspace-bound tabs is flushed FIRST, while the
     /// tabs still exist; after `retire` there is nothing left to read.
     func windowWillClose(_ notification: Notification) {
+        splitViewController.contentVC.flushPendingNotesHistory()
         splitViewController.contentVC.cancelQueuedRuns()
         stateManager.snapshotWorkspaces()
         stateManager.retire(session)

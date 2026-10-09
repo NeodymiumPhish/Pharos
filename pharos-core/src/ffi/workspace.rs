@@ -134,7 +134,7 @@ pub extern "C" fn pharos_delete_workspace_result(id: *const c_char) -> *mut c_ch
     })
 }
 
-/// Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?}.
+/// Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?, cardNotes?}.
 #[no_mangle]
 pub extern "C" fn pharos_update_result_meta(json: *const c_char) -> *mut c_char {
     ffi_sync!({
@@ -143,9 +143,9 @@ pub extern "C" fn pharos_update_result_meta(json: *const c_char) -> *mut c_char 
         let s = unsafe { c_str_to_string(json) };
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct U { result_id: String, custom_label: Option<String>, color_index: Option<i64> }
+        struct U { result_id: String, custom_label: Option<String>, color_index: Option<i64>, #[serde(default)] card_notes: Option<String> }
         let u: U = match serde_json::from_str(&s) { Ok(u) => u, Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()) };
-        match rt.block_on(crate::commands::update_result_meta(u.result_id, u.custom_label, u.color_index, state)) {
+        match rt.block_on(crate::commands::update_result_meta(u.result_id, u.custom_label, u.color_index, u.card_notes, state)) {
             Ok(ok) => to_c_string(if ok { "true" } else { "false" }),
             Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
         }

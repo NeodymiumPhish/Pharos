@@ -59,6 +59,10 @@ pub struct ResultAssociation {
     pub card_id: Option<String>,
     #[serde(default)]
     pub card_version: Option<i64>,
+    /// The card's notes when it ran; searched with the SQL. `Some("")`
+    /// clears them, None leaves them.
+    #[serde(default)]
+    pub card_notes: Option<String>,
 }
 
 /// Row shown in the workspace list (Layout B).

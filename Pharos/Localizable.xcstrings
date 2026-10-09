@@ -1391,6 +1391,9 @@
     "Grouped adds your region's thousands separators." : {
 
     },
+    "has notes" : {
+
+    },
     "has results" : {
 
     },
@@ -1413,6 +1416,9 @@
 
     },
     "Hide Editor" : {
+
+    },
+    "Hide Notes" : {
 
     },
     "Hide Others" : {
@@ -1500,6 +1506,9 @@
 
     },
     "Import" : {
+
+    },
+    "Import Comments to Note" : {
 
     },
     "Import Data" : {
@@ -1593,6 +1602,9 @@
 
     },
     "just now" : {
+
+    },
+    "Keep Comments in Query" : {
 
     },
     "Keep history for" : {
@@ -1754,6 +1766,9 @@
     "Move down a row" : {
 
     },
+    "Move the comments before this query into its notes" : {
+
+    },
     "Move up a row" : {
 
     },
@@ -1853,6 +1868,9 @@
     "No Items" : {
 
     },
+    "no notes" : {
+
+    },
     "no pre-release was found" : {
 
     },
@@ -1908,6 +1926,12 @@
 
     },
     "Not run" : {
+
+    },
+    "Notes" : {
+
+    },
+    "Notes width" : {
 
     },
     "Nothing is uploaded." : {
@@ -2793,6 +2817,9 @@
 
     },
     "Show Next Tab" : {
+
+    },
+    "Show Notes" : {
 
     },
     "Show Previous Tab" : {

@@ -62,6 +62,27 @@ struct QueryCard: Identifiable, Equatable, Codable {
     var resultsRemoved: Bool = false
     var cursorPosition: Int = 0
     var kind: QueryCardKind = .sql
+    // The three fields below are Optional on purpose: the synthesized decoder
+    // requires every non-Optional key, so a default value would make each
+    // document saved before notes fail to decode.
+    /// Free text about the query. Every version of a query has the same
+    /// notes (`CardDocument.setNotes`). nil or blank: no notes.
+    var notes: String?
+    /// The notes area is open beside the editor.
+    var isNotesOpen: Bool?
+    /// The part of the card's width the notes take, set by dragging the
+    /// divider. nil: the default (`CardNotesView.defaultFraction`).
+    var notesWidthFraction: Double?
+    /// The card came from a `.sql` file with comments before its statement:
+    /// the Notes button offers to move them into the notes.
+    var offersCommentImport: Bool?
+
+    /// True when the notes hold more than whitespace.
+    var hasNotes: Bool {
+        !(notes ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var showsNotes: Bool { isNotesOpen ?? false }
 
     init(id: String = UUID().uuidString, lineageId: String? = nil, version: Int = 1,
          name: String? = nil, sql: String = "", kind: QueryCardKind = .sql) {
@@ -224,6 +245,62 @@ struct CardDocument: Equatable, Codable {
         cards[i].isCollapsed = collapsed
     }
 
+    // MARK: - Notes
+
+    /// Set the notes of every version of the card's query, locked versions
+    /// too: notes describe the query, not one version's SQL. Empty text clears
+    /// them. Notes with content end the comment-import offer. Returns whether
+    /// anything changed.
+    @discardableResult
+    mutating func setNotes(cardId: String, _ notes: String?) -> Bool {
+        guard let lineage = card(cardId)?.lineageId else { return false }
+        let value = (notes ?? "").isEmpty ? nil : notes
+        var changed = false
+        for i in cards.indices where cards[i].lineageId == lineage {
+            if cards[i].notes != value {
+                cards[i].notes = value
+                changed = true
+            }
+            if cards[i].hasNotes, cards[i].offersCommentImport != nil {
+                cards[i].offersCommentImport = nil
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    /// Open or close the card's notes area.
+    mutating func setNotesOpen(cardId: String, _ open: Bool) {
+        guard let i = index(of: cardId) else { return }
+        cards[i].isNotesOpen = open ? true : nil
+    }
+
+    /// Set how wide the card's notes are, as a part of the card's width.
+    /// nil goes back to the default.
+    mutating func setNotesWidth(cardId: String, fraction: Double?) {
+        guard let i = index(of: cardId) else { return }
+        cards[i].notesWidthFraction = fraction
+    }
+
+    /// Stop offering to move the card's leading comments into its notes.
+    mutating func dismissCommentImport(cardId: String) {
+        guard let i = index(of: cardId) else { return }
+        cards[i].offersCommentImport = nil
+    }
+
+    /// Move comments into the notes: `notes` become the query's notes, the
+    /// card's text becomes `sql`, the notes area opens and the offer ends.
+    /// Refused (false) for a locked or missing card.
+    @discardableResult
+    mutating func importCommentsToNotes(cardId: String, notes: String, sql: String) -> Bool {
+        guard let i = index(of: cardId), !cards[i].isLocked else { return false }
+        cards[i].sql = sql
+        cards[i].isNotesOpen = true
+        cards[i].offersCommentImport = nil
+        setNotes(cardId: cardId, notes)
+        return true
+    }
+
     /// Remove a card. Returns it with its index, for undo. The document never
     /// goes empty: deleting the last card leaves one blank draft.
     @discardableResult
@@ -254,6 +331,9 @@ struct CardDocument: Equatable, Codable {
         var copy = QueryCard(lineageId: source.lineageId, version: nextVersion(of: source.lineageId),
                              name: source.name, sql: source.sql, kind: source.kind)
         copy.nameIsSuggested = source.nameIsSuggested
+        copy.notes = source.notes
+        copy.isNotesOpen = source.isNotesOpen
+        copy.notesWidthFraction = source.notesWidthFraction
         cards.insert(copy, at: indexAfterLineage(source.lineageId))
         focusedCardId = copy.id
         return copy.id
@@ -296,6 +376,9 @@ struct CardDocument: Equatable, Codable {
             var next = QueryCard(lineageId: cards[i].lineageId, version: nextVersion(of: cards[i].lineageId),
                                  name: cards[i].name, sql: cards[i].sql, kind: cards[i].kind)
             next.nameIsSuggested = cards[i].nameIsSuggested
+            next.notes = cards[i].notes
+            next.isNotesOpen = cards[i].isNotesOpen
+            next.notesWidthFraction = cards[i].notesWidthFraction
             next.lastRun = record
             next.cursorPosition = cards[i].cursorPosition
             next.colorIndex = nextColorIndex()
@@ -347,6 +430,10 @@ struct CardDocument: Equatable, Codable {
             c.isLocked = old.isLocked
             c.isCollapsed = old.isCollapsed
             c.cursorPosition = old.cursorPosition
+            c.notes = old.notes
+            c.isNotesOpen = old.isNotesOpen
+            c.notesWidthFraction = old.notesWidthFraction
+            c.offersCommentImport = old.offersCommentImport
             if keepingRuns {
                 c.lastRun = old.lastRun
                 c.lastRun?.historyResultId = nil

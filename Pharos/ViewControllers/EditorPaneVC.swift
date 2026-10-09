@@ -24,6 +24,8 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didRequestRenameCard cardId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestClearResultsOfCard cardId: String)
     func editorPane(_ pane: EditorPaneVC, didEditCard cardId: String)
+    /// The card's notes changed (`final` once the user leaves them).
+    func editorPane(_ pane: EditorPaneVC, didEditNotesOfCard cardId: String, final: Bool)
     /// What the card's name row shows that only the results side knows.
     func editorPane(_ pane: EditorPaneVC, statusOf card: QueryCard, inTab tabId: String) -> CardStackVC.CardStatus
 }
@@ -309,6 +311,15 @@ class EditorPaneVC: NSViewController {
             // referenced, and therefore which rows the sidebar's Variables
             // navigator flags.
             self.scheduleReferencedNamesScan()
+        }
+        cardStack.onNotesEdited = { [weak self] id in
+            guard let self, let tabId = self.cardStack.tabId else { return }
+            self.session.updateTab(id: tabId) { $0.isDirty = true }
+            self.delegate?.editorPane(self, didEditNotesOfCard: id, final: false)
+        }
+        cardStack.onNotesEndEditing = { [weak self] id in
+            guard let self else { return }
+            self.delegate?.editorPane(self, didEditNotesOfCard: id, final: true)
         }
         cardStack.onVariableChosen = { [weak self] name in
             guard let self else { return }

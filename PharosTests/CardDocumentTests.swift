@@ -299,6 +299,81 @@ private func testRowsLoadedGrowsTheRunCount() {
     expect(!e.rowsLoaded(cardId: "missing", runId: del.runId, count: 9, hasMore: false), "rows loaded: unknown card")
 }
 
+private func testNotes() {
+    // A document saved before notes existed still decodes, ids and all.
+    let old = #"{"cards":[{"id":"c1","lineageId":"c1","version":1,"name":"Q","nameIsSuggested":false,"sql":"SELECT 1","isLocked":false,"isCollapsed":false,"resultsRemoved":false,"cursorPosition":0,"kind":"sql"}],"focusedCardId":"c1","expandedLineages":[]}"#
+    let decoded = try? JSONDecoder().decode(CardDocument.self, from: Data(old.utf8))
+    expect(decoded?.cards.first?.id == "c1", "notes: an old document decodes with its ids")
+    expect(decoded?.cards.first?.notes == nil && decoded?.cards.first?.showsNotes == false
+           && decoded?.cards.first?.offersCommentImport == nil, "notes: an old card has no notes, closed, no offer")
+
+    // Notes belong to the query: every version, locked ones too.
+    var (d, a) = doc("SELECT 1")
+    _ = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
+    _ = d.updateSQL(cardId: a, "SELECT 2")
+    guard case let .split(_, b) = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 2")!, outcome: rows(2)) else {
+        return expect(false, "notes: the run splits")
+    }
+    expect(d.setNotes(cardId: a, "why"), "notes: setting them is a change")
+    expect(d.card(a)?.notes == "why" && d.card(b)?.notes == "why", "notes: every version has them, the locked one too")
+    expect(!d.setNotes(cardId: b, "why"), "notes: the same notes are no change")
+    expect(d.card(a)?.hasNotes == true, "notes: has notes")
+    _ = d.setNotes(cardId: b, "  \n")
+    expect(d.card(a)?.hasNotes == false && d.card(a)?.notes == "  \n", "notes: blank text is kept but is no notes")
+    _ = d.setNotes(cardId: b, "")
+    expect(d.card(a)?.notes == nil && d.card(b)?.notes == nil, "notes: empty text clears them")
+
+    // A new version, Edit as New Card and the copies keep them.
+    _ = d.setNotes(cardId: b, "kept")
+    d.setNotesOpen(cardId: b, true)
+    expect(d.card(b)?.showsNotes == true && d.card(a)?.showsNotes == false, "notes: open is per card")
+    _ = d.updateSQL(cardId: b, "SELECT 3")
+    guard case let .split(_, c) = d.completeRun(d.beginRun(cardId: b, mode: .run, renderedSQL: "SELECT 3")!, outcome: rows(3)) else {
+        return expect(false, "notes: the second run splits")
+    }
+    expect(d.card(c)?.notes == "kept" && d.card(c)?.showsNotes == true, "notes: a new version keeps them, open")
+    let e = d.editAsNewCard(from: a)!
+    expect(d.card(e)?.notes == "kept", "notes: Edit as New Card keeps them")
+    expect(d.forReuse().cards.allSatisfy { $0.notes == "kept" }, "notes: forReuse keeps them")
+    expect(d.forRestore().cards.allSatisfy { $0.notes == "kept" }, "notes: forRestore keeps them")
+    d.setNotesWidth(cardId: b, fraction: 0.5)
+    expect(d.card(b)?.notesWidthFraction == 0.5 && d.card(a)?.notesWidthFraction == nil, "notes width: per card")
+    expect(d.forRestore().cards.first { $0.version == d.card(b)!.version }?.notesWidthFraction == 0.5, "notes width: copies keep it")
+    d.setNotesWidth(cardId: b, fraction: nil)
+    expect(d.card(b)?.notesWidthFraction == nil, "notes width: nil is the default")
+    d.setNotesOpen(cardId: b, false)
+    expect(d.card(b)?.isNotesOpen == nil, "notes: closed is stored as nil")
+
+    // The JSON round trip keeps them.
+    let back = try! JSONDecoder().decode(CardDocument.self, from: try! JSONEncoder().encode(d))
+    expect(back == d && back.card(c)?.notes == "kept", "notes: they survive JSON")
+
+    // The comment-import offer.
+    var (f, g) = doc("-- why\nSELECT 1")
+    f.cards[0].offersCommentImport = true
+    expect(f.forReuse().cards[0].offersCommentImport == true, "offer: a copy keeps it")
+    f.dismissCommentImport(cardId: g)
+    expect(f.card(g)?.offersCommentImport == nil, "offer: dismissed")
+    f.cards[0].offersCommentImport = true
+    _ = f.setNotes(cardId: g, " ")
+    expect(f.card(g)?.offersCommentImport == true, "offer: blank notes keep it")
+    _ = f.setNotes(cardId: g, "typed")
+    expect(f.card(g)?.offersCommentImport == nil, "offer: notes with content end it")
+
+    var (h, k) = doc("-- why\nSELECT 1")
+    h.cards[0].offersCommentImport = true
+    expect(h.importCommentsToNotes(cardId: k, notes: "why", sql: "SELECT 1"), "import: applied")
+    let imported = h.card(k)!
+    expect(imported.sql == "SELECT 1" && imported.notes == "why" && imported.showsNotes && imported.offersCommentImport == nil,
+           "import: SQL, notes, open, no offer")
+    var (l, m) = doc("-- why\nSELECT 1")
+    _ = l.completeRun(l.beginRun(cardId: m, mode: .run, renderedSQL: "x")!, outcome: rows(1))
+    _ = l.updateSQL(cardId: m, "-- why\nSELECT 2")
+    _ = l.completeRun(l.beginRun(cardId: m, mode: .run, renderedSQL: "SELECT 2")!, outcome: rows(2))
+    expect(l.card(m)?.isLocked == true && !l.importCommentsToNotes(cardId: m, notes: "why", sql: "SELECT 1"),
+           "import: a locked card is refused")
+}
+
 func runTests() {
     testForReuse()
     testNewDocument()
@@ -316,5 +391,6 @@ func runTests() {
     testCodableRoundTrip()
     testRowsLoadedGrowsTheRunCount()
     testForRestore()
+    testNotes()
     if failures == 0 { print("\nAll CardDocument tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -36,6 +36,9 @@ extension PharosCore {
         /// The query card the result belongs to, and its version.
         var cardId: String? = nil
         var cardVersion: Int? = nil
+        /// The card's notes when it ran, for history search. nil leaves the
+        /// stored notes alone; the empty string clears them.
+        var cardNotes: String? = nil
     }
 
     /// Associate a produced result (by its history id) with a workspace.
@@ -94,7 +97,7 @@ extension PharosCore {
         try scalarResult { id.withCString { pharos_delete_workspace_result($0) } } == "true"
     }
 
-    struct UpdateResultMetaPayload: Codable { let resultId: String; let customLabel: String?; let colorIndex: Int? }
+    struct UpdateResultMetaPayload: Codable { let resultId: String; let customLabel: String?; let colorIndex: Int?; let cardNotes: String? }
 
     /// Change a saved result's display metadata.
     ///
@@ -105,10 +108,12 @@ extension PharosCore {
     /// changing one need not know the other. To CLEAR a custom name, pass the
     /// empty string: `nil` would leave the stored name in place. That is the
     /// core's convention, not this wrapper's — see `update_result_meta` in
-    /// `pharos-core/src/db/sqlite.rs`.
+    /// `pharos-core/src/db/sqlite.rs`. `cardNotes` follows the same rule.
     @discardableResult
-    static func updateResultMeta(resultId: String, customLabel: String? = nil, colorIndex: Int? = nil) throws -> Bool {
-        let payload = UpdateResultMetaPayload(resultId: resultId, customLabel: customLabel, colorIndex: colorIndex)
+    static func updateResultMeta(resultId: String, customLabel: String? = nil, colorIndex: Int? = nil,
+                                 cardNotes: String? = nil) throws -> Bool {
+        let payload = UpdateResultMetaPayload(resultId: resultId, customLabel: customLabel, colorIndex: colorIndex,
+                                              cardNotes: cardNotes)
         return try scalarResult(input: payload) { pharos_update_result_meta($0) } == "true"
     }
 

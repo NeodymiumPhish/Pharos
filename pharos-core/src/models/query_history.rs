@@ -124,6 +124,9 @@ pub struct FailedQueryRecord {
     /// The query card that ran, when it came from one.
     #[serde(default)]
     pub card_id: Option<String>,
+    /// That card's notes.
+    #[serde(default)]
+    pub card_notes: Option<String>,
 }
 
 fn default_failed_status() -> String { HISTORY_STATUS_ERROR.to_string() }

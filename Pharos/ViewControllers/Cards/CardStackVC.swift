@@ -56,6 +56,11 @@ final class CardStackVC: NSViewController {
     var onRenameRequest: ((_ cardId: String) -> Void)?
     var onClearResults: ((_ cardId: String) -> Void)?
     var onListPasteOffer: ((_ offered: Bool) -> Void)?
+    /// After a notes change is in the document (typing, or comments moved
+    /// into the notes).
+    var onNotesEdited: ((_ cardId: String) -> Void)?
+    /// A card's notes lost the keyboard: the moment to store them in history.
+    var onNotesEndEditing: ((_ cardId: String) -> Void)?
     var validationConnectionId: () -> String? = { nil }
     /// Why the tab's cards cannot run now (no connected database), or nil.
     var runUnavailableReason: () -> String? = { nil }
@@ -98,6 +103,9 @@ final class CardStackVC: NSViewController {
     private var editorSettings: EditorSettings = AppStateManager.shared.settings.editor
     private var cancellables = Set<AnyCancellable>()
     private var relayoutScheduled = false
+    /// The card whose notes divider is being dragged: its width lives in the
+    /// view until the drag ends, so a refresh must not reset it.
+    private var notesDividerDragCard: String?
     private var poolScheduled = false
 
     init(completionProvider: SQLCompletionProvider) {
@@ -245,6 +253,15 @@ final class CardStackVC: NSViewController {
             let meta = card.isCollapsed ? SQLSummary.oneLine(card.sql) : st.meta
             view.header.apply(p, color: CardPalette.color(card.colorIndex), isCollapsed: card.isCollapsed, meta: meta,
                               runUnavailableReason: runReason)
+            view.header.applyNotes(hasNotes: card.hasNotes, isOpen: card.showsNotes, offersImport: offersCommentImport(card))
+            if card.showsNotes {
+                let notes = view.notesView ?? makeNotesView(id)
+                view.setNotesView(notes)
+                notes.setText(card.notes ?? "")
+                notes.textView.setAccessibilityIdentifier("editor.card.\(position).notes.text")
+            }
+            view.showsNotes = card.showsNotes
+            if notesDividerDragCard != id { view.notesFraction = card.notesWidthFraction.map { CGFloat($0) } }
             view.color = CardPalette.color(card.colorIndex)
             view.isFocused = doc.focusedCardId == id
             view.isDisplayed = st.isDisplayed
@@ -276,6 +293,7 @@ final class CardStackVC: NSViewController {
         guard isViewLoaded else { return }
         let width = max(200, scrollView.contentSize.width)
         let bodyWidth = width - Self.inset * 2 - CardView.stripeWidth - 1
+        let contentWidth = CardView.contentWidth(cardWidth: max(0, width - Self.inset * 2))
         let oldItems = items
         let oldFrames = frames
         let oldOffset = scrollView.contentView.bounds.origin.y
@@ -285,7 +303,16 @@ final class CardStackVC: NSViewController {
             case let .card(id):
                 guard let view = cardViews[id] else { return CardHeaderView.height }
                 if !view.isCollapsed {
-                    view.bodyHeight = bodyHeight(for: id, width: bodyWidth)
+                    // With notes open the SQL is narrower, and the card is as
+                    // tall as the taller of the two.
+                    let notes = view.showsNotes ? view.notesView : nil
+                    // The notes are measured at exactly the width
+                    // `CardView.layout` gives them, or a line could wrap
+                    // there that did not wrap here.
+                    let notesWidth = CardView.split(contentWidth: contentWidth, showsNotes: true, fraction: view.notesFraction).notes
+                    var h = bodyHeight(for: id, width: notes == nil ? bodyWidth : bodyWidth - notesWidth)
+                    if let notes { h = max(h, notes.height(forWidth: notesWidth)) }
+                    view.bodyHeight = h
                 }
                 return view.fittingHeight
             case .versionGroup: return VersionGroupView.height
@@ -483,9 +510,37 @@ final class CardStackVC: NSViewController {
         h.onViewResults = { [weak self] in self?.onViewResults?(id) }
         h.onRename = { [weak self] in self?.onRenameRequest?(id) }
         h.onToggleCollapse = { [weak self] in self?.toggleCollapsed(id) }
+        h.onNotes = { [weak self] in self?.notesButtonClicked(id) }
+        let divider = view.notesDivider
+        divider.onDrag = { [weak self, weak view] x in
+            guard let self, let view else { return }
+            self.notesDividerDragCard = id
+            view.notesFraction = view.notesFraction(forDividerAt: x)
+            self.relayout(anchor: .card(id))
+        }
+        divider.onDragEnd = { [weak self, weak view] in
+            guard let self, let view else { return }
+            self.notesDividerDragCard = nil
+            self.setNotesWidth(id, fraction: view.notesFraction)
+        }
+        divider.onReset = { [weak self] in self?.setNotesWidth(id, fraction: nil) }
+        divider.onStep = { [weak self, weak view] direction in
+            guard let self, let view else { return }
+            let step = (view.notesFraction ?? CardNotesView.defaultFraction) + 0.05 * CGFloat(direction)
+            let content = CardView.contentWidth(cardWidth: view.bounds.width)
+            guard content > 0 else { return }
+            self.setNotesWidth(id, fraction: CardNotesView.width(forBody: content, fraction: step) / content)
+        }
         h.menuProvider = { [weak self] in self?.menu(for: id) ?? NSMenu() }
         view.setBody(makePreview(id))
         return view
+    }
+
+    private func makeNotesView(_ id: String) -> CardNotesView {
+        let notes = CardNotesView()
+        notes.onChange = { [weak self] text in self?.notesEdited(id, text) }
+        notes.onEndEditing = { [weak self] in self?.onNotesEndEditing?(id) }
+        return notes
     }
 
     private func makeGroupView(_ lineage: String) -> VersionGroupView {
@@ -518,6 +573,12 @@ final class CardStackVC: NSViewController {
         }
         menu.addItem(.separator())
         item(String(localized: "Rename\u{2026}"), { [weak self] in self?.onRenameRequest?(id) })
+        item(card.showsNotes ? String(localized: "Hide Notes") : String(localized: "Show Notes"),
+             { [weak self] in self?.setNotesShown(id, !card.showsNotes) })
+        if offersCommentImport(card) {
+            item(String(localized: "Import Comments to Note"), { [weak self] in self?.importCommentsToNotes(id) })
+            item(String(localized: "Keep Comments in Query"), { [weak self] in self?.keepCommentsInQuery(id) })
+        }
         if card.isLocked {
             item(String(localized: "Edit as New Card"), { [weak self] in self?.editAsNewCard(id) })
         }
@@ -592,6 +653,94 @@ final class CardStackVC: NSViewController {
                 self.scrollView.reflectScrolledClipView(clip)
             }
         }
+    }
+
+    // MARK: - Notes
+
+    /// True while the Notes button offers to move the card's leading comments
+    /// into its notes: a card from a `.sql` file, still unlocked, with no
+    /// notes yet and comments still before its statement.
+    private func offersCommentImport(_ card: QueryCard) -> Bool {
+        card.offersCommentImport == true && !card.hasNotes && !card.isLocked && card.kind == .sql
+            && PharosCore.extractLeadingNotes(card.sql) != nil
+    }
+
+    /// The ids of every version of the card's query.
+    private func lineageIds(of id: String) -> Set<String> {
+        guard let doc = document(), let lineage = doc.card(id)?.lineageId else { return [id] }
+        return Set(doc.cards.filter { $0.lineageId == lineage }.map(\.id))
+    }
+
+    private func notesButtonClicked(_ id: String) {
+        guard let card = document()?.card(id) else { return }
+        if offersCommentImport(card) {
+            importCommentsToNotes(id)
+        } else {
+            setNotesShown(id, !card.showsNotes)
+        }
+    }
+
+    /// Open or close the card's notes. Opening puts the keyboard in them, and
+    /// opens a folded card first.
+    func setNotesShown(_ id: String, _ open: Bool) {
+        guard let card = document()?.card(id) else { return }
+        mutate { doc in doc.setNotesOpen(cardId: id, open) }
+        if open, card.isCollapsed {
+            toggleCollapsed(id)
+        } else {
+            refreshStatus(only: [id])
+            relayout(anchor: .card(id))
+        }
+        if open, let notes = cardViews[id]?.notesView {
+            view.window?.makeFirstResponder(notes.textView)
+        } else if !open, let notes = cardViews[id]?.notesView, view.window?.firstResponder === notes.textView {
+            focusCard(id)
+        }
+    }
+
+    private func notesEdited(_ id: String, _ text: String) {
+        var changed = false
+        mutate { doc in changed = doc.setNotes(cardId: id, text) }
+        guard changed else { return }
+        onNotesEdited?(id)
+        refreshStatus(only: lineageIds(of: id))
+        scheduleRelayout()
+    }
+
+    /// Move the comments before the card's statement into its notes, and open
+    /// them. Like Format SQL, the new text replaces the editor's undo history.
+    func importCommentsToNotes(_ id: String) {
+        guard let card = document()?.card(id), let extracted = PharosCore.extractLeadingNotes(card.sql) else { return }
+        var applied = false
+        mutate { doc in applied = doc.importCommentsToNotes(cardId: id, notes: extracted.notes, sql: extracted.sql) }
+        guard applied else { return }
+        if let editor = editors[id] {
+            editor.setSQL(extracted.sql)
+        } else if let preview = previews[id], let updated = document()?.card(id) {
+            configure(preview, card: updated)
+        }
+        findTextChanged()
+        onTextEdited?(id, extracted.sql)
+        onNotesEdited?(id)
+        let lineage = lineageIds(of: id)
+        refreshStatus(only: lineage)
+        for cardId in lineage {
+            cardViews[cardId]?.notesView?.setText(extracted.notes, force: true)
+        }
+        relayout(anchor: .card(id))
+    }
+
+    /// Store how wide the card's notes are (nil: the default) and lay out.
+    private func setNotesWidth(_ id: String, fraction: CGFloat?) {
+        mutate { doc in doc.setNotesWidth(cardId: id, fraction: fraction.map { Double($0) }) }
+        cardViews[id]?.notesFraction = fraction
+        relayout(anchor: .card(id))
+    }
+
+    /// Stop offering to move the card's comments into its notes.
+    func keepCommentsInQuery(_ id: String) {
+        mutate { doc in doc.dismissCommentImport(cardId: id) }
+        refreshStatus(only: [id])
     }
 
     /// Collapse or expand every card.

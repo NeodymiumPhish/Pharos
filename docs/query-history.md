@@ -53,7 +53,7 @@ A query that the server refused leaves a row of its own: a warning glyph, the wo
 
 ## Filtering
 
-The sidebar's **Filter** field — along the bottom of the sidebar, **Cmd+Opt+J** — searches history by SQL text and workspace names. Its text is remembered per navigator.
+The sidebar's **Filter** field — along the bottom of the sidebar, **Cmd+Opt+J** — searches history by SQL text, [card notes](query-editor.md#notes) and workspace names. Its text is remembered per navigator.
 
 ## Nothing Recorded Yet
 

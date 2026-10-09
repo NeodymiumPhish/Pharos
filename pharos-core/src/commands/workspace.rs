@@ -51,10 +51,10 @@ pub async fn delete_workspace_result(result_id: String, state: &AppState) -> Res
 }
 
 pub async fn update_result_meta(
-    result_id: String, custom_label: Option<String>, color_index: Option<i64>, state: &AppState,
+    result_id: String, custom_label: Option<String>, color_index: Option<i64>, card_notes: Option<String>, state: &AppState,
 ) -> Result<bool, String> {
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
-    sqlite::update_result_meta(&db, &result_id, custom_label.as_deref(), color_index)
+    sqlite::update_result_meta(&db, &result_id, custom_label.as_deref(), color_index, card_notes.as_deref())
         .map_err(|e| format!("Failed to update result meta: {}", e))
 }
 

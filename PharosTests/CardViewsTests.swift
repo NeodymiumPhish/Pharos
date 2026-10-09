@@ -396,6 +396,201 @@ private func testVersionGroup() {
     expect(toggled == 2, "group: open, the chevron folds them again")
 }
 
+/// The image the Notes button shows for `name`, drawn, to compare.
+private func symbolData(_ name: String) -> Data? {
+    NSImage(systemSymbolName: name, accessibilityDescription: "Notes")?
+        .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))?.tiffRepresentation
+}
+
+private func testNotesButton() {
+    let f = Fixture()
+    let b = f.card.header.notesButton
+    let trailing = b.superview?.subviews ?? []
+    let more = f.card.header.moreButton
+    expect(trailing.firstIndex(of: b).map { $0 + 1 } == trailing.firstIndex(of: more), "notes button: just left of ⋯")
+
+    expect(symbolData("doc.text") != nil && symbolData("doc.text") != symbolData("doc.text.fill"),
+           "notes button: the two symbols exist and differ")
+    f.card.header.applyNotes(hasNotes: false, isOpen: false, offersImport: false)
+    expect(b.image?.tiffRepresentation == symbolData("doc.text"), "notes button: hollow without notes")
+    expect(b.title.isEmpty && b.imagePosition == .imageOnly, "notes button: icon only")
+    expect(b.accessibilityValue() as? String == "no notes" && b.toolTip == "Show Notes", "notes button: says no notes, Show")
+    expect(b.contentTintColor == nil, "notes button: no tint while closed")
+
+    f.card.header.applyNotes(hasNotes: true, isOpen: true, offersImport: false)
+    expect(b.image?.tiffRepresentation == symbolData("doc.text.fill"), "notes button: filled with notes")
+    expect(b.accessibilityValue() as? String == "has notes" && b.toolTip == "Hide Notes", "notes button: says has notes, Hide")
+    expect(b.contentTintColor == .controlAccentColor, "notes button: accent while open")
+
+    f.layout()
+    let iconWidth = b.frame.width
+    f.card.header.applyNotes(hasNotes: false, isOpen: false, offersImport: true)
+    f.layout()
+    expect(b.title == "Import Comments to Note" && b.imagePosition == .imageLeading, "notes button: offers the import")
+    expect(b.accessibilityLabel() == "Import Comments to Note", "notes button: VoiceOver reads the offer")
+    expect(b.frame.width > iconWidth + 60, "notes button: the offer widens it", "\(iconWidth) → \(b.frame.width)")
+
+    var clicks = 0
+    f.card.header.onNotes = { clicks += 1 }
+    expect(f.click(b) && clicks == 1, "notes button: a click reaches it")
+    f.card.header.setIdentifiers(prefix: "editor.card.2")
+    expect(b.accessibilityIdentifier() == "editor.card.2.notes", "notes button: id")
+
+    // The offer must not break the name row at zero width either.
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+    let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+    window.contentView = root
+    let header = CardHeaderView(frame: .zero)
+    root.addSubview(header)
+    header.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: false, meta: "just now")
+    header.applyNotes(hasNotes: false, isOpen: false, offersImport: true)
+    root.layoutSubtreeIfNeeded()
+    let broken = brokenRequiredConstraints(in: header, root: root)
+    expect(broken.isEmpty, "notes button: no required constraint breaks at zero width", broken.map(\.description).joined(separator: "\n  "))
+}
+
+private func testNotesLayout() {
+    // The split of a body between the SQL and the notes.
+    let wide = CardView.split(contentWidth: 1000, showsNotes: true)
+    expect(wide.notes == 370 && wide.sql == 630, "notes layout: 37% of a wide card", "\(wide)")
+    let narrow = CardView.split(contentWidth: 400, showsNotes: true)
+    expect(narrow.notes == 180, "notes layout: at least 180 pt", "\(narrow)")
+    let tiny = CardView.split(contentWidth: 300, showsNotes: true)
+    expect(tiny.notes == 150 && tiny.sql == 150, "notes layout: never more than half", "\(tiny)")
+    expect(CardView.split(contentWidth: 1000, showsNotes: false) == (1000, 0), "notes layout: closed, the SQL has it all")
+
+    let card = CardView(cardId: "c1")
+    card.bodyHeight = 120
+    let body = NSView()
+    card.setBody(body)
+    let notes = CardNotesView()
+    card.setNotesView(notes)
+    card.frame = NSRect(x: 0, y: 0, width: 1006, height: card.fittingHeight)
+    card.layoutSubtreeIfNeeded()
+    expect(notes.isHidden, "notes layout: hidden until shown")
+    expect(body.frame.width == CardView.contentWidth(cardWidth: 1006), "notes layout: hidden notes take no width")
+
+    card.showsNotes = true
+    card.layoutSubtreeIfNeeded()
+    let content = CardView.contentWidth(cardWidth: 1006)
+    expect(!notes.isHidden, "notes layout: shown")
+    expect(body.frame.width + notes.frame.width == content && notes.frame.minX == body.frame.maxX,
+           "notes layout: SQL then notes, edge to edge", "body \(body.frame) notes \(notes.frame)")
+    expect(notes.frame.minY == body.frame.minY && notes.frame.height == 120, "notes layout: the full body height",
+           "\(notes.frame)")
+    expect(card.bounds.width - notes.frame.maxX >= CardView.bodyTrailingInset, "notes layout: the border stays clear")
+
+    // Swapping the body (editor ↔ preview) keeps the notes.
+    let preview = NSView()
+    card.setBody(preview)
+    card.layoutSubtreeIfNeeded()
+    expect(notes.superview === card && preview.frame.width == body.frame.width, "notes layout: a body swap keeps the notes")
+
+    card.isCollapsed = true
+    card.layoutSubtreeIfNeeded()
+    expect(notes.isHidden, "notes layout: a collapsed card hides the notes")
+}
+
+private func testNotesHeight() {
+    let notes = CardNotesView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+    expect(notes.height(forWidth: 300) == CardNotesView.minHeight, "notes height: empty notes are the minimum")
+    notes.setText((1...20).map { "Line \($0) of the notes." }.joined(separator: "\n"))
+    let tall = notes.height(forWidth: 300)
+    expect(tall > 200, "notes height: twenty lines are taller", "\(tall)")
+    notes.setText(String(repeating: "word ", count: 200))
+    expect(notes.height(forWidth: 150) > notes.height(forWidth: 400), "notes height: a narrower area wraps taller")
+
+    var changes: [String] = []
+    notes.onChange = { changes.append($0) }
+    notes.setText("set by the model")
+    expect(changes.isEmpty, "notes height: setText is not an edit")
+    notes.textView.insertText("!", replacementRange: NSRange(location: notes.text.utf16.count, length: 0))
+    expect(changes.last == "set by the model!", "notes height: typing is an edit", "\(changes)")
+    expect(!notes.textView.isAutomaticQuoteSubstitutionEnabled && !notes.textView.isRichText,
+           "notes height: plain text, typed quotes kept")
+
+    // While the user types in the notes, the model does not reset them; an
+    // import (force) does, or the next keystroke would write the old text back.
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+    window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+    window.contentView!.addSubview(notes)
+    window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+    window.orderFrontRegardless()
+    // Ordering the window front can already focus the text view, so the
+    // reset is forced.
+    notes.setText("", force: true)
+    expect(window.makeFirstResponder(notes.textView), "notes focus: the text view takes the keyboard")
+    notes.setText("from the model")
+    expect(notes.text.isEmpty, "notes focus: a focused view keeps what the user has")
+    notes.setText("imported", force: true)
+    expect(notes.text == "imported", "notes focus: an import replaces it anyway")
+    window.orderOut(nil)
+}
+
+private func mouse(_ type: NSEvent.EventType, at p: NSPoint, in view: NSView, clicks: Int = 1) -> NSEvent {
+    NSEvent.mouseEvent(with: type, location: view.convert(p, to: nil), modifierFlags: [], timestamp: 0,
+                       windowNumber: view.window!.windowNumber, context: nil, eventNumber: 0,
+                       clickCount: clicks, pressure: 1)!
+}
+
+private func testNotesDivider() {
+    // The width rule with a dragged fraction.
+    expect(CardNotesView.width(forBody: 1000, fraction: 0.5) == 500, "divider: half")
+    expect(CardNotesView.width(forBody: 1000, fraction: 0.05) == 180, "divider: never narrower than 180")
+    expect(CardNotesView.width(forBody: 1000, fraction: 0.95) == 760, "divider: the SQL keeps 240")
+    expect(CardView.split(contentWidth: 1000, showsNotes: true, fraction: 0.6) == (400, 600), "divider: split follows the fraction")
+
+    let f = Fixture()
+    let card = f.card
+    card.frame = NSRect(x: 10, y: 10, width: 700, height: 200)
+    let notes = CardNotesView()
+    card.setNotesView(notes)
+    f.layout()
+    expect(card.notesDivider.isHidden, "divider: hidden while the notes are")
+    card.showsNotes = true
+    f.layout()
+    let line = notes.frame.minX
+    expect(!card.notesDivider.isHidden && abs(card.notesDivider.frame.midX - line) < 0.5,
+           "divider: centred on the line", "\(card.notesDivider.frame) line \(line)")
+    expect(card.notesDivider.frame.height == notes.frame.height, "divider: the notes' full height")
+    for dx: CGFloat in [-3, 0, 3] {
+        let p = window(f).contentView!.convert(NSPoint(x: line + dx, y: notes.frame.midY), from: card)
+        expect(window(f).contentView!.hitTest(p) === card.notesDivider, "divider: a click \(dx) pt from the line reaches it")
+    }
+    expect(card.notesDivider.accessibilityRole() == .splitter, "divider: VoiceOver reads a splitter")
+
+    // The fraction for a divider position, clamped.
+    let content = CardView.contentWidth(cardWidth: 700)
+    let half = card.notesFraction(forDividerAt: CardView.stripeWidth + content / 2)
+    expect(abs(half - 0.5) < 0.01, "divider: the middle is half", "\(half)")
+    expect(card.notesFraction(forDividerAt: card.bounds.width) * content == 180, "divider: dragged to the edge stops at 180")
+    expect(card.notesFraction(forDividerAt: 0) * content == content - 240, "divider: dragged left stops at the SQL's 240")
+
+    // A drag: the tracking loop reports each position and the end.
+    var xs: [CGFloat] = []
+    var ended = 0
+    card.notesDivider.onDrag = { xs.append($0) }
+    card.notesDivider.onDragEnd = { ended += 1 }
+    let d = card.notesDivider
+    NSApp.postEvent(mouse(.leftMouseUp, at: NSPoint(x: 4, y: 20), in: d), atStart: false)
+    NSApp.postEvent(mouse(.leftMouseDragged, at: NSPoint(x: -96, y: 20), in: d), atStart: true)
+    d.mouseDown(with: mouse(.leftMouseDown, at: NSPoint(x: 4, y: 20), in: d))
+    expect(ended == 1 && xs.count == 2, "divider: a drag reports its moves and its end", "\(xs) ended \(ended)")
+    expect(xs.first.map { abs($0 - (d.frame.minX - 96)) < 0.5 } == true, "divider: positions are in the card's coordinates",
+           "\(xs) divider \(d.frame)")
+    card.notesFraction = card.notesFraction(forDividerAt: xs[0])
+    f.layout()
+    expect(abs(notes.frame.minX - xs[0]) < 1, "divider: the notes follow the drag", "\(notes.frame.minX) vs \(xs[0])")
+
+    var resets = 0
+    d.onReset = { resets += 1 }
+    d.mouseDown(with: mouse(.leftMouseDown, at: NSPoint(x: 4, y: 20), in: d, clicks: 2))
+    expect(resets == 1, "divider: a double-click resets")
+    while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
+}
+
+private func window(_ f: Fixture) -> NSWindow { f.window }
+
 func runTests() {
     testNameRowStates()
     testClicksReachTheButtons()
@@ -406,5 +601,9 @@ func runTests() {
     testNameRowAtZeroWidth()
     testPreview()
     testVersionGroup()
+    testNotesButton()
+    testNotesLayout()
+    testNotesHeight()
+    testNotesDivider()
     if failures == 0 { print("\nAll card view tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -39,6 +39,8 @@ extension PharosCore {
         var executionTimeMs: Int = 0
         /// The query card that ran, when it came from one.
         var cardId: String? = nil
+        /// That card's notes, for history search.
+        var cardNotes: String? = nil
     }
 
     /// Record a query that FAILED, and return the new entry's id.

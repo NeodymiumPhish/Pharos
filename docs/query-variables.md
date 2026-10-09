@@ -79,4 +79,4 @@ Use the **Literal** type for anything that isn't a quoted value — table names,
 
 ## Persistence
 
-The variable list is stored in Pharos's local database and restored, in order, at the next launch. Saving a Session (**Cmd+S**) keeps the placeholders intact and stores no values with it: a [saved Session](saved-queries.md) is rendered against whatever the app-wide list holds when you copy, share, export or run it.
+The variable list is stored in Pharos's local database and restored, in order, at the next launch. Saving a Session (**Cmd+S**) keeps the placeholders intact and stores no values with it: a [saved Session](saved-queries.md) is rendered against whatever the app-wide list holds when you copy, share, export or run it. Tokens in a card's [notes](query-editor.md#notes) are never rendered: notes describe the query and are not part of what runs.

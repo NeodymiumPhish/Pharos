@@ -672,10 +672,9 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         .unwrap_or(0);
 
     if fts_count == 0 && history_count > 0 {
-        conn.execute_batch(
-            "INSERT INTO query_history_fts(rowid, sql, connection_name)
-             SELECT rowid, sql, connection_name FROM query_history;"
-        )?;
+        // `rebuild` reads every indexed column from the content table, so it
+        // is right for the index before and after card notes joined it.
+        conn.execute_batch("INSERT INTO query_history_fts(query_history_fts) VALUES('rebuild');")?;
     }
 
     // Migration: Add variables column to saved_queries if it doesn't exist
@@ -842,9 +841,11 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         ("saved_queries", "cards_json", "TEXT"),
         ("query_history", "card_id", "TEXT"),
         ("query_history", "card_version", "INTEGER"),
+        ("query_history", "card_notes", "TEXT"),
     ] {
         add_column_if_missing(conn, table, column, decl)?;
     }
+    migrate_history_search_to_card_notes(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
     )?;
@@ -864,6 +865,52 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     super::saved_query_results::create_schema(conn)?;
 
     Ok(())
+}
+
+/// Migration: Results History search also finds a card's notes. FTS5 has no
+/// ADD COLUMN, so the index is made again with a `card_notes` column and
+/// rebuilt from `query_history`. Notes change after a run, so an update
+/// trigger joins the insert and delete triggers. Runs once: the next launch
+/// finds the column.
+fn migrate_history_search_to_card_notes(conn: &Connection) -> SqliteResult<()> {
+    let has_notes: bool = conn
+        .prepare("SELECT COUNT(*) FROM pragma_table_info('query_history_fts') WHERE name = 'card_notes'")?
+        .query_row([], |row| row.get::<_, i64>(0))
+        .map(|count| count > 0)
+        .unwrap_or(false);
+    if has_notes {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "SAVEPOINT history_search_card_notes;
+         DROP TRIGGER IF EXISTS query_history_ai;
+         DROP TRIGGER IF EXISTS query_history_ad;
+         DROP TRIGGER IF EXISTS query_history_au;
+         DROP TABLE IF EXISTS query_history_fts;
+         CREATE VIRTUAL TABLE query_history_fts USING fts5(
+             sql,
+             connection_name,
+             card_notes,
+             content='query_history',
+             content_rowid='rowid'
+         );
+         CREATE TRIGGER query_history_ai AFTER INSERT ON query_history BEGIN
+             INSERT INTO query_history_fts(rowid, sql, connection_name, card_notes)
+             VALUES (new.rowid, new.sql, new.connection_name, new.card_notes);
+         END;
+         CREATE TRIGGER query_history_ad AFTER DELETE ON query_history BEGIN
+             INSERT INTO query_history_fts(query_history_fts, rowid, sql, connection_name, card_notes)
+             VALUES ('delete', old.rowid, old.sql, old.connection_name, old.card_notes);
+         END;
+         CREATE TRIGGER query_history_au AFTER UPDATE OF sql, connection_name, card_notes ON query_history BEGIN
+             INSERT INTO query_history_fts(query_history_fts, rowid, sql, connection_name, card_notes)
+             VALUES ('delete', old.rowid, old.sql, old.connection_name, old.card_notes);
+             INSERT INTO query_history_fts(rowid, sql, connection_name, card_notes)
+             VALUES (new.rowid, new.sql, new.connection_name, new.card_notes);
+         END;
+         INSERT INTO query_history_fts(query_history_fts) VALUES('rebuild');
+         RELEASE history_search_card_notes;",
+    )
 }
 
 /// `ALTER TABLE … ADD COLUMN` unless the column is there already.
@@ -2420,12 +2467,15 @@ pub fn associate_result_to_workspace(
                 line_end     = COALESCE(?6, line_end),
                 custom_label = COALESCE(?7, custom_label),
                 card_id      = COALESCE(?9, card_id),
-                card_version = COALESCE(?10, card_version)
+                card_version = COALESCE(?10, card_version),
+                card_notes   = CASE WHEN ?11 IS NULL THEN card_notes
+                                    WHEN ?11 = ''    THEN NULL
+                                    ELSE ?11 END
           WHERE id = ?8",
         (
             &a.workspace_id, a.result_order, a.color_index, a.raw_sql.as_deref(),
             a.line_start, a.line_end, a.custom_label.as_deref(), &a.history_id,
-            a.card_id.as_deref(), a.card_version,
+            a.card_id.as_deref(), a.card_version, a.card_notes.as_deref(),
         ),
     )?;
     enforce_workspace_budget(conn, &a.workspace_id)?;
@@ -2457,9 +2507,10 @@ pub fn enforce_workspace_budget(conn: &Connection, workspace_id: &str) -> Sqlite
 
 /// Attach the IDs of each summary's queries whose SQL matched the filter.
 ///
-/// `scoped_match` must already be column-filtered to `sql`. `query_history_fts`
-/// also indexes `connection_name`, and an unscoped match on a connection name
-/// would mark every query in the workspace, which tells the user nothing.
+/// `scoped_match` must already be column-filtered to `sql` and `card_notes`.
+/// `query_history_fts` also indexes `connection_name`, and an unscoped match on
+/// a connection name would mark every query in the workspace, which tells the
+/// user nothing.
 ///
 /// The query is restricted to the workspaces in `summaries`, so rows for
 /// workspaces outside the current page are never read.
@@ -2589,7 +2640,7 @@ pub fn load_workspaces(
     // and showing every workspace. A lost highlight is the smaller failure, so
     // the filtered list below is returned as-is with the highlights missing.
     if let Some(q) = search {
-        if let Some(scoped) = escape_fts5_query_scoped(q, "sql") {
+        if let Some(scoped) = escape_fts5_query_scoped(q, "sql card_notes") {
             if let Err(e) = attach_matching_result_ids(conn, &scoped, &mut summaries) {
                 log::warn!("Match-highlight IDs unavailable, list still filtered: {}", e);
             }
@@ -2707,28 +2758,33 @@ pub fn delete_workspace_result(conn: &Connection, result_id: &str) -> SqliteResu
     Ok(n > 0)
 }
 
-/// Update a child result's display metadata (custom label and/or color index).
+/// Update a child result's display metadata (custom label, color index, card
+/// notes).
 ///
 /// `None` means "leave this field alone", so a caller changing only the colour
 /// need not know the name. That leaves no way to express "clear the name", which
 /// a result-tab rename needs — an emptied field restores the name derived from
 /// the query — so the EMPTY STRING is that instruction: `Some("")` sets
 /// `custom_label` back to NULL. An empty name is not a name, so nothing is lost
-/// by spending the value this way.
+/// by spending the value this way. `card_notes` follows the same rule.
 pub fn update_result_meta(
     conn: &Connection,
     result_id: &str,
     custom_label: Option<&str>,
     color_index: Option<i64>,
+    card_notes: Option<&str>,
 ) -> SqliteResult<bool> {
     let n = conn.execute(
         "UPDATE query_history
          SET custom_label = CASE WHEN ?2 IS NULL THEN custom_label
                                  WHEN ?2 = ''    THEN NULL
                                  ELSE ?2 END,
-             color_index  = COALESCE(?3, color_index)
+             color_index  = COALESCE(?3, color_index),
+             card_notes   = CASE WHEN ?4 IS NULL THEN card_notes
+                                 WHEN ?4 = ''    THEN NULL
+                                 ELSE ?4 END
          WHERE id = ?1",
-        (result_id, custom_label, color_index),
+        (result_id, custom_label, color_index, card_notes),
     )?;
     Ok(n > 0)
 }
@@ -2773,7 +2829,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 result_columns, result_rows, schema, column_count, table_names,
                 result_order, color_index, custom_label, chart_view_state_json, raw_sql,
                 line_start, line_end, status, error_message,
-                card_id, card_version, result_row_identity, source
+                card_id, card_version, result_row_identity, source, card_notes
          FROM query_history WHERE workspace_id = ?1 ORDER BY result_order ASC, executed_at ASC",
     )?;
     let rows: Vec<_> = stmt
@@ -2790,6 +2846,7 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                 r.get::<_, Option<String>>(20)?, r.get::<_, Option<i64>>(21)?,
                 // Copied as whatever SQLite holds (text, or a compressed blob).
                 r.get::<_, rusqlite::types::Value>(22)?, r.get::<_, Option<String>>(23)?,
+                r.get::<_, Option<String>>(24)?,
             ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
@@ -2801,14 +2858,14 @@ pub fn duplicate_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<S
                  result_columns, result_rows, schema, column_count, table_names,
                  workspace_id, result_order, color_index, custom_label, chart_view_state_json, raw_sql,
                  line_start, line_end, status, error_message,
-                 card_id, card_version, result_row_identity, source)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26)",
+                 card_id, card_version, result_row_identity, source, card_notes)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
             rusqlite::params![
                 child_id, row.0, row.1, row.2, row.3, row.4, row.5,
                 row.6, row.7, row.8, row.9, row.10,
                 new_id, row.11, row.12, row.13, row.14, row.15,
                 row.16, row.17, row.18, row.19,
-                row.20, row.21, row.22, row.23,
+                row.20, row.21, row.22, row.23, row.24,
             ],
         )?;
     }
@@ -3051,7 +3108,7 @@ mod workspace_roundtrip_tests {
         history_id: &str, workspace_id: &str, result_order: i64, color_index: i64,
         raw_sql: Option<&str>,
     ) -> ResultAssociation {
-        ResultAssociation { card_id: Default::default(), card_version: Default::default(),
+        ResultAssociation { card_id: Default::default(), card_version: Default::default(), card_notes: Default::default(),
             history_id: history_id.to_string(),
             workspace_id: workspace_id.to_string(),
             result_order,
@@ -3739,7 +3796,7 @@ mod workspace_roundtrip_tests {
 
         // A rename must not be erased by a later association that says nothing
         // about the name — the COALESCE in associate_result_to_workspace.
-        assert!(update_result_meta(&conn, "h1", Some("Revenue"), None).expect("rename h1"));
+        assert!(update_result_meta(&conn, "h1", Some("Revenue"), None, None).expect("rename h1"));
         associate_result_to_workspace(&conn, &assoc("h1", "ws1", 0, 0, None))
             .expect("re-associate h1");
         let detail2 = load_workspace(&conn, "ws1").expect("load again").expect("ws1 exists");
@@ -3940,6 +3997,113 @@ mod workspace_roundtrip_tests {
         let summaries = load_workspaces(&conn, Some("quarterly"), 50, 0).expect("load_workspaces");
         assert_eq!(summaries.len(), 1);
         assert!(summaries[0].matching_result_ids.is_empty());
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The ids `load_query_history` finds for `q`.
+    fn history_ids(conn: &Connection, q: &str) -> Vec<String> {
+        let mut ids: Vec<String> = load_query_history(conn, None, Some(q), 50, 0, false, crate::models::HistoryStatusScope::All)
+            .expect("load_query_history")
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn matched(conn: &Connection, q: &str) -> Vec<String> {
+        load_workspaces(conn, Some(q), 50, 0)
+            .expect("load_workspaces")
+            .into_iter()
+            .flat_map(|s| s.matching_result_ids)
+            .collect()
+    }
+
+    #[test]
+    fn card_notes_are_searched_and_marked() {
+        let (conn, dir) = workspace_with_two_queries("ws_match_notes");
+        associate_result_to_workspace(&conn, &ResultAssociation {
+            card_notes: Some("quarterly churn review".to_string()),
+            ..assoc("h2", "ws1", 1, 1, None)
+        }).expect("associate h2 with notes");
+
+        assert_eq!(history_ids(&conn, "churn"), vec!["h2".to_string()], "history search finds the notes");
+        assert_eq!(matched(&conn, "churn"), vec!["h2".to_string()], "the notes mark their query");
+
+        // An association that says nothing about notes keeps them.
+        associate_result_to_workspace(&conn, &assoc("h2", "ws1", 1, 1, None)).expect("re-associate");
+        assert_eq!(history_ids(&conn, "churn"), vec!["h2".to_string()]);
+
+        // Editing the notes keeps the index in step (the update trigger).
+        assert!(update_result_meta(&conn, "h2", None, None, Some("renewals")).unwrap());
+        assert!(history_ids(&conn, "churn").is_empty(), "old notes are gone from the index");
+        assert_eq!(history_ids(&conn, "renewals"), vec!["h2".to_string()]);
+        // The SQL is still found after the notes changed.
+        assert_eq!(history_ids(&conn, "customers"), vec!["h2".to_string()]);
+
+        // The empty string clears them.
+        assert!(update_result_meta(&conn, "h2", None, None, Some("")).unwrap());
+        assert!(history_ids(&conn, "renewals").is_empty());
+        let notes: Option<String> = conn
+            .query_row("SELECT card_notes FROM query_history WHERE id = 'h2'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(notes, None);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_workspace_copies_card_notes() {
+        let (conn, dir) = workspace_with_two_queries("ws_dup_notes");
+        update_result_meta(&conn, "h1", None, None, Some("why h1")).unwrap();
+        let new_id = duplicate_workspace(&conn, "ws1").expect("duplicate").expect("new id");
+        let notes: Vec<Option<String>> = conn
+            .prepare("SELECT card_notes FROM query_history WHERE workspace_id = ?1 ORDER BY result_order")
+            .unwrap()
+            .query_map([&new_id], |r| r.get(0))
+            .unwrap()
+            .collect::<SqliteResult<_>>()
+            .unwrap();
+        assert_eq!(notes, vec![Some("why h1".to_string()), None]);
+        // The copies are indexed too.
+        assert_eq!(history_ids(&conn, "why").len(), 2);
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_notes_search_migration_rebuilds_an_old_index() {
+        let (conn, dir) = workspace_with_two_queries("ws_notes_migration");
+        // Put the index back the way it was before card notes, and give a row
+        // notes the old index never saw.
+        conn.execute_batch(
+            "DROP TRIGGER query_history_ai; DROP TRIGGER query_history_ad; DROP TRIGGER query_history_au;
+             DROP TABLE query_history_fts;
+             CREATE VIRTUAL TABLE query_history_fts USING fts5(sql, connection_name, content='query_history', content_rowid='rowid');
+             CREATE TRIGGER query_history_ai AFTER INSERT ON query_history BEGIN
+                 INSERT INTO query_history_fts(rowid, sql, connection_name) VALUES (new.rowid, new.sql, new.connection_name);
+             END;
+             CREATE TRIGGER query_history_ad AFTER DELETE ON query_history BEGIN
+                 INSERT INTO query_history_fts(query_history_fts, rowid, sql, connection_name) VALUES ('delete', old.rowid, old.sql, old.connection_name);
+             END;
+             INSERT INTO query_history_fts(query_history_fts) VALUES('rebuild');
+             UPDATE query_history SET card_notes = 'legacy annotation' WHERE id = 'h1';",
+        ).expect("old index");
+        assert!(history_ids(&conn, "orders").contains(&"h1".to_string()));
+
+        create_schema(&conn).expect("migrate");
+        assert_eq!(history_ids(&conn, "annotation"), vec!["h1".to_string()], "old rows' notes are indexed");
+        assert_eq!(history_ids(&conn, "orders"), vec!["h1".to_string()], "old rows' SQL is still indexed");
+        create_schema(&conn).expect("migrate again");
+        assert_eq!(history_ids(&conn, "annotation"), vec!["h1".to_string()], "a second run changes nothing");
+
+        // Deleting a row takes it out of the index.
+        conn.execute("DELETE FROM query_history WHERE id = 'h1'", []).unwrap();
+        assert!(history_ids(&conn, "annotation").is_empty());
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
@@ -4658,7 +4822,7 @@ mod result_meta_tests {
     fn a_name_is_stored() {
         let conn = db();
         seed(&conn, "h1");
-        assert!(update_result_meta(&conn, "h1", Some("Revenue by month"), None).unwrap());
+        assert!(update_result_meta(&conn, "h1", Some("Revenue by month"), None, None).unwrap());
         assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue by month"));
     }
 
@@ -4668,8 +4832,8 @@ mod result_meta_tests {
         // re-send, the name the user chose.
         let conn = db();
         seed(&conn, "h1");
-        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
-        update_result_meta(&conn, "h1", None, Some(2)).unwrap();
+        update_result_meta(&conn, "h1", Some("Revenue"), None, None).unwrap();
+        update_result_meta(&conn, "h1", None, Some(2), None).unwrap();
         assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue"));
         assert_eq!(color(&conn, "h1"), Some(2));
     }
@@ -4681,8 +4845,8 @@ mod result_meta_tests {
         // would show a blank result tab.
         let conn = db();
         seed(&conn, "h1");
-        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
-        assert!(update_result_meta(&conn, "h1", Some(""), None).unwrap());
+        update_result_meta(&conn, "h1", Some("Revenue"), None, None).unwrap();
+        assert!(update_result_meta(&conn, "h1", Some(""), None, None).unwrap());
         assert_eq!(label(&conn, "h1"), None, "an emptied name is NULL, not \"\"");
     }
 
@@ -4690,7 +4854,7 @@ mod result_meta_tests {
     fn clearing_a_name_that_was_never_set_is_harmless() {
         let conn = db();
         seed(&conn, "h1");
-        assert!(update_result_meta(&conn, "h1", Some(""), None).unwrap());
+        assert!(update_result_meta(&conn, "h1", Some(""), None, None).unwrap());
         assert_eq!(label(&conn, "h1"), None);
     }
 
@@ -4700,9 +4864,9 @@ mod result_meta_tests {
         // it would recolour the tab and its gutter stripe.
         let conn = db();
         seed(&conn, "h1");
-        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
+        update_result_meta(&conn, "h1", Some("Revenue"), None, None).unwrap();
         assert_eq!(color(&conn, "h1"), Some(4), "the seeded colour survives a rename");
-        update_result_meta(&conn, "h1", Some(""), None).unwrap();
+        update_result_meta(&conn, "h1", Some(""), None, None).unwrap();
         assert_eq!(color(&conn, "h1"), Some(4), "and survives a cleared name too");
     }
 
@@ -4712,7 +4876,7 @@ mod result_meta_tests {
         // would hide a rename that went nowhere.
         let conn = db();
         seed(&conn, "h1");
-        assert!(!update_result_meta(&conn, "nope", Some("Revenue"), None).unwrap());
+        assert!(!update_result_meta(&conn, "nope", Some("Revenue"), None, None).unwrap());
     }
 
     #[test]
@@ -4720,7 +4884,7 @@ mod result_meta_tests {
         let conn = db();
         seed(&conn, "h1");
         seed(&conn, "h2");
-        update_result_meta(&conn, "h1", Some("Revenue"), None).unwrap();
+        update_result_meta(&conn, "h1", Some("Revenue"), None, None).unwrap();
         assert_eq!(label(&conn, "h1").as_deref(), Some("Revenue"));
         assert_eq!(label(&conn, "h2"), None);
     }
