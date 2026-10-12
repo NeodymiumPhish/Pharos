@@ -289,7 +289,9 @@ final class CardStackVC: NSViewController {
         }
     }
 
-    private func relayout(anchor: CardStackItem?) {
+    /// `settling` is the second pass after the first one showed or hid a
+    /// legacy scroll bar; it does not try again, so it cannot loop.
+    private func relayout(anchor: CardStackItem?, settling: Bool = false) {
         guard isViewLoaded else { return }
         let width = max(200, scrollView.contentSize.width)
         let bodyWidth = width - Self.inset * 2 - CardView.stripeWidth - 1
@@ -348,6 +350,14 @@ final class CardStackVC: NSViewController {
             }
         }
         updateEditorPool()
+        // The width above can be stale. When the editor area gets shorter,
+        // the old, taller document shows a legacy scroll bar until the frame
+        // above shrinks it, and that hides the bar again. Lay out once more
+        // at the width the clip has now, or the cards stay a scroll bar
+        // narrower (and jump back on the next pass).
+        if !settling, abs(max(200, scrollView.contentSize.width) - width) > 0.5 {
+            relayout(anchor: anchor, settling: true)
+        }
     }
 
     /// The body height of a card at `width`: its live editor's, or its preview's.
