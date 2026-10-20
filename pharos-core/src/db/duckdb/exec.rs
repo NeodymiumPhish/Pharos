@@ -401,10 +401,30 @@ impl RunStop {
         match self {
             RunStop::Cancelled => crate::commands::query::QUERY_CANCELLED.to_string(),
             RunStop::TimedOut(secs) => format!("Query timed out after {} s (Settings ▸ Query ▸ Timeout).", secs),
-            RunStop::Failed(m) => m,
+            RunStop::Failed(m) => tag_read_only(m),
         }
     }
 }
+
+/// DuckDB's refusal of a write on a read-only database, tagged with the
+/// marker the PostgreSQL path uses for SQLSTATE 25006, so the app shows the
+/// same "This connection is read-only." for both engines.
+pub fn tag_read_only(message: String) -> String {
+    if message.contains("read-only mode") && !message.contains(crate::commands::query::READ_ONLY_MARKER) {
+        format!("{} {}", crate::commands::query::READ_ONLY_MARKER, message)
+    } else if message.contains("different Team IDs") {
+        format!("{}\n\n{}", EXTENSION_BLOCKED_SENTENCE, message)
+    } else {
+        message
+    }
+}
+
+/// What a DuckDB extension refused by macOS means, said before DuckDB's own
+/// `dlopen` text. Measured 2026-10-20: the ad-hoc signed, hardened-runtime
+/// app cannot load a downloaded `.duckdb_extension` ("mapping process and
+/// mapped file (non-platform) have different Team IDs").
+pub const EXTENSION_BLOCKED_SENTENCE: &str = "macOS did not let Pharos load this DuckDB extension: the app's code signature \
+     only allows libraries it shipped with. A query that needs this extension cannot run in this build of Pharos.";
 
 /// Run blocking DuckDB `work` off the runtime, and stop it with `interrupt`
 /// when `cancel` fires or `timeout_seconds` (0 = none) runs out.
@@ -606,6 +626,15 @@ mod tests {
         assert_eq!(root["Actual Rows"], 994.0);
         assert!(root.get("Actual Total Time").is_some());
         assert_eq!(pretty_operator("PERFECT_HASH_GROUP_BY"), "Perfect Hash Group By");
+    }
+
+    #[test]
+    fn a_blocked_extension_is_explained() {
+        let raw = "IO Error: Extension \"/x/icu.duckdb_extension\" could not be loaded: dlopen(...): tried: '...' (code signature ... not valid for use in process: mapping process and mapped file (non-platform) have different Team IDs)";
+        let shown = RunStop::Failed(raw.to_string()).message();
+        assert!(shown.starts_with(EXTENSION_BLOCKED_SENTENCE), "{shown}");
+        assert!(shown.ends_with(raw), "DuckDB's own text stays");
+        assert_eq!(RunStop::Failed("Parser Error: x".into()).message(), "Parser Error: x");
     }
 
     #[test]

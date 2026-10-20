@@ -64,6 +64,7 @@ final class PasswordPromptCoordinator {
 
     private func statusChanged(_ id: String) {
         let state = AppStateManager.shared
+        if state.status(for: id) == .connected { readOnlyTried.remove(id) }
         guard state.status(for: id) == .error,
               !prompting.contains(id),
               let config = state.connections.first(where: { $0.id == id })
@@ -154,27 +155,40 @@ final class PasswordPromptCoordinator {
 
     // MARK: - DuckDB lock
 
-    /// "sales.duckdb is open for writing in another app." DuckDB allows one
-    /// writing process per file, but any number of readers when ALL of them
-    /// open it read-only — so read-only is offered, never forced.
+    /// Records the user chose "Open Read-Only" for, until that connect ends.
+    private var readOnlyTried: Set<String> = []
+
+    /// A DuckDB file another process holds a lock on.
+    ///
+    /// DuckDB lets one process write a file, OR any number of processes read
+    /// it when every one of them opened it read-only. A writer's lock shuts
+    /// readers out too (measured with DuckDB 1.5.6). So read-only is OFFERED,
+    /// for the case where the other app is itself only reading; when it is
+    /// writing, the read-only try meets the same lock, and the user is told
+    /// to close the file there instead of being asked again.
     private func offerReadOnly(_ config: ConnectionConfig, failure: String) {
         guard !prompting.contains(config.id) else { return }
         prompting.insert(config.id)
         let id = config.id
         let file = DisplayEscape.escapedTrimmed((config.database as NSString).lastPathComponent)
+        let holder = DuckDBOpenError.holderPID(failure).map { String(localized: "Process \(String($0))") }
+            ?? String(localized: "Another app")
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "“\(file)” is open for writing in another app.")
-        if let pid = DuckDBOpenError.holderPID(failure) {
-            alert.informativeText = String(localized: "Process \(pid) holds the file. You can open it read-only while that app keeps it open.")
+        alert.messageText = String(localized: "“\(file)” is in use by another app.")
+        let tried = readOnlyTried.remove(id) != nil
+        if tried {
+            alert.informativeText = String(localized: "\(holder) has it open for writing, so it cannot be opened, even read-only. Close it in that app, then connect again.")
+            alert.addButton(withTitle: String(localized: "OK"))
         } else {
-            alert.informativeText = String(localized: "You can open it read-only while that app keeps it open.")
+            alert.informativeText = String(localized: "\(holder) holds a lock on it. If that app only reads the file, Pharos can open it read-only too. If it is writing, close the file there first.")
+            alert.addButton(withTitle: String(localized: "Open Read-Only"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
         }
-        alert.addButton(withTitle: String(localized: "Open Read-Only"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             self?.prompting.remove(id)
-            if response == .alertFirstButtonReturn {
+            if !tried, response == .alertFirstButtonReturn {
+                self?.readOnlyTried.insert(id)
                 AppStateManager.shared.connect(id: id, readOnly: true)
             }
         }

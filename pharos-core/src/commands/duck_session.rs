@@ -702,6 +702,28 @@ mod tests {
         assert_eq!(e.column, Some(3), "{:?}", e);
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_write_on_a_read_only_database_fails_and_returns() {
+        let path = std::env::temp_dir().join(format!("pharos_ro_{}.duckdb", uuid::Uuid::new_v4()));
+        let path = path.to_string_lossy().to_string();
+        {
+            let rw = DuckDbInstance::open(&path, false, &OpenOptions::default()).unwrap();
+            rw.connect().unwrap().execute_batch("CREATE TABLE t(a INT)").unwrap();
+        }
+        let state = state_with_duck("d1");
+        state.add_duck("d1".into(), Arc::new(DuckDbInstance::open(&path, true, &OpenOptions::default()).unwrap()));
+        let done = tokio::time::timeout(std::time::Duration::from_secs(10),
+                                        execute_statement(run("tab", "INSERT INTO t VALUES (1)"), &state)).await;
+        let result = done.expect("the call must return, not hang");
+        let err = result.unwrap_err();
+        assert!(err.to_lowercase().contains("read-only") || err.to_lowercase().contains("read only"), "{err}");
+        assert!(err.starts_with(crate::commands::query::READ_ONLY_MARKER), "tagged like PostgreSQL's 25006: {err}");
+        let again = tokio::time::timeout(std::time::Duration::from_secs(10),
+                                         execute_query(run("tab", "SELECT count(*) FROM t"), &state)).await;
+        assert!(again.expect("a second call must not hang").is_ok());
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn line_and_column_come_from_the_caret() {
         let msg = "Parser Error: syntax error at or near \"FORM\"\n\nLINE 1: SELECT 1 FORM t\n                 ^";

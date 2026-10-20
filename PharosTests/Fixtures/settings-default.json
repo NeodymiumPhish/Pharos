@@ -18,7 +18,7 @@
     "defaultPort": 5432,
     "defaultTimeZone": "",
     "duckdbAllowCommunityExtensions": false,
-    "duckdbAutoinstallExtensions": true,
+    "duckdbAutoinstallExtensions": false,
     "duckdbExtensionDirectory": "",
     "duckdbMemoryLimit": "",
     "duckdbThreads": 0,

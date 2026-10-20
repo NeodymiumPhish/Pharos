@@ -42,12 +42,17 @@ Set **Engine** to **DuckDB**. The form then shows a **Database File** section in
 
 - **File** — the database file. **Choose…** picks an existing file; **New…** picks where a new one goes.
 - **In-memory database** — no file at all.
-- **Read-only** (Session) — DuckDB refuses writes, and other apps can read the same file at the same time.
+- **Read-only** (Session) — DuckDB refuses writes, and other apps that also open the file read-only can read it at the same time.
 - **Test Connection** never creates or changes the file: it opens an existing file read-only, and passes a new file whose folder exists.
 
 ## A file another app has open
 
-DuckDB lets one app write a database file at a time. When another app (for example the `duckdb` command-line tool) has the file open for writing, Pharos asks whether to open it **read-only**. Read-only applies to that connect only.
+DuckDB lets one app write a database file at a time, or several apps read it when every one of them opened it read-only. When another app (for example the `duckdb` command-line tool) holds the file, Pharos says which process holds it and offers **Open Read-Only**:
+
+- If the other app only reads the file, the read-only open succeeds.
+- If the other app is writing, no other app can open the file, even read-only. Close the file in that app, then connect again.
+
+Read-only applies to that connect only.
 
 A file written by a newer DuckDB than the one in Pharos does not open; the message says so.
 
@@ -69,4 +74,9 @@ Cells show DuckDB's own text for every type, including lists (`[1, 2]`), structs
 
 ## Extensions
 
-DuckDB downloads a known extension (time zones, `httpfs`, `postgres`, Excel…) the first time a query needs it. **Settings > Connections > DuckDB** controls this, and also the worker threads, the memory limit and the extension folder. These settings apply the next time a database opens.
+DuckDB's core, its Parquet reader and writer, and its JSON functions are built into Pharos. Other DuckDB extensions (time zones through `icu`, `httpfs`, `postgres`, Excel…) are separate libraries that DuckDB downloads.
+
+{: .warning }
+This build of Pharos cannot load a downloaded extension. macOS lets the app load only the libraries it shipped with, so a query that needs an extension fails with a message that says so. For this reason **Settings > Connections > DuckDB > Download extensions** is off by default.
+
+**Settings > Connections > DuckDB** also sets the worker threads, the memory limit and the extension folder. These settings apply the next time a database opens.

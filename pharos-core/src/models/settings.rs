@@ -808,8 +808,10 @@ pub struct ConnectionSettings {
     #[serde(default)]
     pub duckdb_extension_directory: String,
     /// DuckDB: download a known extension (icu, httpfs, postgres…) the first
-    /// time a query needs it.
-    #[serde(default = "yes")]
+    /// time a query needs it. Off by default: the ad-hoc signed, hardened
+    /// app cannot load a downloaded extension (library validation), so a
+    /// download could never be used.
+    #[serde(default)]
     pub duckdb_autoinstall_extensions: bool,
     /// DuckDB: allow `INSTALL x FROM community`.
     #[serde(default)]
@@ -846,7 +848,7 @@ impl Default for ConnectionSettings {
             duckdb_threads: 0,
             duckdb_memory_limit: String::new(),
             duckdb_extension_directory: String::new(),
-            duckdb_autoinstall_extensions: true,
+            duckdb_autoinstall_extensions: false,
             duckdb_allow_community_extensions: false,
         }
     }
@@ -1431,7 +1433,7 @@ pub(crate) mod fixture {
                     duckdb_threads: 3,
                     duckdb_memory_limit: "2GB".to_string(),
                     duckdb_extension_directory: "/tmp/duck-ext".to_string(),
-                    duckdb_autoinstall_extensions: false,
+                    duckdb_autoinstall_extensions: true,
                     duckdb_allow_community_extensions: true,
                 },
                 data_export: DataExportSettings {

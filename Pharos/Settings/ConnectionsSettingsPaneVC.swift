@@ -193,7 +193,7 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     title: String(localized: "Download extensions when a query needs one"),
                     caption: String(localized: "DuckDB downloads a known extension (time zones, httpfs, PostgreSQL, Excel…) from extensions.duckdb.org the first time a query uses it."),
                     icon: "arrow.down.circle",
-                    help: String(localized: "Off, a query that needs an extension that is not installed fails instead."),
+                    help: String(localized: "This build of Pharos cannot load a downloaded extension: macOS allows only the libraries the app shipped with. A query that needs one fails, with or without this switch."),
                     kind: .toggle(.settings(\.connections.duckdbAutoinstallExtensions))),
                 SettingsItem(
                     id: "duckdbAllowCommunityExtensions",

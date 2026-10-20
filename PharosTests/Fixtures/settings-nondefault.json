@@ -13,7 +13,7 @@
     "defaultPort": 5433,
     "defaultTimeZone": "Asia/Tokyo",
     "duckdbAllowCommunityExtensions": true,
-    "duckdbAutoinstallExtensions": false,
+    "duckdbAutoinstallExtensions": true,
     "duckdbExtensionDirectory": "/tmp/duck-ext",
     "duckdbMemoryLimit": "2GB",
     "duckdbThreads": 3,

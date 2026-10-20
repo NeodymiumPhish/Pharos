@@ -1028,8 +1028,9 @@ struct ConnectionSettings: Codable, Equatable {
     var duckdbMemoryLimit: String = ""
     /// Where downloaded extensions go. Empty = `~/.duckdb/extensions`.
     var duckdbExtensionDirectory: String = ""
-    /// Download a known extension (icu, httpfs…) the first time a query needs it.
-    var duckdbAutoinstallExtensions: Bool = true
+    /// Download a known extension (icu, httpfs…) the first time a query needs
+    /// it. Off by default: this build cannot load a downloaded extension.
+    var duckdbAutoinstallExtensions: Bool = false
     /// Allow `INSTALL x FROM community`.
     var duckdbAllowCommunityExtensions: Bool = false
 }

@@ -70,7 +70,7 @@ enum ConnectionFormRules {
         case .postgres:
             return String(localized: "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens.")
         case .duckdb:
-            return String(localized: "Opens the file read-only, so DuckDB refuses writes. Other apps can then read the same file at the same time. It takes effect the next time this connection opens.")
+            return String(localized: "Opens the file read-only, so DuckDB refuses writes. Other apps that also open it read-only can read it at the same time. It takes effect the next time this connection opens.")
         }
     }
 }
