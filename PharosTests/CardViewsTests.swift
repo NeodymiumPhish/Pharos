@@ -76,26 +76,26 @@ private func testNameRowStates() {
     let f = Fixture()
     let h = f.card.header
 
-    h.apply(presentation(QueryCard(sql: "SELECT 1")), color: nil, isCollapsed: false, meta: "")
+    h.apply(presentation(QueryCard(sql: "SELECT 1")), isCollapsed: false, meta: "")
     f.layout()
     expect(!h.runButton.isHidden && h.resultsButton.isHidden && h.runReplaceButton.isHidden && h.cancelButton.isHidden,
            "draft: Run only")
     expect(h.nameLabel.stringValue == "Untitled query", "draft: placeholder name")
 
-    h.apply(presentation(ran("SELECT 1"), displayed: true), color: .systemBlue, isCollapsed: false, meta: "just now · 45 ms")
+    h.apply(presentation(ran("SELECT 1"), displayed: true), isCollapsed: false, meta: "just now · 45 ms")
     expect(!h.resultsButton.isHidden && h.resultsButton.attributedTitle.string == "Showing Results · 1,420 rows",
            "displayed: the filled button says Showing Results", "got \(h.resultsButton.attributedTitle.string)")
     expect(h.resultsButton.bezelColor != nil, "displayed: the button is the one prominent button")
     expect(h.metaLabel.stringValue == "just now · 45 ms" && !h.metaLabel.isHidden, "meta shown")
 
-    h.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ran("SELECT 1")), isCollapsed: false, meta: "")
     expect(h.resultsButton.attributedTitle.string == "View Results · 1,420 rows" && h.resultsButton.bezelColor == nil,
            "not displayed: View Results, not filled")
 
-    h.apply(presentation(ran("SELECT 1"), edited: true), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ran("SELECT 1"), edited: true), isCollapsed: false, meta: "")
     expect(!h.runReplaceButton.isHidden, "edited: Run and Replace appears next to Run")
 
-    h.apply(presentation(ran("SELECT 1"), activity: .running(startedAt: Date())), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ran("SELECT 1"), activity: .running(startedAt: Date())), isCollapsed: false, meta: "")
     expect(!h.cancelButton.isHidden && h.runButton.isHidden, "running: Cancel instead of Run")
 }
 
@@ -104,7 +104,7 @@ private func testDisclosure() {
     let h = f.card.header
     var toggled = 0
     h.onToggleCollapse = { toggled += 1 }
-    h.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ran("SELECT 1")), isCollapsed: false, meta: "")
     f.layout()
     expect(h.disclosure.isExpanded && h.disclosure.accessibilityLabel() == "Hide SQL", "disclosure: open card says Hide SQL")
     expect(h.disclosure.accessibilityValue() as? String == "expanded", "disclosure: VoiceOver hears expanded")
@@ -113,7 +113,7 @@ private func testDisclosure() {
            "disclosure: full-size button", "disclosure \(h.disclosure.frame.size), run \(h.runButton.frame.size)")
     expect(f.click(h.disclosure) && toggled == 1, "disclosure: a click reaches it through hit-testing")
     let openNameX = h.nameLabel.frame.minX
-    h.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: true, meta: "")
+    h.apply(presentation(ran("SELECT 1")), isCollapsed: true, meta: "")
     expect(!h.disclosure.isExpanded && h.disclosure.accessibilityLabel() == "Show SQL", "disclosure: folded card says Show SQL")
     f.layout()
     expect(abs(h.nameLabel.frame.minX - openNameX) < 0.5, "disclosure: the name does not move when the card folds",
@@ -131,11 +131,11 @@ private func testClicksReachTheButtons() {
     h.onViewResults = { viewed += 1 }
     h.onCancel = { cancelled += 1 }
 
-    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ranCard(), edited: true), isCollapsed: false, meta: "")
     expect(f.click(h.runButton) && ran == 1, "click: Run reaches its button through hit-testing")
     expect(f.click(h.runReplaceButton) && replaced == 1, "click: Run and Replace reaches its button")
     expect(f.click(h.resultsButton) && viewed == 1, "click: View Results reaches its button")
-    h.apply(presentation(ranCard(), activity: .waiting), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ranCard(), activity: .waiting), isCollapsed: false, meta: "")
     expect(f.click(h.cancelButton) && cancelled == 1, "click: Cancel on a waiting card reaches its button")
 }
 
@@ -151,11 +151,11 @@ private func testRunUnavailable() {
     h.onRunReplace = { ran += 1 }
     let reason = "Not connected to “Prod”."
 
-    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ranCard(), edited: true), isCollapsed: false, meta: "")
     f.layout()
     expect(h.runButton.isEnabled && h.runButton.toolTip == "Run (⌘↩)", "available: Run is enabled with its tooltip")
 
-    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "", runUnavailableReason: reason)
+    h.apply(presentation(ranCard(), edited: true), isCollapsed: false, meta: "", runUnavailableReason: reason)
     f.layout()
     expect(!h.runButton.isEnabled && !h.runReplaceButton.isEnabled, "unavailable: Run and Run and Replace are greyed out")
     expect(h.runButton.toolTip == nil, "unavailable: no tooltip over the popover", "got \(String(describing: h.runButton.toolTip))")
@@ -207,7 +207,7 @@ private func testRunUnavailable() {
 
     // Connected again: enabled, tooltip back, an open reason closes.
     h.runButton.showReason(byHover: false)
-    h.apply(presentation(ranCard(), edited: true), color: .systemBlue, isCollapsed: false, meta: "")
+    h.apply(presentation(ranCard(), edited: true), isCollapsed: false, meta: "")
     expect(h.runButton.isEnabled && h.runButton.toolTip == "Run (⌘↩)" && h.runButton.accessibilityHelp() == nil,
            "available again: enabled, tooltip back, no help")
     expect(!h.runButton.isShowingReason, "available again: the open reason closes")
@@ -329,8 +329,7 @@ private func testNameRowAtZeroWidth() {
     window.contentView = root
     let header = CardHeaderView(frame: .zero)
     root.addSubview(header)
-    header.apply(presentation(ran("SELECT 1"), edited: true, activity: .running(startedAt: Date()), versions: 2),
-                 color: .systemBlue, isCollapsed: false, meta: "just now · 3 ms")
+    header.apply(presentation(ran("SELECT 1"), edited: true, activity: .running(startedAt: Date()), versions: 2), isCollapsed: false, meta: "just now · 3 ms")
     root.layoutSubtreeIfNeeded()
     let atZero = brokenRequiredConstraints(in: header, root: root)
     expect(atZero.isEmpty, "zero width: no required constraint breaks in the name row", atZero.map(\.description).joined(separator: "\n  "))
@@ -442,7 +441,7 @@ private func testNotesButton() {
     window.contentView = root
     let header = CardHeaderView(frame: .zero)
     root.addSubview(header)
-    header.apply(presentation(ran("SELECT 1")), color: .systemBlue, isCollapsed: false, meta: "just now")
+    header.apply(presentation(ran("SELECT 1")), isCollapsed: false, meta: "just now")
     header.applyNotes(hasNotes: false, isOpen: false, offersImport: true)
     root.layoutSubtreeIfNeeded()
     let broken = brokenRequiredConstraints(in: header, root: root)

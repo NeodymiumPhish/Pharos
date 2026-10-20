@@ -2450,8 +2450,7 @@ class ContentViewController: NSViewController {
         cardResultsHeader.show(
             title: card.name ?? String(localized: "Untitled query"),
             versionChip: versions > 1 ? "v\(card.version)" : nil,
-            meta: resultsMeta(for: card, result: tab.id == lastActiveTabId ? displayedResult : nil),
-            color: CardPalette.color(card.colorIndex))
+            meta: resultsMeta(for: card, result: tab.id == lastActiveTabId ? displayedResult : nil))
         cardResultsHeader.isHidden = false
         cardResultsHeaderHeight.constant = CardResultsHeaderView.height
     }

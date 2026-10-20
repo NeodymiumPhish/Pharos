@@ -230,7 +230,7 @@ final class CardStackVC: NSViewController {
 
     // MARK: - Name rows
 
-    /// Refresh the cards' name rows, stripes and rings from the document and
+    /// Refresh the cards' name rows, outlines and rings from the document and
     /// the owner's status — every card, or only `only` (a keystroke refreshes
     /// the card being typed in, not the whole stack).
     func refreshStatus(only: Set<String>? = nil) {
@@ -251,7 +251,7 @@ final class CardStackVC: NSViewController {
                                           isEdited: st.isEdited, activity: st.activity,
                                           resultInMemory: st.resultInMemory, isDisplayed: st.isDisplayed)
             let meta = card.isCollapsed ? SQLSummary.oneLine(card.sql) : st.meta
-            view.header.apply(p, color: CardPalette.color(card.colorIndex), isCollapsed: card.isCollapsed, meta: meta,
+            view.header.apply(p, isCollapsed: card.isCollapsed, meta: meta,
                               runUnavailableReason: runReason)
             view.header.applyNotes(hasNotes: card.hasNotes, isOpen: card.showsNotes, offersImport: offersCommentImport(card))
             if card.showsNotes {
@@ -262,7 +262,6 @@ final class CardStackVC: NSViewController {
             }
             view.showsNotes = card.showsNotes
             if notesDividerDragCard != id { view.notesFraction = card.notesWidthFraction.map { CGFloat($0) } }
-            view.color = CardPalette.color(card.colorIndex)
             view.isFocused = doc.focusedCardId == id
             view.isDisplayed = st.isDisplayed
             view.isLocked = card.isLocked

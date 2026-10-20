@@ -1,6 +1,7 @@
 import AppKit
 
-/// The results area's header: whose results these are. A colour swatch, the
+/// The results area's header: whose results these are. An accent swatch (the
+/// colour of the outline on the card whose results are on screen), the
 /// card's name and version, what the run returned and when, and Go to Card.
 ///
 /// Colour is never the only signal (HIG, Accessibility): the name is always
@@ -62,10 +63,9 @@ final class CardResultsHeaderView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     /// Show the header for one card's results.
-    func show(title: String, versionChip: String?, meta: String, color: NSColor?) {
+    func show(title: String, versionChip: String?, meta: String) {
         titleLabel.stringValue = [title, versionChip].compactMap { $0 }.joined(separator: " ")
         metaLabel.stringValue = meta
-        swatch.color = color ?? .separatorColor
         setAccessibilityLabel(String(localized: "Results of \(titleLabel.stringValue)"))
     }
 
@@ -82,9 +82,9 @@ final class CardResultsHeaderView: NSView {
     }
 }
 
-/// The card's colour as a small rounded square.
+/// The results outline's colour as a small rounded square.
 private final class SwatchView: NSView {
-    var color: NSColor = .separatorColor { didSet { needsDisplay = true } }
+    var color: NSColor = .controlAccentColor { didSet { needsDisplay = true } }
 
     override func draw(_ dirtyRect: NSRect) {
         color.setFill()

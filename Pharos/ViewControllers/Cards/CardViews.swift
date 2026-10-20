@@ -1,10 +1,12 @@
 import AppKit
 
-// The parts of one query card on screen: the coloured card itself, its name
-// row, the read-only preview a card shows while it has no live editor, and
-// the folded row of a query's older versions.
+// The parts of one query card on screen: the card itself, its name row, the
+// read-only preview a card shows while it has no live editor, and the folded
+// row of a query's older versions.
 
-/// The card colours. Red, orange and green are left out: they mean error,
+/// The result colours, for the dots of a workspace's results. Cards are not
+/// coloured: only the card whose results are on screen gets an outline, in
+/// the accent colour. Red, orange and green are left out: they mean error,
 /// edited and success here (HIG, Color). Brown is left out for contrast.
 enum CardPalette {
     static let colors: [NSColor] = [.systemBlue, .systemPurple, .systemTeal, .systemIndigo, .systemMint, .systemCyan]
@@ -46,7 +48,6 @@ final class CardHeaderView: NSView {
     let cancelButton = NSButton()
     let notesButton = NSButton()
     let moreButton = NSButton()
-    private var cardColor: NSColor = .controlAccentColor
     var onToggleCollapse: (() -> Void)?
 
     override init(frame: NSRect) {
@@ -147,11 +148,10 @@ final class CardHeaderView: NSView {
         ])
     }
 
-    /// Show `p` for a card drawn in `color`. `runUnavailableReason` greys out
-    /// Run and Run and Replace and says why (`CardRunAvailability`).
-    func apply(_ p: CardPresentation, color: NSColor?, isCollapsed: Bool, meta: String,
+    /// Show `p`. `runUnavailableReason` greys out Run and Run and Replace and
+    /// says why (`CardRunAvailability`).
+    func apply(_ p: CardPresentation, isCollapsed: Bool, meta: String,
                runUnavailableReason: String? = nil) {
-        cardColor = color ?? .controlAccentColor
         nameLabel.stringValue = p.title
         nameLabel.textColor = p.titleIsPlaceholder ? .secondaryLabelColor : .labelColor
         nameLabel.font = p.titleIsPlaceholder
@@ -173,7 +173,7 @@ final class CardHeaderView: NSView {
         if let rb = p.resultsButton {
             resultsButton.isHidden = false
             let title = [rb.title, rb.detail].compactMap { $0 }.joined(separator: " · ")
-            let tint: NSColor = rb.isError ? .systemRed : cardColor
+            let tint: NSColor = rb.isError ? .systemRed : .controlAccentColor
             resultsButton.attributedTitle = NSAttributedString(string: title, attributes: [
                 .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
                 .foregroundColor: rb.isShowing ? NSColor.white : tint,
@@ -468,6 +468,8 @@ final class CardDisclosureButton: NSButton {
 /// (a live editor or a preview). Flipped, so the name row is at the top.
 final class CardView: NSView {
     static let cornerRadius: CGFloat = 9
+    /// Space left of the name row and the body. It held the card's colour
+    /// stripe; cards are no longer coloured, but the space stays as a margin.
     static let stripeWidth: CGFloat = 4
     /// Space kept clear between the body and the card's bottom and right
     /// edges, so the opaque body never paints over the border or the rounded
@@ -480,7 +482,6 @@ final class CardView: NSView {
     let header = CardHeaderView()
     /// The live editor or the preview, below the name row.
     private(set) var body: NSView?
-    var color: NSColor? { didSet { needsDisplay = true } }
     var isFocused = false { didSet { if oldValue != isFocused { needsDisplay = true } } }
     var isDisplayed = false { didSet { if oldValue != isDisplayed { needsDisplay = true } } }
     var isLocked = false { didSet { if oldValue != isLocked { needsDisplay = true } } }
@@ -588,22 +589,19 @@ final class CardView: NSView {
             NSColor.underPageBackgroundColor.setFill()
             NSRect(x: 0, y: 0, width: bounds.width, height: CardHeaderView.height).fill()
         }
-        // The stripe: the card's colour, or a neutral one for a card that has
-        // never succeeded.
-        (color ?? .separatorColor).setFill()
-        NSRect(x: 0, y: 0, width: Self.stripeWidth, height: bounds.height).fill()
         NSGraphicsContext.restoreGraphicsState()
 
         if !isCollapsed {
             NSColor.separatorColor.setFill()
-            NSRect(x: Self.stripeWidth, y: CardHeaderView.height, width: bounds.width - Self.stripeWidth, height: 1).fill()
+            NSRect(x: 0, y: CardHeaderView.height, width: bounds.width, height: 1).fill()
         }
 
-        // The focus ring (where you type) and the results outline (whose
-        // results are on screen) look different, so both can show at once
-        // (HIG, Focus and selection).
+        // The results outline (whose results are on screen) is the only
+        // colour on a card. The focus ring (where you type) is neutral, so
+        // the two look different and both can show at once (HIG, Focus and
+        // selection).
         if isDisplayed {
-            (color ?? .controlAccentColor).setStroke()
+            NSColor.controlAccentColor.setStroke()
             let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: Self.cornerRadius, yRadius: Self.cornerRadius)
             outline.lineWidth = 2
             outline.stroke()
@@ -613,10 +611,10 @@ final class CardView: NSView {
             path.stroke()
         }
         if isFocused {
-            NSColor.keyboardFocusIndicatorColor.setStroke()
-            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: isDisplayed ? 3 : 1.5, dy: isDisplayed ? 3 : 1.5),
+            NSColor.secondaryLabelColor.setStroke()
+            let ring = NSBezierPath(roundedRect: bounds.insetBy(dx: isDisplayed ? 3 : 1, dy: isDisplayed ? 3 : 1),
                                     xRadius: Self.cornerRadius - 1, yRadius: Self.cornerRadius - 1)
-            ring.lineWidth = isDisplayed ? 1.5 : 2.5
+            ring.lineWidth = isDisplayed ? 1.5 : 2
             ring.stroke()
         }
     }
