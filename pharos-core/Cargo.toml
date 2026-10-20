@@ -3,7 +3,6 @@ name = "pharos-core"
 version = "0.1.0"
 description = "Core backend library for the Pharos PostgreSQL client"
 edition = "2021"
-rust-version = "1.77.2"
 
 [lib]
 crate-type = ["staticlib"]
@@ -38,6 +37,15 @@ keyring = { version = "3", features = ["apple-native"] }
 urlencoding = "2"
 sqlformat = "0.3"
 flate2 = "1"
+duckdb = { version = "~1.10506.1", features = ["bundled", "json", "parquet"] }
 
 [build-dependencies]
 cbindgen = "0.27"
+
+# Build scripts and proc-macros (host tools, never shipped) are not stripped.
+# Xcode 27's `strip -S` writes a "mis-aligned LINKEDIT string pool" into a
+# proc-macro dylib built with MACOSX_DEPLOYMENT_TARGET=26.0 (which Xcode's
+# pre-build exports), and rustc then cannot load it: "can't find crate for
+# `zerocopy_derive`". The staticlib is not affected by this setting.
+[profile.release.build-override]
+strip = false

@@ -1834,6 +1834,7 @@
 					"-liconv",
 					"-lm",
 					"-lresolv",
+					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pharos.client;
 				PRODUCT_NAME = Pharos;
@@ -1997,6 +1998,7 @@
 					"-liconv",
 					"-lm",
 					"-lresolv",
+					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pharos.client;
 				PRODUCT_NAME = Pharos;

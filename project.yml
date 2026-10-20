@@ -51,6 +51,8 @@ targets:
           - "-liconv"
           - "-lm"
           - "-lresolv"
+          # DuckDB (pharos-core's `duckdb` crate, bundled) is C++.
+          - "-lc++"
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_ENTITLEMENTS: ""
         CODE_SIGN_IDENTITY: "-"

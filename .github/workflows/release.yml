@@ -39,6 +39,10 @@ jobs:
           sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pharos-core/Cargo.toml
 
       - name: Build Rust library (universal)
+        # DuckDB's bundled C++ (libduckdb-sys, `cc` crate) must target the
+        # app's own minimum macOS, as Xcode's pre-build does locally.
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "26.0"
         run: |
           cd pharos-core
           cargo build --release --target aarch64-apple-darwin
