@@ -18,9 +18,12 @@ struct ConnectionEntity: AppEntity {
     let name: String
     let host: String
     let database: String
+    /// What the subtitle says: `database — host` for a server, the file (or
+    /// "In-memory") and DuckDB for a DuckDB record.
+    let location: String
 
     var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(name)", subtitle: "\(database) — \(host)")
+        DisplayRepresentation(title: "\(name)", subtitle: "\(location)")
     }
 
     init(_ config: ConnectionConfig) {
@@ -28,6 +31,9 @@ struct ConnectionEntity: AppEntity {
         self.name = config.name
         self.host = config.host
         self.database = config.database
+        self.location = config.isDuckDB
+            ? "\(config.locationDescription) — DuckDB"
+            : "\(config.database) — \(config.host)"
     }
 
     /// Every saved connection. `AppStateManager` is the one list the rest of the

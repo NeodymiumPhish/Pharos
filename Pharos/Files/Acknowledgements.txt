@@ -1,0 +1,58 @@
+Pharos — Acknowledgements
+=========================
+
+DuckDB support
+--------------
+
+Pharos links DuckDB 1.5.6 through the duckdb-rs crates (duckdb and
+libduckdb-sys 1.10506.1), built from source with their "bundled" feature.
+
+DuckDB
+  Copyright 2018-2026 Stichting DuckDB Foundation
+  MIT License (text below)
+  https://github.com/duckdb/duckdb
+
+duckdb-rs (duckdb, libduckdb-sys)
+  Copyright 2021-2026 Stichting DuckDB Foundation
+  MIT License (text below)
+  https://github.com/duckdb/duckdb-rs
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Third-party code inside DuckDB
+------------------------------
+
+DuckDB's source tree vendors the components below, each under its own
+licence. Their notices are in DuckDB's repository, under third_party/ at
+tag v1.5.6: https://github.com/duckdb/duckdb/tree/v1.5.6/third_party
+
+  brotli (MIT), concurrentqueue (BSD-2-Clause / Boost), fast_float
+  (Apache-2.0 / MIT), fastpforlib (Apache-2.0), fmt (MIT), fsst (MIT),
+  httplib (MIT), hyperloglog (BSD-3-Clause), jaro_winkler (MIT),
+  libpg_query (BSD-3-Clause; PostgreSQL Licence for the parser), lz4
+  (BSD-2-Clause), mbedtls (Apache-2.0), miniz (MIT), parquet / thrift
+  (Apache-2.0), pcg (Apache-2.0 / MIT), pdqsort (zlib), re2 (BSD-3-Clause),
+  ska_sort (Boost), skiplist (MIT), snappy (BSD-3-Clause), tdigest
+  (MIT / Apache-2.0), utf8proc (MIT), vergesort (MIT), yyjson (MIT),
+  zstd (BSD-3-Clause).
+
+DuckDB extensions that DuckDB downloads at run time (Settings ▸ Connections
+▸ DuckDB) are not part of Pharos; each carries its own licence.

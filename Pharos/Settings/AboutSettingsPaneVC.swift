@@ -64,6 +64,20 @@ final class AboutSettingsPaneVC: SettingsFormPaneVC {
                             self?.open(AppInfo.releaseNotesURL)
                         }),
                 ]),
+            SettingsSection(
+                title: String(localized: "Acknowledgements"),
+                items: [
+                    SettingsItem(
+                        id: "duckdb",
+                        title: "DuckDB",
+                        caption: String(localized: "DuckDB \(PharosCore.duckDBVersion()) and duckdb-rs, MIT License, Stichting DuckDB Foundation."),
+                        icon: "doc.text",
+                        help: String(localized: "DuckDB includes third-party code under its own licences; the notices list them."),
+                        kind: .action(title: String(localized: "Show Notices"), destructive: false) { [weak self] in
+                            guard let url = Bundle.main.url(forResource: "Acknowledgements", withExtension: "txt") else { return }
+                            self?.open(url)
+                        }),
+                ]),
         ]
     }
 }

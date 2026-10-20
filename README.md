@@ -6,7 +6,7 @@
 
 <h1 align="center">Pharos</h1>
 
-<p align="center">A native macOS PostgreSQL client built with Swift and Rust.</p>
+<p align="center">A native macOS client for PostgreSQL and DuckDB, built with Swift and Rust.</p>
 
 ---
 
@@ -26,7 +26,7 @@ Download a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/relea
 xattr -c Pharos.app
 ```
 
-Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers.
+Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers and DuckDB database files (DuckDB 1.5.6 is built in).
 
 ## Features
 
@@ -41,12 +41,13 @@ Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers.
 - **Saved queries** -- Organize queries into folders with drag-and-drop.
 - **Query history** -- Search and browse past queries with date grouping.
 - **Connections** -- SSL support (disable/prefer/require), color-coded server icons, and Keychain password storage.
+- **DuckDB** -- Open or create a `.duckdb` file (File ▸ New/Open DuckDB Database…, Open Recent, or from Finder), or use an in-memory database. Query cards, history, Sessions, the schema browser, DDL, Explain, charts, export (including Parquet) and CSV import all work. A file another app holds for writing opens read-only on request.
 - **SSH tunnels** -- Reach a database behind a bastion. Runs the system `ssh`, so `~/.ssh/config` aliases, `ProxyJump` and a 1Password agent key all apply. Strict host keys by default.
 - **Settings** -- A sidebar of sixteen panes covering appearance, the editor, query behaviour, the results grid, the navigators, connections, privacy, notifications and more. Every control applies at once; there is no Save button.
 
 ## Build from Source
 
-Requires macOS 26+, Xcode 26+, and a [Rust toolchain](https://rustup.rs).
+Requires macOS 26+, Xcode 26+, and a [Rust toolchain](https://rustup.rs) (1.88 or later). The first Rust build compiles DuckDB's C++ sources and takes a few minutes; later builds reuse it.
 
 ```
 git clone https://github.com/NeodymiumPhish/Pharos.git
@@ -59,7 +60,7 @@ Build and run with **Cmd+R** in Xcode.
 
 ## Stack
 
-AppKit / Swift / Rust / sqlx / cbindgen / SQLite
+AppKit / Swift / Rust / sqlx / DuckDB (duckdb-rs) / cbindgen / SQLite
 
 ## Docs
 

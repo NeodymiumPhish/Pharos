@@ -1,5 +1,5 @@
 title: Pharos
-description: A native macOS PostgreSQL client
+description: A native macOS client for PostgreSQL and DuckDB
 baseurl: "/Pharos"
 url: "https://neodymiumphish.github.io"
 
