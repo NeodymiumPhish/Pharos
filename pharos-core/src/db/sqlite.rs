@@ -846,6 +846,11 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         add_column_if_missing(conn, table, column, decl)?;
     }
     migrate_history_search_to_card_notes(conn)?;
+
+    // Migration: DuckDB. A connection names its engine; a row from before
+    // the column existed is PostgreSQL. A DuckDB row keeps its file path in
+    // `database` and empty host and user, so no column is relaxed.
+    add_column_if_missing(conn, "connections", "engine", "TEXT NOT NULL DEFAULT 'postgres'")?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
     )?;
@@ -959,8 +964,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, engine, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -976,6 +981,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             connect_on_launch = excluded.connect_on_launch,
             session_time_zone = excluded.session_time_zone,
             ssl_root_cert_path = excluded.ssl_root_cert_path,
+            engine = excluded.engine,
             updated_at = CURRENT_TIMESTAMP
         "#,
         rusqlite::params![
@@ -997,6 +1003,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             // "" and absent read back the same way.
             config.session_time_zone.as_deref().filter(|s| !s.trim().is_empty()),
             config.ssl_root_cert_path.as_deref().filter(|s| !s.trim().is_empty()),
+            config.engine.as_str(),
         ],
     )?;
     Ok(())
@@ -1030,7 +1037,8 @@ fn parse_ssh_tunnel_column(raw: Option<String>, connection_id: &str) -> Option<S
 pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
-         COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path \
+         COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path, \
+         COALESCE(engine, 'postgres') \
          FROM connections ORDER BY sort_order, name",
     )?;
 
@@ -1055,6 +1063,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             connect_on_launch: row.get(12)?,
             session_time_zone: row.get(13)?,
             ssl_root_cert_path: row.get(14)?,
+            engine: crate::models::Engine::from_wire(&row.get::<_, String>(15)?),
         })
     })?;
 
@@ -1109,6 +1118,7 @@ mod connection_auth_flag_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -1256,6 +1266,7 @@ mod connection_ssh_tunnel_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -5457,6 +5468,7 @@ mod connection_slice_column_tests {
             connect_on_launch: true,
             session_time_zone: Some("Asia/Tokyo".to_string()),
             ssl_root_cert_path: Some("/etc/ssl/root.crt".to_string()),
+            engine: Default::default(),
         }
     }
 

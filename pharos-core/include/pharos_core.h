@@ -140,6 +140,36 @@ void pharos_connect_with_ssh_secret(const char *connection_id,
  void pharos_test_connection(const char *json, AsyncCallback callback, void *context);
 
 /**
+ * Connect a DuckDB record READ-ONLY, for this connect only: the "Open
+ * Read-Only" answer to a lock held by another process. Returns
+ * `ConnectionInfo` JSON via callback, as `pharos_connect` does.
+ */
+ void pharos_connect_read_only(const char *connection_id, AsyncCallback callback, void *context);
+
+/**
+ * The editor's DuckDB vocabulary for a connected record:
+ * `{"keywords": [...], "functions": [...]}` via callback.
+ */
+ void pharos_duckdb_vocabulary(const char *connection_id, AsyncCallback callback, void *context);
+
+/**
+ * Export a query to Parquet with DuckDB's own writer.
+ * `options_json`: `{"sql": "...", "schema": "main" | null, "filePath": "/abs/x.parquet"}`.
+ * Returns `ExportTableResult` JSON via callback.
+ */
+
+void pharos_export_parquet(const char *connection_id,
+                           const char *options_json,
+                           AsyncCallback callback,
+                           void *context);
+
+/**
+ * The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
+ * string. Free with `pharos_free_string`.
+ */
+ char *pharos_duckdb_version(void);
+
+/**
  * Initialize the Rust runtime, SQLite database, and credential cache.
  * `app_data_dir` must be a valid UTF-8 path to the application support directory.
  * Returns true on success.

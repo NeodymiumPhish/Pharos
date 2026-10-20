@@ -213,6 +213,9 @@ pub async fn delete_connection(
     connection_id: String,
     state: &AppState,
 ) -> Result<(), String> {
+    // A DuckDB record: close its database (the file itself is the user's
+    // and stays where it is).
+    super::duck::disconnect(&connection_id, state).await;
     // Disconnect if connected: the tabs' own connections first.
     super::tab_session::close_sessions_for_connection(state, &connection_id).await;
     state.forget_session_options(&connection_id);
@@ -319,6 +322,12 @@ pub async fn connect_postgres(
     connection_id: String,
     state: &AppState,
 ) -> Result<ConnectionInfo, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        let config = state
+            .get_config(&connection_id)
+            .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+        return super::duck::connect(config, state).await;
+    }
     // Get the connection config
     let mut config = state
         .get_config(&connection_id)
@@ -468,6 +477,10 @@ pub async fn disconnect_postgres(
     connection_id: String,
     state: &AppState,
 ) -> Result<(), String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        super::duck::disconnect(&connection_id, state).await;
+        return Ok(());
+    }
     // The tabs' own connections go first: each rolls back its open
     // transaction while the tunnel still carries it.
     super::tab_session::close_sessions_for_connection(state, &connection_id).await;
@@ -496,6 +509,9 @@ async fn close_tunnel(connection_id: &str, state: &AppState) {
 /// It takes the same path as Connect, tunnel and all, so the Test button can
 /// never pass a configuration that Connect would refuse.
 pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionResult, String> {
+    if config.engine == crate::models::Engine::Duckdb {
+        return super::duck::test(config, crate::ffi::APP_STATE.get()).await;
+    }
     let tunnel = match config.ssh_tunnel.as_ref() {
         None => None,
         Some(tunnel_config) => {
@@ -569,6 +585,7 @@ mod failed_connect_state_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         };
         let id = config.id.clone();
         state.set_config(config);
@@ -646,6 +663,7 @@ mod tunnel_connect_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -867,6 +885,7 @@ mod live_connect_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -1061,6 +1080,7 @@ mod remember_password_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -1186,6 +1206,7 @@ mod remember_ssh_secret_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 

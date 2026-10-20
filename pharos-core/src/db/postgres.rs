@@ -2137,6 +2137,7 @@ mod ssl_fallback_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -2287,6 +2288,7 @@ mod connection_settings_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -2538,6 +2540,7 @@ mod live_session_options_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 
@@ -2863,6 +2866,7 @@ mod live_prefer_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 

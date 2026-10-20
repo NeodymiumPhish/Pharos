@@ -1,5 +1,7 @@
 pub mod connection;
 pub mod ddl;
+pub mod duck;
+pub mod duck_session;
 pub mod metadata;
 pub mod model_feedback;
 pub mod query;

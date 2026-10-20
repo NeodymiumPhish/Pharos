@@ -1359,6 +1359,7 @@ mod live_tunnel_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 

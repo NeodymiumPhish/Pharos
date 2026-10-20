@@ -15,7 +15,7 @@ use crate::state::AppState;
 /// Validate that a file path is safe (not attempting path traversal).
 /// Canonicalizes the parent directory (which must exist) since the file itself
 /// may not exist yet (e.g. when saving a new export).
-fn validate_file_path(path: &str) -> Result<(), String> {
+pub(crate) fn validate_file_path(path: &str) -> Result<(), String> {
     let path = Path::new(path);
 
     if !path.is_absolute() {
@@ -258,6 +258,9 @@ pub async fn clone_table(
     options: CloneTableOptions,
     state: &AppState,
 ) -> Result<CloneTableResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::clone_table(connection_id, options, state).await;
+    }
     // A read-only connection cannot be the TARGET of a clone. Refused here,
     // before the DDL is built, rather than by the server after it.
     state.require_writable(&connection_id)?;
@@ -314,6 +317,9 @@ pub async fn generate_table_ddl(
     table_name: String,
     state: &AppState,
 ) -> Result<crate::commands::ddl::TableDdl, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::table_ddl(connection_id, schema_name, table_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     // No identifier validation here: this is a read-only path, like the sibling
@@ -356,6 +362,9 @@ pub async fn validate_csv_for_import(
     has_headers: bool,
     state: &AppState,
 ) -> Result<CsvValidationResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::validate_csv(connection_id, schema_name, table_name, file_path, has_headers, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
@@ -371,9 +380,18 @@ pub async fn validate_csv_for_import(
         .map_err(|e| format!("Failed to get table columns: {}", e))?;
 
     let table_columns: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    validate_csv_against(table_columns, &file_path, has_headers)
+}
 
+/// The CSV half of `validate_csv_for_import`, for any engine: read the file
+/// and compare its shape with the table's column names.
+pub(crate) fn validate_csv_against(
+    table_columns: Vec<String>,
+    file_path: &str,
+    has_headers: bool,
+) -> Result<CsvValidationResult, String> {
     // Open and read the CSV file
-    let file = File::open(&file_path)
+    let file = File::open(file_path)
         .map_err(|e| format!("Failed to open file: {}", e))?;
 
     let mut reader = csv::ReaderBuilder::new()
@@ -496,6 +514,9 @@ pub async fn import_csv(
     options: ImportCsvOptions,
     state: &AppState,
 ) -> Result<ImportCsvResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::import_csv(connection_id, options, state).await;
+    }
     // Refused before the file is opened, so a read-only connection cannot
     // spend the user's time parsing a CSV it can never insert.
     state.require_writable(&connection_id)?;
@@ -693,7 +714,7 @@ pub async fn import_csv(
 /// without a mark) streams straight off the file; UTF-16LE and Latin-1 are
 /// transcoded whole, because neither can be decoded a buffer at a time
 /// without carrying a partial code unit across the boundary.
-fn open_csv_source(path: &str, dialect: &CsvDialect) -> Result<Box<dyn Read + Send>, String> {
+pub(crate) fn open_csv_source(path: &str, dialect: &CsvDialect) -> Result<Box<dyn Read + Send>, String> {
     let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
 
     let mut head = [0u8; 3];
@@ -765,6 +786,9 @@ pub async fn export_table(
     options: ExportTableOptions,
     state: &AppState,
 ) -> Result<ExportTableResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::export_table(connection_id, options, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     // Validate file path for security
@@ -923,6 +947,9 @@ pub async fn export_query(
     state: &AppState,
     progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
 ) -> Result<ExportTableResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::export_query(connection_id, options, state, progress_callback).await;
+    }
     validate_file_path(&options.file_path)?;
 
     let pool = state.require_pool(&connection_id)?;
@@ -1206,6 +1233,165 @@ async fn stream_export(
     })
 }
 
+/// One page of an engine's rows as text, for `write_text_pages`.
+pub(crate) struct TextPage {
+    pub names: Vec<String>,
+    /// Type names the value writers understand (PostgreSQL's spelling:
+    /// `INT8`, `FLOAT8`, `NUMERIC`, `BOOL`, `JSON`…); anything else is text.
+    pub types: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+}
+
+/// The export writer for an engine whose rows are already text (DuckDB).
+/// The same formats, dialect, encodings and value rules as `stream_export`;
+/// `next_page(offset, limit)` supplies the rows. Blocking: call it off the
+/// runtime.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_text_pages(
+    mut next_page: impl FnMut(i64, i64) -> Result<TextPage, String>,
+    file_path: &str,
+    format: &ExportFormat,
+    sql_insert_target: &str,
+    null_as_empty: bool,
+    include_headers: bool,
+    dialect: &CsvDialect,
+    batch_size: i64,
+    progress_callback: Option<&(dyn Fn(u64, bool) + Send)>,
+) -> Result<ExportTableResult, String> {
+    let batch_size = batch_size.max(1);
+    let mut total: u64 = 0;
+    let mut substituted: u64 = 0;
+    let mut names: Vec<String> = Vec::new();
+    let mut headers_written = false;
+
+    let file = File::create(file_path).map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut writer = BufWriter::new(file);
+    let w = |r: std::io::Result<()>| r.map_err(|e| format!("Failed to write: {}", e));
+    let mut workbook = if matches!(format, ExportFormat::Xlsx) { Some(rust_xlsxwriter::Workbook::new()) } else { None };
+    let xlsx_offset: u32 = if include_headers { 1 } else { 0 };
+    match format {
+        ExportFormat::Json => w(writer.write_all(b"[\n"))?,
+        ExportFormat::Csv | ExportFormat::Tsv => w(writer.write_all(encoding_bom(dialect.encoding)))?,
+        _ => {}
+    }
+
+    loop {
+        let page = next_page(total as i64, batch_size)?;
+        if names.is_empty() {
+            names = page.names.clone();
+        }
+        let len = page.rows.len() as u64;
+        let ty = |i: usize| page.types.get(i).map(String::as_str).unwrap_or("TEXT");
+        match format {
+            ExportFormat::Csv | ExportFormat::Tsv => {
+                let delimiter = if matches!(format, ExportFormat::Tsv) { b'\t' } else { dialect.delimiter_byte() };
+                let mut records: Vec<Vec<String>> = Vec::with_capacity(page.rows.len() + 1);
+                if !headers_written && include_headers {
+                    records.push(names.clone());
+                }
+                for row in &page.rows {
+                    records.push(row.iter().map(|v| v.clone().unwrap_or_else(|| dialect.null_literal.clone())).collect());
+                }
+                let bytes = csv_chunk_bytes(&records, delimiter, dialect, &mut substituted)?;
+                w(writer.write_all(&bytes))?;
+            }
+            ExportFormat::Json | ExportFormat::JsonLines => {
+                for (i, row) in page.rows.iter().enumerate() {
+                    let mut obj = serde_json::Map::new();
+                    for (c, v) in row.iter().enumerate() {
+                        let value = match v {
+                            None => serde_json::Value::Null,
+                            Some(text) => text_to_json_value(text, ty(c)),
+                        };
+                        obj.insert(names.get(c).cloned().unwrap_or_default(), value);
+                    }
+                    let value = serde_json::Value::Object(obj);
+                    if matches!(format, ExportFormat::Json) {
+                        if total > 0 || i > 0 {
+                            w(writer.write_all(b",\n"))?;
+                        }
+                        let text = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+                        w(writer.write_all(text.as_bytes()))?;
+                    } else {
+                        let text = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+                        w(writeln!(writer, "{}", text))?;
+                    }
+                }
+            }
+            ExportFormat::SqlInsert => {
+                let col_list = names.iter().map(|n| format!("\"{}\"", escape_identifier(n))).collect::<Vec<_>>().join(", ");
+                for row in &page.rows {
+                    let values: Vec<String> = row
+                        .iter()
+                        .enumerate()
+                        .map(|(c, v)| match v {
+                            None => "NULL".to_string(),
+                            Some(text) => format_sql_value(text, ty(c)),
+                        })
+                        .collect();
+                    w(writeln!(writer, "INSERT INTO {} ({}) VALUES ({});", sql_insert_target, col_list, values.join(", ")))?;
+                }
+            }
+            ExportFormat::Markdown => {
+                if !headers_written {
+                    w(writeln!(writer, "| {} |", names.join(" | ")))?;
+                    w(writeln!(writer, "| {} |", names.iter().map(|_| "---").collect::<Vec<_>>().join(" | ")))?;
+                }
+                for row in &page.rows {
+                    let cells: Vec<String> = row
+                        .iter()
+                        .map(|v| v.as_deref().unwrap_or(null_text(null_as_empty)).replace('|', "\\|"))
+                        .collect();
+                    w(writeln!(writer, "| {} |", cells.join(" | ")))?;
+                }
+            }
+            ExportFormat::Xlsx => {
+                if let Some(wb) = workbook.as_mut() {
+                    let sheet = if wb.worksheets().is_empty() { wb.add_worksheet() } else { wb.worksheet_from_index(0).map_err(|e| e.to_string())? };
+                    if !headers_written && include_headers {
+                        for (c, name) in names.iter().enumerate() {
+                            sheet.write_string(0, c as u16, name).map_err(|e| e.to_string())?;
+                        }
+                    }
+                    for (r, row) in page.rows.iter().enumerate() {
+                        for (c, v) in row.iter().enumerate() {
+                            let value = match v {
+                                None if null_as_empty => Some(serde_json::Value::String(String::new())),
+                                None => None,
+                                Some(text) => Some(text_to_json_value(text, ty(c))),
+                            };
+                            write_xlsx_json_cell(sheet, total as u32 + r as u32 + xlsx_offset, c as u16, value.as_ref(), ty(c))?;
+                        }
+                    }
+                }
+            }
+        }
+        headers_written = true;
+        total += len;
+        if let Some(cb) = progress_callback {
+            cb(total, false);
+        }
+        if len < batch_size as u64 {
+            break;
+        }
+    }
+    if matches!(format, ExportFormat::Json) {
+        w(writer.write_all(b"\n]\n"))?;
+    }
+    w(writer.flush())?;
+    if let Some(mut wb) = workbook {
+        drop(writer);
+        if wb.worksheets().is_empty() {
+            wb.add_worksheet();
+        }
+        wb.save(file_path).map_err(|e| format!("Failed to save XLSX: {}", e))?;
+    }
+    if let Some(cb) = progress_callback {
+        cb(total, true);
+    }
+    Ok(ExportTableResult { success: true, rows_exported: total, characters_substituted: substituted })
+}
+
 /// The bytes one batch of CSV records becomes: written by `csv::Writer` in
 /// the dialect's shape, then re-encoded for the dialect's encoding.
 ///
@@ -1253,7 +1439,7 @@ fn null_text(null_as_empty: bool) -> &'static str {
 /// Validate an identifier (schema, table, or column name) to prevent SQL injection
 /// Uses strict whitelist approach: only ASCII alphanumeric, underscores, and hyphens allowed
 /// PostgreSQL allows these characters in quoted identifiers
-fn validate_identifier(name: &str) -> Result<(), String> {
+pub(crate) fn validate_identifier(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("Identifier cannot be empty".to_string());
     }

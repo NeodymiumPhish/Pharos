@@ -50,6 +50,7 @@ use super::row_edit::{build_update_statement, history_sql, validate_request, Row
 use super::sql_lexer::{is_blank_or_comment, split_chunks, ChunkKind};
 use crate::db::sqlite;
 use crate::models::QueryHistoryEntry;
+use crate::models::Engine;
 use crate::state::{AppState, QueryCancel};
 
 // MARK: - Reports
@@ -217,6 +218,8 @@ async fn session_for(state: &AppState, session_id: &str, connection_id: &str) ->
         }
         close_tab_session(state, session_id).await;
     }
+    // A tab that moved here from a DuckDB database.
+    super::duck_session::close_duck_session(state, session_id).await;
     // Opening does not wait on the pool, but it does need one: the pool's
     // options are this connection's options.
     state.require_pool(connection_id)?;
@@ -294,6 +297,9 @@ fn connect_failure(e: &sqlx::Error) -> String {
 /// Close a tab's session: queued operations are dropped, a running one is
 /// cancelled, an open transaction is rolled back (never committed).
 pub async fn close_tab_session(state: &AppState, session_id: &str) -> Option<CloseOutcome> {
+    if let Some(outcome) = super::duck_session::close_duck_session(state, session_id).await {
+        return Some(outcome);
+    }
     let session = state.remove_tab_session(session_id)?;
     session.closing.store(true, Ordering::Relaxed);
     let guard = tokio::time::timeout(Duration::from_secs(2), session.conn.lock()).await;
@@ -323,6 +329,7 @@ pub struct CloseOutcome {
 
 /// Close every session of a connection: before its pool and its tunnel go.
 pub async fn close_sessions_for_connection(state: &AppState, connection_id: &str) {
+    super::duck_session::close_duck_sessions_for_connection(state, connection_id).await;
     for id in state.tab_session_ids(connection_id) {
         close_tab_session(state, &id).await;
     }
@@ -741,6 +748,9 @@ async fn read_through_cursor(live: &mut LiveSession, sql: &str, limit: u32, in_t
 
 /// Run a card's SELECT-like statement on its tab's connection.
 pub async fn session_execute_query(request: SessionRunRequest, state: &AppState) -> Result<SessionQueryResult, String> {
+    if state.engine_of(&request.target.connection_id) == Engine::Duckdb {
+        return super::duck_session::execute_query(request, state).await;
+    }
     let t = &request.target;
     let session = session_for(state, &t.session_id, &t.connection_id).await?;
     let query_id = t.query_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -938,6 +948,9 @@ async fn describe_columns(live: &mut LiveSession, sql: &str) -> Vec<super::row_i
 /// Run a card's other statement (INSERT, UPDATE, DDL, SET, BEGIN …) on its
 /// tab's connection.
 pub async fn session_execute_statement(request: SessionRunRequest, state: &AppState) -> Result<SessionExecuteResult, String> {
+    if state.engine_of(&request.target.connection_id) == Engine::Duckdb {
+        return super::duck_session::execute_statement(request, state).await;
+    }
     let t = &request.target;
     let session = session_for(state, &t.session_id, &t.connection_id).await?;
     let query_id = t.query_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -1041,6 +1054,9 @@ pub struct SessionFetchMoreRequest {
 }
 
 pub async fn session_fetch_more_rows(request: SessionFetchMoreRequest, state: &AppState) -> Result<SessionQueryResult, String> {
+    if state.engine_of(&request.target.connection_id) == Engine::Duckdb {
+        return super::duck_session::fetch_more_rows(request.target, request.sql, request.limit, request.offset, state).await;
+    }
     // One row past the page, as the pool's Load More does: that row is how
     // `has_more` knows more remain (it is read, then dropped).
     let sql = format!(
@@ -1074,6 +1090,9 @@ pub struct SessionFetchAllRequest {
 
 pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &AppState,
                                     on_progress: impl Fn(u64) + Send) -> Result<SessionQueryResult, String> {
+    if state.engine_of(&request.target.connection_id) == Engine::Duckdb {
+        return super::duck_session::fetch_all_rows(request.target, request.sql, request.max_rows, state, on_progress).await;
+    }
     let t = &request.target;
     let session = session_for(state, &t.session_id, &t.connection_id).await?;
     let query_id = t.query_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -1184,6 +1203,9 @@ pub struct SessionExplainResult {
 }
 
 pub async fn session_explain(request: SessionExplainRequest, state: &AppState) -> Result<SessionExplainResult, String> {
+    if state.engine_of(&request.target.connection_id) == Engine::Duckdb {
+        return super::duck_session::explain(request.target, request.sql, request.analyze, state).await;
+    }
     let statement = explain_statement(&request.sql, request.analyze)?;
     let t = &request.target;
     let session = session_for(state, &t.session_id, &t.connection_id).await?;
@@ -1360,6 +1382,9 @@ pub async fn session_apply_row_updates(request: SessionRowUpdateRequest, state: 
 /// statement is not transactional, so it is deallocated before the rollback.
 pub async fn session_validate_sql(target: SessionTarget, sql: String, state: &AppState)
                                   -> Result<super::query::ValidationResult, String> {
+    if state.engine_of(&target.connection_id) == Engine::Duckdb {
+        return super::duck_session::validate_sql(target, sql, state).await;
+    }
     let valid = || super::query::ValidationResult { valid: true, error: None };
     let sql_trimmed = sql.trim();
     if sql_trimmed.is_empty() {
@@ -1422,6 +1447,9 @@ pub struct SessionEndTransactionResult {
 }
 
 pub async fn session_end_transaction(request: SessionEndTransactionRequest, state: &AppState) -> Result<SessionEndTransactionResult, String> {
+    if state.duck_session(&request.session_id).is_some() {
+        return super::duck_session::end_transaction(&request.session_id, request.commit, state).await;
+    }
     let session = state.tab_session(&request.session_id).ok_or_else(|| "The tab has no connection of its own.".to_string())?;
     let mut guard = session.conn.lock().await;
     let outcome = match guard.as_mut() {
@@ -1501,6 +1529,7 @@ impl AppState {
 
 /// Close every session at shutdown, rolling back, within a time budget.
 pub async fn close_all_tab_sessions(state: &AppState, budget: Duration) {
+    super::duck_session::drop_all_duck_sessions(state);
     let sessions = state.take_all_tab_sessions();
     let closes = sessions.into_iter().map(|s| async move {
         s.closing.store(true, Ordering::Relaxed);
@@ -1641,6 +1670,7 @@ mod live_tab_session_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 

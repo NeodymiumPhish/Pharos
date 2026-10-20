@@ -122,10 +122,47 @@ fn default_ssh_port() -> u16 {
     22
 }
 
+/// Which database engine a connection record talks to.
+///
+/// `Postgres` is every record written before DuckDB support, so it is the
+/// default on the wire and in SQLite. A `Duckdb` record keeps the database
+/// FILE in `database` (an absolute path, or `:memory:`); its host, port and
+/// user are empty and unused.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Engine {
+    #[default]
+    Postgres,
+    Duckdb,
+}
+
+impl Engine {
+    /// The wire and SQLite spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Engine::Postgres => "postgres",
+            Engine::Duckdb => "duckdb",
+        }
+    }
+
+    /// Read a stored `engine` column. An unknown value is PostgreSQL, which
+    /// is what every row meant before the column existed.
+    pub fn from_wire(raw: &str) -> Engine {
+        match raw {
+            "duckdb" => Engine::Duckdb,
+            _ => Engine::Postgres,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionConfig {
     pub id: String,
+    /// The engine. Absent on the wire for an older producer, which means
+    /// PostgreSQL.
+    #[serde(default)]
+    pub engine: Engine,
     pub name: String,
     pub host: String,
     pub port: u16,
@@ -323,6 +360,7 @@ mod ssh_tunnel_json_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 

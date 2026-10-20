@@ -9,7 +9,7 @@ use crate::models::{KeyCandidate, TableKeyInfo};
 ///
 /// This struct carries NO `rename_all`, so its JSON keys stay snake_case. Swift
 /// mirrors that with explicit CodingKeys.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnDef {
     pub name: String,
     pub data_type: String,

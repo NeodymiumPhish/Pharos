@@ -797,6 +797,23 @@ pub struct ConnectionSettings {
     /// Most editor-tab connections to one server; 0 = no limit.
     #[serde(default = "default_max_tab_sessions_per_connection")]
     pub max_tab_sessions_per_connection: u32,
+    /// DuckDB: worker threads per database. 0 = DuckDB's default (all cores).
+    #[serde(default)]
+    pub duckdb_threads: u32,
+    /// DuckDB: `memory_limit` per database, e.g. "4GB". Empty = DuckDB's
+    /// default (80% of RAM).
+    #[serde(default)]
+    pub duckdb_memory_limit: String,
+    /// DuckDB: where downloaded extensions go. Empty = `~/.duckdb/extensions`.
+    #[serde(default)]
+    pub duckdb_extension_directory: String,
+    /// DuckDB: download a known extension (icu, httpfs, postgres…) the first
+    /// time a query needs it.
+    #[serde(default = "yes")]
+    pub duckdb_autoinstall_extensions: bool,
+    /// DuckDB: allow `INSTALL x FROM community`.
+    #[serde(default)]
+    pub duckdb_allow_community_extensions: bool,
 }
 
 fn default_tab_idle_in_transaction_seconds() -> u32 { 600 }
@@ -826,6 +843,11 @@ impl Default for ConnectionSettings {
             default_time_zone: String::new(),
             tab_idle_in_transaction_seconds: default_tab_idle_in_transaction_seconds(),
             max_tab_sessions_per_connection: default_max_tab_sessions_per_connection(),
+            duckdb_threads: 0,
+            duckdb_memory_limit: String::new(),
+            duckdb_extension_directory: String::new(),
+            duckdb_autoinstall_extensions: true,
+            duckdb_allow_community_extensions: false,
         }
     }
 }
@@ -1406,6 +1428,11 @@ pub(crate) mod fixture {
                     default_time_zone: "Asia/Tokyo".to_string(),
                     tab_idle_in_transaction_seconds: 601,
                     max_tab_sessions_per_connection: 9,
+                    duckdb_threads: 3,
+                    duckdb_memory_limit: "2GB".to_string(),
+                    duckdb_extension_directory: "/tmp/duck-ext".to_string(),
+                    duckdb_autoinstall_extensions: false,
+                    duckdb_allow_community_extensions: true,
                 },
                 data_export: DataExportSettings {
                     default_format: ExportFormat::Tsv,

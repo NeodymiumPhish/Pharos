@@ -645,6 +645,9 @@ pub async fn execute_query(
     source: Option<String>,
     state: &AppState,
 ) -> Result<QueryResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::execute_query(connection_id, sql, query_id, limit, schema, source, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     let limit = limit.unwrap_or(1000);
@@ -825,6 +828,9 @@ pub async fn fetch_more_rows(
     schema: Option<String>,
     state: &AppState,
 ) -> Result<QueryResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::fetch_rows(connection_id, sql, None, limit.max(1) as usize, offset.max(0) as usize, schema, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
@@ -954,6 +960,11 @@ pub async fn fetch_all_rows_snapshot(
     state: &AppState,
     on_progress: impl Fn(u64) + Send,
 ) -> Result<QueryResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        let result = super::duck::fetch_rows(connection_id, sql, Some(query_id), max_rows.max(1) as usize, 0, schema, state).await?;
+        on_progress(result.row_count as u64);
+        return Ok(result);
+    }
     let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
@@ -1138,6 +1149,9 @@ pub async fn execute_statement(
     schema: Option<String>,
     state: &AppState,
 ) -> Result<ExecuteResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::execute_statement(connection_id, sql, query_id, schema, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     let start = Instant::now();
@@ -1287,6 +1301,9 @@ pub async fn validate_sql(
     schema: Option<String>,
     state: &AppState,
 ) -> Result<ValidationResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::validate_sql(connection_id, sql, schema, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     // Skip validation for empty queries
@@ -1537,7 +1554,7 @@ pub fn explain_statement(sql: &str, analyze: bool) -> Result<String, String> {
 }
 
 /// The one statement in `sql`, trimmed and without its trailing semicolon.
-fn single_statement(sql: &str) -> Result<String, String> {
+pub(crate) fn single_statement(sql: &str) -> Result<String, String> {
     let cuts = top_level_semicolons(sql);
     let mut parts: Vec<&str> = Vec::with_capacity(cuts.len() + 1);
     let mut start = 0usize;
@@ -1571,6 +1588,9 @@ pub async fn explain_query(
     analyze: bool,
     state: &AppState,
 ) -> Result<String, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::explain(connection_id, sql, analyze, state).await;
+    }
     // Build the statement first: a refusal costs no connection.
     let statement = explain_statement(&sql, analyze)?;
 
@@ -2904,6 +2924,7 @@ mod live_pool_reset_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         }
     }
 

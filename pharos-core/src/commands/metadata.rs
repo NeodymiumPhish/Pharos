@@ -8,6 +8,9 @@ pub async fn get_schemas(
     connection_id: String,
     state: &AppState,
 ) -> Result<Vec<SchemaInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::schemas(connection_id, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
     // Settings ▸ Navigator ▸ Show system schemas, from the cached blob the
     // state holds — never a fresh read of SQLite per call.
@@ -24,6 +27,9 @@ pub async fn get_tables(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<TableInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::tables(connection_id, schema_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
     // Settings ▸ Navigator ▸ Group inherited tables, from the cached blob the
     // state holds — never a fresh read of SQLite per call.
@@ -41,6 +47,10 @@ pub async fn get_partitions(
     parent_table: String,
     state: &AppState,
 ) -> Result<Vec<TableInfo>, String> {
+    // DuckDB has no partitions.
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return Ok(Vec::new());
+    }
     let pool = state.require_pool(&connection_id)?;
     let inheritance = state.settings().navigator.inheritance_grouping;
 
@@ -55,6 +65,10 @@ pub async fn get_partition_map(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<PartitionRef>, String> {
+    // DuckDB has no partitions.
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return Ok(Vec::new());
+    }
     let pool = state.require_pool(&connection_id)?;
     let inheritance = state.settings().navigator.inheritance_grouping;
 
@@ -71,6 +85,9 @@ pub async fn analyze_schema(
     schema_name: String,
     state: &AppState,
 ) -> Result<AnalyzeResult, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::analyze_schema(connection_id, schema_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     let cached_denied = state.get_analyze_denied(&connection_id, &schema_name);
@@ -93,6 +110,9 @@ pub async fn get_columns(
     table_name: String,
     state: &AppState,
 ) -> Result<Vec<ColumnInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::columns(connection_id, schema_name, table_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     postgres::get_columns(&pool, &schema_name, &table_name)
@@ -106,6 +126,9 @@ pub async fn get_schema_columns(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<SchemaColumnInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::schema_columns(connection_id, schema_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     postgres::get_schema_columns(&pool, &schema_name)
@@ -120,6 +143,9 @@ pub async fn get_schema_draft_facts(
     schema_name: String,
     state: &AppState,
 ) -> Result<SchemaDraftFacts, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::draft_facts(connection_id, schema_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     postgres::get_schema_draft_facts(&pool, &schema_name).await
@@ -132,6 +158,9 @@ pub async fn get_table_indexes(
     table_name: String,
     state: &AppState,
 ) -> Result<Vec<IndexInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::indexes(connection_id, schema_name, table_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     postgres::get_table_indexes(&pool, &schema_name, &table_name)
@@ -146,6 +175,9 @@ pub async fn get_table_constraints(
     table_name: String,
     state: &AppState,
 ) -> Result<Vec<ConstraintInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::constraints(connection_id, schema_name, table_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     postgres::get_table_constraints(&pool, &schema_name, &table_name)
@@ -159,6 +191,9 @@ pub async fn get_schema_functions(
     schema_name: String,
     state: &AppState,
 ) -> Result<Vec<FunctionInfo>, String> {
+    if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
+        return super::duck::functions(connection_id, schema_name, state).await;
+    }
     let pool = state.require_pool(&connection_id)?;
 
     postgres::get_schema_functions(&pool, &schema_name)

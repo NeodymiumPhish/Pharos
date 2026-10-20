@@ -44,6 +44,7 @@ macro_rules! ffi_spawn {
 
 mod cards;
 mod connection;
+mod duckdb;
 mod lifecycle;
 mod model_feedback;
 mod query;
@@ -65,7 +66,7 @@ mod workspace;
 // ---------------------------------------------------------------------------
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-static APP_STATE: OnceLock<AppState> = OnceLock::new();
+pub(crate) static APP_STATE: OnceLock<AppState> = OnceLock::new();
 
 fn runtime() -> &'static Runtime {
     RUNTIME.get().expect("pharos_init() not called")

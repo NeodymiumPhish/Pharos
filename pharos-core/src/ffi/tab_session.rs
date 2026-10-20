@@ -170,7 +170,12 @@ pub extern "C" fn pharos_tab_session_close(session_id: *const c_char, callback: 
 pub extern "C" fn pharos_tab_session_state(session_id: *const c_char) -> *mut c_char {
     ffi_sync!({
         let id = unsafe { c_str_to_string(session_id) };
-        let report = APP_STATE.get().and_then(|state| state.tab_session(&id)).map(|s| s.report());
+        let report = APP_STATE.get().and_then(|state| {
+            state
+                .tab_session(&id)
+                .map(|s| s.report())
+                .or_else(|| state.duck_session(&id).map(|s| s.report()))
+        });
         to_json_c_string(&report)
     })
 }

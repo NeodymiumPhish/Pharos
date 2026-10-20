@@ -128,6 +128,17 @@ pub extern "C" fn pharos_shutdown() {
         SHUTDOWN_PER_POOL_BUDGET,
     ));
 
+    // DuckDB databases close (and checkpoint) when the last connection of an
+    // instance drops. The tab sessions went above; the instances go here, off
+    // the runtime, inside the same budget.
+    let ducks = state.take_all_ducks();
+    if !ducks.is_empty() {
+        let _ = runtime.block_on(tokio::time::timeout(
+            SHUTDOWN_TOTAL_BUDGET,
+            tokio::task::spawn_blocking(move || drop(ducks)),
+        ));
+    }
+
     // Drain the pool map so dropped pools are released even on timeout.
     let pools: Vec<PgPool> = {
         let mut conns = state.connections.lock().unwrap_or_else(|e| e.into_inner());

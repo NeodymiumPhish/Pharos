@@ -5,8 +5,9 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use rusqlite::Connection as SqliteConnection;
 
+use crate::db::duckdb::DuckDbInstance;
 use crate::db::ssh_tunnel::SshTunnel;
-use crate::models::{AppSettings, ConnectionConfig, TableKeyInfo};
+use crate::models::{AppSettings, ConnectionConfig, Engine, TableKeyInfo};
 
 /// A running query's cancel signal: a flag that can be read at any time AND
 /// awaited. `cancelled()` returns at once when the cancel came first, so a
@@ -16,7 +17,7 @@ pub struct QueryCancel {
 }
 
 impl QueryCancel {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { signal: tokio::sync::watch::Sender::new(false) }
     }
 
@@ -126,12 +127,26 @@ pub struct AppState {
     /// The session options each pool was opened with, so a tab's own
     /// connection gets the same `TimeZone` / `DateStyle` setup.
     pub session_options: Mutex<HashMap<String, crate::db::postgres::SessionOptions>>,
+
+    /// Open DuckDB databases, keyed by connection ID: a DuckDB record's
+    /// equivalent of `connections`. Two records naming the same file share
+    /// one instance (`duck_instance_for_path`).
+    pub duck_dbs: Mutex<HashMap<String, Arc<DuckDbInstance>>>,
+    /// Each editor tab's own DuckDB connection, by tab id
+    /// (`commands::duck_session`).
+    pub duck_sessions: Mutex<HashMap<String, Arc<crate::commands::duck_session::DuckSession>>>,
+    /// DuckDB records the user asked to open read-only for this connect only
+    /// ("Open Read-Only" after a lock conflict). Taken by the next connect.
+    pub duck_read_only_once: Mutex<HashSet<String>>,
 }
 
 /// What a refused write says. The same sentence the front end shows for the
 /// server's own SQLSTATE 25006, so the two paths read alike whichever one
 /// catches the write.
 pub const READ_ONLY_MESSAGE: &str = "This connection is read-only.";
+
+/// What a PostgreSQL-only command answers for a DuckDB connection.
+pub const DUCKDB_UNSUPPORTED_MESSAGE: &str = "This is not available for DuckDB connections.";
 
 impl AppState {
     pub fn new(metadata_db: SqliteConnection) -> Self {
@@ -150,6 +165,9 @@ impl AppState {
             tunnel_failures: Mutex::new(HashMap::new()),
             tab_sessions: Mutex::new(HashMap::new()),
             session_options: Mutex::new(HashMap::new()),
+            duck_dbs: Mutex::new(HashMap::new()),
+            duck_sessions: Mutex::new(HashMap::new()),
+            duck_read_only_once: Mutex::new(HashSet::new()),
         }
     }
 
@@ -360,6 +378,11 @@ impl AppState {
         if let Some(pool) = self.get_pool(connection_id) {
             return Ok(pool);
         }
+        // A PostgreSQL-only command on a DuckDB record: say so, rather than
+        // "Not connected" about a database that is open.
+        if self.engine_of(connection_id) == Engine::Duckdb {
+            return Err(DUCKDB_UNSUPPORTED_MESSAGE.to_string());
+        }
         match self.tunnel_failure(connection_id) {
             Some(reason) => Err(format!("SSH tunnel closed: {}", reason)),
             None => Err(format!("Not connected to: {}", connection_id)),
@@ -384,6 +407,63 @@ impl AppState {
             Some(config) if config.read_only => Err(READ_ONLY_MESSAGE.to_string()),
             _ => Ok(()),
         }
+    }
+
+    /// The engine of a saved record; PostgreSQL for an unknown id, which is
+    /// what every caller before DuckDB assumed.
+    pub fn engine_of(&self, connection_id: &str) -> Engine {
+        self.get_config(connection_id).map(|c| c.engine).unwrap_or_default()
+    }
+
+    // ---- DuckDB ----------------------------------------------------------
+
+    /// The open DuckDB database of a connection, if it is connected.
+    pub fn get_duck(&self, connection_id: &str) -> Option<Arc<DuckDbInstance>> {
+        let dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
+        dbs.get(connection_id).cloned()
+    }
+
+    /// The open DuckDB database, or why there is none.
+    pub fn require_duck(&self, connection_id: &str) -> Result<Arc<DuckDbInstance>, String> {
+        self.get_duck(connection_id).ok_or_else(|| format!("Not connected to: {}", connection_id))
+    }
+
+    pub fn add_duck(&self, connection_id: String, instance: Arc<DuckDbInstance>) {
+        let mut dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
+        dbs.insert(connection_id, instance);
+    }
+
+    pub fn remove_duck(&self, connection_id: &str) -> Option<Arc<DuckDbInstance>> {
+        let mut dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
+        dbs.remove(connection_id)
+    }
+
+    /// Every open DuckDB database, for shutdown.
+    pub fn take_all_ducks(&self) -> Vec<Arc<DuckDbInstance>> {
+        let mut dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
+        dbs.drain().map(|(_, d)| d).collect()
+    }
+
+    /// An instance another record already has open on this FILE. An
+    /// in-memory database is never shared: each record is its own.
+    pub fn duck_instance_for_path(&self, path: &str) -> Option<Arc<DuckDbInstance>> {
+        if path == crate::db::duckdb::IN_MEMORY {
+            return None;
+        }
+        let dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
+        dbs.values().find(|d| d.path == path).cloned()
+    }
+
+    /// Ask the next connect of this record to open it read-only.
+    pub fn request_duck_read_only_once(&self, connection_id: &str) {
+        let mut set = self.duck_read_only_once.lock().unwrap_or_else(|e| e.into_inner());
+        set.insert(connection_id.to_string());
+    }
+
+    /// Take (and clear) the read-only request for this connect.
+    pub fn take_duck_read_only_once(&self, connection_id: &str) -> bool {
+        let mut set = self.duck_read_only_once.lock().unwrap_or_else(|e| e.into_inner());
+        set.remove(connection_id)
     }
 
     /// Get a connection config by ID
@@ -780,6 +860,7 @@ mod settings_cache_tests {
             connect_on_launch: false,
             session_time_zone: None,
             ssl_root_cert_path: None,
+            engine: Default::default(),
         };
         state.set_config(config.clone());
         assert!(state.require_writable("c1").is_ok(), "a writable connection is not refused");
