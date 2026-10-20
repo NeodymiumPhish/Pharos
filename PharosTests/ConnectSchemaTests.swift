@@ -19,6 +19,10 @@ func runTests() {
                 "public", "nothing anywhere → public")
     expectEqual(ConnectSchema.resolve(tabSchema: "tagtest", configured: nil, windowRemembered: nil),
                 "tagtest", "the tab's schema stands alone")
+    expectEqual(ConnectSchema.resolve(tabSchema: nil, configured: nil, windowRemembered: nil, engineDefault: "main"),
+                "main", "nothing anywhere on DuckDB → main")
+    expectEqual(ConnectSchema.resolve(tabSchema: nil, configured: "", windowRemembered: "sales", engineDefault: "main"),
+                "sales", "the engine default is the last resort, not an override")
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

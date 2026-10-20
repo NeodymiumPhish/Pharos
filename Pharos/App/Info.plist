@@ -53,6 +53,28 @@
                 </array>
             </dict>
         </dict>
+        <!-- DuckDB publishes no type identifier (macOS gives .duckdb a
+             dynamic type), so Pharos imports one under its own name: an
+             imported declaration yields to an owner's if one ever appears. -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.pharos.duckdb-database</string>
+            <key>UTTypeDescription</key>
+            <string>DuckDB Database</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.database</string>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>duckdb</string>
+                    <string>ddb</string>
+                </array>
+            </dict>
+        </dict>
     </array>
     <key>CFBundleURLTypes</key>
     <array>
@@ -103,6 +125,18 @@
             <key>LSItemContentTypes</key>
             <array>
                 <string>public.sql</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>DuckDB Database</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Default</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.pharos.duckdb-database</string>
             </array>
         </dict>
         <dict>

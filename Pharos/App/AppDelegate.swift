@@ -422,6 +422,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         let textType = UTType.text
         for url in urls {
+            // A DuckDB database file opens as a connection, not as text.
+            if DuckDBFiles.isDuckDBFile(url) {
+                openDuckDBFile(url)
+                continue
+            }
             // A connection link is not a file. It opens the Connections window
             // on a new, unsaved record; nothing is stored until Save.
             if let scheme = url.scheme?.lowercased(),

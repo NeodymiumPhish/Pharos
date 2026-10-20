@@ -69,6 +69,15 @@ final class PasswordPromptCoordinator {
               let config = state.connections.first(where: { $0.id == id })
         else { return }
 
+        // A DuckDB record has no password and no tunnel. The one failure it
+        // can answer is a file another process holds for writing.
+        if config.isDuckDB {
+            if DuckDBOpenError.isLocked(state.connectionError(for: id)) {
+                offerReadOnly(config, failure: state.connectionError(for: id) ?? "")
+            }
+            return
+        }
+
         // The TUNNEL is asked about FIRST, and it answers the whole failure
         // when it answers at all. The tunnel opens before the pool, so a
         // bastion that refused us means the database was never reached — and
@@ -140,6 +149,39 @@ final class PasswordPromptCoordinator {
             case .failed(let reason):
                 Log.state.error("Password prompt gate refused: \(reason, privacy: .public)")
             }
+        }
+    }
+
+    // MARK: - DuckDB lock
+
+    /// "sales.duckdb is open for writing in another app." DuckDB allows one
+    /// writing process per file, but any number of readers when ALL of them
+    /// open it read-only — so read-only is offered, never forced.
+    private func offerReadOnly(_ config: ConnectionConfig, failure: String) {
+        guard !prompting.contains(config.id) else { return }
+        prompting.insert(config.id)
+        let id = config.id
+        let file = DisplayEscape.escapedTrimmed((config.database as NSString).lastPathComponent)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "“\(file)” is open for writing in another app.")
+        if let pid = DuckDBOpenError.holderPID(failure) {
+            alert.informativeText = String(localized: "Process \(pid) holds the file. You can open it read-only while that app keeps it open.")
+        } else {
+            alert.informativeText = String(localized: "You can open it read-only while that app keeps it open.")
+        }
+        alert.addButton(withTitle: String(localized: "Open Read-Only"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            self?.prompting.remove(id)
+            if response == .alertFirstButtonReturn {
+                AppStateManager.shared.connect(id: id, readOnly: true)
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
         }
     }
 

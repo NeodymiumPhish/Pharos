@@ -133,6 +133,10 @@ private struct ConnectionListRow: View {
 
     private var subtitle: String {
         guard !isStub else { return "Not saved" }
+        // A DuckDB record is a FILE: its path (with ~), or "In-memory".
+        if connection.isDuckDB {
+            return "DuckDB · " + DisplayEscape.escaped(connection.locationDescription)
+        }
         let base = "\(DisplayEscape.escaped(connection.host)):\(connection.port) · \(DisplayEscape.escaped(connection.database))"
         // The tunnel is part of WHERE this connection goes, and a bastion's
         // name is the one thing that tells two otherwise identical records
@@ -235,6 +239,22 @@ final class ConnectionsManagerVC: NSViewController {
     private let connectOnLaunchCheckbox = NSButton()
     private let sessionTimeZonePopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
+
+    /// The engine pop-up (PostgreSQL / DuckDB), and the DuckDB file controls.
+    /// The sections and rows are kept so `applyEngineVisibility` can show the
+    /// ones the engine uses (`ConnectionFormRules.visibility`).
+    private let enginePopup = NSPopUpButton()
+    private let duckPathField = NSTextField()
+    private let duckChooseButton = NSButton()
+    private let duckNewButton = NSButton()
+    private let duckInMemoryCheckbox = NSButton()
+    private var serverSectionView: NSView?
+    private var authSectionView: NSView?
+    private var sshSectionView: NSView?
+    private var duckSectionView: NSView?
+    private var databaseNameRow: NSView?
+    private var timeZoneRow: NSView?
+    private var timeZoneNoteRow: NSView?
 
     // One badge per round-trip field. `nameField` has none — it is an authored
     // label and is sanitised instead — and `portField` has none, because a port
@@ -704,11 +724,56 @@ final class ConnectionsManagerVC: NSViewController {
         let actionSeparator = NSBox.separator()
         actionSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        let serverSection = section(title: "Server", rows: [
+        enginePopup.target = self
+        enginePopup.action = #selector(engineChanged)
+        enginePopup.addItems(withTitles: DatabaseEngine.allCases.map(\.displayName))
+        enginePopup.setAccessibilityIdentifier("connections.engine")
+        enginePopup.translatesAutoresizingMaskIntoConstraints = false
+
+        configureField(duckPathField)
+        duckPathField.placeholderString = String(localized: "~/Data/sales.duckdb")
+        duckPathField.setAccessibilityIdentifier("connections.duckdbPath")
+        for (button, title, action) in [(duckChooseButton, String(localized: "Choose…"), #selector(chooseDuckDBFile)),
+                                        (duckNewButton, String(localized: "New…"), #selector(newDuckDBFile))] {
+            button.title = title
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
+        duckChooseButton.toolTip = String(localized: "Open an existing DuckDB database file.")
+        duckNewButton.toolTip = String(localized: "Choose where to create a new database file. It is created when you connect.")
+        duckInMemoryCheckbox.setButtonType(.switch)
+        duckInMemoryCheckbox.title = String(localized: "In-memory database")
+        duckInMemoryCheckbox.target = self
+        duckInMemoryCheckbox.action = #selector(duckInMemoryChanged)
+        duckInMemoryCheckbox.setAccessibilityIdentifier("connections.duckdbInMemory")
+        duckInMemoryCheckbox.toolTip = String(localized:
+            "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits.")
+        let duckFileControls = NSStackView(views: [duckPathField, duckChooseButton, duckNewButton])
+        duckFileControls.orientation = .horizontal
+        duckFileControls.alignment = .centerY
+        duckFileControls.distribution = .fill
+        duckFileControls.spacing = 8
+        duckFileControls.translatesAutoresizingMaskIntoConstraints = false
+        duckPathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let generalSection = section(title: String(localized: "Connection"), rows: [
             row(label: "Name", field: nameField),
+            row(label: String(localized: "Engine"), control: enginePopup),
+        ])
+        let serverSection = section(title: "Server", rows: [
             row(label: "Host", field: hostField, badge: hostBadge),
             row(label: "Port", field: portField, fieldFixedWidth: L.portWidth),
         ])
+        let duckSection = section(title: String(localized: "Database File"), rows: [
+            row(label: String(localized: "File"), field: duckFileControls),
+            row(label: "", control: duckInMemoryCheckbox),
+            noteRow(caption(String(localized: "Connect opens the file, and creates it when it does not exist yet."))),
+        ])
+        serverSectionView = serverSection
+        duckSectionView = duckSection
         passwordFromLinkLabel.stringValue = String(localized: "Password taken from the link.")
         passwordFromLinkLabel.font = .systemFont(ofSize: 11)
         passwordFromLinkLabel.textColor = .secondaryLabelColor
@@ -765,21 +830,29 @@ final class ConnectionsManagerVC: NSViewController {
         passwordBadge.link(to: passwordField)
         let sshSection = buildSshSection()
 
+        let databaseRow = row(label: "Database", field: databaseField, badge: databaseBadge)
+        databaseNameRow = databaseRow
         let dbSection = section(title: "Database", rows: [
-            row(label: "Database", field: databaseField, badge: databaseBadge),
+            databaseRow,
             row(label: "Default Schema", control: defaultSchemaPopup),
         ])
+        authSectionView = authSection
+        sshSectionView = sshSection
 
         // The per-connection session rules, after the database they apply to.
+        let zoneRow = row(label: String(localized: "Time Zone"), control: sessionTimeZonePopup)
+        let zoneNote = noteRow(caption(String(localized: "Applies to connections opened after this change.")))
+        timeZoneRow = zoneRow
+        timeZoneNoteRow = zoneNote
         let sessionSection = section(title: String(localized: "Session"), rows: [
             row(label: "", control: readOnlyCheckbox),
             row(label: "", control: connectOnLaunchCheckbox),
-            row(label: String(localized: "Time Zone"), control: sessionTimeZonePopup),
-            noteRow(caption(String(localized: "Applies to connections opened after this change."))),
+            zoneRow,
+            zoneNote,
         ])
 
-        let main = NSStackView(views: [header, serverSection, authSection, sshSection, dbSection,
-                                       sessionSection])
+        let main = NSStackView(views: [header, generalSection, serverSection, duckSection, authSection, sshSection,
+                                       dbSection, sessionSection])
         main.orientation = .vertical
         main.alignment = .leading
         main.spacing = L.sectionSpacing
@@ -836,6 +909,8 @@ final class ConnectionsManagerVC: NSViewController {
             main.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             main.bottomAnchor.constraint(equalTo: document.bottomAnchor),
             header.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
+            generalSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
+            duckSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             serverSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             authSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
             sshSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
@@ -1351,7 +1426,7 @@ final class ConnectionsManagerVC: NSViewController {
         // otherwise overwrite a baseline set there.
         draftBaseline = pendingStubIds.contains(id)
             ? ConnectionConfig(id: id, name: "", host: "", port: config.port,
-                               database: "", username: "")
+                               database: "", username: "", engine: config.engine)
             : config
         listModel.dirtyConnectionId = nil
         showPasswordFromLinkNote(passwordFromLinkId == id)
@@ -1364,9 +1439,15 @@ final class ConnectionsManagerVC: NSViewController {
         titleField.stringValue = DisplayEscape.escapedTrimmed(config.name)
             .ifEmpty("Untitled Connection")
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(config.name)
+        enginePopup.selectItem(at: DatabaseEngine.allCases.firstIndex(of: config.engine) ?? 0)
         hostField.stringValue = config.host
         portField.stringValue = String(config.port)
-        databaseField.stringValue = config.database
+        // The two engines keep different things in `database`: a server's
+        // database NAME, or a DuckDB FILE. Each goes to its own field, so
+        // switching the pop-up back and forth loses neither.
+        databaseField.stringValue = config.isDuckDB ? "" : config.database
+        duckInMemoryCheckbox.state = config.isInMemoryDuckDB ? .on : .off
+        duckPathField.stringValue = config.isDuckDB && !config.isInMemoryDuckDB ? config.database : ""
         usernameField.stringValue = config.username
         // A gated record is masked on EVERY selection, including a return to a
         // record revealed a moment ago: the gate is about walking up to the
@@ -1402,6 +1483,7 @@ final class ConnectionsManagerVC: NSViewController {
         applySslRowVisibility()
         readOnlyCheckbox.state = config.readOnly ? .on : .off
         connectOnLaunchCheckbox.state = config.connectOnLaunch ? .on : .off
+        applyEngineVisibility(config.engine)
         // `selectValue` leaves the selection alone when there is no such row,
         // so the empty case has to pick the sentinel itself — otherwise a
         // record with no zone would show the zone of the record before it.
@@ -1466,7 +1548,7 @@ final class ConnectionsManagerVC: NSViewController {
         // of a tunnel authentication failure. The marker is for the app —
         // `SshSecretPrompt` reads it — never for the reader.
         statusBadge.toolTip = stateManager.connectionError(for: id)
-            .map(SshTunnelAuthError.humanised)
+            .map { DuckDBOpenError.humanised(SshTunnelAuthError.humanised($0)) }
         switch listModel.status(for: id) {
         case .connected:   statusBadge.apply(state: .connected)
         case .connecting:  statusBadge.apply(state: .connecting)
@@ -1500,10 +1582,84 @@ final class ConnectionsManagerVC: NSViewController {
 
     private func isDraftValid() -> Bool {
         guard let d = draft else { return false }
-        return !d.name.trimmingCharacters(in: .whitespaces).isEmpty
-            && !d.host.trimmingCharacters(in: .whitespaces).isEmpty
-            && !d.database.trimmingCharacters(in: .whitespaces).isEmpty
-            && !d.username.trimmingCharacters(in: .whitespaces).isEmpty
+        return ConnectionFormRules.isValid(d)
+    }
+
+    // MARK: - Engine
+
+    /// The engine the pop-up shows.
+    private var selectedEngine: DatabaseEngine {
+        let i = enginePopup.indexOfSelectedItem
+        return DatabaseEngine.allCases.indices.contains(i) ? DatabaseEngine.allCases[i] : .postgres
+    }
+
+    @objc private func engineChanged() {
+        applyEngineVisibility(selectedEngine)
+        syncFormIntoDraft()
+    }
+
+    /// Show the sections the engine uses and hide the rest. A hidden section
+    /// keeps its fields, so switching back restores what was typed.
+    private func applyEngineVisibility(_ engine: DatabaseEngine) {
+        let v = ConnectionFormRules.visibility(for: engine)
+        serverSectionView?.isHidden = !v.server
+        authSectionView?.isHidden = !v.authentication
+        sshSectionView?.isHidden = !v.sshTunnel
+        databaseNameRow?.isHidden = !v.databaseName
+        duckSectionView?.isHidden = !v.databaseFile
+        timeZoneRow?.isHidden = !v.timeZone
+        timeZoneNoteRow?.isHidden = !v.timeZone
+        let inMemory = duckInMemoryCheckbox.state == .on
+        duckPathField.isEnabled = !inMemory
+        duckChooseButton.isEnabled = !inMemory
+        duckNewButton.isEnabled = !inMemory
+        readOnlyCheckbox.toolTip = ConnectionFormRules.readOnlyHelp(for: engine)
+        readOnlyCheckbox.isEnabled = !(engine == .duckdb && inMemory)
+    }
+
+    @objc private func duckInMemoryChanged() {
+        applyEngineVisibility(selectedEngine)
+        syncFormIntoDraft()
+    }
+
+    /// Choose… an existing DuckDB file. Any file can be picked: DuckDB names
+    /// none, and `.db` is as common as `.duckdb`.
+    @objc private func chooseDuckDBFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose a DuckDB database file.")
+        panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            self.useDuckDBFile(url)
+        }
+    }
+
+    /// New… — where a new database file goes. Nothing is written until the
+    /// connection opens; DuckDB creates the file then.
+    @objc private func newDuckDBFile() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [DuckDBFiles.contentType]
+        panel.nameFieldStringValue = String(localized: "Untitled.duckdb")
+        panel.prompt = String(localized: "Create")
+        panel.message = String(localized: "Choose where to create the DuckDB database.")
+        panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            self.useDuckDBFile(url)
+        }
+    }
+
+    private func useDuckDBFile(_ url: URL) {
+        duckPathField.stringValue = url.path
+        duckInMemoryCheckbox.state = .off
+        // A record still named by default takes the file's name.
+        if let d = draft, d.name.isEmpty || d.name == "Untitled" {
+            nameField.stringValue = url.deletingPathExtension().lastPathComponent
+        }
+        applyEngineVisibility(selectedEngine)
+        syncFormIntoDraft()
     }
 
     // MARK: - Editing
@@ -1636,9 +1792,13 @@ final class ConnectionsManagerVC: NSViewController {
     private func syncFormIntoDraft() {
         guard var d = draft else { return }
         d.name = nameField.stringValue
+        d.engine = selectedEngine
         d.host = hostField.stringValue
         d.port = UInt16(portField.stringValue) ?? d.port
-        d.database = databaseField.stringValue
+        d.database = d.engine == .duckdb
+            ? ConnectionFormRules.duckDBPath(inMemory: duckInMemoryCheckbox.state == .on,
+                                             typed: duckPathField.stringValue)
+            : databaseField.stringValue
         d.username = usernameField.stringValue
         // A masked field holds the MASK, not a password. Reading it here is
         // what would write "••••••••" over the stored password on the next
@@ -1685,6 +1845,9 @@ final class ConnectionsManagerVC: NSViewController {
         if liveOrFetchedSchemas(for: d) != nil, defaultSchemaPopup.isEnabled {
             d.defaultSchema = PopupValueMenu.selectedValue(in: defaultSchemaPopup)
         }
+        // A DuckDB record keeps no server fields (or tunnel, gate, zone).
+        d = ConnectionFormRules.normalized(d)
+        if d.isInMemoryDuckDB { d.readOnly = false }
         draft = d
 
         // An edit to the host, port, database, user or SSL mode has just made
@@ -1776,7 +1939,7 @@ final class ConnectionsManagerVC: NSViewController {
                         self.testStatusLabel.textColor = .systemGreen
                         self.populateDefaultSchemas(using: d)
                     } else {
-                        self.setTestStatus(DisplayEscape.escaped(result.error ?? "Failed"))
+                        self.setTestStatus(DisplayEscape.escaped(DuckDBOpenError.humanised(result.error ?? "Failed")))
                         self.testStatusLabel.textColor = .systemRed
                     }
                 }
@@ -1797,7 +1960,7 @@ final class ConnectionsManagerVC: NSViewController {
     /// name, the colour and the default schema itself are deliberately absent:
     /// changing those does not make a fetched schema list wrong.
     private static func connectionFingerprint(_ c: ConnectionConfig) -> String {
-        "\(c.host):\(c.port)/\(c.database)@\(c.username)#\(c.sslMode.rawValue)#\(c.requiresAuthentication)#\(tunnelFingerprint(c.sshTunnel))"
+        "\(c.engine.rawValue)|\(c.host):\(c.port)/\(c.database)@\(c.username)#\(c.sslMode.rawValue)#\(c.requiresAuthentication)#\(tunnelFingerprint(c.sshTunnel))"
     }
 
     /// The tunnel's part of the fingerprint. Everything here changes WHICH
@@ -1876,6 +2039,9 @@ final class ConnectionsManagerVC: NSViewController {
                 let tempId = "__test_schema_fetch_\(UUID().uuidString)"
                 var tempConfig = config
                 tempConfig.id = tempId
+                // Reading a DuckDB file's schemas must never create or change
+                // it. A missing file then simply has no list yet.
+                if tempConfig.isDuckDB && !tempConfig.isInMemoryDuckDB { tempConfig.readOnly = true }
                 try PharosCore.saveConnection(tempConfig)
                 _ = try await PharosCore.connect(connectionId: tempId)
                 let schemas: [SchemaInfo] = try await PharosCore.getSchemas(connectionId: tempId)

@@ -73,10 +73,24 @@ private func testConnectionLoss() {
     }
 }
 
+/// DuckDB runs in this process: its "IO Error" names a file a query read,
+/// not a socket. Only the core's "Not connected to" is a loss.
+func testDuckDBLoss() {
+    expectEqual(ConnectionLossClassifier.isConnectionLoss("IO Error: No files found that match the pattern \"/missing.csv\"", engine: .duckdb),
+                false, "a DuckDB IO Error is not a loss")
+    expectEqual(ConnectionLossClassifier.isConnectionLoss("IO Error: connection reset by peer", engine: .postgres),
+                true, "the same words on PostgreSQL still are")
+    expectEqual(ConnectionLossClassifier.isConnectionLoss("Not connected to: abc", engine: .duckdb),
+                true, "a database the core no longer holds is a loss")
+    expectEqual(ConnectionLossClassifier.isConnectionLoss("Catalog Error: Table with name x does not exist!", engine: .duckdb),
+                false, "a DuckDB catalog error is not a loss")
+}
+
 func runTests() {
     testRecorded()
     testSkipped()
     testConnectionLoss()
+    testDuckDBLoss()
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

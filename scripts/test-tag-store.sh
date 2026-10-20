@@ -13,7 +13,7 @@ swiftc -o "$BIN" \
   -I Pharos/CPharosCore \
   -L pharos-core/target/release -lpharos_core \
   -framework Security -framework SystemConfiguration -framework CoreFoundation \
-  -lz -liconv -lm -lresolv \
+  -lz -liconv -lm -lresolv -lc++ \
   Pharos/Core/AuthoredLabelSanitizer.swift \
   Pharos/Core/RustScalarError.swift \
   Pharos/Core/Log.swift \

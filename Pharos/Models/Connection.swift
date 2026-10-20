@@ -182,11 +182,123 @@ enum SshTunnelAuthError {
     }
 }
 
+// MARK: - Engine
+
+/// Which database engine a connection record talks to.
+///
+/// The raw values are the core's `Engine` wire form (`pharos-core/src/models/
+/// connection.rs`). A record written before DuckDB support has no `engine`
+/// key and is PostgreSQL. A DuckDB record keeps its database FILE in
+/// `ConnectionConfig.database` (an absolute path, or `:memory:`); its host,
+/// port and user are empty and unused.
+enum DatabaseEngine: String, Codable, CaseIterable {
+    case postgres
+    case duckdb
+
+    /// The name the UI shows for the engine.
+    var displayName: String {
+        switch self {
+        case .postgres: return "PostgreSQL"
+        case .duckdb: return "DuckDB"
+        }
+    }
+
+    /// The SQL dialect's name, for prompts and messages that name it.
+    var dialectName: String { displayName }
+
+    /// The schema a tab uses when nothing else chose one.
+    var defaultSchema: String {
+        switch self {
+        case .postgres: return "public"
+        case .duckdb: return "main"
+        }
+    }
+
+    /// What this engine supports, for the UI to gate on. Static per engine:
+    /// the form and the menus need it before any connect.
+    var capabilities: EngineCapabilities {
+        switch self {
+        case .postgres:
+            return EngineCapabilities(
+                serverConnection: true, explainJSONPlan: true, partitions: true, automaticAnalyze: true,
+                inlineEditing: true, savepoints: true, idleInTransactionTimeout: true, parquetExport: false,
+                fileDatabase: false)
+        case .duckdb:
+            return EngineCapabilities(
+                serverConnection: false, explainJSONPlan: false, partitions: false, automaticAnalyze: false,
+                inlineEditing: false, savepoints: false, idleInTransactionTimeout: false, parquetExport: true,
+                fileDatabase: true)
+        }
+    }
+}
+
+/// What an engine supports. Every flag is read by a UI gate; see
+/// `DatabaseEngine.capabilities`.
+struct EngineCapabilities: Equatable {
+    /// Host, port, user, password, SSL, SSH tunnel, time zone, Touch ID gate.
+    let serverConnection: Bool
+    /// EXPLAIN (FORMAT JSON) for the plan view. Without it, Explain shows
+    /// the engine's text plan.
+    let explainJSONPlan: Bool
+    /// Partitioned tables in the navigator and their settings.
+    let partitions: Bool
+    /// The navigator's automatic ANALYZE of never-analyzed tables.
+    let automaticAnalyze: Bool
+    /// Editing result cells in place.
+    let inlineEditing: Bool
+    /// A failed card inside a transaction is undone alone (PostgreSQL); without
+    /// savepoints it fails the whole transaction.
+    let savepoints: Bool
+    /// The server ends an idle transaction after a limit (the chip's countdown).
+    let idleInTransactionTimeout: Bool
+    /// Export ▸ Parquet.
+    let parquetExport: Bool
+    /// The record names a database file (or an in-memory database).
+    let fileDatabase: Bool
+}
+
+/// A DuckDB open failure the app can act on.
+///
+/// The core tags two failures before they cross the FFI
+/// (`pharos-core/src/db/duckdb/mod.rs`): the file is locked by another
+/// process (offer "Open Read-Only"), or it was written by a newer DuckDB.
+/// Pure and Foundation-only, the sibling of `ReadOnlyConnectionError`.
+enum DuckDBOpenError {
+    static let lockedMarker = "[PHAROS_DUCKDB_LOCKED]"
+    static let tooNewMarker = "[PHAROS_DUCKDB_TOO_NEW]"
+
+    static func isLocked(_ message: String?) -> Bool {
+        message?.contains(lockedMarker) ?? false
+    }
+
+    static func isTooNew(_ message: String?) -> Bool {
+        message?.contains(tooNewMarker) ?? false
+    }
+
+    /// The process that holds the lock, from DuckDB's "(PID n)", if it says.
+    static func holderPID(_ message: String) -> Int? {
+        guard let range = message.range(of: "(PID ") else { return nil }
+        let digits = message[range.upperBound...].prefix { $0.isNumber }
+        return Int(digits)
+    }
+
+    /// The message to show: the markers are for the app, not for the user.
+    static func humanised(_ message: String) -> String {
+        guard isLocked(message) || isTooNew(message) else { return message }
+        return message
+            .replacingOccurrences(of: lockedMarker, with: "")
+            .replacingOccurrences(of: tooNewMarker, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 // MARK: - Connection Config
 
 struct ConnectionConfig: Codable, Identifiable {
     var id: String
     var name: String
+    /// The engine. `.postgres` for every record written before DuckDB support.
+    var engine: DatabaseEngine = .postgres
     var host: String
     var port: UInt16
     var database: String
@@ -243,10 +355,13 @@ struct ConnectionConfig: Codable, Identifiable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
-        host = try c.decode(String.self, forKey: .host)
-        port = try c.decode(UInt16.self, forKey: .port)
+        engine = try c.decodeIfPresent(DatabaseEngine.self, forKey: .engine) ?? .postgres
+        // A DuckDB record has no server: tolerate an absent host, port or
+        // user. A PostgreSQL record from the core always carries all three.
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? ""
+        port = try c.decodeIfPresent(UInt16.self, forKey: .port) ?? 0
         database = try c.decode(String.self, forKey: .database)
-        username = try c.decode(String.self, forKey: .username)
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
         password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
         sslMode = try c.decodeIfPresent(SslMode.self, forKey: .sslMode) ?? .prefer
         defaultSchema = try c.decodeIfPresent(String.self, forKey: .defaultSchema)
@@ -273,9 +388,10 @@ struct ConnectionConfig: Codable, Identifiable {
          requiresAuthentication: Bool = false, sshTunnel: SshTunnelConfig? = nil,
          readOnly: Bool = false, rememberPassword: Bool = true,
          connectOnLaunch: Bool = false, sessionTimeZone: String? = nil,
-         sslRootCertPath: String? = nil) {
+         sslRootCertPath: String? = nil, engine: DatabaseEngine = .postgres) {
         self.id = id
         self.name = name
+        self.engine = engine
         self.host = host
         self.port = port
         self.database = database
@@ -293,9 +409,54 @@ struct ConnectionConfig: Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, host, port, database, username, password, sslMode, defaultSchema
+        case id, name, engine, host, port, database, username, password, sslMode, defaultSchema
         case requiresAuthentication, sshTunnel
         case readOnly, rememberPassword, connectOnLaunch, sessionTimeZone, sslRootCertPath
+    }
+}
+
+// MARK: - DuckDB file
+
+extension ConnectionConfig {
+    /// The path a DuckDB record uses for an in-memory database.
+    static let duckDBInMemoryPath = ":memory:"
+
+    var isDuckDB: Bool { engine == .duckdb }
+
+    /// A DuckDB record whose database lives only in memory.
+    var isInMemoryDuckDB: Bool {
+        isDuckDB && (database.trimmingCharacters(in: .whitespaces).isEmpty
+                     || database.trimmingCharacters(in: .whitespaces) == Self.duckDBInMemoryPath)
+    }
+
+    /// The schema a tab uses when nothing else chose one: the record's own
+    /// default, else the engine's.
+    var effectiveDefaultSchema: String {
+        if let s = defaultSchema?.trimmingCharacters(in: .whitespaces), !s.isEmpty { return s }
+        return engine.defaultSchema
+    }
+
+    /// Where the database is, as the UI shows it: `host:port/database` for a
+    /// server, the file path with `~` for the home folder for a DuckDB file,
+    /// or "In-memory".
+    var locationDescription: String {
+        guard isDuckDB else { return "\(host):\(port)/\(database)" }
+        if isInMemoryDuckDB { return String(localized: "In-memory") }
+        return Self.abbreviatingHome(database)
+    }
+
+    /// `/Users/x/Data/a.duckdb` → `~/Data/a.duckdb`.
+    static func abbreviatingHome(_ path: String, home: String = NSHomeDirectory()) -> String {
+        let prefix = home.hasSuffix("/") ? home : home + "/"
+        return path.hasPrefix(prefix) ? "~/" + path.dropFirst(prefix.count) : path
+    }
+
+    /// A new DuckDB record for a file (or `:memory:`), named after the file.
+    static func duckDB(path: String, name: String? = nil, id: String = UUID().uuidString) -> ConnectionConfig {
+        let stem = (path as NSString).lastPathComponent
+        let fallback = path == duckDBInMemoryPath ? String(localized: "In-memory DuckDB") : (stem as NSString).deletingPathExtension
+        return ConnectionConfig(id: id, name: name ?? fallback, host: "", port: 0, database: path,
+                                username: "", engine: .duckdb)
     }
 }
 
@@ -303,7 +464,7 @@ struct ConnectionConfig: Codable, Identifiable {
 
 extension ConnectionConfig: Equatable {
     public static func == (a: ConnectionConfig, b: ConnectionConfig) -> Bool {
-        a.id == b.id && a.name == b.name && a.host == b.host && a.port == b.port
+        a.id == b.id && a.name == b.name && a.engine == b.engine && a.host == b.host && a.port == b.port
             && a.database == b.database && a.username == b.username
             && a.password == b.password && a.sslMode == b.sslMode
             && a.defaultSchema == b.defaultSchema

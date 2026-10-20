@@ -335,7 +335,7 @@ final class AppStateManager: ObservableObject {
     func useConnection(_ connectionId: String, forTabId tabId: String, in session: WindowSession) {
         guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         let connectionChanged = tab.connectionId != connectionId
-        let newSchema = connections.first(where: { $0.id == connectionId })?.defaultSchema ?? "public"
+        let newSchema = connections.first(where: { $0.id == connectionId })?.effectiveDefaultSchema ?? "public"
         session.updateTab(id: tabId) {
             $0.connectionId = connectionId
             if connectionChanged { $0.schemaName = newSchema }
@@ -375,6 +375,8 @@ final class AppStateManager: ObservableObject {
         let target = session ?? keySession
         guard let config = connections.first(where: { $0.id == id }),
               config.requiresAuthentication,
+              // A DuckDB record has no password to guard; the form hides the switch.
+              !config.isDuckDB,
               // A gate this connection passed moments ago still counts. One
               // connect can reach here three times in a few seconds — the
               // first attempt, the password prompt behind it, and the status
@@ -489,14 +491,23 @@ final class AppStateManager: ObservableObject {
         gatePassedAt.removeAll()
     }
 
-    private func performConnect(id: String, in session: WindowSession?) {
+    /// Open a DuckDB record read-only for this connect only: the answer to a
+    /// file another process holds for writing (`PasswordPromptCoordinator`).
+    func connect(id: String, readOnly: Bool) {
+        guard readOnly else { connect(id: id); return }
+        performConnect(id: id, in: keySession, readOnly: true)
+    }
+
+    private func performConnect(id: String, in session: WindowSession?, readOnly: Bool = false) {
         connectionStatuses[id] = .connecting
         connectionErrors.removeValue(forKey: id)
         postStatusChange(id)
 
         Task {
             do {
-                let info = try await PharosCore.connect(connectionId: id)
+                let info = readOnly
+                    ? try await PharosCore.connectReadOnly(connectionId: id)
+                    : try await PharosCore.connect(connectionId: id)
                 self.connectionStatuses[id] = info.status
                 // A refused connection comes back as a value, not a throw, so
                 // without this the reason was lost and the toolbar only turned
@@ -528,7 +539,8 @@ final class AppStateManager: ObservableObject {
                     let schema = ConnectSchema.resolve(
                         tabSchema: tabSchema,
                         configured: self.connections.first(where: { $0.id == id })?.defaultSchema,
-                        windowRemembered: session.activeSchema)
+                        windowRemembered: session.activeSchema,
+                        engineDefault: self.connections.first(where: { $0.id == id })?.engine.defaultSchema ?? "public")
                     session.activeSchema = schema
 
                     if let tabId = session.activeTabId {
@@ -933,7 +945,8 @@ final class AppStateManager: ObservableObject {
     /// on the single most common failure in this app would disconnect the
     /// user every time a query ran long.
     func markConnectionLost(id: String, reason: String) {
-        guard ConnectionLossClassifier.isConnectionLoss(reason) else { return }
+        let engine = connections.first(where: { $0.id == id })?.engine ?? .postgres
+        guard ConnectionLossClassifier.isConnectionLoss(reason, engine: engine) else { return }
         guard connectionStatuses[id] != .error else { return }
         connectionStatuses[id] = .error
         connectionErrors[id] = reason

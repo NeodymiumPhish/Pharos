@@ -1019,6 +1019,19 @@ struct ConnectionSettings: Codable, Equatable {
     var tabIdleInTransactionSeconds: UInt32 = 600
     /// Most editor-tab connections to one server; 0 = no limit.
     var maxTabSessionsPerConnection: UInt32 = 8
+
+    // DuckDB (Settings ▸ Connections ▸ DuckDB). Read when a database opens.
+
+    /// Worker threads per database. 0 = DuckDB's default (all cores).
+    var duckdbThreads: UInt32 = 0
+    /// `memory_limit` per database, e.g. "4GB". Empty = DuckDB's default.
+    var duckdbMemoryLimit: String = ""
+    /// Where downloaded extensions go. Empty = `~/.duckdb/extensions`.
+    var duckdbExtensionDirectory: String = ""
+    /// Download a known extension (icu, httpfs…) the first time a query needs it.
+    var duckdbAutoinstallExtensions: Bool = true
+    /// Allow `INSTALL x FROM community`.
+    var duckdbAllowCommunityExtensions: Bool = false
 }
 
 /// The time zones a session may be asked for: the ones this Mac knows, plus

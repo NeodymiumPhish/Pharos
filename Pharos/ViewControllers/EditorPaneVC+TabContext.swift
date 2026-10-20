@@ -23,7 +23,7 @@ extension EditorPaneVC {
         let status = config.map { stateManager.status(for: $0.id) }
         let reason = status == .error
             ? config.flatMap { stateManager.connectionError(for: $0.id) }
-                .map { DisplayEscape.escaped(SshTunnelAuthError.humanised($0)) }
+                .map { DisplayEscape.escaped(DuckDBOpenError.humanised(SshTunnelAuthError.humanised($0))) }
             : nil
         tabContextBar.showState(TabContextState(connectionName: config?.name, status: status, failureReason: reason))
 

@@ -18,9 +18,11 @@ enum ConnectSchema {
     /// connection's configured default is for a tab that has not chosen —
     /// new tabs get it in `WindowSession.createTab`, and the toolbar pick
     /// applies it when a tab CHANGES connection (`useConnection`). Then the
-    /// window's own memory of the connection, then `public`.
-    static func resolve(tabSchema: String?, configured: String?, windowRemembered: String?) -> String {
+    /// window's own memory of the connection, then the engine's default
+    /// (`public` for PostgreSQL, `main` for DuckDB).
+    static func resolve(tabSchema: String?, configured: String?, windowRemembered: String?,
+                        engineDefault: String = "public") -> String {
         let configuredOrNil = configured.flatMap { $0.isEmpty ? nil : $0 }
-        return tabSchema ?? configuredOrNil ?? windowRemembered ?? "public"
+        return tabSchema ?? configuredOrNil ?? windowRemembered ?? engineDefault
     }
 }

@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/query-failure-classification-tests \
   Pharos/Core/HistoryFailureFilter.swift \
   Pharos/Core/ConnectionLossClassifier.swift \
+  Pharos/Models/Connection.swift \
   PharosTests/HistoryFailureFilterTests.swift \
   PharosTests/main.swift
 /tmp/query-failure-classification-tests

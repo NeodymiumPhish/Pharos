@@ -47,6 +47,17 @@ enum ConnectionLossClassifier {
         "query was cancelled",
     ]
 
+    /// A DuckDB database lives in this process: no socket, no server to lose.
+    /// Its "IO Error: No files found …" is about a FILE a query named, so the
+    /// only loss is the core no longer holding the database at all.
+    static let duckDBLossPhrases: [String] = ["not connected to"]
+
+    static func isConnectionLoss(_ message: String, engine: DatabaseEngine) -> Bool {
+        guard engine == .duckdb else { return isConnectionLoss(message) }
+        let lowered = message.lowercased()
+        return duckDBLossPhrases.contains { lowered.contains($0) }
+    }
+
     static func isConnectionLoss(_ message: String) -> Bool {
         let lowered = message.lowercased()
         if notLossPhrases.contains(where: { lowered.contains($0) }) { return false }

@@ -58,6 +58,17 @@ enum MainMenu {
         let openItem = fileMenu.addItem(withTitle: String(localized: "Open…"), action: #selector(AppDelegate.menuOpenSQLFile(_:)), keyEquivalent: "o")
         openItem.keyEquivalentModifierMask = [.command]
 
+        // DuckDB: a database FILE is a connection, opened or created here.
+        let newDuck = fileMenu.addItem(withTitle: String(localized: "New DuckDB Database…"), action: #selector(AppDelegate.menuNewDuckDBDatabase(_:)), keyEquivalent: "")
+        newDuck.image = NSImage(systemSymbolName: "cylinder.badge.plus", accessibilityDescription: nil)
+        let openDuck = fileMenu.addItem(withTitle: String(localized: "Open DuckDB Database…"), action: #selector(AppDelegate.menuOpenDuckDBDatabase(_:)), keyEquivalent: "O")
+        openDuck.keyEquivalentModifierMask = [.command, .shift]
+        openDuck.image = NSImage(systemSymbolName: "cylinder", accessibilityDescription: nil)
+        let recentItem = fileMenu.addItem(withTitle: String(localized: "Open Recent"), action: nil, keyEquivalent: "")
+        let recentMenu = NSMenu(title: String(localized: "Open Recent"))
+        recentMenu.delegate = DuckDBRecentMenuDelegate.shared
+        recentItem.submenu = recentMenu
+
         fileMenu.addItem(.separator())
 
         // ⌘N. Manage Connections keeps ⇧⌘N, which it has always had.
