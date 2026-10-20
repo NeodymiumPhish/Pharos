@@ -44,8 +44,9 @@ cbindgen = "0.27"
 
 # Build scripts and proc-macros (host tools, never shipped) are not stripped.
 # Xcode 27's `strip -S` writes a "mis-aligned LINKEDIT string pool" into a
-# proc-macro dylib built with MACOSX_DEPLOYMENT_TARGET=26.0 (which Xcode's
-# pre-build exports), and rustc then cannot load it: "can't find crate for
-# `zerocopy_derive`". The staticlib is not affected by this setting.
+# newly built proc-macro dylib, and rustc then cannot load it ("can't find
+# crate for `sqlx_macros`" / `zerocopy_derive`). sqlx-macros breaks at any
+# deployment target; zerocopy-derive breaks with MACOSX_DEPLOYMENT_TARGET=26.0,
+# which Xcode's pre-build exports. The staticlib is not affected.
 [profile.release.build-override]
 strip = false
