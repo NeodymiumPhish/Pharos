@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/result-value-formatter-tests \
   Pharos/Models/Settings.swift \
   Pharos/Models/Charts/ChartPalette.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/ResultValueFormatter.swift \
   PharosTests/ResultValueFormatterTests.swift \
   PharosTests/main.swift

@@ -19,6 +19,7 @@ swiftc -o /tmp/tag-condition-row-view-tests \
   Pharos/Core/TagFamilyLabel.swift \
   Pharos/Core/TagGlob.swift \
   Pharos/Core/TagPredicate.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/Tag.swift \
   Pharos/Views/HostileTextBadge.swift \

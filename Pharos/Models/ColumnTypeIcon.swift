@@ -8,7 +8,7 @@ import Foundation
 enum ColumnTypeIcon {
 
     static func symbolName(forDataType dataType: String) -> String {
-        let t = dataType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let t = SQLTypeName.postgresEquivalent(dataType)
 
         // Array first: information_schema reports "ARRAY"; also handle "<type>[]".
         if t == "array" || t.hasSuffix("[]") { return "curlybraces" }

@@ -116,5 +116,60 @@ func runTests() {
     expect(hmn?.layout.xNumericBinned == true, "layout marks x numeric-binned")
     expect(hmn?.layout.yNumericBinned == false, "y stays discrete")
 
+    // MARK: DuckDB dialect
+    func duck(_ c: ChartConfig) -> String? {
+        SqlPushdownGenerator.generate(c, userSQL: src, columns: cols, dialect: .duckdb)?.sql
+    }
+    let duckQueries: [(String, String?)] = [
+        ("numeric bins", duck(cfg(.bar, [.category: 3, .value: 1], .sum, nb: .b20))),
+        ("auto numeric bins", duck(cfg(.bar, [.category: 3, .value: 1], .sum, nb: .auto))),
+        ("monthly timestamptz", duck(cfg(.line, [.category: 2, .value: 1], .sum, tb: .month))),
+        ("scatter sample", duck(cfg(.scatter, [.x: 1, .y: 3]))),
+        ("numeric heatmap", duck(cfg(.heatmap, [.x: 3, .y: 0], .count, nb: .b10))),
+        ("discrete bar", duck(cfg(.bar, [.category: 0, .value: 1], .sum))),
+    ]
+    for (name, sql) in duckQueries {
+        expect(sql != nil, "DuckDB \(name) is generated")
+        expect(!(sql ?? "").contains("width_bucket") && !(sql ?? "").contains("hashtext") && !(sql ?? "").contains("AT TIME ZONE"),
+               "DuckDB \(name) uses no PostgreSQL-only function")
+    }
+    contains(duckQueries[2].1, #"date_trunc('month', CAST("ts" AS TIMESTAMP))"#, "DuckDB truncates a TIMESTAMPTZ as UTC with a cast")
+    contains(duckQueries[3].1, "ORDER BY hash(_pharos_src)", "DuckDB samples by the row's hash")
+    contains(duckQueries[0].1, "floor((", "DuckDB writes width_bucket out")
+    // PostgreSQL is unchanged by the new parameter's default.
+    contains(SqlPushdownGenerator.generate(cfg(.bar, [.category: 3, .value: 1], .sum, nb: .b20), userSQL: src, columns: cols)?.sql,
+             "width_bucket(", "PostgreSQL keeps width_bucket")
+
+    // When the DuckDB CLI is installed, every DuckDB query must RUN. The CLI
+    // is a stand-in for the engine Pharos links; set PHAROS_DUCKDB_CLI to
+    // choose one, or leave it unset to use `duckdb` on the PATH.
+    let cliPath = ProcessInfo.processInfo.environment["PHAROS_DUCKDB_CLI"]
+        ?? ["/opt/homebrew/bin/duckdb", "/usr/local/bin/duckdb", NSHomeDirectory() + "/.local/bin/duckdb"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    if let cliPath {
+        let setup = """
+        CREATE TABLE t AS SELECT ['a','b','c'][(range % 3) + 1] AS status, (range * 1.5)::DECIMAL(10,2) AS amt,
+          (TIMESTAMP '2024-01-01' + to_hours(range))::TIMESTAMPTZ AS ts, range::INTEGER AS age FROM range(100);
+        """
+        for (name, sql) in duckQueries {
+            guard let sql else { continue }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: cliPath)
+            process.arguments = ["-csv", "-c", setup + sql + ";"]
+            let out = Pipe(), err = Pipe()
+            process.standardOutput = out
+            process.standardError = err
+            try? process.run()
+            process.waitUntilExit()
+            let errText = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let rows = (String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
+                .split(separator: "\n").count
+            expect(process.terminationStatus == 0 && errText.isEmpty && rows > 1,
+                   "DuckDB \(name) runs in \(cliPath) [\(errText.prefix(200))]")
+        }
+    } else {
+        print("SKIP the DuckDB CLI is not installed; the DuckDB queries were not run")
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

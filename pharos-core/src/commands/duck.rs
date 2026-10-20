@@ -201,15 +201,15 @@ pub async fn validate_sql(connection_id: String, sql: String, schema: Option<Str
     super::duck_session::validate_sql(target, sql, state).await
 }
 
-/// EXPLAIN as DuckDB's text plan. ANALYZE runs inside a transaction that is
-/// rolled back.
+/// EXPLAIN for the plan view (`exec::explain_plan_json`). ANALYZE runs inside
+/// a transaction that is rolled back.
 pub async fn explain(connection_id: String, sql: String, analyze: bool, state: &AppState) -> Result<String, String> {
     let statement = super::query::single_statement(&sql)?;
     on_fresh(state, &connection_id, None, None, move |c| {
         if analyze {
             c.execute_batch("BEGIN").map_err(|e| e.to_string())?;
         }
-        let plan = exec::explain_text(c, &statement, analyze);
+        let plan = exec::explain_plan_json(c, &statement, analyze);
         if analyze {
             let _ = c.execute_batch("ROLLBACK");
         }

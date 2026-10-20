@@ -2267,6 +2267,7 @@ class ContentViewController: NSViewController {
     private func showDisplayedResult() {
         if let r = displayedResult {
             if r.showsPlan, let plan = r.plan {
+                planHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
                 planHost.show(plan: plan, json: r.planJSON ?? "", isAnalyze: r.planIsAnalyze)
             }
             if let result = r.queryResult {
@@ -3709,6 +3710,7 @@ extension ContentViewController {
         if chartToggle.selectedSegment == 2 {
             _ = mutateResult(cardId: id) { $0.showsPlan = true }
             if let r = displayedResult, let plan = r.plan {
+                planHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
                 planHost.show(plan: plan, json: r.planJSON ?? "", isAnalyze: r.planIsAnalyze)
             }
             applyResultAreaVisibility()
@@ -3766,6 +3768,7 @@ extension ContentViewController {
             chartHost.onServerConfigChanged = nil
             chartHost.onCopySQL = nil
             chartHost.onRunServerAggregation = nil
+            chartHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
             chartHost.present(
                 result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
                 sql: cardResults[idx].sql,
@@ -3798,6 +3801,7 @@ extension ContentViewController {
         chartHost.onCopySQL = { [weak self] in self?.copyGeneratedChartSQL() }
         // The reopen "Run…" affordance runs immediately (no debounce).
         chartHost.onRunServerAggregation = { [weak self] in self?.runServerAggregation(debounced: false) }
+        chartHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
         chartHost.present(result: result, sql: cardResults[idx].sql, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
         // Capture the config the host actually used (inference may have filled it).
         cardResults[idx].chartConfig = chartHost.currentConfig
@@ -3810,6 +3814,14 @@ extension ContentViewController {
 
     /// Compute push-down availability for the active chart and push it (plus a
     /// disabled-reason) into the view model so the rail can show/hide the toggle.
+    /// The dialect chart pushdown SQL is written in: the active tab's engine.
+    private var activeSqlDialect: SqlDialect {
+        guard let id = session.activeTab?.connectionId,
+              stateManager.connections.first(where: { $0.id == id })?.isDuckDB == true
+        else { return .postgres }
+        return .duckdb
+    }
+
     private func refreshPushdownAvailability() {
         guard let id = displayedCardId,
               let idx = cardResults.firstIndex(where: { $0.id == id }),
@@ -3819,7 +3831,7 @@ extension ContentViewController {
             return
         }
         let userSQL = cardResults[idx].sql
-        if SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: userSQL, columns: result.columns) != nil {
+        if SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: userSQL, columns: result.columns, dialect: activeSqlDialect) != nil {
             chartHost.setPushdownAvailability(true, reason: nil)
         } else {
             chartHost.setPushdownAvailability(false, reason: pushdownUnavailableReason(cfg, userSQL: userSQL))
@@ -3874,7 +3886,7 @@ extension ContentViewController {
             chartHost.setServerLoading(false)
             return
         }
-        guard let pushdown = SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: cardResults[idx].sql, columns: result.columns) else {
+        guard let pushdown = SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: cardResults[idx].sql, columns: result.columns, dialect: activeSqlDialect) else {
             chartHost.setServerError("Server aggregation isn't available for this configuration.")
             return
         }
@@ -3977,7 +3989,7 @@ extension ContentViewController {
               let idx = cardResults.firstIndex(where: { $0.id == id }),
               let result = cardResults[idx].queryResult,
               let cfg = cardResults[idx].chartConfig,
-              let pushdown = SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: cardResults[idx].sql, columns: result.columns) else {
+              let pushdown = SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: cardResults[idx].sql, columns: result.columns, dialect: activeSqlDialect) else {
             NSSound.beep(); return
         }
         NSPasteboard.general.clearContents()
@@ -3995,7 +4007,7 @@ extension ContentViewController {
               let idx = cardResults.firstIndex(where: { $0.id == id }),
               let result = cardResults[idx].queryResult,
               let cfg = cardResults[idx].chartConfig, cfg.serverAggregation else { return false }
-        return SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: cardResults[idx].sql, columns: result.columns) != nil
+        return SqlPushdownGenerator.generate(cfg.resolvingAutoBins(for: result), userSQL: cardResults[idx].sql, columns: result.columns, dialect: activeSqlDialect) != nil
     }
 
     // MARK: Chart Drill-down

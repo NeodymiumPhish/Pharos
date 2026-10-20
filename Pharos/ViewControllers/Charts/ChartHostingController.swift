@@ -10,6 +10,8 @@ final class ChartHostingController: NSViewController {
     /// The statement behind the presented result, for the chart suggestion's
     /// prompt (schema-level text, like the name and describe features send).
     private var sql = ""
+    /// The engine's dialect name for the chart suggestion's instructions.
+    var dialectName = "PostgreSQL"
     private let suggester = ChartSuggester()
     private var suggestionTask: Task<Void, Never>?
 
@@ -78,7 +80,7 @@ final class ChartHostingController: NSViewController {
             do {
                 let outcome = try await self.suggester.suggest(
                     profiles: model.profiles, rowCount: model.rowCount,
-                    candidates: model.recommendations, sql: self.sql)
+                    candidates: model.recommendations, sql: self.sql, dialect: self.dialectName)
                 guard !Task.isCancelled else { return }
                 model.apply(config: outcome.config,
                             state: .answered(reason: outcome.reason, promptHash: outcome.promptHash, fromModel: outcome.fromModel))

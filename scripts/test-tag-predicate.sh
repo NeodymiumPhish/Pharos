@@ -8,6 +8,7 @@ swiftc -o /tmp/tag-predicate-tests \
   Pharos/Core/TagConditionKind.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/TagGlob.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/Tag.swift \
   Pharos/Core/TagPredicate.swift \

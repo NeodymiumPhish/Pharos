@@ -60,9 +60,13 @@ final class DescribeQueryPopoverVC: NSViewController {
 
     // MARK: - Init
 
-    init(catalog: @escaping () async -> DraftCatalog, defaultSchema: String?) {
+    /// The engine's dialect name for the draft's instructions.
+    private let dialect: String
+
+    init(catalog: @escaping () async -> DraftCatalog, defaultSchema: String?, dialect: String = "PostgreSQL") {
         self.catalog = catalog
         self.defaultSchema = defaultSchema
+        self.dialect = dialect
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -249,9 +253,10 @@ final class DescribeQueryPopoverVC: NSViewController {
 
         let catalog = self.catalog
         let defaultSchema = self.defaultSchema
+        let dialect = self.dialect
         draftTask = Task { [weak self] in
             do {
-                let pipeline = SQLDraftPipeline(catalog: await catalog(), defaultSchema: defaultSchema)
+                let pipeline = SQLDraftPipeline(catalog: await catalog(), defaultSchema: defaultSchema, dialect: dialect)
                 pipeline.onStage = { [weak self] stage in self?.show(stage: stage) }
                 let result = try await pipeline.draft(description)
                 guard !Task.isCancelled else { return }

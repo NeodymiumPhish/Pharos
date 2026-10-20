@@ -357,6 +357,12 @@ final class AppStateManager: ObservableObject {
     /// the connections form can show the reason beside the badge.
     @Published private(set) var connectionErrors: [String: String] = [:]
 
+    /// The SQL dialect a connection speaks, for the model's instructions.
+    func dialectName(for connectionId: String?) -> String {
+        guard let connectionId else { return DatabaseEngine.postgres.dialectName }
+        return (connections.first { $0.id == connectionId }?.engine ?? .postgres).dialectName
+    }
+
     func connectionError(for connectionId: String) -> String? {
         connectionErrors[connectionId]
     }

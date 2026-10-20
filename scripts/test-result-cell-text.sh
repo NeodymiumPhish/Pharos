@@ -8,6 +8,7 @@ swiftc -o /tmp/result-cell-text-tests \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/Settings.swift \
   Pharos/Models/Charts/ChartPalette.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Core/ResultValueFormatter.swift \
   Pharos/ViewControllers/ResultsGrid/ResultCellText.swift \

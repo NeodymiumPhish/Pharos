@@ -168,7 +168,8 @@ final class ErrorExplanationView: NSView, QueryErrorExplaining {
             cache: MetadataCache.shared.metadata(for: connectionId), sql: failure.sql)
         let run: ErrorExplanationRun
         do {
-            run = try explainer.explain(failure: failure, knownObjects: known)
+            run = try explainer.explain(failure: failure, knownObjects: known,
+                                        dialect: AppStateManager.shared.dialectName(for: connectionId))
         } catch {
             show(error)
             return

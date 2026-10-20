@@ -11,7 +11,7 @@ enum PGTypeCategory {
     case string
 
     init(dataType: String) {
-        let dt = dataType.lowercased().trimmingCharacters(in: .whitespaces)
+        let dt = SQLTypeName.postgresEquivalent(dataType)
         if dt.hasSuffix("[]") || dt.hasPrefix("_") {
             self = .array
             return

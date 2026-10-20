@@ -203,12 +203,14 @@
 		8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */; };
 		82639C9F3839B61AE7D03D3E /* ChartSuggestionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
+		834A89BB88BF7F87A3247D2D /* DuckDBVocabularyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */; };
 		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
 		8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7353499DAF1364777E974B1F /* TagConditionRowView.swift */; };
 		85EC5B8FCC50F2491D742AA5 /* SQLSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 926D010C1B262892B7B738FE /* SQLSummary.swift */; };
 		8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */; };
+		8859849E6D15A46D85580748 /* SQLTypeName.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */; };
 		894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */; };
 		89EF93E93C0C817C39749B9C /* SettingsTilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */; };
 		8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */; };
@@ -423,6 +425,7 @@
 		144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshSecretPrompt.swift; sourceTree = "<group>"; };
 		14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsavedWorkPolicy.swift; sourceTree = "<group>"; };
 		153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSuggestionPolicy.swift; sourceTree = "<group>"; };
+		159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckDBVocabularyCache.swift; sourceTree = "<group>"; };
 		15F15F6D530ED4B08BF8F19F /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		15F5E389F53B27A6EB63DC1C /* CardResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardResult.swift; sourceTree = "<group>"; };
 		16679621777BEB58D425E66E /* ChartData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartData.swift; sourceTree = "<group>"; };
@@ -678,6 +681,7 @@
 		C93588EE0C42422561A35483 /* RowFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowFingerprint.swift; sourceTree = "<group>"; };
 		C9D1375D34DE7C7482FB4BEC /* SQLEditorController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLEditorController.swift; sourceTree = "<group>"; };
 		CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBadgeButton.swift; sourceTree = "<group>"; };
+		CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLTypeName.swift; sourceTree = "<group>"; };
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
 		CD157725BA52EAD6B6DCC696 /* TagManagerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerModel.swift; sourceTree = "<group>"; };
 		CD603AFB01565AD908BD0E0E /* CardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardViews.swift; sourceTree = "<group>"; };
@@ -847,6 +851,7 @@
 				FC0387D201E65BB04093EBEA /* QuickLookItemBuilder.swift */,
 				58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */,
 				0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */,
+				CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -1084,6 +1089,7 @@
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
 				312D6DCAE7C41B74E819934F /* DuckDBFiles.swift */,
+				159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */,
 				AB1E5037B8F3B1BB2DA446A4 /* ExportImportOutcomeText.swift */,
 				7B35EC2009F073EB57DC62C5 /* FailurePresentationRule.swift */,
 				C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */,
@@ -1524,6 +1530,7 @@
 				F94A3BE1A6CD5B7B31BD8BD0 /* DrillSummary.swift in Sources */,
 				F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */,
 				8BA5D322E3AAE0EE87353DA2 /* DuckDBFiles.swift in Sources */,
+				834A89BB88BF7F87A3247D2D /* DuckDBVocabularyCache.swift in Sources */,
 				806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */,
 				3E29C8CBCB83D4D5A595A604 /* EditorPaneVC+TabContext.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
@@ -1695,6 +1702,7 @@
 				24701D6C8632E19AF009D196 /* SQLSyntaxHighlighter.swift in Sources */,
 				F4A84AED2911F5E33933AB26 /* SQLTextView.swift in Sources */,
 				894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */,
+				8859849E6D15A46D85580748 /* SQLTypeName.swift in Sources */,
 				BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */,
 				E6F5C3DA2A93FCA86008C096 /* SaveQuerySheet.swift in Sources */,
 				E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */,

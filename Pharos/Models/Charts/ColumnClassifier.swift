@@ -3,7 +3,7 @@ import Foundation
 /// Classifies a PostgreSQL column type string into a ColumnKind for charting.
 enum ColumnClassifier {
     static func kind(forDataType dataType: String) -> ColumnKind {
-        let t = dataType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let t = SQLTypeName.postgresEquivalent(dataType)
 
         // Temporal
         if t.hasPrefix("date") || t.hasPrefix("timestamp") || t.hasPrefix("time") {

@@ -32,6 +32,7 @@ swiftc -o /tmp/tag-rule-grid-view-tests \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagManagerModel.swift \
   Pharos/Core/TagPredicate.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \

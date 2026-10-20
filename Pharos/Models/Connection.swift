@@ -220,14 +220,12 @@ enum DatabaseEngine: String, Codable, CaseIterable {
         switch self {
         case .postgres:
             return EngineCapabilities(
-                serverConnection: true, explainJSONPlan: true, partitions: true, automaticAnalyze: true,
-                inlineEditing: true, savepoints: true, idleInTransactionTimeout: true, parquetExport: false,
-                fileDatabase: false)
+                serverConnection: true, partitions: true, automaticAnalyze: true,
+                parquetExport: false)
         case .duckdb:
             return EngineCapabilities(
-                serverConnection: false, explainJSONPlan: false, partitions: false, automaticAnalyze: false,
-                inlineEditing: false, savepoints: false, idleInTransactionTimeout: false, parquetExport: true,
-                fileDatabase: true)
+                serverConnection: false, partitions: false, automaticAnalyze: false,
+                parquetExport: true)
         }
     }
 }
@@ -237,24 +235,12 @@ enum DatabaseEngine: String, Codable, CaseIterable {
 struct EngineCapabilities: Equatable {
     /// Host, port, user, password, SSL, SSH tunnel, time zone, Touch ID gate.
     let serverConnection: Bool
-    /// EXPLAIN (FORMAT JSON) for the plan view. Without it, Explain shows
-    /// the engine's text plan.
-    let explainJSONPlan: Bool
     /// Partitioned tables in the navigator and their settings.
     let partitions: Bool
     /// The navigator's automatic ANALYZE of never-analyzed tables.
     let automaticAnalyze: Bool
-    /// Editing result cells in place.
-    let inlineEditing: Bool
-    /// A failed card inside a transaction is undone alone (PostgreSQL); without
-    /// savepoints it fails the whole transaction.
-    let savepoints: Bool
-    /// The server ends an idle transaction after a limit (the chip's countdown).
-    let idleInTransactionTimeout: Bool
     /// Export ▸ Parquet.
     let parquetExport: Bool
-    /// The record names a database file (or an in-memory database).
-    let fileDatabase: Bool
 }
 
 /// A DuckDB open failure the app can act on.

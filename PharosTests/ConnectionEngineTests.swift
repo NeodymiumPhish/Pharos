@@ -62,10 +62,8 @@ func runTests() {
     // 6. Capabilities.
     let pg = DatabaseEngine.postgres.capabilities, dk = DatabaseEngine.duckdb.capabilities
     expect(pg.serverConnection && !dk.serverConnection, "only PostgreSQL has a server")
-    expect(pg.inlineEditing && !dk.inlineEditing, "inline editing is PostgreSQL-only in v1")
-    expect(pg.explainJSONPlan && !dk.explainJSONPlan, "the JSON plan view is PostgreSQL-only")
     expect(!pg.parquetExport && dk.parquetExport, "Parquet export is DuckDB-only")
-    expect(!dk.idleInTransactionTimeout && !dk.savepoints && !dk.partitions && !dk.automaticAnalyze, "DuckDB has none of the server features")
+    expect(!dk.partitions && !dk.automaticAnalyze, "DuckDB has no partitions and no automatic ANALYZE")
     expect(DatabaseEngine.duckdb.dialectName == "DuckDB" && DatabaseEngine.postgres.dialectName == "PostgreSQL", "dialect names")
 
     // 7. DuckDB open errors.

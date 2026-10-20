@@ -242,7 +242,13 @@ class EditorPaneVC: NSViewController {
                 self?.updateDescribeQueryButton()
                 self?.cardStack.refreshStatus()
                 self?.refreshTabContext()
+                self?.refreshEngineVocabulary()
             }
+            .store(in: &cancellables)
+        session.$activeConnectionId
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshEngineVocabulary() }
             .store(in: &cancellables)
         stateManager.$connections
             .map { $0.map(\.name) }
@@ -875,7 +881,8 @@ class EditorPaneVC: NSViewController {
             catalog: { [metadataCache] in
                 DraftCatalog.from(metadataCache.metadata(for: connectionId), facts: await facts.value)
             },
-            defaultSchema: tabSchemaName)
+            defaultSchema: tabSchemaName,
+            dialect: stateManager.dialectName(for: connectionId))
         popoverVC.onInsert = { [weak self] sql in
             guard let self else { return }
             // Close first: the editor can only take the keyboard back once
@@ -913,6 +920,24 @@ class EditorPaneVC: NSViewController {
     private func closeDescribeQueryPopover() {
         describeQueryPopover?.performClose(nil)
         describeQueryPopover = nil
+    }
+
+    /// The completion list's engine half: the schema the engine searches
+    /// after the current one, and DuckDB's own function names once the
+    /// database is open (`DuckDBVocabularyCache`).
+    private func refreshEngineVocabulary() {
+        let id = session.activeConnectionId
+        let engine = id.flatMap { id in stateManager.connections.first { $0.id == id }?.engine } ?? .postgres
+        completionProvider.homeSchema = engine.defaultSchema
+        guard engine == .duckdb, let id, stateManager.status(for: id) == .connected else {
+            completionProvider.engineFunctionNames = []
+            if let id, stateManager.status(for: id) == .disconnected { DuckDBVocabularyCache.shared.forget(id) }
+            return
+        }
+        DuckDBVocabularyCache.shared.functionNames(for: id) { [weak self] names in
+            guard let self, self.session.activeConnectionId == id else { return }
+            self.completionProvider.engineFunctionNames = names
+        }
     }
 
     // MARK: - Per-Tab Connection / Schema Helpers

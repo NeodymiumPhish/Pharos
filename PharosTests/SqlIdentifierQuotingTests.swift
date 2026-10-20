@@ -48,5 +48,14 @@ func runTests() {
     expect(quotedSqlIdentifier("select") == "\"select\"", "keyword-like name quoted verbatim")
     expect(quotedSqlIdentifier("MiXeD.case name") == "\"MiXeD.case name\"", "dots and spaces preserved inside quotes")
 
+    // DuckDB's `database.schema` navigator names split into two identifiers;
+    // PostgreSQL keeps a dotted schema name as one.
+    expect(quotedQualifiedName(schema: "other.main", table: "t", splittingDatabase: true) == "\"other\".\"main\".\"t\"",
+           "a DuckDB attached-database schema quotes as database.schema.table")
+    expect(quotedQualifiedName(schema: "main", table: "t", splittingDatabase: true) == "\"main\".\"t\"",
+           "a DuckDB home schema is schema.table")
+    expect(quotedQualifiedName(schema: "a.b", table: "t", splittingDatabase: false) == "\"a.b\".\"t\"",
+           "a PostgreSQL dotted schema stays one identifier")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

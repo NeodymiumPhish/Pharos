@@ -5,6 +5,7 @@ swiftc -o /tmp/server-chart-builder-tests \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/Charts/ChartTypes.swift \
   Pharos/Models/Charts/ChartConfig.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/Charts/ColumnClassifier.swift \
   Pharos/Models/Charts/ChartData.swift \
   Pharos/Models/Charts/DrillKey.swift \

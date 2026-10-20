@@ -33,7 +33,7 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "timeout",
                     title: String(localized: "Statement timeout"),
-                    caption: String(localized: "PostgreSQL cancels a query that runs longer than this."),
+                    caption: String(localized: "Pharos cancels a query that runs longer than this."),
                     icon: "timer",
                     kind: .stepper(.settings(\.query.timeoutSeconds), range: Self.timeoutRange, unit: String(localized: "seconds"))),
             ]),

@@ -12,6 +12,7 @@ swiftc -o /tmp/intent-csv-tests \
   Pharos/Core/TagCopyScope.swift \
   Pharos/Intents/IntentResultCSV.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnIdentifier.swift \
   Pharos/Utilities/SqlIdentifierQuoting.swift \

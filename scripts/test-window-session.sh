@@ -35,6 +35,7 @@ swiftc -o /tmp/window-session-tests \
   Pharos/Models/QueryFailure.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Utilities/ColumnFilter.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnIdentifier.swift \
   Pharos/Utilities/BlanksSentinel.swift \

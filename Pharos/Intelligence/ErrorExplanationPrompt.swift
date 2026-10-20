@@ -82,9 +82,10 @@ struct ErrorExplanationPrompt {
     /// `message` goes in verbatim: PostgreSQL's wording, its `at character N`
     /// suffix and its hints are the most useful thing in the prompt, and any
     /// tidying here would be tidying away the evidence.
-    static func build(message: String, sql: String, knownObjects: KnownObjects) -> String {
+    static func build(message: String, sql: String, knownObjects: KnownObjects,
+                      dialect: String = "PostgreSQL") -> String {
         var prompt = """
-            A PostgreSQL statement failed. Explain the error to the analyst who ran it.
+            A \(dialect) statement failed. Explain the error to the analyst who ran it.
 
             error message: \(message)
 

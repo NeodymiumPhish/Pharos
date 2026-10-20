@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/column-profiler-tests \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/Charts/ChartTypes.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/Charts/ColumnClassifier.swift \
   Pharos/Models/Charts/ValueCoercion.swift \
   Pharos/Models/Charts/ColumnProfile.swift \

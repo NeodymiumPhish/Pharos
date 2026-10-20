@@ -8,6 +8,7 @@ swiftc -o /tmp/temporal-bin-resolver-tests \
   Pharos/Models/Charts/ChartConfig.swift \
   Pharos/Models/Charts/ChartData.swift \
   Pharos/Models/Charts/DrillKey.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/Charts/ColumnClassifier.swift \
   Pharos/Models/Charts/ValueCoercion.swift \
   Pharos/Models/Charts/ChartAggregator.swift \

@@ -52,13 +52,29 @@ enum CompletionResolver {
         var currentSchema: String?
         /// The query variables, for value positions.
         var variables: [SQLCompletionProvider.VariableEntry] = []
+        /// The engine's own function names beyond the built-in list (DuckDB's
+        /// `duckdb_functions()`); empty for PostgreSQL.
+        var engineFunctionNames: [String] = []
+        /// The schema an engine searches after the current one: PostgreSQL's
+        /// `public`, DuckDB's `main`.
+        var homeSchema: String = "public"
 
         /// Where an unqualified table is looked for, in order.
         var searchPath: [String] {
             var path: [String] = []
             if let currentSchema, let real = catalog.schema(matching: currentSchema) { path.append(real) }
-            if let pub = catalog.schema(matching: "public"), !path.contains(pub) { path.append(pub) }
+            if let home = catalog.schema(matching: homeSchema), !path.contains(home) { path.append(home) }
             return path
+        }
+
+        /// The function rows: the built-in list, then the engine's own names
+        /// that are not in it.
+        var functionRows: [Row] {
+            guard !engineFunctionNames.isEmpty else { return CompletionResolver.functions }
+            let known = Set(CompletionResolver.functionNames)
+            return CompletionResolver.functions + engineFunctionNames
+                .filter { !known.contains($0) }
+                .map { Row(label: $0, detail: "function", insertText: "\($0)()", kind: .function) }
         }
     }
 
@@ -118,7 +134,7 @@ enum CompletionResolver {
         case .select:
             var rows = [Row(label: "*", detail: "all columns", insertText: "*", kind: .keyword)]
             rows += columnsInScope(scope, env: env, orCurrentSchema: true)
-            rows += functions
+            rows += env.functionRows
             rows += keywords(["DISTINCT", "CASE", "CAST", "EXISTS", "NULL", "TRUE", "FALSE"])
             return rows
         case .from:
@@ -131,7 +147,7 @@ enum CompletionResolver {
             rows += columnsInScope(scope, env: env, orCurrentSchema: false)
             rows += selectAliasRows(scope)
             if !valuePosition { rows += variableRows(env) }
-            rows += functions
+            rows += env.functionRows
             rows += keywords(valuePosition
                 ? ["NULL", "TRUE", "FALSE", "SELECT", "NOT", "EXISTS", "CASE"]
                 : ["NOT", "EXISTS", "CASE", "AND", "OR", "IN", "LIKE", "ILIKE", "IS NULL", "IS NOT NULL", "BETWEEN"])
@@ -139,7 +155,7 @@ enum CompletionResolver {
         case .groupOrOrder:
             var rows = selectAliasRows(scope)
             rows += columnsInScope(scope, env: env, orCurrentSchema: false)
-            rows += functions
+            rows += env.functionRows
             return rows
         case .afterOrderColumn:
             return keywords(["ASC", "DESC", "NULLS FIRST", "NULLS LAST", "LIMIT", "OFFSET"])
@@ -148,7 +164,7 @@ enum CompletionResolver {
         case .value:
             var rows = variableRows(env)
             rows += keywords(["DEFAULT", "NULL", "TRUE", "FALSE", "SELECT"])
-            rows += functions
+            rows += env.functionRows
             return rows
         case .insertColumns:
             return targetColumns(scope, env: env)

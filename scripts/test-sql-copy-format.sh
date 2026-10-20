@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/sql-copy-format-tests \
   Pharos/Core/TagCopyScope.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnIdentifier.swift \
   Pharos/Utilities/SqlIdentifierQuoting.swift \

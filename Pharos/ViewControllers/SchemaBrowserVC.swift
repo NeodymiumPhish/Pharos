@@ -283,9 +283,10 @@ class SchemaBrowserVC: NSViewController {
                             ? self.refreshedSchemas : []
                     )
                     // Auto-refresh row counts if still active
+                    let home = self.engine(for: connectionId).defaultSchema
                     if self.connectionId == connectionId,
-                       schemaNodes.contains(where: { $0.schemaName == "public" }) {
-                        self.refreshRowCounts(for: "public")
+                       schemaNodes.contains(where: { $0.schemaName == home }) {
+                        self.refreshRowCounts(for: home)
                     }
                 }
             } catch {
@@ -301,8 +302,9 @@ class SchemaBrowserVC: NSViewController {
         // Either setting can put a name inside a collapsed folder, and the
         // index is what lets the filter find it there.
         let wantsPartitionIndex = await MainActor.run {
-            self.stateManager.settings.showLeafPartitions
-                || self.stateManager.settings.navigator.inheritanceGrouping
+            self.engine(for: connectionId).capabilities.partitions
+                && (self.stateManager.settings.showLeafPartitions
+                    || self.stateManager.settings.navigator.inheritanceGrouping)
         }
         do {
             let tables = try await PharosCore.getTables(connectionId: connectionId, schema: schemaName)
@@ -390,6 +392,9 @@ class SchemaBrowserVC: NSViewController {
     /// Uses the purpose-built analyzeSchema command (single FFI call, handles permissions).
     private func refreshRowCounts(for schemaName: String) {
         guard let connectionId, !refreshedSchemas.contains(schemaName) else { return }
+        // DuckDB keeps exact row counts itself (`estimated_size`); its
+        // "analyze" would be a count(*) of every table on every schema pin.
+        guard engine(for: connectionId).capabilities.automaticAnalyze else { return }
         guard let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schemaName }) else { return }
 
         refreshedSchemas.insert(schemaName)
@@ -648,10 +653,17 @@ class SchemaBrowserVC: NSViewController {
     }
 
     /// The schema `rebuildDisplayTree` opens for the user: the connection's
-    /// own default schema, or `public`. The same fallback the rest of the app
-    /// uses for a connection that names none (`AppStateManager`).
+    /// own default schema, or the engine's (`public`, or DuckDB's `main`).
+    /// The same fallback the rest of the app uses for a connection that names
+    /// none (`AppStateManager`).
     private var autoExpandSchemaName: String {
-        defaultSchemaName(for: connectionId) ?? "public"
+        defaultSchemaName(for: connectionId) ?? engine(for: connectionId).defaultSchema
+    }
+
+    /// The engine of a connection record; PostgreSQL when it is unknown.
+    private func engine(for connectionId: String?) -> DatabaseEngine {
+        guard let connectionId else { return .postgres }
+        return stateManager.connections.first { $0.id == connectionId }?.engine ?? .postgres
     }
 
     /// The `defaultSchema` recorded on a connection, or nil.
@@ -749,8 +761,8 @@ class SchemaBrowserVC: NSViewController {
         let hasTextFilter = filterText?.isEmpty == false
         if !hasTextFilter, rootNodes.contains(where: { $0 === schemaNode }) {
             outlineView.reloadItem(schemaNode, reloadChildren: true)
-            // Keep the initial-load auto-expand of the public schema.
-            if schemaNode.schemaName == "public" {
+            // Keep the initial-load auto-expand of the home schema.
+            if schemaNode.schemaName == engine(for: connectionId).defaultSchema {
                 outlineView.expandItem(schemaNode)
             }
             return

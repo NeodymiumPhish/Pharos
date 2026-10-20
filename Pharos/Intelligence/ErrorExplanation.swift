@@ -63,18 +63,19 @@ final class ErrorExplainer: ObservableObject {
     /// calling `explain` again — cancels the generation.
     func explain(
         failure: QueryFailure,
-        knownObjects: ErrorExplanationPrompt.KnownObjects
+        knownObjects: ErrorExplanationPrompt.KnownObjects,
+        dialect: String = "PostgreSQL"
     ) throws -> ErrorExplanationRun {
         try IntelligenceGuard.requireAvailable()
         cancel()
 
         let prompt = ErrorExplanationPrompt.build(
-            message: failure.message, sql: failure.sql, knownObjects: knownObjects)
+            message: failure.message, sql: failure.sql, knownObjects: knownObjects, dialect: dialect)
         // The prompt carries the user's SQL and schema names, so only its digest
         // is ever logged or stored.
         let hash = ModelFeedbackStore.promptHash(prompt)
 
-        let session = LanguageModelSession(instructions: Self.instructions)
+        let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(Self.instructions, dialect))
         self.session = session
         isExplaining = true
         Log.intelligence.info("explain-error: started \(hash, privacy: .public)")

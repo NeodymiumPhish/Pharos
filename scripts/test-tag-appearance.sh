@@ -7,6 +7,7 @@ swiftc -o /tmp/tag-appearance-tests \
   Pharos/Core/TagPalette.swift \
   Pharos/ViewControllers/ResultsGrid/FindMatchDecoration.swift \
   Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/RowFingerprint.swift \

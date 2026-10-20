@@ -132,9 +132,13 @@ final class SQLDraftPipeline {
 
     private var trace: [String] = []
 
-    init(catalog: DraftCatalog, defaultSchema: String?) {
+    /// The engine's dialect name for the instructions (`inDialect`).
+    private let dialect: String
+
+    init(catalog: DraftCatalog, defaultSchema: String?, dialect: String = "PostgreSQL") {
         self.catalog = catalog
         self.defaultSchema = defaultSchema
+        self.dialect = dialect
     }
 
     /// The request is never logged: it is the analyst's own words.
@@ -225,8 +229,8 @@ final class SQLDraftPipeline {
                     arrayOf: table, minimumElements: 1, maximumElements: SQLDraftPrompt.pickLimit)),
             ])
             let schema = try GenerationSchema(root: root, dependencies: [])
-            let session = LanguageModelSession(
-                instructions: IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.pickInstructions)
+            let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(
+                IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.pickInstructions, dialect))
             let list = SQLDraftPrompt.pickList(candidates, in: catalog)
             let response = try await session.respond(
                 to: SQLDraftPrompt.pickPrompt(request: request, list: list), schema: schema, options: options)
@@ -274,7 +278,7 @@ final class SQLDraftPipeline {
 
     @available(macOS 26.4, *)
     private func promptTokens(for block: String, request: String) async throws -> Int {
-        let instructions = Instructions(Self.draftInstructions)
+        let instructions = Instructions(draftInstructions)
         let prompt = SQLDraftPrompt.draftPrompt(request: request, block: block)
         let a = try await model.tokenCount(for: instructions)
         let b = try await model.tokenCount(for: prompt)
@@ -282,13 +286,13 @@ final class SQLDraftPipeline {
         return a + b + c
     }
 
-    private static var draftInstructions: String {
-        IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.draftInstructions
+    private var draftInstructions: String {
+        IntelligenceInstructions.inDialect(IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.draftInstructions, dialect)
     }
 
     /// Steps 4 and 6: one new session per answer.
     private func write(_ prompt: String, step: String) async throws -> SQLDraft {
-        let session = LanguageModelSession(instructions: Self.draftInstructions)
+        let session = LanguageModelSession(instructions: draftInstructions)
         do {
             let response = try await session.respond(to: prompt, generating: SQLDraft.self, options: options)
             Log.intelligence.info("draft-sql: \(step, privacy: .public) answered")

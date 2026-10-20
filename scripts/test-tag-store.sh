@@ -21,6 +21,7 @@ swiftc -o "$BIN" \
   Pharos/Core/PharosCore+Tags.swift \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/RuleKey.swift \
   Pharos/Core/TagRuleMatcher.swift \

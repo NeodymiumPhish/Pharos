@@ -175,6 +175,9 @@ private func testOnlyTwentyNodesAppear() {
     expectEqual(lines.count, 20, "only twenty node lines appear")
     expectEqual(PlanSummaryPrompt.rankedNodes(of: plan).count, 20, "only twenty nodes are ranked")
     expect(prompt.contains("25 nodes"), "the head still states the real node count")
+    expect(prompt.hasPrefix("A PostgreSQL query plan, 25 nodes."), "PostgreSQL is the default dialect")
+    expect(PlanSummaryPrompt.build(plan: plan, dialect: "DuckDB").hasPrefix("A DuckDB query plan, 25 nodes."),
+           "a DuckDB plan names DuckDB")
 }
 
 private func testTheSlowestNodeIsFirst() {

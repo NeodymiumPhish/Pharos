@@ -9,6 +9,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/filter-popover-layout-tests \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Utilities/BlanksSentinel.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnFilter.swift \
   Pharos/ViewControllers/ResultsGrid/FilterValueCount.swift \

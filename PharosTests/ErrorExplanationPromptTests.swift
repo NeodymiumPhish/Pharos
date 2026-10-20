@@ -74,6 +74,10 @@ func runTests() {
     expectContains(one, "public.users", "names the table the statement uses")
     expectExcludes(one, "orders", "leaves out a table the statement never names")
     expectExcludes(one, "audit_log", "leaves out a table in another schema")
+    expectContains(one, "A PostgreSQL statement failed.", "PostgreSQL is the default dialect")
+    let duck = Prompt.build(message: "Catalog Error: Table with name x does not exist!",
+                            sql: "SELECT 1 FROM x", knownObjects: everything, dialect: "DuckDB")
+    expectContains(duck, "A DuckDB statement failed.", "a DuckDB failure names DuckDB")
 
     // A NAMED table brings every column (name and type): the fix for a typo
     // is the column that exists, which the statement by definition does not name.

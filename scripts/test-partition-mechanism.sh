@@ -19,6 +19,7 @@ swiftc -o /tmp/partition-mechanism-tests \
   Pharos/Models/Settings.swift \
   Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Models/PartitionDisplay.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/ColumnTypeIcon.swift \
   Pharos/Core/DisplayEscape.swift \
   PharosTests/PartitionMechanismTests.swift \

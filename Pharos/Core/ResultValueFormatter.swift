@@ -487,7 +487,7 @@ enum ResultValueKind: Equatable {
     case other
 
     init(dataType: String) {
-        let type = dataType.lowercased().trimmingCharacters(in: .whitespaces)
+        let type = SQLTypeName.postgresEquivalent(dataType)
         // An array of timestamps is `{"2026-01-01 00:00:00",...}` — a composite
         // literal, not a timestamp, so it is never reformatted.
         if type.hasSuffix("[]") || type.hasPrefix("_") {

@@ -22,3 +22,17 @@ func quotedSqlIdentifier(_ name: String) -> String {
 func quotedQualifiedName(schema: String, table: String) -> String {
     quotedSqlIdentifier(schema) + "." + quotedSqlIdentifier(table)
 }
+
+/// The same, for a navigator schema name that may be DuckDB's `database.schema`
+/// (a schema of ANOTHER attached database, `db::duckdb::catalog::schemas`).
+/// On DuckDB the part before the first `.` is the database and is quoted on
+/// its own: `"other"."main"."t"`. A PostgreSQL schema name is one identifier
+/// whatever it holds, so this is `quotedQualifiedName` there.
+func quotedQualifiedName(schema: String, table: String, splittingDatabase: Bool) -> String {
+    guard splittingDatabase, let dot = schema.firstIndex(of: ".") else {
+        return quotedQualifiedName(schema: schema, table: table)
+    }
+    let database = String(schema[..<dot])
+    let inner = String(schema[schema.index(after: dot)...])
+    return quotedSqlIdentifier(database) + "." + quotedQualifiedName(schema: inner, table: table)
+}

@@ -82,6 +82,14 @@ enum IntelligenceInstructions {
     /// never executes what comes back — but a suggestion that DROPs a table is
     /// still a suggestion the user might paste and run, so the model is told
     /// not to make one.
+    /// The instructions and prompts were written, and evaluated, for
+    /// PostgreSQL. For another engine the name is swapped and nothing else,
+    /// so the PostgreSQL text the evaluations measured is byte-for-byte the
+    /// text a PostgreSQL connection still gets.
+    static func inDialect(_ text: String, _ dialect: String) -> String {
+        dialect == "PostgreSQL" ? text : text.replacingOccurrences(of: "PostgreSQL", with: dialect)
+    }
+
     static let sqlSafety = """
         You help a PostgreSQL analyst. Never propose DROP, DELETE, TRUNCATE, \
         ALTER or UPDATE statements. Do not run anything; you only write text.

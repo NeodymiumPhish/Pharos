@@ -56,7 +56,7 @@ enum TagValueNormalizer {
     /// names. Array types (`INT4[]`, `TEXT[]`) get no family-level rule either
     /// and compare as exact text under their own name.
     static func family(forDataType dataType: String) -> String {
-        let t = dataType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let t = SQLTypeName.postgresEquivalent(dataType)
         switch t {
         case "inet", "cidr":
             return addressFamily

@@ -69,6 +69,11 @@ enum SQLSyntaxHighlighter {
             "GRANT", "REVOKE", "TRUNCATE",
             "OVER", "PARTITION", "WINDOW", "ROWS", "RANGE",
             "LATERAL", "FETCH", "NEXT", "ONLY", "FOR",
+            // DuckDB. One list serves every engine: these words are rare as
+            // PostgreSQL identifiers, and the editor has no per-engine list.
+            "QUALIFY", "PIVOT", "UNPIVOT", "EXCLUDE", "COLUMNS", "ASOF", "POSITIONAL", "ANTI", "SEMI",
+            "ATTACH", "DETACH", "USE", "PRAGMA", "INSTALL", "LOAD", "COPY", "SUMMARIZE", "DESCRIBE",
+            "SHOW", "MACRO", "SEQUENCE", "CHECKPOINT",
         ]
         return try! NSRegularExpression(pattern: "\\b(" + keywords.joined(separator: "|") + ")\\b", options: [.caseInsensitive])
     }()
@@ -85,6 +90,12 @@ enum SQLSyntaxHighlighter {
             "array_length", "unnest", "array_append", "array_prepend", "array_cat",
             "greatest", "least", "generate_series",
             "row_number", "rank", "dense_rank", "ntile", "lag", "lead", "first_value", "last_value",
+            // DuckDB's common ones. Completion offers the rest, read from the
+            // database (`DuckDBVocabularyCache`).
+            "read_csv", "read_csv_auto", "read_parquet", "read_json", "read_json_auto", "sniff_csv",
+            "list_value", "list_transform", "list_filter", "list_reduce", "list_aggregate", "struct_pack",
+            "strftime", "strptime", "epoch_ms", "regexp_extract", "string_split", "arg_max", "arg_min",
+            "approx_count_distinct", "median", "quantile_cont", "histogram", "range",
         ]
         return try! NSRegularExpression(pattern: "\\b(" + builtins.joined(separator: "|") + ")\\s*(?=\\()", options: [.caseInsensitive])
     }()
@@ -97,6 +108,10 @@ enum SQLSyntaxHighlighter {
             "NUMERIC", "DECIMAL", "REAL", "DOUBLE", "PRECISION", "FLOAT",
             "UUID", "JSON", "JSONB", "BYTEA", "INET", "CIDR", "MACADDR",
             "ARRAY", "RECORD", "VOID", "OID", "REGCLASS",
+            // DuckDB.
+            "TINYINT", "HUGEINT", "UHUGEINT", "UBIGINT", "UINTEGER", "USMALLINT", "UTINYINT", "VARINT",
+            "BIGNUM", "BLOB", "LIST", "STRUCT", "MAP", "UNION", "ENUM", "BIT",
+            "TIMESTAMP_S", "TIMESTAMP_MS", "TIMESTAMP_NS",
         ]
         return try! NSRegularExpression(pattern: "\\b(" + types.joined(separator: "|") + ")\\b", options: [.caseInsensitive])
     }()

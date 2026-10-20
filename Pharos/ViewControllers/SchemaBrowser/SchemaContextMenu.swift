@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import os
 
 // MARK: - SchemaContextMenu Delegate
@@ -19,6 +20,13 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     private let outlineView: NSOutlineView
     private let stateManager = AppStateManager.shared
+
+    /// The clicked connection is DuckDB: its navigator may name another
+    /// attached database's schema `database.schema`.
+    private var isDuckDB: Bool {
+        guard let id = delegate?.contextConnectionId else { return false }
+        return stateManager.connections.first { $0.id == id }?.isDuckDB ?? false
+    }
 
     weak var delegate: SchemaContextMenuDelegate?
 
@@ -104,7 +112,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
     @discardableResult
     func viewContents(node: SchemaTreeNode, limit: Int?) -> Bool {
         guard let schemaName = node.schemaName, let tableName = tableNameFromNode(node) else { return false }
-        var sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName))"
+        var sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName, splittingDatabase: isDuckDB))"
         var resultName = tableName
         if let limit {
             sql += " LIMIT \(limit)"
@@ -138,7 +146,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
     @discardableResult
     func insertName(node: SchemaTreeNode) -> Bool {
         guard let schemaName = node.schemaName, let tableName = tableNameFromNode(node) else { return false }
-        let qualifiedName = quotedQualifiedName(schema: schemaName, table: tableName)
+        let qualifiedName = quotedQualifiedName(schema: schemaName, table: tableName, splittingDatabase: isDuckDB)
         NotificationCenter.default.post(name: .insertTextInEditor, object: nil, userInfo: ["text": qualifiedName])
         return true
     }
@@ -264,6 +272,43 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         delegate?.contextMenuPresentSheet(sheet)
     }
 
+    /// DuckDB only: Export as Parquet…, written by DuckDB's own Parquet writer.
+    private func addParquetItem(to menu: NSMenu) {
+        guard let id = delegate?.contextConnectionId,
+              stateManager.connections.first(where: { $0.id == id })?.engine.capabilities.parquetExport == true
+        else { return }
+        let item = NSMenuItem(title: String(localized: "Export as Parquet\u{2026}"), action: #selector(contextExportParquet), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+    }
+
+    @objc private func contextExportParquet(_: Any?) {
+        guard let node = clickedNode(),
+              let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName,
+              let tableName = tableNameFromNode(node) else { return }
+        let sql = "SELECT * FROM \(quotedQualifiedName(schema: schemaName, table: tableName, splittingDatabase: true))"
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "parquet") ?? .data]
+        panel.nameFieldStringValue = tableName + ".parquet"
+        panel.message = String(localized: "Export \(tableName) as a Parquet file.")
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task {
+                do {
+                    let result = try await PharosCore.exportParquet(connectionId: connectionId, sql: sql,
+                                                                     schema: nil, filePath: url.path)
+                    await MainActor.run {
+                        self?.showInfoAlert(title: "Export Successful", message: ExportOutcomeText.message(for: result))
+                    }
+                } catch {
+                    await MainActor.run {
+                        self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
     @objc private func contextExportData(_: Any?) {
         guard let node = clickedNode(),
               let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
@@ -310,10 +355,11 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
               let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
         guard let tableName = tableNameFromNode(node) else { return }
 
+        let splitsDatabase = isDuckDB
         let execute: () -> Void = { [weak self] in
             Task {
                 do {
-                    let sql = "TRUNCATE TABLE \(quotedQualifiedName(schema: schemaName, table: tableName))"
+                    let sql = "TRUNCATE TABLE \(quotedQualifiedName(schema: schemaName, table: tableName, splittingDatabase: splitsDatabase))"
                     _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
                     await MainActor.run {
                         self?.showInfoAlert(title: "Table Truncated", message: DestructiveConfirmationText.truncatedInfoMessage(table: tableName))
@@ -358,10 +404,11 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         let objectType = isView ? "VIEW" : "TABLE"
         let objectLabel = isView ? "view" : "table"
 
+        let splitsDatabase = isDuckDB
         let execute: () -> Void = { [weak self] in
             Task {
                 do {
-                    let sql = "DROP \(objectType) \(quotedQualifiedName(schema: schemaName, table: tableName))"
+                    let sql = "DROP \(objectType) \(quotedQualifiedName(schema: schemaName, table: tableName, splittingDatabase: splitsDatabase))"
                     _ = try await PharosCore.executeStatement(connectionId: connectionId, sql: sql)
                     await MainActor.run {
                         self?.showInfoAlert(title: "\(isView ? "View" : "Table") Dropped", message: DestructiveConfirmationText.droppedInfoMessage(name: tableName))
@@ -479,6 +526,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
             exportItem.target = self
             menu.addItem(exportItem)
+            addParquetItem(to: menu)
 
             // Destructive
             menu.addItem(.separator())
@@ -562,6 +610,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
         exportItem.target = self
         menu.addItem(exportItem)
+        addParquetItem(to: menu)
 
         // Destructive
         menu.addItem(.separator())

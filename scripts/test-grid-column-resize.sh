@@ -7,6 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/grid-column-resize-tests \
   Pharos/ViewControllers/ResultsGrid/FilterableHeaderView.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/ColumnTypeIcon.swift \
   Pharos/Views/AccessibilityProxyElement.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsGridMetrics.swift \

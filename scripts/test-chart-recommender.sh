@@ -8,6 +8,7 @@ swiftc -o /tmp/chart-recommender-tests \
   Pharos/Models/Charts/ChartConfig.swift \
   Pharos/Models/Charts/ChartData.swift \
   Pharos/Models/Charts/DrillKey.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/Charts/ColumnClassifier.swift \
   Pharos/Models/Charts/ValueCoercion.swift \
   Pharos/Models/Charts/ColumnProfile.swift \

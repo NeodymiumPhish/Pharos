@@ -24,6 +24,8 @@ final class PlanViewVC: NSViewController {
     // MARK: State
 
     private(set) var plan: QueryPlan?
+    /// The engine's dialect name for the plan summary's prompt.
+    var dialectName = "PostgreSQL"
     private var planJSON: String = ""
     private var isAnalyze = false
     /// `QueryPlan.totalWeight`, cached: every row asks for it while drawing.
@@ -207,7 +209,7 @@ final class PlanViewVC: NSViewController {
             setSummaryVisible(false)
             return
         }
-        let prompt = PlanSummaryPrompt.build(plan: plan)
+        let prompt = PlanSummaryPrompt.build(plan: plan, dialect: dialectName)
         // Switching back to a result tab re-shows its plan. The summary it
         // already carries is the answer to the same prompt, so leave it.
         guard prompt != summarizedPrompt else { return }
@@ -217,7 +219,7 @@ final class PlanViewVC: NSViewController {
     /// Ask again for the plan on screen — the Retry button.
     private func regenerateSummary() {
         guard let plan, ModelAvailability.shared.isAvailable(for: .summarisePlans) else { return }
-        generateSummary(prompt: PlanSummaryPrompt.build(plan: plan))
+        generateSummary(prompt: PlanSummaryPrompt.build(plan: plan, dialect: dialectName))
     }
 
     private func generateSummary(prompt: String) {
@@ -230,7 +232,7 @@ final class PlanViewVC: NSViewController {
         summaryTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let summary = try await self.summarizer.summarize(prompt: prompt)
+                let summary = try await self.summarizer.summarize(prompt: prompt, dialect: self.dialectName)
                 guard !Task.isCancelled else { return }
                 self.summaryView.setState(.answered(summary))
             } catch is CancellationError {

@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-family-label-tests \
   Pharos/Core/TagFamilyLabel.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \
   Pharos/Core/DisplayEscape.swift \

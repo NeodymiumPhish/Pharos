@@ -169,6 +169,16 @@ private func testResolver() {
     expectEqual(CompletionResolver.resolve(Ref(schema: nil, table: "users", alias: nil), in: env("Sales"))?.schema, "public",
                 "resolve: then public")
 
+    // An engine's own functions join the list; its home schema replaces public.
+    var duck = env(nil)
+    duck.engineFunctionNames = ["list_transform", "count"]
+    let selectRows = inserts(rows("SELECT |", duck))
+    expectTrue(selectRows.contains("list_transform()"), "engine: DuckDB's own function is offered")
+    expectEqual(selectRows.filter { $0 == "count()" }.count, 1, "engine: a built-in name is not offered twice")
+    duck.homeSchema = "Sales"
+    expectEqual(CompletionResolver.resolve(Ref(schema: nil, table: "orders", alias: nil), in: duck)?.schema, "Sales",
+                "engine: the home schema is searched when no schema is current")
+
     // FROM: current schema, then other schemas qualified, then schemas.
     expectEqual(inserts(rows("SELECT * FROM |")),
                 ["users", "orders", "active_users", "Sales.invoices", "Sales.orders", "audit.log", "public", "Sales", "audit"],

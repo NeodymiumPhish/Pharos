@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-value-normalizer-tests \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   PharosTests/TagValueNormalizerTests.swift \
   PharosTests/main.swift

@@ -448,7 +448,8 @@ async fn paged(target: SessionTarget, sql: String, limit: Option<usize>, offset:
     })
 }
 
-/// EXPLAIN as DuckDB's text tree. EXPLAIN ANALYZE runs the statement: when
+/// EXPLAIN as a plan for the plan view (`exec::explain_plan_json`). EXPLAIN
+/// ANALYZE runs the statement: when
 /// the tab is idle it runs inside Pharos's own transaction, rolled back.
 pub async fn explain(target: SessionTarget, sql: String, analyze: bool, state: &AppState) -> Result<SessionExplainResult, String> {
     let statement = super::query::single_statement(&sql)?;
@@ -468,7 +469,7 @@ pub async fn explain(target: SessionTarget, sql: String, analyze: bool, state: &
                     if wrap {
                         c.execute_batch("BEGIN").map_err(|e| e.to_string())?;
                     }
-                    let plan = exec::explain_text(c, &statement, analyze);
+                    let plan = exec::explain_plan_json(c, &statement, analyze);
                     if wrap {
                         let _ = c.execute_batch("ROLLBACK");
                     }
@@ -685,7 +686,7 @@ mod tests {
         assert!(execute_query(run("tab", "\\dt"), &state).await.unwrap_err().contains("psql"));
         let target: SessionTarget = serde_json::from_value(serde_json::json!({"sessionId": "tab", "connectionId": "d1"})).unwrap();
         let plan = explain(target, "SELECT 1".into(), false, &state).await.unwrap();
-        assert!(!plan.plan.is_empty());
+        assert!(plan.plan.starts_with("[{\"Plan\""), "{}", plan.plan);
     }
 
     #[tokio::test(flavor = "multi_thread")]

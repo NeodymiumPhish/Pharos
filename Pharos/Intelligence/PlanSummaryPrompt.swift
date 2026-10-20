@@ -33,10 +33,10 @@ enum PlanSummaryPrompt {
         """
 
     /// The prompt for one plan.
-    static func build(plan: QueryPlan) -> String {
+    static func build(plan: QueryPlan, dialect: String = "PostgreSQL") -> String {
         var lines: [String] = []
 
-        var head = "A PostgreSQL query plan, \(plan.nodeCount) nodes."
+        var head = "A \(dialect) query plan, \(plan.nodeCount) nodes."
         if let planning = plan.planningTimeMs {
             head += " Planning \(number(planning)) ms."
         }

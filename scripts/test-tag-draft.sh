@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-draft-tests \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/RuleKey.swift \
   Pharos/Core/TagRuleMatcher.swift \

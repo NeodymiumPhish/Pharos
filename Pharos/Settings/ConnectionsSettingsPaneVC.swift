@@ -164,6 +164,50 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     kind: .stepper(.settings(\.connections.keepaliveCount), range: 0...20,
                                    unit: nil)),
             ]),
+
+            // The sections above are PostgreSQL's. A DuckDB database runs in
+            // this process, so it has only these.
+            SettingsSection(title: String(localized: "DuckDB"), items: [
+                SettingsItem(
+                    id: "duckdbNote",
+                    title: Self.appliesLater,
+                    caption: String(localized: "A DuckDB database reads these when it opens, so they reach a database the next time you connect it."),
+                    icon: "info.circle",
+                    kind: .display),
+                SettingsItem(
+                    id: "duckdbThreads",
+                    title: String(localized: "Worker threads"),
+                    caption: String(localized: "How many threads one DuckDB database may use for a query."),
+                    icon: "cpu",
+                    help: String(localized: "0 lets DuckDB use every core."),
+                    kind: .stepper(.settings(\.connections.duckdbThreads), range: 0...256, unit: nil)),
+                SettingsItem(
+                    id: "duckdbMemoryLimit",
+                    title: String(localized: "Memory limit"),
+                    caption: String(localized: "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk."),
+                    icon: "memorychip",
+                    help: String(localized: "Leave it empty for DuckDB's default, 80% of this Mac's memory."),
+                    kind: .text(.settings(\.connections.duckdbMemoryLimit), width: 120)),
+                SettingsItem(
+                    id: "duckdbAutoinstallExtensions",
+                    title: String(localized: "Download extensions when a query needs one"),
+                    caption: String(localized: "DuckDB downloads a known extension (time zones, httpfs, PostgreSQL, Excel…) from extensions.duckdb.org the first time a query uses it."),
+                    icon: "arrow.down.circle",
+                    help: String(localized: "Off, a query that needs an extension that is not installed fails instead."),
+                    kind: .toggle(.settings(\.connections.duckdbAutoinstallExtensions))),
+                SettingsItem(
+                    id: "duckdbAllowCommunityExtensions",
+                    title: String(localized: "Allow community extensions"),
+                    caption: String(localized: "Lets INSTALL … FROM community install extensions that the DuckDB team does not build."),
+                    icon: "person.3",
+                    kind: .toggle(.settings(\.connections.duckdbAllowCommunityExtensions))),
+                SettingsItem(
+                    id: "duckdbExtensionDirectory",
+                    title: String(localized: "Extension folder"),
+                    caption: String(localized: "Where downloaded extensions are kept. Empty uses ~/.duckdb/extensions, which the DuckDB command-line tool shares."),
+                    icon: "folder",
+                    kind: .path(.settings(\.connections.duckdbExtensionDirectory), directories: true)),
+            ]),
         ]
     }
 }

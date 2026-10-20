@@ -10,6 +10,7 @@ swiftc -o /tmp/tag-condition-editor-tests \
   Pharos/Core/TagPredicate.swift \
   Pharos/Core/TagGlob.swift \
   Pharos/Core/CIDRRange.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagFamilyLabel.swift \

@@ -6,6 +6,7 @@ swiftc -o /tmp/tag-funnel-tests \
   Pharos/Core/TagFunnel.swift \
   Pharos/Utilities/ColumnFilter.swift \
   Pharos/Utilities/BlanksSentinel.swift \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   PharosTests/TagFunnelTests.swift \
   PharosTests/main.swift

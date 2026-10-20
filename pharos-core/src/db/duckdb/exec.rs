@@ -239,6 +239,120 @@ pub fn explain_text(conn: &Connection, statement: &str, analyze: bool) -> Result
     Ok(out.join("\n"))
 }
 
+/// EXPLAIN as a plan the app's plan view reads: DuckDB's JSON tree mapped
+/// onto PostgreSQL's `EXPLAIN (FORMAT JSON)` keys, so one viewer serves both
+/// engines.
+///
+/// - `EXPLAIN (FORMAT json)` gives `[{name, children, extra_info}]`.
+/// - `EXPLAIN (ANALYZE, FORMAT json)` gives a profile: `latency` (seconds)
+///   at the root, then an `EXPLAIN_ANALYZE` operator whose child is the plan;
+///   each operator has `operator_name`, `operator_timing` (seconds, its own
+///   time) and `operator_cardinality` (rows out).
+///
+/// DuckDB has no cost model, so `Total Cost` is absent (0 in the viewer);
+/// `Estimated Cardinality` becomes `Plan Rows`.
+pub fn explain_plan_json(conn: &Connection, statement: &str, analyze: bool) -> Result<String, String> {
+    let options = if analyze { "(ANALYZE, FORMAT json)" } else { "(FORMAT json)" };
+    let mut stmt = conn.prepare(&format!("EXPLAIN {} {}", options, statement)).map_err(|e| e.to_string())?;
+    let text: String = stmt
+        .query_row([], |r| r.get::<_, String>(1))
+        .map_err(|e| e.to_string())?;
+    let raw: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("DuckDB's plan is not JSON: {}", e))?;
+    let envelope = plan_envelope(&raw, analyze).ok_or_else(|| "DuckDB returned an empty plan.".to_string())?;
+    Ok(serde_json::Value::Array(vec![envelope]).to_string())
+}
+
+/// `{"Plan": …, "Execution Time": ms}` from DuckDB's own JSON.
+pub fn plan_envelope(raw: &serde_json::Value, analyze: bool) -> Option<serde_json::Value> {
+    use serde_json::{json, Map, Value};
+    let root = if analyze {
+        // Skip the EXPLAIN_ANALYZE wrapper operator(s): the plan starts below.
+        let mut node = raw.get("children")?.get(0)?;
+        while node.get("operator_type").and_then(Value::as_str) == Some("EXPLAIN_ANALYZE") {
+            node = node.get("children")?.get(0)?;
+        }
+        node
+    } else {
+        raw.get(0)?
+    };
+    fn convert(node: &Value, analyze: bool) -> Value {
+        let mut out = Map::new();
+        let name = node
+            .get(if analyze { "operator_name" } else { "name" })
+            .or_else(|| node.get("operator_type"))
+            .and_then(Value::as_str)
+            .unwrap_or("Node");
+        out.insert("Node Type".into(), Value::String(pretty_operator(name)));
+        if let Some(extra) = node.get("extra_info").and_then(Value::as_object) {
+            let text = |v: &Value| match v {
+                Value::String(s) => s.clone(),
+                Value::Array(a) => a.iter().map(|x| x.as_str().map(String::from).unwrap_or_else(|| x.to_string())).collect::<Vec<_>>().join(", "),
+                other => other.to_string(),
+            };
+            for (key, value) in extra {
+                let mapped = match key.as_str() {
+                    "Table" => Some("Relation Name"),
+                    "Filters" => Some("Filter"),
+                    "Join Type" => Some("Join Type"),
+                    "Conditions" => Some("Hash Cond"),
+                    "Estimated Cardinality" => {
+                        if let Ok(n) = text(value).replace(',', "").parse::<f64>() {
+                            out.insert("Plan Rows".into(), json!(n));
+                        }
+                        None
+                    }
+                    _ => None,
+                };
+                if let Some(k) = mapped {
+                    out.insert(k.into(), Value::String(text(value)));
+                }
+            }
+        }
+        if analyze {
+            if let Some(seconds) = node.get("operator_timing").and_then(Value::as_f64) {
+                out.insert("Actual Total Time".into(), json!(seconds * 1000.0));
+            }
+            if let Some(rows) = node.get("operator_cardinality").and_then(Value::as_f64) {
+                out.insert("Actual Rows".into(), json!(rows));
+                out.insert("Actual Loops".into(), json!(1));
+            }
+        }
+        let children: Vec<Value> = node
+            .get("children")
+            .and_then(Value::as_array)
+            .map(|c| c.iter().map(|n| convert(n, analyze)).collect())
+            .unwrap_or_default();
+        if !children.is_empty() {
+            out.insert("Plans".into(), Value::Array(children));
+        }
+        Value::Object(out)
+    }
+    let mut envelope = Map::new();
+    envelope.insert("Plan".into(), convert(root, analyze));
+    if analyze {
+        if let Some(latency) = raw.get("latency").and_then(Value::as_f64) {
+            envelope.insert("Execution Time".into(), json!(latency * 1000.0));
+        }
+    }
+    Some(Value::Object(envelope))
+}
+
+/// `PERFECT_HASH_GROUP_BY` → `Perfect Hash Group By`, `SEQ_SCAN` → `Seq Scan`.
+fn pretty_operator(name: &str) -> String {
+    name.split(|c| c == '_' || c == ' ')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let lower = w.to_ascii_lowercase();
+            let mut chars = lower.chars();
+            match chars.next() {
+                Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// A connection's transaction state, as DuckDB has it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxnProbe {
@@ -466,6 +580,32 @@ mod tests {
         let c = conn();
         let plan = explain_text(&c, "SELECT 1", false).unwrap();
         assert!(!plan.trim().is_empty());
+    }
+
+    #[test]
+    fn plans_map_onto_postgres_keys() {
+        let c = conn();
+        c.execute_batch("CREATE TABLE t AS SELECT range AS x FROM range(1000)").unwrap();
+        let sql = "SELECT x, count(*) FROM t WHERE x > 5 GROUP BY x";
+        let plain: serde_json::Value = serde_json::from_str(&explain_plan_json(&c, sql, false).unwrap()).unwrap();
+        let root = &plain[0]["Plan"];
+        assert_eq!(root["Node Type"], "Projection");
+        let mut node = root;
+        while let Some(child) = node.get("Plans").and_then(|p| p.get(0)) {
+            node = child;
+        }
+        assert_eq!(node["Node Type"], "Seq Scan");
+        assert_eq!(node["Relation Name"], "memory.main.t");
+        assert_eq!(node["Filter"], "x>5");
+        assert!(node["Plan Rows"].as_f64().unwrap() > 0.0);
+
+        let analyzed: serde_json::Value = serde_json::from_str(&explain_plan_json(&c, sql, true).unwrap()).unwrap();
+        assert!(analyzed[0]["Execution Time"].as_f64().unwrap() > 0.0);
+        let root = &analyzed[0]["Plan"];
+        assert_eq!(root["Node Type"], "Projection", "the EXPLAIN_ANALYZE wrapper is skipped");
+        assert_eq!(root["Actual Rows"], 994.0);
+        assert!(root.get("Actual Total Time").is_some());
+        assert_eq!(pretty_operator("PERFECT_HASH_GROUP_BY"), "Perfect Hash Group By");
     }
 
     #[test]

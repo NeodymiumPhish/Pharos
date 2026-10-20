@@ -84,8 +84,19 @@ func runTests() {
     MainActor.assumeIsolated { runTestsOnMain() }
 }
 
+/// The instructions name PostgreSQL; another engine swaps the name only, and
+/// PostgreSQL's text is untouched.
+private func testDialectSwap() {
+    let safety = IntelligenceInstructions.sqlSafety
+    expectEqual(IntelligenceInstructions.inDialect(safety, "PostgreSQL"), safety, "dialect: PostgreSQL text is unchanged")
+    let duck = IntelligenceInstructions.inDialect(safety, "DuckDB")
+    expect(duck.contains("DuckDB analyst") && !duck.contains("PostgreSQL"), "dialect: DuckDB replaces the name")
+    expectEqual(duck.count, safety.count - "PostgreSQL".count + "DuckDB".count, "dialect: nothing else changes")
+}
+
 @MainActor
 private func runTestsOnMain() {
+    testDialectSwap()
     testLabelStructure()
     testLabelAccessibility()
     testThumbsUpRecordsAndTints()

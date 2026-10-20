@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 TMPMAIN=$(mktemp -d)/main.swift
 echo "runTests()" > "$TMPMAIN"
 swiftc -o /tmp/column-type-icon-tests \
+  Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/ColumnTypeIcon.swift \
   PharosTests/ColumnTypeIconTests.swift \
   "$TMPMAIN"

@@ -103,6 +103,11 @@ class SQLCompletionProvider: NSObject {
     /// or the connection's default. nil means `public` alone.
     var currentSchema: String?
 
+    /// The engine's own function names (DuckDB's `duckdb_functions()`), and
+    /// the schema it searches after the current one.
+    var engineFunctionNames: [String] = []
+    var homeSchema: String = "public"
+
     /// Asked, with a schema name, to have that schema's tables and columns
     /// loaded (the metadata cache loads per schema, lazily). Called for the
     /// schemas the statement at the caret refers to.
@@ -257,7 +262,8 @@ class SQLCompletionProvider: NSObject {
         currentWord = scope.typed
         wordRange = NSRange(location: cursor - typedLength, length: typedLength)
 
-        let env = CompletionResolver.Environment(catalog: catalog, currentSchema: currentSchema, variables: variables)
+        let env = CompletionResolver.Environment(catalog: catalog, currentSchema: currentSchema, variables: variables,
+                                                 engineFunctionNames: engineFunctionNames, homeSchema: homeSchema)
         for schema in CompletionResolver.referencedSchemas(scope, in: env) {
             onSchemaNeeded?(schema)
         }

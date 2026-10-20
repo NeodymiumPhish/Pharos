@@ -1,22 +1,33 @@
 import Foundation
 
+/// The SQL dialect a pushdown query is written in. Local to this file so its
+/// harness needs nothing new; the caller maps the connection's engine.
+enum SqlDialect {
+    case postgres
+    /// DuckDB has no `width_bucket` or `hashtext`, and moving a TIMESTAMPTZ
+    /// to UTC with `AT TIME ZONE` needs its ICU extension, which the bundled
+    /// build does not link.
+    case duckdb
+}
+
 enum SqlPushdownGenerator {
     static let groupCap = 1000
     static let scatterSampleCap = 5000
 
-    static func generate(_ config: ChartConfig, userSQL: String, columns: [ColumnDef]) -> PushdownQuery? {
+    static func generate(_ config: ChartConfig, userSQL: String, columns: [ColumnDef],
+                         dialect: SqlDialect = .postgres) -> PushdownQuery? {
         // Only gantt is unavailable (never aggregates; can't push down). Scatter
         // is available as a deterministic sample (handled below).
         if config.chartType == .gantt { return nil }
         guard isSingleSelect(userSQL) else { return nil }
         if config.chartType == .scatter {
-            return scatter(config, userSQL: userSQL, columns: columns)
+            return scatter(config, userSQL: userSQL, columns: columns, dialect: dialect)
         }
         let agg = aggExpr(config, columns: columns)
         guard let agg else { return nil }   // non-count needs a value col
         switch config.chartType {
-        case .heatmap: return heatmap(config, userSQL: userSQL, columns: columns, agg: agg)
-        default:       return categorical(config, userSQL: userSQL, columns: columns, agg: agg)
+        case .heatmap: return heatmap(config, userSQL: userSQL, columns: columns, agg: agg, dialect: dialect)
+        default:       return categorical(config, userSQL: userSQL, columns: columns, agg: agg, dialect: dialect)
         }
     }
 
@@ -51,7 +62,8 @@ enum SqlPushdownGenerator {
 
     /// Binning expression for an axis column: the truncation/identity expr, plus
     /// whether numeric width_bucket binning applies (handled at query assembly).
-    private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef, bin: AxisBin) -> (expr: String, numericBinned: Bool) {
+    private static func axisExpr(_ config: ChartConfig, _ col: ColumnDef, bin: AxisBin,
+                                 dialect: SqlDialect) -> (expr: String, numericBinned: Bool) {
         let kind = ColumnClassifier.kind(forDataType: col.dataType)
         let id = quoteIdent(col.name)
         let dt = col.dataType.lowercased()
@@ -59,7 +71,9 @@ enum SqlPushdownGenerator {
         if kind == .temporal, bin.temporal != .none, isDateTruncable {
             let unit = truncUnit(bin.temporal)
             let tz = dt.hasPrefix("timestamptz") || dt.contains("with time zone")
-            let colExpr = tz ? "\(id) AT TIME ZONE 'UTC'" : id
+            // DuckDB stores a TIMESTAMPTZ as UTC, and the plain cast reads it
+            // back as UTC with no time-zone extension needed.
+            let colExpr = !tz ? id : (dialect == .duckdb ? "CAST(\(id) AS TIMESTAMP)" : "\(id) AT TIME ZONE 'UTC'")
             return ("date_trunc('\(unit)', \(colExpr))", false)
         }
         if kind == .numeric, binCountExpr(bin.numeric) != nil {
@@ -85,14 +99,27 @@ enum SqlPushdownGenerator {
     }
     /// Nominal count for the layout (the builder prefers the returned `_n`); nil
     /// means "not numeric-binned". `.auto` reports 0 as a placeholder.
+    /// PostgreSQL's `width_bucket(v, lo, hi, n)`: the 1-based bucket of `v`
+    /// in `n` equal buckets over `[lo, hi)`, `n + 1` at `hi` (callers clamp
+    /// with LEAST). DuckDB has no such function, so it is written out there.
+    private static func widthBucket(_ v: String, lo: String, hi: String, n: String, dialect: SqlDialect) -> String {
+        switch dialect {
+        case .postgres:
+            return "width_bucket(\(v), \(lo), \(hi), \(n))"
+        case .duckdb:
+            return "CAST(floor((\(v) - \(lo)) * \(n) / CAST(\(hi) - \(lo) AS DOUBLE)) AS BIGINT) + 1"
+        }
+    }
+
     private static func binCountNominal(_ b: NumericBin) -> Int? {
         switch b { case .off: return nil; case .b10: return 10; case .b20: return 20; case .b50: return 50; case .auto: return 0 }
     }
 
-    private static func categorical(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String) -> PushdownQuery? {
+    private static func categorical(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String,
+                                    dialect: SqlDialect) -> PushdownQuery? {
         guard let catCol = resolve(config, .category, columns) else { return nil }
         let bin = config.resolvedBin(for: .category)
-        let (catExpr, numericBinned) = axisExpr(config, catCol, bin: bin)
+        let (catExpr, numericBinned) = axisExpr(config, catCol, bin: bin, dialect: dialect)
         let series = numericBinned ? nil : resolve(config, .series, columns)
         let layout = PushdownLayout(kind: .categorical,
                                     hasSeries: !numericBinned && series != nil,
@@ -104,7 +131,7 @@ enum SqlPushdownGenerator {
             WITH _pharos_src AS ( \(userSQL) ),
                  _r AS (SELECT min(\(id)) AS lo, max(\(id)) AS hi, \(countExpr) AS n FROM _pharos_src)
             SELECT CASE WHEN _r.lo = _r.hi THEN 1
-                        ELSE LEAST(width_bucket(\(id), _r.lo, _r.hi, _r.n), _r.n) END AS _bucket,
+                        ELSE LEAST(\(widthBucket(id, lo: "_r.lo", hi: "_r.hi", n: "_r.n", dialect: dialect)), _r.n) END AS _bucket,
                    _r.lo AS _lo, _r.hi AS _hi, _r.n AS _n, \(agg) AS _val
             FROM _pharos_src, _r
             GROUP BY _bucket, _r.lo, _r.hi, _r.n
@@ -123,16 +150,19 @@ enum SqlPushdownGenerator {
         return PushdownQuery(sql: sql, layout: layout)
     }
 
-    private static func scatter(_ config: ChartConfig, userSQL: String, columns: [ColumnDef]) -> PushdownQuery? {
+    private static func scatter(_ config: ChartConfig, userSQL: String, columns: [ColumnDef],
+                                dialect: SqlDialect) -> PushdownQuery? {
         guard let xCol = resolve(config, .x, columns), let yCol = resolve(config, .y, columns) else { return nil }
         let x = quoteIdent(xCol.name), y = quoteIdent(yCol.name)
         // Deterministic pseudo-random order so a re-run of the recorded SQL
         // reproduces the same sample (audit). ORDER BY random() would not.
+        // DuckDB has no hashtext; its `hash` of the row (a STRUCT) is as stable.
+        let order = dialect == .duckdb ? "hash(_pharos_src)" : "hashtext((_pharos_src.*)::text)"
         let sql = """
         SELECT \(x) AS _x, \(y) AS _y
         FROM ( \(userSQL) ) AS _pharos_src
         WHERE \(x) IS NOT NULL AND \(y) IS NOT NULL
-        ORDER BY hashtext((_pharos_src.*)::text)
+        ORDER BY \(order)
         LIMIT \(scatterSampleCap)
         """
         return PushdownQuery(sql: sql,
@@ -140,11 +170,12 @@ enum SqlPushdownGenerator {
                                                     numericBins: nil, sampleCap: scatterSampleCap))
     }
 
-    private static func heatmap(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String) -> PushdownQuery? {
+    private static func heatmap(_ config: ChartConfig, userSQL: String, columns: [ColumnDef], agg: String,
+                                dialect: SqlDialect) -> PushdownQuery? {
         guard let xCol = resolve(config, .x, columns), let yCol = resolve(config, .y, columns) else { return nil }
         let xBin = config.resolvedBin(for: .x), yBin = config.resolvedBin(for: .y)
-        let (_, xNumeric) = axisExpr(config, xCol, bin: xBin)
-        let (_, yNumeric) = axisExpr(config, yCol, bin: yBin)
+        let (_, xNumeric) = axisExpr(config, xCol, bin: xBin, dialect: dialect)
+        let (_, yNumeric) = axisExpr(config, yCol, bin: yBin, dialect: dialect)
         let n = config.display.topNCategories
 
         // Per-axis fragments: (selectExpr for _x/_y, extra select cols, range CTE, group-by extras).
@@ -153,13 +184,14 @@ enum SqlPushdownGenerator {
             let id = quoteIdent(col.name)
             if numeric, let countExpr = binCountExpr(bin.numeric) {
                 let r = "_r\(tag)"
-                let sel = "CASE WHEN \(r).lo = \(r).hi THEN 1 ELSE LEAST(width_bucket(\(id), \(r).lo, \(r).hi, \(r).n), \(r).n) END"
+                let bucket = widthBucket(id, lo: "\(r).lo", hi: "\(r).hi", n: "\(r).n", dialect: dialect)
+                let sel = "CASE WHEN \(r).lo = \(r).hi THEN 1 ELSE LEAST(\(bucket), \(r).n) END"
                 let extraSel = ", \(r).lo AS _\(tag)lo, \(r).hi AS _\(tag)hi, \(r).n AS _\(tag)n"
                 let cte = "\(r) AS (SELECT min(\(id)) AS lo, max(\(id)) AS hi, \(countExpr) AS n FROM _pharos_src)"
                 let groupExtra = ", \(r).lo, \(r).hi, \(r).n"
                 return Axis(sel: sel, extraSel: extraSel, cte: cte, groupExtra: groupExtra)
             }
-            let (expr, _) = axisExpr(config, col, bin: bin)
+            let (expr, _) = axisExpr(config, col, bin: bin, dialect: dialect)
             return Axis(sel: expr, extraSel: "", cte: "", groupExtra: "")
         }
         let ax = axisFragments(xCol, xBin, numeric: xNumeric, tag: "x")

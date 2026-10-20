@@ -23,10 +23,10 @@ struct PlanSummary {
 @MainActor
 final class PlanSummarizer {
 
-    func summarize(prompt: String) async throws -> PlanSummary {
+    func summarize(prompt: String, dialect: String = "PostgreSQL") async throws -> PlanSummary {
         try IntelligenceGuard.requireAvailable()
-        let session = LanguageModelSession(
-            instructions: IntelligenceInstructions.sqlSafety + "\n" + PlanSummaryPrompt.instructions)
+        let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(
+            IntelligenceInstructions.sqlSafety + "\n" + PlanSummaryPrompt.instructions, dialect))
         return try await session.respond(to: prompt, generating: PlanSummary.self).content
     }
 }

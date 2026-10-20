@@ -82,15 +82,16 @@ final class ChartSuggester {
     }
 
     func suggest(profiles: [ColumnProfile], rowCount: Int,
-                 candidates: [ChartRecommendation], sql: String) async throws -> ChartSuggestionOutcome {
+                 candidates: [ChartRecommendation], sql: String,
+                 dialect: String = "PostgreSQL") async throws -> ChartSuggestionOutcome {
         try IntelligenceGuard.requireAvailable()
         guard !profiles.isEmpty else { throw Failure.nothingToChart }
 
         let prompt = ChartSuggestionPolicy.prompt(profiles: profiles, rowCount: rowCount,
                                                   candidates: candidates, sql: sql)
         let promptHash = ModelFeedbackStore.promptHash(prompt)
-        let session = LanguageModelSession(
-            instructions: IntelligenceInstructions.sqlSafety + "\n" + ChartSuggestionPolicy.instructions)
+        let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(
+            IntelligenceInstructions.sqlSafety + "\n" + ChartSuggestionPolicy.instructions, dialect))
 
         // Race the request against the clock. Cancelling the request task
         // surfaces as a CancellationError from `value`, which is turned into
