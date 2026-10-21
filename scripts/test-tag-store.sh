@@ -44,6 +44,10 @@ swiftc -o "$BIN" \
   PharosTests/TagStoreTests.swift \
   PharosTests/main.swift
 
+# pharos_init reads the Keychain. A scratch service keeps the user's real item
+# out of the test; with it, a rebuilt binary raised an access prompt and hung.
+export PHAROS_KEYCHAIN_SERVICE=com.pharos.test.harness
+
 DIR=$(mktemp -d)
 trap 'rm -rf "$DIR"' EXIT
 
