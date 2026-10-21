@@ -167,6 +167,59 @@ fn rows_of_inner(conn: &Connection, statement: &str, limit: Option<usize>, offse
     run_as_written(conn, statement, limit)
 }
 
+/// One batch of a streamed text read: the statement's columns and up to the
+/// asked number of rows (fewer only at the end).
+pub struct TextChunk {
+    pub columns: Vec<ColumnDef>,
+    pub rows: Vec<Vec<Option<String>>>,
+}
+
+/// Read ONE statement's rows as DuckDB's own text, in ONE pass (D7): the
+/// wrapper `SELECT COLUMNS(*)::VARCHAR FROM (stmt)` is prepared once and its
+/// result streams, with no LIMIT/OFFSET re-runs, so every row is read once
+/// and from one snapshot. `work` gets a `next(n)` that returns the next
+/// batch. A statement DuckDB cannot wrap runs once, as written.
+pub fn with_text_stream<T>(
+    conn: &Connection,
+    statement: &str,
+    work: impl FnOnce(&mut dyn FnMut(usize) -> Result<TextChunk, String>) -> Result<T, String>,
+) -> Result<T, String> {
+    if let Some(columns) = describe(conn, statement) {
+        let wrapped = format!("SELECT COLUMNS(*)::VARCHAR FROM (\n{}\n) AS _pharos_q", statement);
+        if let Ok(mut stmt) = conn.prepare(&wrapped) {
+            let width = columns.len();
+            let mut rows = stmt.query_streaming([]).map_err(|e| e.to_string())?;
+            let mut next = |n: usize| -> Result<TextChunk, String> {
+                let mut out = Vec::with_capacity(n.min(65_536));
+                while out.len() < n {
+                    let Some(row) = rows.next().map_err(|e| e.to_string())? else { break };
+                    let mut cells = Vec::with_capacity(width);
+                    for i in 0..width {
+                        cells.push(row.get::<_, Option<String>>(i).map_err(|e| e.to_string())?);
+                    }
+                    out.push(cells);
+                }
+                Ok(TextChunk { columns: columns.clone(), rows: out })
+            };
+            return work(&mut next);
+        }
+    }
+    // Not a query DuckDB can wrap: run it once, as written, and hand its rows
+    // over in batches.
+    let all = run_as_written(conn, statement, None)?;
+    let columns = all.columns;
+    let mut pending: std::collections::VecDeque<Vec<Option<String>>> = all
+        .rows
+        .into_iter()
+        .map(|r| r.as_array().map(|a| a.iter().map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default())
+        .collect();
+    let mut next = |n: usize| -> Result<TextChunk, String> {
+        let take = n.min(pending.len());
+        Ok(TextChunk { columns: columns.clone(), rows: pending.drain(..take).collect() })
+    };
+    work(&mut next)
+}
+
 /// The statement's column names and DuckDB type names, from `DESCRIBE`, or
 /// None when DuckDB cannot describe it (it is not a query).
 pub fn describe(conn: &Connection, statement: &str) -> Option<Vec<ColumnDef>> {
@@ -645,6 +698,49 @@ mod tests {
         let r = query_text(&c, "SELECT 1 AS a WHERE false", Some(10), 0).unwrap();
         assert_eq!(r.columns.len(), 1);
         assert!(r.rows.is_empty());
+    }
+
+    /// D7: a streamed read hands every row over once, in batches.
+    #[test]
+    fn a_text_stream_reads_every_row_once() {
+        let c = conn();
+        let (total, distinct, last_len) = with_text_stream(&c, "SELECT range AS n FROM range(10007)", |next| {
+            let mut seen = std::collections::HashSet::new();
+            let mut total = 0;
+            let mut last_len = 0;
+            loop {
+                let chunk = next(1000)?;
+                assert_eq!(chunk.columns.len(), 1);
+                last_len = chunk.rows.len();
+                total += chunk.rows.len();
+                for r in &chunk.rows { seen.insert(r[0].clone().unwrap()); }
+                if chunk.rows.len() < 1000 { break; }
+            }
+            Ok((total, seen.len(), last_len))
+        })
+        .unwrap();
+        assert_eq!((total, distinct, last_len), (10007, 10007, 7));
+        // A statement DuckDB cannot wrap still streams its one run.
+        let pragma = with_text_stream(&c, "PRAGMA version", |next| Ok(next(10)?.rows.len())).unwrap();
+        assert_eq!(pragma, 1);
+    }
+
+    /// D7: an interrupt during a streamed fetch is an error, never a panic
+    /// (the reason plan C4 refused `stream_arrow`).
+    #[test]
+    fn an_interrupt_during_a_stream_is_an_error() {
+        let c = conn();
+        let handle = c.interrupt_handle();
+        let outcome = with_text_stream(&c, "SELECT range AS n, md5(range::VARCHAR) FROM range(200000000)", |next| {
+            let first = next(10)?;
+            assert_eq!(first.rows.len(), 10);
+            handle.interrupt();
+            loop {
+                let chunk = next(100_000)?;
+                if chunk.rows.is_empty() { return Ok(()); }
+            }
+        });
+        assert!(outcome.is_err(), "the interrupt ends the stream with an error");
     }
 
     #[test]

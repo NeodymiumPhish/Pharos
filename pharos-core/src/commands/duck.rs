@@ -336,23 +336,20 @@ async fn export_statement(state: &AppState, connection_id: &str, schema: Option<
                           progress: Option<Box<dyn Fn(u64, bool) + Send>>) -> Result<ExportTableResult, String> {
     let batch = state.settings().data_export.batch_size as i64;
     on_fresh(state, connection_id, schema, query_id, 0, move |c| {
-        let pager = |offset: i64, limit: i64| -> Result<TextPage, String> {
-            let page = exec::rows_of(c, &statement, Some(limit as usize), offset as usize)?;
-            if !page.pageable && offset > 0 {
-                return Ok(TextPage { names: vec![], types: vec![], rows: vec![] });
-            }
-            Ok(TextPage {
-                names: page.columns.iter().map(|c| c.name.clone()).collect(),
-                types: page.columns.iter().map(|c| export_type(&c.data_type)).collect(),
-                rows: page
-                    .rows
-                    .iter()
-                    .map(|r| r.as_array().map(|a| a.iter().map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default())
-                    .collect(),
-            })
-        };
-        write_text_pages(pager, &file_path, &format, &insert_target, null_as_empty, include_headers, &dialect, batch,
-                         progress.as_deref())
+        // One streamed pass (D7): the pager hands over the next batch of the
+        // ONE result; the offset it is given no longer re-runs anything.
+        exec::with_text_stream(c, &statement, |next| {
+            let pager = |_offset: i64, limit: i64| -> Result<TextPage, String> {
+                let chunk = next(limit.max(1) as usize)?;
+                Ok(TextPage {
+                    names: chunk.columns.iter().map(|c| c.name.clone()).collect(),
+                    types: chunk.columns.iter().map(|c| export_type(&c.data_type)).collect(),
+                    rows: chunk.rows,
+                })
+            };
+            write_text_pages(pager, &file_path, &format, &insert_target, null_as_empty, include_headers, &dialect, batch,
+                             progress.as_deref())
+        })
     })
     .await
 }
@@ -858,6 +855,30 @@ mod tests {
         let r = execute_query("d".into(), "SELECT count(*) FROM big".into(), None, None, None, None, &state).await.unwrap();
         assert_eq!(r.rows, vec![serde_json::json!(["0"])], "nothing inserted");
         assert!(state.get_import_progress(&key).is_none() && state.get_import_progress(&format!("{key}|phase")).is_none());
+        let _ = std::fs::remove_file(&csv_path);
+    }
+
+    /// D7: a text export reads its query once, streamed: with a batch of 7
+    /// every value appears exactly once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_text_export_streams_every_row_once() {
+        let state = state_with("d", IN_MEMORY);
+        let mut settings = (*state.settings()).clone();
+        settings.data_export.batch_size = 7;
+        state.replace_settings(settings);
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        execute_statement("d".into(), "CREATE TABLE r AS SELECT range AS n FROM range(12345)".into(), None, None, &state)
+            .await.unwrap();
+        let csv_path = temp("stream", "csv");
+        let exported = export_table("d".into(), serde_json::from_value(serde_json::json!({
+            "schemaName": "main", "tableName": "r", "columns": [], "includeHeaders": true,
+            "nullAsEmpty": true, "filePath": csv_path, "format": "csv"
+        })).unwrap(), &state).await.unwrap();
+        assert_eq!(exported.rows_exported, 12345);
+        let text = std::fs::read_to_string(&csv_path).unwrap();
+        let values: std::collections::HashSet<&str> = text.lines().skip(1).collect();
+        assert_eq!(text.lines().count(), 12346);
+        assert_eq!(values.len(), 12345, "no row twice, none skipped");
         let _ = std::fs::remove_file(&csv_path);
     }
 

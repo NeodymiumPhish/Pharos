@@ -267,6 +267,17 @@ impl Statement<'_> {
         Ok(Rows::new(self))
     }
 
+    /// PHAROS PATCH: like `query`, but the result STREAMS: DuckDB produces
+    /// the rows a chunk at a time as `Rows` asks for them, instead of
+    /// materialising the whole result first. Unlike `stream_arrow`, a failed
+    /// fetch (an interrupt) is an `Err` from `Rows::next`, never a panic.
+    #[inline]
+    pub fn query_streaming<P: Params>(&mut self, params: P) -> Result<Rows<'_>> {
+        params.__bind_in(self)?;
+        self.stmt.execute_streaming()?;
+        Ok(Rows::new(self))
+    }
+
     /// Executes the prepared statement and maps a function over the resulting
     /// rows, returning an iterator over the mapped function results.
     ///
