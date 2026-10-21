@@ -20,7 +20,7 @@ main() {
 
     DUCKDB_TAG="v1.5.6"
     DUCKDB_COMMIT="069cc9f9b5"            # what v1.5.6 points at (checked below)
-    VCPKG_TAG="2025.12.12"               # the vcpkg DuckDB v1.5.6 builds with (its Makefile)
+    VCPKG_TAG="2026.10.16"               # OpenSSL 3.6.5, curl 8.23.0, libpq 18.4 (DuckDB v1.5.6 names 2025.12.12)
     DEPLOYMENT_TARGET="26.0"             # the app's minimum macOS (project.yml)
 
     ARCH="${1:-$(uname -m)}"
@@ -117,7 +117,7 @@ main() {
     # none of its sources include or link either (checked with grep, 2026-10-20).
     # Building them would cost minutes and put OpenSSL in the app for nothing.
     python3 -I - "$MANIFEST_DIR/vcpkg.json" "$VCPKG/ports" "$(git -C "$VCPKG" rev-parse HEAD)" <<'PY'
-import json, os, sys
+import json, os, re, sys
 path, ports, vcpkg_head = sys.argv[1], sys.argv[2], sys.argv[3]
 manifest = json.load(open(path))
 unused = set()  # SPIKE: httpfs and postgres_scanner need what the manifests list
@@ -131,17 +131,36 @@ for d in manifest.get("dependencies", []):
 manifest["dependencies"] = deps
 # The ports come from the checked-out vcpkg (VCPKG_TAG), whatever baseline
 # DuckDB's manifest names: a shallow clone has no other commit, and this is
-# what makes a VCPKG_TAG bump the one edit that updates OpenSSL, curl and
-# libpq (SECURITY.md).
+# what makes a VCPKG_TAG bump the one edit that updates OpenSSL, curl,
+# libpq, expat and minizip-ng (SECURITY.md).
 manifest["builtin-baseline"] = vcpkg_head
+def numbers(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v))
+def version(port_dir):
+    port = json.load(open(os.path.join(port_dir, "vcpkg.json")))
+    return port.get("version") or port.get("version-semver") or port.get("version-string")
 # A version override makes vcpkg read old port versions from git history,
-# which the shallow clone lacks. Drop each override that the checked-out
-# port already satisfies; stop on any other.
+# which the shallow clone lacks. DuckDB's merge script always writes one for
+# openssl (3.6.0 for v1.5.6). Drop each override whose series (major.minor)
+# the checked-out port has at the same or a newer patch: that is the security
+# update. Stop on any other, so a new series is a decision, not a side effect.
 for o in manifest.pop("overrides", []):
-    local = json.load(open(os.path.join(ports, o["name"], "vcpkg.json")))
-    have = local.get("version") or local.get("version-semver") or local.get("version-string")
-    if have != o["version"]:
-        sys.exit(f"build-duckdb: {o['name']} override {o['version']} but vcpkg {have}; use a vcpkg with it")
+    have = version(os.path.join(ports, o["name"]))
+    if numbers(have)[:2] != numbers(o["version"])[:2] or numbers(have) < numbers(o["version"]):
+        sys.exit(f"build-duckdb: {o['name']} override {o['version']} but vcpkg {have}; use a vcpkg with that series")
+    print(f"build-duckdb: {o['name']} {have} (DuckDB's override {o['version']})")
+# The extensions bring overlay ports, which vcpkg uses before its own ports:
+# postgres_scanner's libpq (18.3) and excel's expat (2.6.4), minizip-ng
+# (4.0.7) and zlib. On macOS they differ from vcpkg's ports only in version
+# and fixes for other platforms. Drop them, so the libraries come from
+# VCPKG_TAG; stop if that would go back in version or change the major.
+config = manifest.get("vcpkg-configuration", {})
+for overlay in config.pop("overlay-ports", []):
+    for name in sorted(os.listdir(overlay)):
+        theirs, have = version(os.path.join(overlay, name)), version(os.path.join(ports, name))
+        if numbers(have)[:1] != numbers(theirs)[:1] or numbers(have) < numbers(theirs):
+            sys.exit(f"build-duckdb: {name} {theirs} in {overlay} but vcpkg {have}; use a vcpkg with that major")
+        print(f"build-duckdb: {name} {have} (the extension's overlay port {theirs})")
 json.dump(manifest, open(path, "w"), indent=2)
 print("build-duckdb: vcpkg dependencies:", [d if isinstance(d, str) else d["name"] for d in manifest["dependencies"]])
 PY
@@ -171,10 +190,11 @@ PY
     cp "$BUILD"/release/extension/*/lib*_extension.a "$OUT/lib/"
     # Not vcpkg's zlib: the app links macOS's libz (-lz), which minizip-ng uses
     # as well.
-    # Not libpq's embedded-SQL libraries (ecpg, pgtypes), which nothing calls.
+    # Not libpq's embedded-SQL libraries (ecpg, pgtypes) or psql's frontend
+    # utilities (pgfeutils), which nothing calls.
     for lib in "$BUILD/release/vcpkg_installed/$TRIPLET/lib/"*.a; do
         case "$(basename "$lib")" in
-            libz.a|libecpg.a|libecpg_compat.a|libpgtypes.a) ;;
+            libz.a|libecpg.a|libecpg_compat.a|libpgtypes.a|libpgfeutils.a) ;;
             *) cp "$lib" "$OUT/lib/" ;;
         esac
     done
