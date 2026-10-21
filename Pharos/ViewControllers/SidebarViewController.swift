@@ -224,12 +224,14 @@ class SidebarViewController: NSViewController {
         notificationObservers.append(
             NotificationCenter.default.addObserver(
                 forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] note in
                 // `@Sendable` block again — assert the main actor `queue: .main`
                 // already guarantees, as the two observers above do.
+                let target = note.object as? String
                 MainActor.assumeIsolated {
                     guard let self,
                           let activeId = self.session.activeConnectionId,
+                          target == nil || target == activeId,
                           self.stateManager.status(for: activeId) == .connected else { return }
                     self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
                     self.applyActiveSchemaToBrowser()

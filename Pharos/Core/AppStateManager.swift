@@ -385,6 +385,16 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Read a connection's catalog again: the metadata cache (completion,
+    /// the schema pop-up, the Inspector) and the Database Navigator of every
+    /// window on that connection. The one refresh path (N1): File ▸ Refresh
+    /// Metadata, Attach / Detach, Clone and Drop, and a DuckDB card that
+    /// changed the catalog.
+    func refreshMetadata(connectionId: String) {
+        MetadataCache.shared.load(connectionId: connectionId, force: true)
+        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: connectionId)
+    }
+
     /// Is this tab bound to a DuckDB database file (not in-memory)?
     func isOnDuckDBFile(_ tab: QueryTab) -> Bool {
         guard let id = tab.connectionId, let config = connections.first(where: { $0.id == id }) else { return false }

@@ -6,6 +6,16 @@ var failures = 0
 func expect(_ c: Bool, _ n: String) { if c { print("PASS \(n)") } else { failures += 1; print("FAIL \(n)") } }
 
 func runTests() {
+    // N1: statements that change the catalog.
+    expect(RunPathRule.changesCatalog(statements: ["SELECT 1", "CREATE TABLE t (x INT)"]), "CREATE in any statement")
+    expect(RunPathRule.changesCatalog(statements: ["-- note\n  drop view v"]), "after a comment, any case")
+    expect(RunPathRule.changesCatalog(statements: ["ATTACH 'x.db' AS x"]) && RunPathRule.changesCatalog(statements: ["DETACH x"]),
+           "ATTACH and DETACH")
+    expect(RunPathRule.changesCatalog(statements: ["COPY FROM DATABASE memory TO saved"]), "COPY FROM DATABASE")
+    expect(!RunPathRule.changesCatalog(statements: ["COPY t TO 'x.csv'"]), "a plain COPY does not")
+    expect(!RunPathRule.changesCatalog(statements: ["SELECT 'CREATE TABLE x'", "INSERT INTO t VALUES (1)"]),
+           "a word inside a string, and DML, do not")
+    expect(!RunPathRule.changesCatalog(statements: []), "no statements")
     // PostgreSQL: unchanged, the first word decides.
     for sql in ["SELECT 1", "with x as (select 1) select * from x", "  -- note\nEXPLAIN SELECT 1", "SHOW search_path",
                 "TABLE t", "VALUES (1)", "/* a /* nested */ b */ SELECT 1", "select*from t"] {

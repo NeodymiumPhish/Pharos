@@ -28,6 +28,25 @@ enum RunPathRule {
         }
     }
 
+    /// Statements that change what the Database Navigator and completion
+    /// show (N1). A comment or a string never counts: each statement is
+    /// judged by its first word, after comments.
+    static let catalogWords: Set<String> = ["CREATE", "DROP", "ALTER", "ATTACH", "DETACH", "IMPORT", "COMMENT"]
+
+    /// Does any of these statements (a card's, split by `SQLSegmentParser`)
+    /// change the catalog? `COPY FROM DATABASE` copies tables in, so it
+    /// counts; any other COPY does not.
+    static func changesCatalog(statements: [String]) -> Bool {
+        statements.contains { statement in
+            let word = firstWord(statement)
+            if catalogWords.contains(word) { return true }
+            guard word == "COPY" else { return false }
+            let words = stripLeadingComments(statement).uppercased()
+                .split(whereSeparator: { $0.isWhitespace }).prefix(4).map(String.init)
+            return words.count >= 3 && words[1] == "FROM" && words[2] == "DATABASE"
+        }
+    }
+
     /// The first word of `sql`, upper-cased, after comments and whitespace.
     static func firstWord(_ sql: String) -> String {
         String(stripLeadingComments(sql).prefix { $0.isLetter || $0 == "_" }).uppercased()

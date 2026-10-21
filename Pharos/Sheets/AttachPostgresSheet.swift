@@ -213,8 +213,7 @@ final class DuckDBAttachments {
     }
 
     static func refreshMetadata(_ connectionId: String) {
-        MetadataCache.shared.load(connectionId: connectionId, force: true)
-        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
+        AppStateManager.shared.refreshMetadata(connectionId: connectionId)
     }
 
     private func startObserving() {

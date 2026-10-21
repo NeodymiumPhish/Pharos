@@ -114,6 +114,8 @@ class ContentViewController: NSViewController {
     /// Each editor tab's runs, one at a time: every card of a tab runs on the
     /// tab's connection in turn (`CardRunQueue`).
     private var runQueues: [String: CardRunQueue] = [:]
+    /// Tabs whose DuckDB cards changed the catalog since the last refresh (N1).
+    private var catalogChangedTabs: Set<String> = []
 
     /// The last progress read for each running card query, by query id, and
     /// the timer that reads it (`pollRunProgress`). The timer runs only while
@@ -1706,8 +1708,33 @@ class ContentViewController: NSViewController {
         }
         if let next = result.next {
             startJob(next, inTab: tabId)
+        } else {
+            refreshCatalogIfChanged(inTab: tabId)
         }
         if editorPane.showsTab(tabId) { editorPane.refreshCards() }
+    }
+
+    /// N1: a DuckDB card created, dropped, altered or attached something.
+    /// Once the tab's queue is empty and its transaction is not open (the
+    /// navigator reads on another connection, which sees only committed
+    /// work), read the catalog again. An open transaction keeps the mark
+    /// until a later run ends with it committed or rolled back.
+    private func refreshCatalogIfChanged(inTab tabId: String) {
+        guard catalogChangedTabs.contains(tabId),
+              let connectionId = session.tabs.first(where: { $0.id == tabId })?.connectionId else { return }
+        let txn = TabSessionMonitor.shared.report(for: tabId)?.txn
+        guard txn != .inTransaction, txn != .failed else { return }
+        catalogChangedTabs.remove(tabId)
+        guard stateManager.status(for: connectionId) == .connected else { return }
+        stateManager.refreshMetadata(connectionId: connectionId)
+    }
+
+    /// Note a successful DuckDB run whose SQL changes the catalog. Not for
+    /// PostgreSQL: a refresh there reads a server's catalog over the network.
+    private func noteCatalogChange(sql: String, engine: DatabaseEngine, tabId: String) {
+        guard engine == .duckdb,
+              RunPathRule.changesCatalog(statements: SQLSegmentParser.parse(sql).map(\.sql)) else { return }
+        catalogChangedTabs.insert(tabId)
     }
 
     /// Run a job of the tab's queue: check the card's variables and, for a
@@ -1816,6 +1843,7 @@ class ContentViewController: NSViewController {
                     let result = outcome.result
                     await MainActor.run {
                         self.noteRunRoute(outcome.route, tabId: tabId)
+                        self.noteCatalogChange(sql: sql, engine: engine, tabId: tabId)
                         var cr = CardResult(cardId: ticket.cardId, runId: ticket.runId, sql: sql, rawSQL: ticket.rawSQL)
                         cr.queryResult = result
                         cr.executionTimeMs = result.executionTimeMs
@@ -1833,6 +1861,7 @@ class ContentViewController: NSViewController {
                     let result = outcome.result
                     await MainActor.run {
                         self.noteRunRoute(outcome.route, tabId: tabId)
+                        self.noteCatalogChange(sql: sql, engine: engine, tabId: tabId)
                         var cr = CardResult(cardId: ticket.cardId, runId: ticket.runId, sql: sql, rawSQL: ticket.rawSQL)
                         cr.executeResult = result
                         cr.executionTimeMs = result.executionTimeMs
@@ -4834,8 +4863,7 @@ extension ContentViewController {
     @objc func menuRefreshMetadata(_: Any?) {
         guard let id = session.activeTab?.connectionId,
               stateManager.status(for: id) == .connected else { return }
-        MetadataCache.shared.load(connectionId: id, force: true)
-        NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
+        stateManager.refreshMetadata(connectionId: id)
     }
 
     /// Query ▸ Attach PostgreSQL Connection…: on a connected DuckDB tab.

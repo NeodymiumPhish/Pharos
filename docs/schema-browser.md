@@ -133,6 +133,6 @@ An inherited child table inside a **Partitions** folder gets the same read-only 
 
 ## Refreshing
 
-The tree refreshes automatically when you connect, and after operations that change structure (clone, import, truncate, drop). To refresh manually — for example after running your own DDL — choose **File > Refresh Metadata** (**Cmd+Shift+R**).
+The tree, the schema pop-up and completion refresh automatically when you connect, and after operations that change structure (clone, import, truncate, drop, attach, detach). On a DuckDB connection they also refresh after a card that runs CREATE, DROP, ALTER, ATTACH, DETACH, IMPORT or COMMENT, once the tab has no open transaction. To refresh manually — for example after DDL on PostgreSQL — choose **File > Refresh Metadata** (**Cmd+Shift+R**).
 
 The tree is cached per connection, so switching between connections restores instantly. Row-count estimates are gathered in the background (Pharos runs `ANALYZE` on unanalyzed tables where permitted) and fill in as they arrive.

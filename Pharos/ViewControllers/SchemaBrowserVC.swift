@@ -992,8 +992,10 @@ extension SchemaBrowserVC: SchemaContextMenuDelegate {
     var contextConnectionId: String? { connectionId }
 
     func contextMenuDidRequestReload() {
+        // Clone and Drop: the cache too, so completion forgets a dropped
+        // table; the notification reloads this tree.
         guard let connectionId else { return }
-        loadSchemas(connectionId: connectionId, force: true)
+        stateManager.refreshMetadata(connectionId: connectionId)
     }
 
     func contextMenuPresentSheet(_ viewController: NSViewController) {
