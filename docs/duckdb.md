@@ -68,6 +68,15 @@ Read-only applies to that connect only.
 
 A file written by a newer DuckDB than the one in Pharos does not open; the message says so.
 
+## When Pharos closes a file
+
+Pharos closes a DuckDB file a few seconds after the last tab that uses it closes, or changes to another connection. The DuckDB lock then goes, so the `duckdb` command-line tool, Python and other apps can open the file. Closing the file also detaches its attached databases and drops its temporary secrets. Pharos keeps a file open when:
+
+- the connection is in-memory (closing it would lose its tables), or
+- the connection has **Connect when Pharos starts** on.
+
+**File > Disconnect** closes the file at once.
+
 ## What differs from PostgreSQL
 
 | | PostgreSQL | DuckDB |

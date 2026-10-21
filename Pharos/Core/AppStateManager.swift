@@ -98,7 +98,9 @@ final class AppStateManager: ObservableObject {
         session.hooks.cancelQueries = { [weak self] tabs in
             self?.cancelQueries(beforeClosing: tabs)
         }
-        session.hooks.tabsDidClose = { tabIds in
+        session.hooks.tabsDidClose = { [weak self] tabIds in
+            // A DuckDB file no tab uses any more closes (DuckDBCloseRule).
+            self?.scheduleDuckDBCloseCheck()
             // Each closed tab's own connection: an open transaction is rolled
             // back (never committed); the close paths asked the user first.
             Task { @MainActor in
@@ -346,12 +348,40 @@ final class AppStateManager: ObservableObject {
             session.activeConnectionId = connectionId
             if connectionChanged { session.activeSchema = newSchema }
         }
-        if connectionChanged { noteRecentDuckDBFile(connectionId) }
+        if connectionChanged {
+            noteRecentDuckDBFile(connectionId)
+            // The tab left its old DuckDB file: that file may now be unused.
+            scheduleDuckDBCloseCheck()
+        }
         switch status(for: connectionId) {
         case .disconnected, .error:
             connect(id: connectionId, in: session)
         case .connecting, .connected:
             break
+        }
+    }
+
+    private var duckDBCloseCheck: DispatchWorkItem?
+
+    /// Close each DuckDB file no tab uses, a few seconds from now. The delay
+    /// lets a tab that is replaced at once (openItem, a quick connection
+    /// switch back) claim the file again, and the count is taken THEN, when
+    /// the closed window's session is gone.
+    func scheduleDuckDBCloseCheck() {
+        guard !isTerminating else { return }
+        duckDBCloseCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.closeUnusedDuckDBFiles() }
+        duckDBCloseCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+    }
+
+    private func closeUnusedDuckDBFiles() {
+        let ids = DuckDBCloseRule.recordsToClose(
+            connections: connections, tabConnectionIds: sessions.flatMap(\.tabs).map(\.connectionId),
+            status: { [unowned self] in self.status(for: $0) }, isTerminating: isTerminating)
+        for id in ids {
+            Log.state.info("Closing DuckDB file no tab uses: \(id, privacy: .public)")
+            disconnect(id: id)
         }
     }
 
@@ -560,6 +590,8 @@ final class AppStateManager: ObservableObject {
         postStatusChange(id)
 
         Task {
+            // A disconnect of this record still in the core finishes first.
+            if let pending = self.disconnecting[id] { await pending.value }
             do {
                 let create = self.pendingCreate.remove(id) != nil
                 let info = readOnly
@@ -623,22 +655,32 @@ final class AppStateManager: ObservableObject {
     }
 
     func disconnect(id: String) {
-        Task {
+        // Disconnected at once, before the core is done: a connect started
+        // meanwhile (a tab reopening the file) waits for this one to finish
+        // (`performConnect`), so it never meets a half-closed record.
+        connectionStatuses[id] = .disconnected
+        for session in sessions where session.activeConnectionId == id {
+            session.activeConnectionId = nil
+        }
+        postStatusChange(id)
+        let task = Task {
             do {
                 try await PharosCore.disconnect(connectionId: id)
                 // The core closed every tab connection on this server first.
                 TabSessionMonitor.shared.forgetConnection(id)
-                self.connectionStatuses[id] = .disconnected
-                // The pool is app-wide, so every window pointed at it loses it.
-                for session in self.sessions where session.activeConnectionId == id {
-                    session.activeConnectionId = nil
-                }
-                self.postStatusChange(id)
             } catch {
                 Log.state.error("Disconnect failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+        disconnecting[id] = task
+        Task {
+            await task.value
+            if self.disconnecting[id] == task { self.disconnecting[id] = nil }
+        }
     }
+
+    /// Disconnects the core has not finished, by connection id.
+    private var disconnecting: [String: Task<Void, Never>] = [:]
 
     // MARK: - Settings
 

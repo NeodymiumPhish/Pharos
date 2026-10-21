@@ -145,6 +145,11 @@ pub struct AppState {
     /// equivalent of `connections`. Two records naming the same file share
     /// one instance (`duck_instance_for_path`).
     pub duck_dbs: Mutex<HashMap<String, Arc<DuckDbInstance>>>,
+    /// Files whose last record disconnected while something (an export, a
+    /// checkpoint on the way out) still holds the instance, keyed by path.
+    /// A connect in that time finds the live instance here instead of
+    /// opening the file a second time in this process (plan C9).
+    pub duck_closing: Mutex<HashMap<String, std::sync::Weak<DuckDbInstance>>>,
     /// PostgreSQL connections attached to DuckDB databases
     /// (`commands::duck_attach`).
     pub pg_attachments: Mutex<Vec<crate::commands::duck_attach::PgAttachment>>,
@@ -189,6 +194,7 @@ impl AppState {
             duck_sessions: Mutex::new(HashMap::new()),
             pg_attachments: Mutex::new(Vec::new()),
             duck_read_only_once: Mutex::new(HashSet::new()),
+            duck_closing: Mutex::new(HashMap::new()),
             duck_create_once: Mutex::new(HashSet::new()),
         }
     }
@@ -480,6 +486,24 @@ impl AppState {
         }
         let dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
         dbs.values().find(|d| d.path == path).cloned()
+    }
+
+    /// Remember an instance on its way out, so a connect before it has gone
+    /// finds it. Only when no other record still has the file open.
+    pub fn note_duck_closing(&self, instance: &Arc<DuckDbInstance>) {
+        if instance.path == crate::db::duckdb::IN_MEMORY || self.duck_instance_for_path(&instance.path).is_some() {
+            return;
+        }
+        let mut closing = self.duck_closing.lock().unwrap_or_else(|e| e.into_inner());
+        closing.retain(|_, weak| weak.strong_count() > 0);
+        closing.insert(instance.path.clone(), Arc::downgrade(instance));
+    }
+
+    /// The instance of a file that is still closing, if something holds it.
+    pub fn duck_still_closing(&self, path: &str) -> Option<Arc<DuckDbInstance>> {
+        let mut closing = self.duck_closing.lock().unwrap_or_else(|e| e.into_inner());
+        closing.retain(|_, weak| weak.strong_count() > 0);
+        closing.get(path).and_then(|weak| weak.upgrade())
     }
 
     /// Ask the next connect of this record to open it read-only.

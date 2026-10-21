@@ -52,7 +52,7 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
     let read_only = config.read_only || state.take_duck_read_only_once(&config.id);
     let create = state.take_duck_create_once(&config.id);
     let path = normalized_path(&config.database);
-    if let Some(existing) = state.duck_instance_for_path(&path) {
+    if let Some(existing) = state.duck_instance_for_path(&path).or_else(|| state.duck_still_closing(&path)) {
         state.add_duck(config.id.clone(), existing);
         return Ok(info(&config, ConnectionStatus::Connected, None, Some(0)));
     }
@@ -82,6 +82,9 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
 pub async fn disconnect(connection_id: &str, state: &AppState) {
     super::duck_session::close_duck_sessions_for_connection(state, connection_id).await;
     if let Some(instance) = state.remove_duck(connection_id) {
+        // An export may still hold the instance: a connect before it ends
+        // must find this one, not open the file again.
+        state.note_duck_closing(&instance);
         // Drop off the runtime: the checkpoint can take a moment.
         let _ = tokio::task::spawn_blocking(move || drop(instance)).await;
     }
@@ -597,6 +600,31 @@ mod tests {
         assert_eq!(again.status, ConnectionStatus::Connected);
         let r = execute_query("d".into(), "SELECT count(*) FROM t".into(), None, None, None, None, &state).await.unwrap();
         assert_eq!(r.rows, vec![serde_json::json!(["3"])]);
+        disconnect("d", &state).await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A file disconnected while something still holds its instance (an
+    /// export) is found again by the next connect, never opened twice.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_connect_while_the_file_is_closing_reuses_the_instance() {
+        let path = temp("closing", "duckdb");
+        let state = state_with("d", &path);
+        state.request_duck_create_once("d");
+        let config = state.get_config("d").unwrap();
+        connect(config.clone(), &state).await.unwrap();
+        let held = state.get_duck("d").unwrap(); // an export in flight
+        disconnect("d", &state).await;
+        assert!(state.get_duck("d").is_none());
+        let again = connect(config.clone(), &state).await.unwrap();
+        assert_eq!(again.status, ConnectionStatus::Connected, "{:?}", again.error);
+        assert!(Arc::ptr_eq(&held, &state.get_duck("d").unwrap()), "the live instance is reused");
+        disconnect("d", &state).await;
+        drop(held);
+        // Once nothing holds it, the file opens afresh.
+        assert!(state.duck_still_closing(&normalized_path(&path)).is_none());
+        let fresh = connect(config, &state).await.unwrap();
+        assert_eq!(fresh.status, ConnectionStatus::Connected);
         disconnect("d", &state).await;
         let _ = std::fs::remove_file(&path);
     }

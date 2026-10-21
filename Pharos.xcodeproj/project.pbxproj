@@ -101,6 +101,7 @@
 		3C08561F398C70E3EEDBA08B /* PharosCore+Cards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773275ECF4E6A49569780BB8 /* PharosCore+Cards.swift */; };
 		3C471C6BB89249B37BD0214F /* LaunchConnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46AFACD95D022C934A3AD80 /* LaunchConnectPolicy.swift */; };
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
+		3DCBD8AB9F46D4D240F5799E /* DuckDBCloseRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4E71413435BD2076C73B4E /* DuckDBCloseRule.swift */; };
 		3DFC28BC8EDDBE4881456149 /* ResultsGridVC+Setup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */; };
 		3E267DE23AFF7841F05A0CDD /* PharosCore+Workspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */; };
 		3E29C8CBCB83D4D5A595A604 /* EditorPaneVC+TabContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C73A264BDE68C6B85043FA1 /* EditorPaneVC+TabContext.swift */; };
@@ -620,6 +621,7 @@
 		9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleGridView.swift; sourceTree = "<group>"; };
 		9EC681B504DAF0E904245D22 /* Pharos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pharos.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F123C9BE554B92173C63DB9 /* QueryHistoryStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistoryStatus.swift; sourceTree = "<group>"; };
+		9F4E71413435BD2076C73B4E /* DuckDBCloseRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckDBCloseRule.swift; sourceTree = "<group>"; };
 		9F670324A3284FA21DE1DEBF /* ModelFeedbackEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelFeedbackEntry.swift; sourceTree = "<group>"; };
 		9F6D247D62B67323D62ADCC7 /* VariableValueTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValueTextView.swift; sourceTree = "<group>"; };
 		9F97502732CB469B07431E71 /* QueryPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryPlan.swift; sourceTree = "<group>"; };
@@ -1103,6 +1105,7 @@
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
 				D0B9E7C1E552BBD06043E902 /* DuckDBAttachRules.swift */,
+				9F4E71413435BD2076C73B4E /* DuckDBCloseRule.swift */,
 				312D6DCAE7C41B74E819934F /* DuckDBFiles.swift */,
 				159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */,
 				AB1E5037B8F3B1BB2DA446A4 /* ExportImportOutcomeText.swift */,
@@ -1550,6 +1553,7 @@
 				F94A3BE1A6CD5B7B31BD8BD0 /* DrillSummary.swift in Sources */,
 				F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */,
 				4B3FD470B22989F8B446F4C4 /* DuckDBAttachRules.swift in Sources */,
+				3DCBD8AB9F46D4D240F5799E /* DuckDBCloseRule.swift in Sources */,
 				8BA5D322E3AAE0EE87353DA2 /* DuckDBFiles.swift in Sources */,
 				834A89BB88BF7F87A3247D2D /* DuckDBVocabularyCache.swift in Sources */,
 				806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */,
