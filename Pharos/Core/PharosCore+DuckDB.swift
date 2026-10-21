@@ -48,6 +48,14 @@ extension PharosCore {
         }
     }
 
+    /// A running query's progress, read at once (the card header polls it).
+    /// nil when the query is not running, its engine reports none
+    /// (PostgreSQL), or the engine has no estimate yet.
+    static func queryProgress(queryId: String) -> QueryProgress? {
+        let result: QueryProgress?? = try? callSync { queryId.withCString { pharos_query_progress($0) } }
+        return result ?? nil
+    }
+
     /// The DuckDB library version Pharos links, e.g. "v1.5.6".
     static func duckDBVersion() -> String {
         (try? callSync { pharos_duckdb_version() }) ?? "unknown"

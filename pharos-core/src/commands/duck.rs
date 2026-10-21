@@ -127,6 +127,7 @@ where
     let conn = instance.connect()?;
     let interrupt = conn.interrupt_handle();
     let registered = state.register_query(query_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()));
+    registered.attach_progress(conn.progress_handle());
     let cancel = registered.cancel.clone();
     run_cancellable(interrupt, &cancel, query_timeout_seconds(state), move || {
         if let Some(s) = schema.filter(|s| !s.is_empty()) {

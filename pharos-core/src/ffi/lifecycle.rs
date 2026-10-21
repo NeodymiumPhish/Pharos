@@ -65,6 +65,8 @@ pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
         log::warn!("Could not write the SSH password helper: {}", e);
     }
 
+    crate::db::duckdb::set_extension_directory(&path);
+
     let state = AppState::new(metadata_db);
 
     // Load connections and initialize password cache

@@ -97,6 +97,20 @@ private func testNameRowStates() {
 
     h.apply(presentation(ran("SELECT 1"), activity: .running(startedAt: Date())), isCollapsed: false, meta: "")
     expect(!h.cancelButton.isHidden && h.runButton.isHidden, "running: Cancel instead of Run")
+    let wheel = h.runIndicatorForTesting
+    expect(wheel.isIndeterminate, "running with no estimate: a spinning wheel")
+
+    h.apply(presentation(ran("SELECT 1"), activity: .running(startedAt: Date())), isCollapsed: false,
+            meta: "Running · 42% · 3 s", progress: 42)
+    expect(!wheel.isIndeterminate && wheel.doubleValue == 42 && wheel.isDisplayedWhenStopped,
+           "running with an estimate: a determinate indicator at 42")
+    expect(h.metaLabel.stringValue == "Running · 42% · 3 s", "running: the meta line is the progress line")
+    let before = wheel.frame
+    h.apply(presentation(ran("SELECT 1")), isCollapsed: false, meta: "just now · 3 s")
+    f.layout()
+    expect(wheel.isIndeterminate && !wheel.isDisplayedWhenStopped && !wheel.isHidden,
+           "finished: back to an undrawn wheel that keeps its place")
+    expect(wheel.frame.width == before.width || before.width == 0, "the indicator keeps its width")
 }
 
 private func testDisclosure() {

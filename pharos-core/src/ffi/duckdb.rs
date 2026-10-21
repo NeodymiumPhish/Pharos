@@ -93,3 +93,25 @@ pub extern "C" fn pharos_export_parquet(
 pub extern "C" fn pharos_duckdb_version() -> *mut c_char {
     ffi_sync!(to_json_c_string(&crate::db::duckdb::duckdb_version()))
 }
+
+/// The progress of a running query, read without waiting:
+/// `{"percentage": 42.0 | null, "rowsProcessed": n, "totalRows": n}`, or `null`
+/// when the query is not running, its engine reports no progress (PostgreSQL),
+/// or the engine has no estimate yet. Poll it while a card runs. Free the
+/// result with `pharos_free_string`.
+#[no_mangle]
+pub extern "C" fn pharos_query_progress(query_id: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let id = unsafe { c_str_to_string(query_id) };
+        let progress = APP_STATE.get().and_then(|state| state.query_progress(&id));
+        let json = match progress {
+            Some(p) => serde_json::json!({
+                "percentage": p.percentage,
+                "rowsProcessed": p.rows_processed,
+                "totalRows": p.total_rows_to_process,
+            }),
+            None => serde_json::Value::Null,
+        };
+        to_c_string(&json.to_string())
+    })
+}

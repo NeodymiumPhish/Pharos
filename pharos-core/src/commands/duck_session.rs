@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 
-use duckdb::{Connection, InterruptHandle};
+use duckdb::{Connection, InterruptHandle, ProgressHandle};
 
 use super::query::{history_entry, query_timeout_seconds, record_history, result_cache, ExecuteResult, QueryResult, QUERY_CANCELLED};
 use super::tab_session::{
@@ -46,6 +46,9 @@ pub struct DuckSession {
 struct Live {
     conn: Arc<StdMutex<Connection>>,
     interrupt: Arc<InterruptHandle>,
+    /// Taken at open, beside the interrupt: `run_on` holds `conn` for the
+    /// whole query, so nothing could reach the connection to ask later.
+    progress: Arc<ProgressHandle>,
     /// The schema the toolbar last set; None until it sets one.
     schema: Option<String>,
     txn: TxnState,
@@ -200,7 +203,8 @@ fn ensure_live(guard: &mut Option<Live>, session: &DuckSession, state: &AppState
     let instance = state.require_duck(&session.connection_id)?;
     let conn = instance.connect()?;
     let interrupt = conn.interrupt_handle();
-    *guard = Some(Live { conn: Arc::new(StdMutex::new(conn)), interrupt, schema: None, txn: TxnState::Idle, txn_since: None });
+    let progress = conn.progress_handle();
+    *guard = Some(Live { conn: Arc::new(StdMutex::new(conn)), interrupt, progress, schema: None, txn: TxnState::Idle, txn_since: None });
     let mut r = session.report.lock().unwrap_or_else(|e| e.into_inner());
     r.generation += 1;
     // A first open is not a reset; a reopen after the connection was lost
@@ -322,6 +326,9 @@ pub async fn execute_query(request: SessionRunRequest, state: &AppState) -> Resu
 
     let mut guard = lock_or_cancel(&session, &cancel).await?;
     ensure_live(&mut guard, &session, state)?;
+    if let Some(live) = guard.as_ref() {
+        registered.attach_progress(live.progress.clone());
+    }
     let outcome = {
         let live = guard.as_mut().expect("ensure_live leaves a connection");
         if request.aux && live.txn == TxnState::Failed {
@@ -372,6 +379,9 @@ pub async fn execute_statement(request: SessionRunRequest, state: &AppState) -> 
 
     let mut guard = lock_or_cancel(&session, &cancel).await?;
     ensure_live(&mut guard, &session, state)?;
+    if let Some(live) = guard.as_ref() {
+        registered.attach_progress(live.progress.clone());
+    }
     let outcome = {
         let live = guard.as_mut().expect("ensure_live leaves a connection");
         let sql = request.sql.clone();
@@ -420,6 +430,9 @@ async fn paged(target: SessionTarget, sql: String, limit: Option<usize>, offset:
 
     let mut guard = lock_or_cancel(&session, &cancel).await?;
     ensure_live(&mut guard, &session, state)?;
+    if let Some(live) = guard.as_ref() {
+        registered.attach_progress(live.progress.clone());
+    }
     let outcome = {
         let live = guard.as_mut().expect("ensure_live leaves a connection");
         if live.txn == TxnState::Failed {
@@ -459,6 +472,9 @@ pub async fn explain(target: SessionTarget, sql: String, analyze: bool, state: &
     let cancel = registered.cancel.clone();
     let mut guard = lock_or_cancel(&session, &cancel).await?;
     ensure_live(&mut guard, &session, state)?;
+    if let Some(live) = guard.as_ref() {
+        registered.attach_progress(live.progress.clone());
+    }
     let outcome = {
         let live = guard.as_mut().expect("ensure_live leaves a connection");
         match live.txn {

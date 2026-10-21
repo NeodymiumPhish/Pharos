@@ -160,6 +160,7 @@
 		5B33582736CE82D0A5734389 /* SettingsControlFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43A05BEB9E63BF8F7876B08E /* SettingsControlFactory.swift */; };
 		5B583901BAB1668E5CEC8B52 /* SettingsGroupBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58ECF13A7BEA2B9DEE53C8 /* SettingsGroupBox.swift */; };
 		5C3CCF03D9E5B9FE79F803B3 /* NSTextField+AuthoredLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */; };
+		5D2D84E4B5134653A72E1399 /* QueryProgressText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9114095BC992F8AAD07387C /* QueryProgressText.swift */; };
 		5E762A4EA65505BED13E97AB /* TagCommitWriting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F29EAF71E5C6F689CC25999 /* TagCommitWriting.swift */; };
 		5E8E55DC65C082356BE08768 /* SettingsToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE262A27E17DEE8BAE14595 /* SettingsToolbarController.swift */; };
 		60583C76A34589B8A9F81380 /* ModelFeedbackEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F670324A3284FA21DE1DEBF /* ModelFeedbackEntry.swift */; };
@@ -631,6 +632,7 @@
 		A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLThemeCatalog.swift; sourceTree = "<group>"; };
 		A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSLayoutConstraint+Swap.swift"; sourceTree = "<group>"; };
 		A846DAE04C447D3AE1792991 /* TagFamilyLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFamilyLabel.swift; sourceTree = "<group>"; };
+		A9114095BC992F8AAD07387C /* QueryProgressText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryProgressText.swift; sourceTree = "<group>"; };
 		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
 		AA65798870D3E31C984FA293 /* CardFindIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardFindIndex.swift; sourceTree = "<group>"; };
@@ -1129,6 +1131,7 @@
 				BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */,
 				B924DFE2722E648667C6764E /* QueryFailureChannel.swift */,
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
+				A9114095BC992F8AAD07387C /* QueryProgressText.swift */,
 				1240AA7DD9358837FF59AC79 /* QueryVariableStore.swift */,
 				DF8414CD13DF3D760B5E9830 /* ResultValueFormatter.swift */,
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
@@ -1439,7 +1442,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -n \"$PHAROS_CI\" ]; then\n  echo \"Skipping Rust build — CI pre-built library\"\n  exit 0\nfi\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\ncd \"${SRCROOT}/pharos-core\"\ncargo build --release\n";
+			shellScript = "if [ -n \"$PHAROS_CI\" ]; then\n  echo \"Skipping Rust build — CI pre-built library\"\n  exit 0\nfi\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\n# DuckDB with Pharos's extensions, for this Mac's architecture.\n# Skipped when up to date; the first build takes several minutes.\n\"${SRCROOT}/scripts/build-duckdb.sh\"\ncd \"${SRCROOT}/pharos-core\"\ncargo build --release\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1650,6 +1653,7 @@
 				A052BF4F5DFA8F2B059A3D77 /* QueryHistoryVC.swift in Sources */,
 				32658884EC755D14B18936A7 /* QueryNotifier.swift in Sources */,
 				A39310894FD5EFC371680D4A /* QueryPlan.swift in Sources */,
+				5D2D84E4B5134653A72E1399 /* QueryProgressText.swift in Sources */,
 				313901B49AD64989B8264CB5 /* QueryResult.swift in Sources */,
 				941978E52210010EAF9FBEC2 /* QuerySettingsPaneVC.swift in Sources */,
 				3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */,
@@ -1863,6 +1867,7 @@
 					"-lm",
 					"-lresolv",
 					"-lc++",
+					"-lcompression",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pharos.client;
 				PRODUCT_NAME = Pharos;
@@ -2005,6 +2010,8 @@
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEPLOYMENT_POSTPROCESSING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Pharos/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -2027,10 +2034,13 @@
 					"-lm",
 					"-lresolv",
 					"-lc++",
+					"-lcompression",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.pharos.client;
 				PRODUCT_NAME = Pharos;
 				SDKROOT = macosx;
+				STRIP_INSTALLED_PRODUCT = YES;
+				STRIP_STYLE = "non-global";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Pharos/CPharosCore";
 				SWIFT_OBJC_BRIDGING_HEADER = "";

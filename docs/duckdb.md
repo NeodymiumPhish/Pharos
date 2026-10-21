@@ -74,9 +74,23 @@ Cells show DuckDB's own text for every type, including lists (`[1, 2]`), structs
 
 ## Extensions
 
-DuckDB's core, its Parquet reader and writer, and its JSON functions are built into Pharos. Other DuckDB extensions (time zones through `icu`, `httpfs`, `postgres`, Excel…) are separate libraries that DuckDB downloads.
+These DuckDB extensions are built into Pharos. You do not install or load them; DuckDB loads each one the first time a query needs it.
 
-{: .warning }
-This build of Pharos cannot load a downloaded extension. macOS lets the app load only the libraries it shipped with, so a query that needs an extension fails with a message that says so. For this reason **Settings > Connections > DuckDB > Download extensions** is off by default.
+| Extension | What it gives you |
+|---|---|
+| `core_functions` | DuckDB's standard functions and aggregates |
+| `parquet` | `read_parquet`, `COPY … TO 'x.parquet'` |
+| `json` | The `JSON` type, `read_json`, JSON functions |
+| `icu` | Time zones (`SET TimeZone`, `TIMESTAMPTZ`), collations, locale-aware dates |
+| `inet` | The `INET` type (IPv4 and IPv6 addresses and networks), `host()`, `<<=` and `>>=` |
+| `fts` | Full-text search: `PRAGMA create_fts_index`, `match_bm25` |
+| `excel` | `read_xlsx`, `COPY … TO 'x.xlsx'`, Excel number formats |
+| `sqlite_scanner` | `ATTACH 'file.sqlite' (TYPE sqlite)`, `sqlite_scan` |
+| `autocomplete` | `sql_auto_complete` |
 
-**Settings > Connections > DuckDB** also sets the worker threads, the memory limit and the extension folder. These settings apply the next time a database opens.
+`SELECT * FROM duckdb_extensions()` shows these with the install path `(BUILT-IN)`.
+
+{: .note }
+Pharos does not download extensions. macOS lets the app load only the libraries it shipped with, so an extension that is not in the list above (for example `httpfs` or `spatial`) is not available.
+
+**Settings > Connections > DuckDB** sets the worker threads and the memory limit. These settings apply the next time a database opens.

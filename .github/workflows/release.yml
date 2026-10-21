@@ -25,6 +25,27 @@ jobs:
       - name: Add Intel Rust target
         run: rustup target add x86_64-apple-darwin
 
+      # DuckDB and its extensions, built from source by scripts/build-duckdb.sh
+      # (pinned versions; the key changes when the script or the extension
+      # list does). The vcpkg cache holds excel's expat and minizip-ng.
+      - name: Cache DuckDB build
+        uses: actions/cache@v5
+        with:
+          path: |
+            pharos-core/target/duckdb
+            ${{ runner.temp }}/duckdb-build/vcpkg-cache
+          key: duckdb-${{ runner.os }}-${{ hashFiles('scripts/build-duckdb.sh', 'pharos-core/duckdb/**') }}
+
+      - name: Install DuckDB build tools
+        run: brew install ninja
+
+      - name: Build DuckDB (arm64, x86_64)
+        env:
+          PHAROS_DUCKDB_WORK: ${{ runner.temp }}/duckdb-build
+        run: |
+          scripts/build-duckdb.sh arm64
+          scripts/build-duckdb.sh x86_64
+
       - name: Install xcodegen
         run: brew install xcodegen
 
@@ -39,14 +60,17 @@ jobs:
           sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pharos-core/Cargo.toml
 
       - name: Build Rust library (universal)
-        # DuckDB's bundled C++ (libduckdb-sys, `cc` crate) must target the
-        # app's own minimum macOS, as Xcode's pre-build does locally.
+        # Each target links its own DuckDB build (pharos-core/build.rs;
+        # DUCKDB_LIB_DIR is for libduckdb-sys, .cargo/config.toml defaults it
+        # to arm64).
         env:
           MACOSX_DEPLOYMENT_TARGET: "26.0"
         run: |
           cd pharos-core
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          DUCKDB_LIB_DIR="$PWD/target/duckdb/aarch64-apple-darwin/lib" \
+            cargo build --release --target aarch64-apple-darwin
+          DUCKDB_LIB_DIR="$PWD/target/duckdb/x86_64-apple-darwin/lib" \
+            cargo build --release --target x86_64-apple-darwin
           mkdir -p target/release
           lipo -create \
             target/aarch64-apple-darwin/release/libpharos_core.a \
@@ -82,11 +106,21 @@ jobs:
             -ov -format UDZO \
             "Pharos-${GITHUB_REF_NAME}.dmg"
 
+      # The shipped binary is stripped; its dSYM turns crash-log addresses
+      # back into function names (atos -o Pharos.app.dSYM/... -l <load addr>).
+      - name: Zip dSYM
+        run: |
+          ditto -c -k --keepParent \
+            ./build/Build/Products/Release/Pharos.app.dSYM \
+            "Pharos-${GITHUB_REF_NAME}.dSYM.zip"
+
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v7
         with:
           name: dmg
-          path: "*.dmg"
+          path: |
+            *.dmg
+            *.dSYM.zip
 
   release:
     needs: build
@@ -102,7 +136,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: "*.dmg"
+          files: |
+            *.dmg
+            *.dSYM.zip
           generate_release_notes: true
 
       - name: Trigger Homebrew tap update

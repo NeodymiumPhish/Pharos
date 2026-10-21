@@ -37,8 +37,10 @@ final class CardStackVC: NSViewController {
         var resultInMemory = false
         var isDisplayed = false
         var isEdited = false
-        /// "2 min ago · 45 ms"
+        /// "2 min ago · 45 ms", or "Running · 42% · …" while it runs.
         var meta = ""
+        /// 0–100 while it runs and the engine has an estimate; nil otherwise.
+        var progress: Double?
     }
 
     // MARK: Wiring (set by EditorPaneVC)
@@ -252,7 +254,7 @@ final class CardStackVC: NSViewController {
                                           resultInMemory: st.resultInMemory, isDisplayed: st.isDisplayed)
             let meta = card.isCollapsed ? SQLSummary.oneLine(card.sql) : st.meta
             view.header.apply(p, isCollapsed: card.isCollapsed, meta: meta,
-                              runUnavailableReason: runReason)
+                              runUnavailableReason: runReason, progress: st.progress)
             view.header.applyNotes(hasNotes: card.hasNotes, isOpen: card.showsNotes, offersImport: offersCommentImport(card))
             if card.showsNotes {
                 let notes = view.notesView ?? makeNotesView(id)

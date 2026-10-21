@@ -37,10 +37,19 @@ keyring = { version = "3", features = ["apple-native"] }
 urlencoding = "2"
 sqlformat = "0.3"
 flate2 = "1"
-duckdb = { version = "~1.10506.1", features = ["bundled", "json", "parquet"] }
+# DuckDB 1.5.6, linked against the static libraries scripts/build-duckdb.sh
+# builds (with the extensions in duckdb/extension_config.cmake); build.rs adds
+# the extension libraries. No `bundled`: that build cannot link out-of-tree
+# extensions. `.cargo/config.toml` points libduckdb-sys at the libraries.
+duckdb = "=1.10506.1"
 
 [build-dependencies]
 cbindgen = "0.27"
+
+# duckdb with one addition, `Connection::progress_handle` (vendor/duckdb, marked
+# "PHAROS PATCH"). Drop when a published duckdb-rs carries a progress API.
+[patch.crates-io]
+duckdb = { path = "vendor/duckdb" }
 
 # Build scripts and proc-macros (host tools, never shipped) are not stripped.
 # Xcode 27's `strip -S` writes a "mis-aligned LINKEDIT string pool" into a

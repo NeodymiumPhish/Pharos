@@ -170,6 +170,15 @@ void pharos_export_parquet(const char *connection_id,
  char *pharos_duckdb_version(void);
 
 /**
+ * The progress of a running query, read without waiting:
+ * `{"percentage": 42.0 | null, "rowsProcessed": n, "totalRows": n}`, or `null`
+ * when the query is not running, its engine reports no progress (PostgreSQL),
+ * or the engine has no estimate yet. Poll it while a card runs. Free the
+ * result with `pharos_free_string`.
+ */
+ char *pharos_query_progress(const char *query_id);
+
+/**
  * Initialize the Rust runtime, SQLite database, and credential cache.
  * `app_data_dir` must be a valid UTF-8 path to the application support directory.
  * Returns true on success.

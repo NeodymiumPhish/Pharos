@@ -51,12 +51,24 @@ targets:
           - "-liconv"
           - "-lm"
           - "-lresolv"
-          # DuckDB (pharos-core's `duckdb` crate, bundled) is C++.
+          # DuckDB and its extensions (scripts/build-duckdb.sh, linked into
+          # libpharos_core.a) are C++; minizip-ng (the excel extension) uses
+          # -lz and Apple's compression library.
           - "-lc++"
+          - "-lcompression"
         ENABLE_HARDENED_RUNTIME: true
         CODE_SIGN_ENTITLEMENTS: ""
         CODE_SIGN_IDENTITY: "-"
         SWIFT_EMIT_LOC_STRINGS: YES
+      configs:
+        # Strip local symbols from the shipped binary (about 16 MB of
+        # DuckDB's); the dSYM keeps them for crash reports (CrashLogger
+        # logs raw addresses, symbolicated against the release's dSYM).
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+          DEPLOYMENT_POSTPROCESSING: YES
+          STRIP_INSTALLED_PRODUCT: YES
+          STRIP_STYLE: non-global
     preBuildScripts:
       - name: "Build Rust Library"
         script: |
@@ -65,6 +77,9 @@ targets:
             exit 0
           fi
           export PATH="$HOME/.cargo/bin:$PATH"
+          # DuckDB with Pharos's extensions, for this Mac's architecture.
+          # Skipped when up to date; the first build takes several minutes.
+          "${SRCROOT}/scripts/build-duckdb.sh"
           cd "${SRCROOT}/pharos-core"
           cargo build --release
         basedOnDependencyAnalysis: false

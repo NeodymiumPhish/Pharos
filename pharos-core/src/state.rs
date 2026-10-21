@@ -43,6 +43,9 @@ impl QueryCancel {
 /// Represents a running query that can be cancelled
 pub struct RunningQuery {
     pub cancel: Arc<QueryCancel>,
+    /// The engine's progress reader, when it has one (DuckDB). Attached once
+    /// the query knows its connection (`RegisteredQuery::attach_progress`).
+    pub progress: Option<Arc<duckdb::ProgressHandle>>,
 }
 
 /// A query's place in `AppState::running_queries`, held for as long as the
@@ -57,6 +60,16 @@ pub struct RegisteredQuery<'a> {
 impl Drop for RegisteredQuery<'_> {
     fn drop(&mut self) {
         self.state.unregister_query(&self.query_id);
+    }
+}
+
+impl RegisteredQuery<'_> {
+    /// Let `pharos_query_progress` read this query's progress.
+    pub fn attach_progress(&self, progress: Arc<duckdb::ProgressHandle>) {
+        let mut queries = self.state.running_queries.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(q) = queries.get_mut(&self.query_id) {
+            q.progress = Some(progress);
+        }
     }
 }
 
@@ -489,7 +502,7 @@ impl AppState {
     pub fn register_query(&self, query_id: String) -> RegisteredQuery<'_> {
         let cancel = Arc::new(QueryCancel::new());
         let mut queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
-        queries.insert(query_id.clone(), RunningQuery { cancel: cancel.clone() });
+        queries.insert(query_id.clone(), RunningQuery { cancel: cancel.clone(), progress: None });
         RegisteredQuery { state: self, query_id, cancel }
     }
 
@@ -497,6 +510,16 @@ impl AppState {
     pub fn unregister_query(&self, query_id: &str) {
         let mut queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         queries.remove(query_id);
+    }
+
+    /// A running query's progress: None when it is not running, its engine
+    /// reports none (PostgreSQL), or it has no estimate yet.
+    pub fn query_progress(&self, query_id: &str) -> Option<duckdb::QueryProgress> {
+        let handle = {
+            let queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
+            queries.get(query_id)?.progress.clone()?
+        };
+        handle.query_progress()
     }
 
     /// Whether a query is registered (can still be cancelled).

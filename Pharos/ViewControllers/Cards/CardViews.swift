@@ -42,6 +42,8 @@ final class CardHeaderView: NSView {
     private let badge = ChipLabel()
     let metaLabel = NSTextField(labelWithString: "")
     private let spinner = NSProgressIndicator()
+    /// The run indicator, for the card harness.
+    var runIndicatorForTesting: NSProgressIndicator { spinner }
     let resultsButton = NSButton()
     let runButton = CardRunButton()
     let runReplaceButton = CardRunButton()
@@ -83,6 +85,8 @@ final class CardHeaderView: NSView {
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
+        spinner.minValue = 0
+        spinner.maxValue = 100
 
         resultsButton.bezelStyle = .push
         resultsButton.controlSize = .regular
@@ -151,7 +155,7 @@ final class CardHeaderView: NSView {
     /// Show `p`. `runUnavailableReason` greys out Run and Run and Replace and
     /// says why (`CardRunAvailability`).
     func apply(_ p: CardPresentation, isCollapsed: Bool, meta: String,
-               runUnavailableReason: String? = nil) {
+               runUnavailableReason: String? = nil, progress: Double? = nil) {
         nameLabel.stringValue = p.title
         nameLabel.textColor = p.titleIsPlaceholder ? .secondaryLabelColor : .labelColor
         nameLabel.font = p.titleIsPlaceholder
@@ -168,7 +172,19 @@ final class CardHeaderView: NSView {
         }
         metaLabel.stringValue = meta
         metaLabel.isHidden = meta.isEmpty
-        if p.state == .running { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        // A determinate pie while the engine reports a percentage (DuckDB), the
+        // spinning wheel while it does not.
+        // It keeps its place in the row either way (never `isHidden`), so the
+        // meta text does not jump when a run starts or ends.
+        let running = p.state == .running
+        let determinate = running && progress != nil
+        if spinner.isIndeterminate == determinate {
+            spinner.stopAnimation(nil)
+            spinner.isIndeterminate = !determinate
+        }
+        spinner.isDisplayedWhenStopped = determinate
+        spinner.doubleValue = progress ?? 0
+        if running && !determinate { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
 
         if let rb = p.resultsButton {
             resultsButton.isHidden = false

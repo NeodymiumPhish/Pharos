@@ -422,9 +422,12 @@ pub fn tag_read_only(message: String) -> String {
 /// What a DuckDB extension refused by macOS means, said before DuckDB's own
 /// `dlopen` text. Measured 2026-10-20: the ad-hoc signed, hardened-runtime
 /// app cannot load a downloaded `.duckdb_extension` ("mapping process and
-/// mapped file (non-platform) have different Team IDs").
+/// mapped file (non-platform) have different Team IDs"). Pharos's own
+/// extensions are linked in, so only a `LOAD '/path/x.duckdb_extension'`
+/// gets here.
 pub const EXTENSION_BLOCKED_SENTENCE: &str = "macOS did not let Pharos load this DuckDB extension: the app's code signature \
-     only allows libraries it shipped with. A query that needs this extension cannot run in this build of Pharos.";
+     only allows libraries it shipped with. Pharos has icu, inet, fts, excel, sqlite_scanner, json, parquet and \
+     autocomplete built in; other extensions are not available.";
 
 /// Run blocking DuckDB `work` off the runtime, and stop it with `interrupt`
 /// when `cancel` fires or `timeout_seconds` (0 = none) runs out.

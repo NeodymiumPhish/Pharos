@@ -1,0 +1,7 @@
+# libduckdb-sys links the DuckDB that scripts/build-duckdb.sh builds (see
+# build.rs for the extension libraries). `native` is a link the script makes
+# to this Mac's own architecture; a cross build (release.yml) sets
+# DUCKDB_LIB_DIR itself, which wins over this default.
+[env]
+DUCKDB_STATIC = "1"
+DUCKDB_LIB_DIR = { value = "target/duckdb/native/lib", relative = true }

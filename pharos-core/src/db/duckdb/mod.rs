@@ -21,10 +21,14 @@ pub mod catalog;
 pub mod exec;
 pub mod text;
 
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use duckdb::{AccessMode, Config, Connection};
+
+/// What every Pharos connection sets so `ProgressHandle` has numbers to read.
+const PROGRESS_SETTINGS: &str =
+    "SET enable_progress_bar = true; SET enable_progress_bar_print = false; SET progress_bar_time = 300";
 
 /// The path a record uses for an in-memory database.
 pub const IN_MEMORY: &str = ":memory:";
@@ -39,13 +43,38 @@ pub const TOO_NEW_MARKER: &str = "[PHAROS_DUCKDB_TOO_NEW]";
 
 /// What the user can tune for every DuckDB database (Settings ▸ Connections ▸
 /// DuckDB). Blank means DuckDB's own default.
+///
+/// Extensions are not a setting: Pharos links its extensions in
+/// (`duckdb/extension_config.cmake`), and the hardened app could not load a
+/// downloaded one, so every database opens with downloads and community
+/// extensions off.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OpenOptions {
     pub threads: Option<u32>,
     pub memory_limit: Option<String>,
-    pub extension_directory: Option<String>,
-    pub autoinstall_extensions: bool,
-    pub allow_community_extensions: bool,
+}
+
+static EXTENSION_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+
+/// Give DuckDB a Pharos-owned extension folder (`pharos_init`) instead of
+/// `~/.duckdb/extensions`. That folder is shared with the DuckDB CLI and the
+/// Python package: an extension downloaded there would load in a Debug build
+/// and fail in the hardened Release build, and `duckdb_extensions()` would
+/// show the download in place of the built-in copy. Pharos's own folder stays
+/// empty, so every build behaves the same.
+pub fn set_extension_directory(app_data_dir: &Path) {
+    let dir = app_data_dir.join("duckdb_extensions");
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = EXTENSION_DIRECTORY.set(dir);
+}
+
+/// The folder from `set_extension_directory`, or (before it, and in tests) an
+/// empty folder in the temporary directory.
+fn extension_directory() -> PathBuf {
+    EXTENSION_DIRECTORY
+        .get()
+        .cloned()
+        .unwrap_or_else(|| std::env::temp_dir().join("pharos_duckdb_extensions"))
 }
 
 impl OpenOptions {
@@ -57,9 +86,6 @@ impl OpenOptions {
         OpenOptions {
             threads: if s.duckdb_threads == 0 { None } else { Some(s.duckdb_threads) },
             memory_limit: blank_to_none(&s.duckdb_memory_limit),
-            extension_directory: blank_to_none(&s.duckdb_extension_directory),
-            autoinstall_extensions: s.duckdb_autoinstall_extensions,
-            allow_community_extensions: s.duckdb_allow_community_extensions,
         }
     }
 }
@@ -94,13 +120,12 @@ impl DuckDbInstance {
         if let Some(limit) = &options.memory_limit {
             config = config.max_memory(limit).map_err(|e| format!("Memory limit \"{}\": {}", limit, e))?;
         }
-        if let Some(dir) = &options.extension_directory {
-            config = config.with("extension_directory", dir).map_err(|e| e.to_string())?;
-        }
         config = config
-            .with("autoinstall_known_extensions", if options.autoinstall_extensions { "true" } else { "false" })
+            .with("extension_directory", &extension_directory().to_string_lossy())
             .map_err(|e| e.to_string())?
-            .with("allow_community_extensions", if options.allow_community_extensions { "true" } else { "false" })
+            .with("autoinstall_known_extensions", "false")
+            .map_err(|e| e.to_string())?
+            .with("allow_community_extensions", "false")
             .map_err(|e| e.to_string())?;
 
         let conn = if path == IN_MEMORY {
@@ -122,10 +147,14 @@ impl DuckDbInstance {
     }
 
     /// A new connection on this database: its own transaction, its own
-    /// `search_path` and session settings.
+    /// `search_path` and session settings. Progress tracking is on for every
+    /// connection (`enable_progress_bar` is per connection), never printed,
+    /// and starts estimating after 300 ms, so a short query costs nothing.
     pub fn connect(&self) -> Result<Connection, String> {
         let root = self.root.lock().unwrap_or_else(|e| e.into_inner());
-        root.try_clone().map_err(|e| e.to_string())
+        let conn = root.try_clone().map_err(|e| e.to_string())?;
+        conn.execute_batch(PROGRESS_SETTINGS).map_err(|e| e.to_string())?;
+        Ok(conn)
     }
 
     /// Run `work` on a fresh connection off the async runtime.
@@ -256,6 +285,144 @@ mod tests {
         assert_eq!(normalized_path(" :memory: "), IN_MEMORY);
         let home = std::env::var("HOME").unwrap();
         assert!(normalized_path("~/x-pharos-missing.duckdb").starts_with(&home));
+    }
+
+    /// Progress is readable from another thread while a query runs, and is
+    /// gone once the connection closes.
+    #[test]
+    fn progress_is_readable_while_a_query_runs() {
+        let db = DuckDbInstance::open(IN_MEMORY, false, &OpenOptions::default()).unwrap();
+        let setup = db.connect().unwrap();
+        setup.execute_batch("CREATE TABLE t AS SELECT range AS x FROM range(60000000)").unwrap();
+        let conn = db.connect().unwrap();
+        let progress = conn.progress_handle();
+        let interrupt = conn.interrupt_handle();
+        let worker = std::thread::spawn(move || {
+            conn.query_row("SELECT count(DISTINCT hash(x) % 100000007) FROM t", [], |r| r.get::<_, i64>(0)).ok();
+            conn
+        });
+        let mut seen = None;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while std::time::Instant::now() < deadline && !worker.is_finished() {
+            // A reading above 0: a table scan reports real progress (a
+            // `range()` source would stay at 0 for the whole run).
+            if let Some(p) = progress.query_progress().and_then(|p| p.percentage).filter(|p| *p > 0.0) {
+                seen = Some(p);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        interrupt.interrupt();
+        let conn = worker.join().unwrap();
+        let p = seen.expect("a percentage above 0 while the query ran");
+        assert!(p > 0.0 && p <= 100.0, "{p}");
+        drop(conn);
+        assert_eq!(progress.query_progress(), None, "no reading after the connection closed");
+    }
+
+    /// The extensions `duckdb/extension_config.cmake` links in. Each must
+    /// report `(BUILT-IN)` and work with no download (autoinstall is off).
+    const BUILT_IN: [&str; 9] =
+        ["core_functions", "parquet", "json", "icu", "autocomplete", "inet", "fts", "excel", "sqlite_scanner"];
+
+    fn memory_conn() -> Connection {
+        DuckDbInstance::open(IN_MEMORY, false, &OpenOptions::default()).unwrap().connect().unwrap()
+    }
+
+    #[test]
+    fn every_extension_is_built_in() {
+        let c = memory_conn();
+        for name in BUILT_IN {
+            let path: String = c
+                .query_row(
+                    "SELECT install_path FROM duckdb_extensions() WHERE extension_name = ?",
+                    [name],
+                    |r| r.get(0),
+                )
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(path, "(BUILT-IN)", "{name}");
+        }
+    }
+
+    #[test]
+    fn built_in_extensions_work() {
+        let c = memory_conn();
+        // inet
+        let host: String = c.query_row("SELECT host('192.168.1.5/24'::INET)", [], |r| r.get(0)).unwrap();
+        assert_eq!(host, "192.168.1.5");
+        let inside: bool =
+            c.query_row("SELECT '10.1.2.3'::INET <<= '10.0.0.0/8'::INET", [], |r| r.get(0)).unwrap();
+        assert!(inside);
+        // icu
+        c.execute_batch("SET TimeZone = 'Asia/Tokyo'").unwrap();
+        let tokyo: String = c
+            .query_row("SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00')::VARCHAR", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tokyo, "2026-01-01 09:00:00+09");
+        // fts
+        c.execute_batch(
+            "CREATE TABLE docs(id INT, body VARCHAR);
+             INSERT INTO docs VALUES (1, 'the quick brown fox'), (2, 'lazy dogs sleep');",
+        )
+        .unwrap();
+        // Its own batch: DuckDB expands the PRAGMA while it binds the batch,
+        // before `docs` exists.
+        c.execute_batch("PRAGMA create_fts_index('docs', 'id', 'body')").unwrap();
+        let hit: i32 = c
+            .query_row(
+                "SELECT id FROM (SELECT id, fts_main_docs.match_bm25(id, 'fox') AS s FROM docs) WHERE s IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hit, 1);
+        // autocomplete
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM sql_auto_complete('SEL')", [], |r| r.get(0))
+            .unwrap();
+        assert!(n > 0);
+        // json, parquet, excel and sqlite: write a file, read it back.
+        let dir = std::env::temp_dir().join(format!("pharos_duck_ext_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (ext, write, read) in [
+            ("parquet", "(FORMAT parquet)", "read_parquet"),
+            ("json", "(FORMAT json)", "read_json"),
+            ("xlsx", "(FORMAT xlsx, HEADER true)", "read_xlsx"),
+        ] {
+            let f = dir.join(format!("t.{ext}")).to_string_lossy().to_string();
+            c.execute_batch(&format!("COPY (SELECT 1 AS a, 'x' AS b) TO '{f}' {write}")).unwrap_or_else(|e| panic!("{ext}: {e}"));
+            let b: String = c
+                .query_row(&format!("SELECT b FROM {read}('{f}')"), [], |r| r.get(0))
+                .unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert_eq!(b, "x", "{ext}");
+        }
+        let lite = dir.join("t.sqlite").to_string_lossy().to_string();
+        {
+            let r = rusqlite::Connection::open(&lite).unwrap();
+            r.execute_batch("CREATE TABLE t(a INTEGER, b TEXT); INSERT INTO t VALUES (7, 'lite');").unwrap();
+        }
+        c.execute_batch(&format!("ATTACH '{lite}' AS lite (TYPE sqlite)")).unwrap();
+        let b: String = c.query_row("SELECT b FROM lite.t WHERE a = 7", [], |r| r.get(0)).unwrap();
+        assert_eq!(b, "lite");
+        // rusqlite's SQLite and the extension's renamed copy live side by side.
+        let v: String = rusqlite::Connection::open_in_memory()
+            .unwrap()
+            .query_row("SELECT sqlite_version()", [], |r| r.get(0))
+            .unwrap();
+        assert!(!v.starts_with("3.38."), "rusqlite must keep its own SQLite, got {v}");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extensions_are_never_downloaded() {
+        let c = memory_conn();
+        for setting in ["autoinstall_known_extensions", "allow_community_extensions"] {
+            let on: bool = c
+                .query_row(&format!("SELECT current_setting('{setting}')"), [], |r| r.get(0))
+                .unwrap();
+            assert!(!on, "{setting}");
+        }
     }
 
     #[test]

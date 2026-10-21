@@ -114,6 +114,12 @@ class ContentViewController: NSViewController {
     /// Each editor tab's runs, one at a time: every card of a tab runs on the
     /// tab's connection in turn (`CardRunQueue`).
     private var runQueues: [String: CardRunQueue] = [:]
+
+    /// The last progress read for each running card query, by query id, and
+    /// the timer that reads it (`pollRunProgress`). The timer runs only while
+    /// a card of this window runs.
+    private var runProgress: [String: QueryProgress] = [:]
+    private var runProgressTimer: Timer?
     /// The tab and the card-model ticket of each job that is running.
     private var runningJobs: [String: (tabId: String, ticket: CardRunTicket?)] = [:]
     /// Tabs already told that their cards run on shared connections.
@@ -1765,6 +1771,7 @@ class ContentViewController: NSViewController {
             editorPane.clearErrorMarkers(cardId: ticket.cardId)
             editorPane.refreshCards()
         }
+        startRunProgressPolling()
 
         // Ensure this tab has a workspace history record (created lazily on first
         // execute) and snapshot its cards now. The produced result is associated
@@ -3319,7 +3326,8 @@ extension ContentViewController: EditorPaneDelegate {
     func editorPane(_ pane: EditorPaneVC, statusOf card: QueryCard, inTab tabId: String) -> CardStackVC.CardStatus {
         guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return CardStackVC.CardStatus() }
         var st = CardStackVC.CardStatus()
-        if let running = tab.runningQueries.first(where: { $0.cardId == card.id && $0.kind == .card }) {
+        let runningNow = tab.runningQueries.first(where: { $0.cardId == card.id && $0.kind == .card })
+        if let running = runningNow {
             st.activity = .running(startedAt: Date(timeIntervalSinceNow: -(CACurrentMediaTime() - running.startTime)))
         } else if runQueues[tabId]?.isWaiting(cardId: card.id) == true {
             st.activity = .waiting
@@ -3337,7 +3345,50 @@ extension ContentViewController: EditorPaneDelegate {
         } else if let run = card.lastRun {
             st.meta = "\(Self.relativeTime(run.finishedAt)) · \(DurationText.short(milliseconds: run.executionTimeMs))"
         }
+        // While it runs, the header says so — with DuckDB's estimate when there
+        // is one — instead of describing the last run.
+        if let running = runningNow {
+            let progress = runProgress[running.id]
+            st.meta = QueryProgressText.meta(progress: progress, elapsed: CACurrentMediaTime() - running.startTime)
+            st.progress = QueryProgressText.clampedPercentage(progress)
+        }
         return st
+    }
+
+    // MARK: - Run progress
+
+    /// Read the running cards' progress four times a second while any card of
+    /// this window runs. `.common` mode, so it keeps ticking during a scroll
+    /// or an open menu.
+    private func startRunProgressPolling() {
+        guard runProgressTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollRunProgress() }
+        }
+        timer.tolerance = 0.05
+        RunLoop.main.add(timer, forMode: .common)
+        runProgressTimer = timer
+    }
+
+    private func pollRunProgress() {
+        let running = session.tabs.flatMap { tab in
+            tab.runningQueries.filter { $0.kind == .card }.map { (tab.id, $0) }
+        }
+        guard !running.isEmpty else {
+            runProgressTimer?.invalidate()
+            runProgressTimer = nil
+            runProgress.removeAll()
+            return
+        }
+        let live = Set(running.map { $0.1.id })
+        runProgress = runProgress.filter { live.contains($0.key) }
+        for (_, query) in running {
+            runProgress[query.id] = PharosCore.queryProgress(queryId: query.id)
+        }
+        for (tabId, _) in running where editorPane.showsTab(tabId) {
+            editorPane.cardStack.refreshStatus(only: Set(running.compactMap { $0.1.cardId }))
+            break
+        }
     }
 
     func editorPane(_ pane: EditorPaneVC, didChooseVariable name: String) {

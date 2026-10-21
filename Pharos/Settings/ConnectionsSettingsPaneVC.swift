@@ -189,24 +189,11 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     help: String(localized: "Leave it empty for DuckDB's default, 80% of this Mac's memory."),
                     kind: .text(.settings(\.connections.duckdbMemoryLimit), width: 120)),
                 SettingsItem(
-                    id: "duckdbAutoinstallExtensions",
-                    title: String(localized: "Download extensions when a query needs one"),
-                    caption: String(localized: "DuckDB downloads a known extension (time zones, httpfs, PostgreSQL, Excel…) from extensions.duckdb.org the first time a query uses it."),
-                    icon: "arrow.down.circle",
-                    help: String(localized: "This build of Pharos cannot load a downloaded extension: macOS allows only the libraries the app shipped with. A query that needs one fails, with or without this switch."),
-                    kind: .toggle(.settings(\.connections.duckdbAutoinstallExtensions))),
-                SettingsItem(
-                    id: "duckdbAllowCommunityExtensions",
-                    title: String(localized: "Allow community extensions"),
-                    caption: String(localized: "Lets INSTALL … FROM community install extensions that the DuckDB team does not build."),
-                    icon: "person.3",
-                    kind: .toggle(.settings(\.connections.duckdbAllowCommunityExtensions))),
-                SettingsItem(
-                    id: "duckdbExtensionDirectory",
-                    title: String(localized: "Extension folder"),
-                    caption: String(localized: "Where downloaded extensions are kept. Empty uses ~/.duckdb/extensions, which the DuckDB command-line tool shares."),
-                    icon: "folder",
-                    kind: .path(.settings(\.connections.duckdbExtensionDirectory), directories: true)),
+                    id: "duckdbExtensions",
+                    title: String(localized: "Built-in extensions"),
+                    caption: String(localized: "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded."),
+                    icon: "puzzlepiece.extension",
+                    kind: .display),
             ]),
         ]
     }
