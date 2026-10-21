@@ -101,6 +101,18 @@ DuckDB reads CSV, TSV, JSON, newline-delimited JSON, Parquet and Excel files whe
 
 **Edit > Undo** removes the inserted text in one step. On a PostgreSQL tab, a dropped CSV or SQL file opens as a tab of its own, and a dropped `.duckdb` file opens the database on any tab.
 
+### Relative paths
+
+A relative path in a read starts in the database file's folder. So with `~/Data/sales.duckdb` open, `read_csv('events.csv')` reads `~/Data/events.csv`.
+
+| Statement | A relative path starts in |
+|---|---|
+| `read_csv`, `read_json`, `read_parquet`, `read_xlsx`, `FROM 'file'`, `COPY … FROM`, `glob()` | The database file's folder |
+| `COPY … TO`, `ATTACH` | The root folder, which is read-only: use a full path |
+| Any statement on an in-memory database | The root folder: use full paths |
+
+A folder whose name has a comma gets no relative reads, because DuckDB splits the setting at commas.
+
 Load More and Load All read the file again for each page. For a large file you query often, make a table from it first.
 
 ## Make a table from a file
@@ -151,13 +163,13 @@ These DuckDB extensions are built into Pharos. You do not install or load them; 
 | Extension | What it gives you |
 |---|---|
 | `core_functions` | DuckDB's standard functions and aggregates |
-| `parquet` | `read_parquet`, `COPY … TO 'x.parquet'` |
+| `parquet` | `read_parquet`, `COPY … TO '/Users/you/x.parquet'` |
 | `json` | The `JSON` type, `read_json`, JSON functions |
 | `icu` | Time zones (`SET TimeZone`, `TIMESTAMPTZ`), collations, locale-aware dates |
 | `inet` | The `INET` type (IPv4 and IPv6 addresses and networks), `host()`, `<<=` and `>>=` |
 | `fts` | Full-text search: `PRAGMA create_fts_index`, `match_bm25` |
-| `excel` | `read_xlsx`, `COPY … TO 'x.xlsx'`, Excel number formats |
-| `sqlite_scanner` | `ATTACH 'file.sqlite' (TYPE sqlite)`, `sqlite_scan` |
+| `excel` | `read_xlsx`, `COPY … TO '/Users/you/x.xlsx'`, Excel number formats |
+| `sqlite_scanner` | `ATTACH '/Users/you/file.sqlite' (TYPE sqlite)`, `sqlite_scan` |
 | `httpfs` | `read_csv`, `read_parquet` and `read_json` over `https://`, `s3://`, `gcs://` and `r2://` |
 | `postgres_scanner` | `ATTACH` a PostgreSQL database, `postgres_query` (see **Attach a PostgreSQL connection**) |
 | `autocomplete` | `sql_auto_complete` |

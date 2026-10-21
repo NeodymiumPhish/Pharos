@@ -241,15 +241,26 @@ fn page(columns: Vec<ColumnDef>, mut rows: Vec<serde_json::Value>, limit: Option
 
 /// Run every statement of `sql`; the rows the LAST one changed (DuckDB
 /// reports a `Count` for INSERT, UPDATE and DELETE; 0 for the rest).
+/// A COPY … TO or ATTACH whose relative path met Pharos's working directory
+/// ("/", read-only) says how to fix it.
+fn relative_path_hint(statement: &str, error: String) -> String {
+    let word = statement.trim_start().split(|c: char| !c.is_alphabetic()).next().unwrap_or("").to_ascii_uppercase();
+    if (word == "COPY" || word == "ATTACH") && error.contains("Read-only file system") {
+        format!("{error}\nRelative paths for COPY … TO and ATTACH start at the root folder. Use a full path.")
+    } else {
+        error
+    }
+}
+
 pub fn execute_text(conn: &Connection, sql: &str) -> Result<u64, String> {
     let stmts = statements(sql);
     refuse_stored_secrets(&stmts)?;
     let Some((last, before)) = stmts.split_last() else { return Ok(0) };
     for s in before {
-        conn.execute_batch(s).map_err(|e| e.to_string())?;
+        conn.execute_batch(s).map_err(|e| relative_path_hint(s, e.to_string()))?;
     }
-    let mut stmt = conn.prepare(last).map_err(|e| e.to_string())?;
-    let changed = stmt.execute([]).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(last).map_err(|e| relative_path_hint(last, e.to_string()))?;
+    let changed = stmt.execute([]).map_err(|e| relative_path_hint(last, e.to_string()))?;
     Ok(changed as u64)
 }
 
@@ -643,6 +654,16 @@ mod tests {
         assert!(e.contains("Catalog Error") && e.contains("nope"), "{e}");
         let e = query_text(&c, "SELEC 1", Some(10), 0).unwrap_err();
         assert!(e.contains("Parser Error"), "{e}");
+    }
+
+    #[test]
+    fn a_relative_write_on_a_read_only_folder_says_to_use_a_full_path() {
+        let e = relative_path_hint("COPY t TO 'x.csv'", "IO Error: Cannot open file \"x.csv\": Read-only file system".into());
+        assert!(e.ends_with("Use a full path."), "{e}");
+        let e = relative_path_hint("  attach 'x.db' AS x", "IO Error: Read-only file system".into());
+        assert!(e.contains("Use a full path."), "{e}");
+        let e = relative_path_hint("SELECT 1", "IO Error: Read-only file system".into());
+        assert!(!e.contains("full path"), "{e}");
     }
 
     #[test]

@@ -160,6 +160,12 @@ impl DuckDbInstance {
             .map_err(|e| e.to_string())?
             .with("secret_directory", &secret_directory().to_string_lossy())
             .map_err(|e| e.to_string())?;
+        // A relative read (`read_csv('events.csv')`, `FROM 'x.parquet'`)
+        // looks beside the database file. Pharos's working directory is "/",
+        // where nothing is. Writes (COPY … TO, ATTACH) are not affected.
+        if let Some(folder) = file_search_path(&path) {
+            config = config.with("file_search_path", &folder).map_err(|e| e.to_string())?;
+        }
 
         let conn = if path == IN_MEMORY {
             Connection::open_in_memory_with_flags(config)
@@ -204,6 +210,25 @@ impl DuckDbInstance {
         .await
         .map_err(|e| format!("DuckDB task failed: {}", e))?
     }
+}
+
+/// The folder relative reads of a file database start in: the file's own
+/// folder. None for in-memory, and for a folder whose path has a comma —
+/// DuckDB splits `file_search_path` at commas, so it would name two wrong
+/// folders.
+pub fn file_search_path(path: &str) -> Option<String> {
+    if path == IN_MEMORY {
+        return None;
+    }
+    let folder = Path::new(path).parent()?.to_string_lossy().to_string();
+    if folder.is_empty() {
+        return None;
+    }
+    if folder.contains(',') {
+        log::info!("DuckDB: relative reads stay unset for {}: the folder name has a comma", path);
+        return None;
+    }
+    Some(folder)
 }
 
 /// `~` expanded and the path made absolute, so two records that spell the
@@ -268,6 +293,33 @@ mod tests {
             .join(format!("pharos_duck_{}_{}.duckdb", tag, uuid::Uuid::new_v4()))
             .to_string_lossy()
             .to_string()
+    }
+
+    /// D5: relative reads start beside the database file.
+    #[test]
+    fn relative_reads_start_beside_the_database_file() {
+        let dir = std::env::temp_dir().join(format!("pharos_duck_rel_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("events.csv"), "id,kind\n1,a\n2,b\n").unwrap();
+        let path = dir.join("db.duckdb").to_string_lossy().to_string();
+        let db = DuckDbInstance::open(&path, false, &OpenOptions::default()).unwrap();
+        let c = db.connect().unwrap();
+        let n: i64 = c.query_row("SELECT count(*) FROM read_csv('events.csv')", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2, "read_csv with a relative path");
+        let n: i64 = c.query_row("SELECT count(*) FROM 'events.csv'", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2, "FROM a quoted relative path");
+        let folder: String = c.query_row("SELECT current_setting('file_search_path')", [], |r| r.get(0)).unwrap();
+        assert_eq!(folder, std::fs::canonicalize(&dir).unwrap().to_string_lossy());
+        drop(c);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_path_skips_in_memory_and_commas() {
+        assert_eq!(file_search_path(IN_MEMORY), None);
+        assert_eq!(file_search_path("/a,b/x.duckdb"), None, "DuckDB would split the value at the comma");
+        assert_eq!(file_search_path("/data/x.duckdb").as_deref(), Some("/data"));
     }
 
     #[test]
