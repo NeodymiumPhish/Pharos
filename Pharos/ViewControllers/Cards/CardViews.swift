@@ -50,6 +50,8 @@ final class CardHeaderView: NSView {
     let cancelButton = NSButton()
     let notesButton = NSButton()
     let moreButton = NSButton()
+    /// Drag to move the card (`CardStackVC` runs the drag).
+    let grip = CardDragGrip()
     var onToggleCollapse: (() -> Void)?
 
     override init(frame: NSRect) {
@@ -124,7 +126,7 @@ final class CardHeaderView: NSView {
         moreButton.target = self
         moreButton.action = #selector(showMenu)
 
-        let leading = NSStackView(views: [disclosure, nameLabel, versionChip, lockImage, badge, spinner, metaLabel])
+        let leading = NSStackView(views: [grip, disclosure, nameLabel, versionChip, lockImage, badge, spinner, metaLabel])
         leading.orientation = .horizontal
         leading.spacing = 6
         leading.alignment = .centerY
@@ -139,7 +141,7 @@ final class CardHeaderView: NSView {
             addSubview(v)
         }
         NSLayoutConstraint.activate([
-            leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            leading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             leading.centerYAnchor.constraint(equalTo: centerYAnchor),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -244,6 +246,7 @@ final class CardHeaderView: NSView {
         cancelButton.setAccessibilityIdentifier("\(prefix).cancel")
         notesButton.setAccessibilityIdentifier("\(prefix).notes")
         moreButton.setAccessibilityIdentifier("\(prefix).more")
+        grip.setAccessibilityIdentifier("\(prefix).grip")
     }
 
     @objc private func viewResults() { onViewResults?() }
@@ -513,6 +516,15 @@ final class CardView: NSView {
     var notesFraction: CGFloat? { didSet { if oldValue != notesFraction { needsLayout = true } } }
     /// The handle on the line between the SQL and the notes.
     let notesDivider = CardNotesDivider()
+    /// The handle along the card's bottom edge: drag it down for more room.
+    let heightHandle = CardHeightHandle()
+    /// The user's least body height (`QueryCard.minBodyHeight`); 0 = fit.
+    /// The stack makes the body at least this tall, never shorter than its
+    /// content.
+    var minBodyHeight: CGFloat = 0
+    /// What the content alone needs, from the last layout pass: a drag that
+    /// ends at or above it saves "fit content".
+    var contentBodyHeight: CGFloat = 0
 
     /// The width of the body inside a card `width` wide.
     static func contentWidth(cardWidth width: CGFloat) -> CGFloat {
@@ -541,6 +553,7 @@ final class CardView: NSView {
         addSubview(header)
         notesDivider.isHidden = true
         addSubview(notesDivider)
+        addSubview(heightHandle)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
@@ -589,6 +602,18 @@ final class CardView: NSView {
                                         width: CardNotesDivider.hitWidth, height: max(0, bodyHeight))
             notesDivider.setAccessibilityValue(Int((widths.notes / max(1, widths.sql + widths.notes) * 100).rounded()))
         }
+        // In the bottom inset, below the body, so it takes no click from the
+        // editor or the notes.
+        heightHandle.isHidden = isCollapsed
+        heightHandle.frame = NSRect(x: Self.cornerRadius, y: bounds.height - CardHeightHandle.hitHeight,
+                                    width: max(0, bounds.width - Self.cornerRadius * 2), height: CardHeightHandle.hitHeight)
+        heightHandle.setAccessibilityValue(Int(bodyHeight.rounded()))
+    }
+
+    /// The body height that puts the card's bottom edge at `bottom` (card
+    /// coordinates).
+    func bodyHeight(forBottomAt bottom: CGFloat) -> CGFloat {
+        max(0, bottom - CardHeaderView.height - 1 - Self.bodyBottomInset)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -850,5 +875,136 @@ final class AddCardButton: NSButton {
         NSColor.separatorColor.setStroke()
         path.stroke()
         super.draw(dirtyRect)
+    }
+}
+
+// MARK: - Height handle
+
+/// The strip along a card's bottom edge. Dragging it down gives the card
+/// more room below its SQL and notes; it never makes the card shorter than
+/// its content (`CardStackVC` keeps the body at least as tall as the content).
+/// Double-click: back to fit-content. For VoiceOver it is a splitter whose
+/// increment and decrement add or take away 24 pt.
+final class CardHeightHandle: NSView {
+    static let hitHeight: CGFloat = 6
+    static let step: CGFloat = 24
+
+    /// The card's bottom edge should be at `bottom` (card coordinates).
+    var onDrag: ((_ bottom: CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
+    /// A double-click: fit the content again.
+    var onReset: (() -> Void)?
+    /// VoiceOver: taller (+1) or shorter (-1) by `step`.
+    var onStep: ((_ direction: Int) -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.splitter)
+        setAccessibilityLabel(String(localized: "Card height"))
+        setAccessibilityHelp(String(localized: "Drag down for more room. Double-click to fit the content."))
+        toolTip = String(localized: "Drag for more room. Double-click to fit the content.")
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.resizeUpDown.set()
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeUpDown)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            onReset?()
+            return
+        }
+        guard let card = superview else { return }
+        // Keep the grab point under the pointer: the edge moves by what the
+        // pointer moves, not to where the pointer is.
+        let grab = card.bounds.height - card.convert(event.locationInWindow, from: nil).y
+        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            onDrag?(card.convert(next.locationInWindow, from: nil).y + grab)
+            if next.type == .leftMouseUp { break }
+        }
+        onDragEnd?()
+    }
+
+    override func accessibilityPerformIncrement() -> Bool {
+        onStep?(1)
+        return true
+    }
+
+    override func accessibilityPerformDecrement() -> Bool {
+        onStep?(-1)
+        return true
+    }
+}
+
+// MARK: - Drag grip
+
+/// The handle at the start of a card's name row: press and drag to move the
+/// card (its query's versions move with it). The stack runs the drag; Move
+/// Up / Move Down in the card's ⋯ menu and Query ▸ Move Card Up / Down (⌥⌃⌘↑ /
+/// ⌥⌃⌘↓) do the same from the keyboard, and VoiceOver has them as actions on
+/// the card (HIG, *Drag and drop*: always offer another way).
+final class CardDragGrip: NSView {
+    static let size = NSSize(width: 14, height: 20)
+
+    /// The press that may start a drag.
+    var onPress: ((NSEvent) -> Void)?
+    /// False while moving makes no sense (one query, or a filter is typed).
+    var isActive = true {
+        didSet {
+            guard isActive != oldValue else { return }
+            needsDisplay = true
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private let image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: nil)?
+        .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: Self.size.width),
+            heightAnchor.constraint(equalToConstant: Self.size.height),
+        ])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(String(localized: "Move card"))
+        setAccessibilityHelp(String(localized: "Drag to move the card. Move Up and Move Down are in the card's More menu."))
+        toolTip = String(localized: "Drag to move the card")
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override var intrinsicContentSize: NSSize { Self.size }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image else { return }
+        let tinted = image.copy() as! NSImage
+        tinted.lockFocus()
+        (isActive ? NSColor.tertiaryLabelColor : NSColor.quaternaryLabelColor).set()
+        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        let r = NSRect(x: (bounds.width - tinted.size.width) / 2, y: (bounds.height - tinted.size.height) / 2,
+                       width: tinted.size.width, height: tinted.size.height)
+        tinted.draw(in: r)
+    }
+
+    override func resetCursorRects() {
+        if isActive { addCursorRect(bounds, cursor: .openHand) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isActive, let onPress else { return super.mouseDown(with: event) }
+        onPress(event)
     }
 }

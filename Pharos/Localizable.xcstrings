@@ -556,6 +556,18 @@
     "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was." : {
 
     },
+    "Attach" : {
+
+    },
+    "Attach PostgreSQL Connection" : {
+
+    },
+    "Attach PostgreSQL Connection…" : {
+
+    },
+    "Attaching…" : {
+
+    },
     "Authenticate to show the stored password." : {
 
     },
@@ -869,6 +881,9 @@
     "Connecting" : {
 
     },
+    "Connecting %@…" : {
+
+    },
     "Connecting to “%@”. You can run this card when the connection is ready." : {
 
     },
@@ -952,6 +967,9 @@
 
     },
     "Could not connect to “%@”. Choose Connect from the Connection menu in the toolbar to try again." : {
+
+    },
+    "Could not detach “%@”" : {
 
     },
     "Couldn't save “%@”" : {
@@ -1065,6 +1083,9 @@
     "Describe the query…" : {
 
     },
+    "Detach “%@”" : {
+
+    },
     "Detection ignores keywords inside strings, comments and quoted identifiers." : {
 
     },
@@ -1134,7 +1155,13 @@
     "DuckDB" : {
 
     },
-    "DuckDB %@ with the icu, inet, fts, excel, sqlite, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation." : {
+    "DuckDB %@ with the icu, inet, fts, excel, sqlite, postgres, httpfs, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation." : {
+
+    },
+    "DuckDB can then query and join its tables as name.schema.table. It stays attached while the connection stays connected." : {
+
+    },
+    "DuckDB refuses writes to the attached database. A read-only connection always attaches read-only." : {
 
     },
     "Duplicate Tab" : {
@@ -1881,6 +1908,9 @@
     "Name and Recently updated are one flat list, with no folder rows — the folder a Session is in is unchanged, only hidden." : {
 
     },
+    "Name in DuckDB" : {
+
+    },
     "Name suggested by Apple Intelligence" : {
 
     },
@@ -2310,6 +2340,9 @@
     "Pharos cancels a query that runs longer than this." : {
 
     },
+    "Pharos connects it first." : {
+
+    },
     "Pharos contains open-source software: DuckDB and the libraries it uses, and the Rust crates of its engine. The notices give each one's licence." : {
 
     },
@@ -2500,6 +2533,9 @@
 
     },
     "Ratings you have given" : {
+
+    },
+    "Read-only" : {
 
     },
     "Read-only connection" : {
@@ -3390,6 +3426,9 @@
     "There is no query history to clear." : {
 
     },
+    "There is no saved PostgreSQL connection. Add one in Manage Connections…" : {
+
+    },
     "There is nothing to chart in this result." : {
 
     },
@@ -3471,7 +3510,7 @@
     "Time Zone" : {
 
     },
-    "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded." : {
+    "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, PostgreSQL databases, files over HTTPS and S3, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded." : {
 
     },
     "Title" : {
@@ -3544,6 +3583,9 @@
 
     },
     "Use Apple Intelligence features" : {
+
+    },
+    "Use lower-case letters, digits and _ for the name, starting with a letter." : {
 
     },
     "Use Selection for Find" : {

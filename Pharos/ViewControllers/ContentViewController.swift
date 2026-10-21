@@ -4802,6 +4802,15 @@ extension ContentViewController {
         editorPane.cardStack.moveFocus(by: 1)
     }
 
+    /// Query ▸ Move Card Up / Down (⌥⌃⌘↑ / ⌥⌃⌘↓): the focused card's query.
+    @objc func menuMoveCardUp(_: Any?) {
+        editorPane.cardStack.moveFocusedCard(by: -1)
+    }
+
+    @objc func menuMoveCardDown(_: Any?) {
+        editorPane.cardStack.moveFocusedCard(by: 1)
+    }
+
     @objc func menuCollapseAllCards(_: Any?) {
         editorPane.cardStack.setAllCollapsed(true)
     }
@@ -5190,6 +5199,8 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuPreviousCard(_:)) || menuItem.action == #selector(menuNextCard(_:)) {
             return (session.activeTab?.document.cards.count ?? 0) >= 2
         }
+        if menuItem.action == #selector(menuMoveCardUp(_:)) { return editorPane.cardStack.canMoveFocusedCard(by: -1) }
+        if menuItem.action == #selector(menuMoveCardDown(_:)) { return editorPane.cardStack.canMoveFocusedCard(by: 1) }
         if menuItem.action == #selector(menuTagRow(_:)) {
             // `selectedDataRows()`, not `tagTargetDataRows()`: validation runs
             // on menu-open and key-equivalent resolution, which can happen long

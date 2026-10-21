@@ -323,6 +323,10 @@ class EditorPaneVC: NSViewController {
             self.session.updateTab(id: tabId) { $0.isDirty = true }
             self.delegate?.editorPane(self, didEditNotesOfCard: id, final: false)
         }
+        cardStack.onStructureEdited = { [weak self] in
+            guard let self, let tabId = self.cardStack.tabId else { return }
+            self.session.updateTab(id: tabId) { $0.isDirty = true }
+        }
         cardStack.onNotesEndEditing = { [weak self] id in
             guard let self else { return }
             self.delegate?.editorPane(self, didEditNotesOfCard: id, final: true)

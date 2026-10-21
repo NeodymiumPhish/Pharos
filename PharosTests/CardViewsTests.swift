@@ -602,6 +602,53 @@ private func testNotesDivider() {
     while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
 }
 
+private func testHeightHandle() {
+    let f = Fixture()
+    let card = f.card
+    card.frame = NSRect(x: 10, y: 10, width: 700, height: 200)
+    card.bodyHeight = 200 - CardHeaderView.height - 1 - CardView.bodyBottomInset
+    f.layout()
+    let handle = card.heightHandle
+    expect(!handle.isHidden && handle.frame.maxY == card.bounds.height && handle.frame.height == CardHeightHandle.hitHeight,
+           "height: a strip along the bottom edge", "\(handle.frame)")
+    expect(handle.frame.minY >= CardHeaderView.height + 1 + card.bodyHeight,
+           "height: below the body, so it takes no click from the SQL or the notes", "\(handle.frame)")
+    expect(handle.accessibilityRole() == .splitter, "height: VoiceOver reads a splitter")
+    let p = window(f).contentView!.convert(NSPoint(x: handle.frame.midX, y: handle.frame.midY), from: card)
+    expect(window(f).contentView!.hitTest(p) === handle, "height: a click on the edge reaches it")
+    expect(abs(card.bodyHeight(forBottomAt: 200) - card.bodyHeight) < 0.5, "height: the body for the current bottom edge")
+
+    // A drag keeps the grab point: the pointer moves 50 pt down, the edge too.
+    var bottoms: [CGFloat] = []
+    var ended = 0
+    handle.onDrag = { bottoms.append($0) }
+    handle.onDragEnd = { ended += 1 }
+    let grab = NSPoint(x: 40, y: 2)
+    // The handle is not flipped: 50 pt down is y - 50.
+    NSApp.postEvent(mouse(.leftMouseUp, at: NSPoint(x: 40, y: -48), in: handle), atStart: false)
+    NSApp.postEvent(mouse(.leftMouseDragged, at: NSPoint(x: 40, y: -48), in: handle), atStart: true)
+    handle.mouseDown(with: mouse(.leftMouseDown, at: grab, in: handle))
+    expect(ended == 1 && bottoms.count == 2, "height: a drag reports its moves and its end", "\(bottoms) ended \(ended)")
+    expect(bottoms.first.map { abs($0 - 250) < 0.5 } == true, "height: the edge moves with the pointer", "\(bottoms)")
+
+    collapse: do {
+        card.isCollapsed = true
+        f.layout()
+        expect(handle.isHidden, "height: no handle on a collapsed card")
+        card.isCollapsed = false
+    }
+
+    var resets = 0, steps: [Int] = []
+    handle.onReset = { resets += 1 }
+    handle.onStep = { steps.append($0) }
+    handle.mouseDown(with: mouse(.leftMouseDown, at: grab, in: handle, clicks: 2))
+    expect(resets == 1, "height: a double-click fits the content")
+    _ = handle.accessibilityPerformIncrement()
+    _ = handle.accessibilityPerformDecrement()
+    expect(steps == [1, -1], "height: VoiceOver steps taller and shorter")
+    while NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) != nil {}
+}
+
 private func window(_ f: Fixture) -> NSWindow { f.window }
 
 func runTests() {
@@ -618,5 +665,6 @@ func runTests() {
     testNotesLayout()
     testNotesHeight()
     testNotesDivider()
+    testHeightHandle()
     if failures == 0 { print("\nAll card view tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

@@ -5,6 +5,29 @@ import Combine
 private final class CardStackDocumentView: NSView {
     override var isFlipped: Bool { true }
 
+    /// The pointer moved over the stack (document coordinates), or left it:
+    /// the gap "+" follows it.
+    var onMouseMoved: ((NSPoint) -> Void)?
+    var onMouseExited: (() -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // Added once, following the view (AppKit does not call
+        // `updateTrackingAreas` for a view it has just added).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override func mouseMoved(with event: NSEvent) {
+        onMouseMoved?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onMouseExited?()
+    }
+
     /// VoiceOver reads the cards top to bottom. Subviews are in the order
     /// they were added, so a new version added below an older card would
     /// otherwise be read last (found in the live check, 2026-10-02).
@@ -63,6 +86,9 @@ final class CardStackVC: NSViewController {
     var onNotesEdited: ((_ cardId: String) -> Void)?
     /// A card's notes lost the keyboard: the moment to store them in history.
     var onNotesEndEditing: ((_ cardId: String) -> Void)?
+    /// The cards' order changed (a move, or a card inserted between others):
+    /// the tab's text changed, so the tab is edited.
+    var onStructureEdited: (() -> Void)?
     var validationConnectionId: () -> String? = { nil }
     /// Why the tab's cards cannot run now (no connected database), or nil.
     var runUnavailableReason: () -> String? = { nil }
@@ -108,7 +134,20 @@ final class CardStackVC: NSViewController {
     /// The card whose notes divider is being dragged: its width lives in the
     /// view until the drag ends, so a refresh must not reset it.
     private var notesDividerDragCard: String?
+    /// The card whose height handle is being dragged: a refresh must not put
+    /// back its stored height under the pointer.
+    private var heightDragCard: String?
     private var poolScheduled = false
+    /// The "+" in the gap between two queries, under the pointer.
+    private let gapButton = NSButton()
+    /// The gap `gapButton` stands in: between rows `k` and `k + 1`.
+    private var gapAbove: Int?
+    /// Where a dragged card would land.
+    private let dropLine = NSView()
+    private var isDraggingCard = false
+    /// A typed filter shows some cards only: their positions say nothing
+    /// about where a move or an insert would go, so both are off.
+    private var isFiltering: Bool { !filter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     init(completionProvider: SQLCompletionProvider) {
         self.completionProvider = completionProvider
@@ -130,6 +169,7 @@ final class CardStackVC: NSViewController {
         let rotor = NSAccessibilityCustomRotor(label: String(localized: "Query Cards"), itemSearchDelegate: self)
         scrollView.setAccessibilityCustomRotors([rotor])
         documentView.addSubview(addButton)
+        setUpGapButtonAndDropLine()
         view = scrollView
 
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -264,12 +304,22 @@ final class CardStackVC: NSViewController {
             }
             view.showsNotes = card.showsNotes
             if notesDividerDragCard != id { view.notesFraction = card.notesWidthFraction.map { CGFloat($0) } }
+            if heightDragCard != id { view.minBodyHeight = CGFloat(card.minBodyHeight ?? 0) }
+            view.heightHandle.setAccessibilityIdentifier("editor.card.\(position).height")
             view.isFocused = doc.focusedCardId == id
             view.isDisplayed = st.isDisplayed
             view.isLocked = card.isLocked
             if view.isCollapsed != card.isCollapsed { view.isCollapsed = card.isCollapsed }
             view.setAccessibilityLabel(p.accessibilityLabel)
             view.setAccessibilityIdentifier("editor.card.\(position)")
+            let up = canMoveCard(id, by: -1), down = canMoveCard(id, by: 1)
+            view.header.grip.isActive = up || down
+            view.setAccessibilityCustomActions([
+                up ? NSAccessibilityCustomAction(name: String(localized: "Move Up")) { [weak self] in self?.moveCard(id, by: -1) ?? false } : nil,
+                down ? NSAccessibilityCustomAction(name: String(localized: "Move Down")) { [weak self] in self?.moveCard(id, by: 1) ?? false } : nil,
+                NSAccessibilityCustomAction(name: String(localized: "New Card Above")) { [weak self] in self?.insertCard(above: id); return true },
+                NSAccessibilityCustomAction(name: String(localized: "New Card Below")) { [weak self] in self?.insertCard(belowQueryOf: id); return true },
+            ].compactMap { $0 })
             view.header.setIdentifiers(prefix: "editor.card.\(position)")
             if let editor = editors[id] {
                 editor.identifierPrefix = "editor.card.\(position)"
@@ -315,7 +365,9 @@ final class CardStackVC: NSViewController {
                     let notesWidth = CardView.split(contentWidth: contentWidth, showsNotes: true, fraction: view.notesFraction).notes
                     var h = bodyHeight(for: id, width: notes == nil ? bodyWidth : bodyWidth - notesWidth)
                     if let notes { h = max(h, notes.height(forWidth: notesWidth)) }
-                    view.bodyHeight = h
+                    // The user's extra room, never less than the content.
+                    view.contentBodyHeight = h
+                    view.bodyHeight = max(h, view.minBodyHeight)
                 }
                 return view.fittingHeight
             case .versionGroup: return VersionGroupView.height
@@ -350,6 +402,8 @@ final class CardStackVC: NSViewController {
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
         }
+        // The rows moved under the gap "+": it comes back at the next move.
+        if gapAbove != nil { hideGapButton() }
         updateEditorPool()
         // The width above can be stale. When the editor area gets shorter,
         // the old, taller document shows a legacy scroll bar until the frame
@@ -542,6 +596,24 @@ final class CardStackVC: NSViewController {
             guard content > 0 else { return }
             self.setNotesWidth(id, fraction: CardNotesView.width(forBody: content, fraction: step) / content)
         }
+        h.grip.onPress = { [weak self] event in self?.dragCard(id, from: event) }
+        let handle = view.heightHandle
+        handle.onDrag = { [weak self, weak view] bottom in
+            guard let self, let view else { return }
+            self.heightDragCard = id
+            view.minBodyHeight = view.bodyHeight(forBottomAt: bottom)
+            self.relayout(anchor: .card(id))
+        }
+        handle.onDragEnd = { [weak self, weak view] in
+            guard let self, let view else { return }
+            self.heightDragCard = nil
+            self.setMinBodyHeight(id, view.minBodyHeight)
+        }
+        handle.onReset = { [weak self] in self?.setMinBodyHeight(id, 0) }
+        handle.onStep = { [weak self, weak view] direction in
+            guard let self, let view else { return }
+            self.setMinBodyHeight(id, view.bodyHeight + CardHeightHandle.step * CGFloat(direction))
+        }
         h.menuProvider = { [weak self] in self?.menu(for: id) ?? NSMenu() }
         view.setBody(makePreview(id))
         return view
@@ -583,6 +655,11 @@ final class CardStackVC: NSViewController {
             item(String(localized: "View Results"), { [weak self] in self?.onViewResults?(id) })
         }
         menu.addItem(.separator())
+        item(String(localized: "New Card Above"), { [weak self] in self?.insertCard(above: id) }, enabled: !isFiltering)
+        item(String(localized: "New Card Below"), { [weak self] in self?.insertCard(belowQueryOf: id) }, enabled: !isFiltering)
+        item(String(localized: "Move Up"), { [weak self] in self?.moveCard(id, by: -1) }, enabled: canMoveCard(id, by: -1))
+        item(String(localized: "Move Down"), { [weak self] in self?.moveCard(id, by: 1) }, enabled: canMoveCard(id, by: 1))
+        menu.addItem(.separator())
         item(String(localized: "Rename\u{2026}"), { [weak self] in self?.onRenameRequest?(id) })
         item(card.showsNotes ? String(localized: "Hide Notes") : String(localized: "Show Notes"),
              { [weak self] in self?.setNotesShown(id, !card.showsNotes) })
@@ -604,6 +681,191 @@ final class CardStackVC: NSViewController {
         menu.addItem(.separator())
         item(card.isLocked ? String(localized: "Delete Version") : String(localized: "Delete Card"), { [weak self] in self?.deleteCard(id) })
         return menu
+    }
+
+    // MARK: - Insert and move
+
+    /// Which undo manager a card change registers on: the focused card's
+    /// editor (each editor has its own, so ⌘Z in that card undoes it), else
+    /// the window's — as Delete Card does.
+    private func undoManagerForFocus() -> UndoManager? {
+        guard let focused = document()?.focusedCardId else { return view.window?.undoManager }
+        return editors[focused]?.textView.undoManager ?? view.window?.undoManager
+    }
+
+    /// A new card before `id`'s query.
+    func insertCard(above id: String) {
+        guard !isFiltering else { return }
+        var newId = ""
+        mutate { doc in newId = doc.insertCard(before: id) }
+        didInsert(newId, anchor: id)
+    }
+
+    /// A new card after `id`'s query (after its newest version).
+    func insertCard(belowQueryOf id: String) {
+        guard !isFiltering else { return }
+        var newId = ""
+        mutate { doc in newId = doc.insertCard(afterQueryOf: id) }
+        didInsert(newId, anchor: id)
+    }
+
+    private func didInsert(_ newId: String, anchor: String) {
+        reload(anchor: .card(anchor))
+        focusCard(newId)
+        onStructureEdited?()
+        let undo = undoManagerForFocus()
+        undo?.registerUndo(withTarget: self) { target in
+            target.mutate { doc in _ = doc.deleteCard(cardId: newId) }
+            target.reload()
+            target.onStructureEdited?()
+        }
+        undo?.setActionName(String(localized: "New Card"))
+    }
+
+    /// Whether `id`'s query can move one place up (-1) or down (+1).
+    func canMoveCard(_ id: String, by delta: Int) -> Bool {
+        guard !isFiltering, let doc = document(), let b = doc.blockIndex(of: id) else { return false }
+        return delta < 0 ? b > 0 : b < doc.lineageBlocks.count - 1
+    }
+
+    /// Move `id`'s query one place up or down (⋯ menu, Query menu, VoiceOver).
+    @discardableResult
+    func moveCard(_ id: String, by delta: Int) -> Bool {
+        guard canMoveCard(id, by: delta), let b = document()?.blockIndex(of: id) else { return false }
+        return moveCard(id, toBlockOffset: delta < 0 ? b - 1 : b + 2)
+    }
+
+    /// Move the focused card's query (Query ▸ Move Card Up / Down).
+    func moveFocusedCard(by delta: Int) {
+        guard let id = document()?.focusedCardId else { return }
+        moveCard(id, by: delta)
+    }
+
+    func canMoveFocusedCard(by delta: Int) -> Bool {
+        guard let id = document()?.focusedCardId else { return false }
+        return canMoveCard(id, by: delta)
+    }
+
+    /// Move `id`'s query to block `offset` (`CardDocument.moveLineage`), keep
+    /// it focused and on screen, and make the move undoable.
+    @discardableResult
+    func moveCard(_ id: String, toBlockOffset offset: Int) -> Bool {
+        guard !isFiltering, let old = document()?.blockIndex(of: id) else { return false }
+        var moved = false
+        mutate { doc in moved = doc.moveLineage(of: id, toBlockOffset: offset) }
+        guard moved else { return false }
+        reload(anchor: .card(id))
+        focusCard(id)
+        findTextChanged()
+        onStructureEdited?()
+        let undo = undoManagerForFocus()
+        undo?.registerUndo(withTarget: self) { target in
+            guard let back = target.document()?.undoOffset(for: id, oldIndex: old) else { return }
+            target.moveCard(id, toBlockOffset: back)
+        }
+        undo?.setActionName(String(localized: "Move Card"))
+        return true
+    }
+
+    // MARK: Gap "+" and drag
+
+    private func setUpGapButtonAndDropLine() {
+        gapButton.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: String(localized: "New Card Here"))?
+            .withSymbolConfiguration(.init(pointSize: 16, weight: .regular))
+        gapButton.isBordered = false
+        gapButton.imagePosition = .imageOnly
+        gapButton.contentTintColor = .controlAccentColor
+        gapButton.toolTip = String(localized: "New Card Here")
+        gapButton.setAccessibilityLabel(String(localized: "New Card Here"))
+        gapButton.setAccessibilityIdentifier("editor.cards.insert")
+        gapButton.target = self
+        gapButton.action = #selector(gapButtonClicked)
+        gapButton.isHidden = true
+        gapButton.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
+        documentView.addSubview(gapButton)
+
+        dropLine.wantsLayer = true
+        dropLine.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        dropLine.layer?.cornerRadius = 1
+        dropLine.isHidden = true
+        documentView.addSubview(dropLine)
+
+        documentView.onMouseMoved = { [weak self] point in self?.pointerMoved(to: point) }
+        documentView.onMouseExited = { [weak self] in self?.hideGapButton() }
+    }
+
+    private func pointerMoved(to point: NSPoint) {
+        guard !isDraggingCard, !isFiltering, let doc = document(),
+              let k = CardStackLayout.insertionGap(at: point.y, items: items, frames: frames, document: doc) else {
+            // Over the button itself (it overlaps the cards a little): keep it.
+            if !gapButton.isHidden, gapButton.frame.insetBy(dx: -2, dy: -2).contains(point) { return }
+            hideGapButton()
+            return
+        }
+        gapAbove = k
+        let mid = (frames[k].maxY + frames[k + 1].minY) / 2
+        gapButton.frame.origin = NSPoint(x: frames[k].midX - gapButton.frame.width / 2, y: mid - gapButton.frame.height / 2)
+        // Above the cards, which it overlaps by a few points.
+        if gapButton.superview != nil, documentView.subviews.last !== gapButton {
+            documentView.addSubview(gapButton, positioned: .above, relativeTo: nil)
+        }
+        gapButton.isHidden = false
+    }
+
+    private func hideGapButton() {
+        gapButton.isHidden = true
+        gapAbove = nil
+    }
+
+    @objc private func gapButtonClicked() {
+        guard let k = gapAbove, k < items.count else { return }
+        let above: String?
+        switch items[k] {
+        case let .card(id): above = id
+        case let .versionGroup(_, ids, _): above = ids.last
+        case .addCard: above = nil
+        }
+        hideGapButton()
+        if let above { insertCard(belowQueryOf: above) }
+    }
+
+    /// Drag a card by its grip: a line shows where its query will land, the
+    /// stack scrolls at the edges, Escape cancels.
+    private func dragCard(_ id: String, from event: NSEvent) {
+        guard !isFiltering, canMoveCard(id, by: -1) || canMoveCard(id, by: 1),
+              let doc = document(), let card = cardViews[id], let window = view.window else { return }
+        hideGapButton()
+        isDraggingCard = true
+        defer { isDraggingCard = false }
+        let start = event.locationInWindow
+        var started = false
+        var target: Int?
+        NSCursor.closedHand.push()
+        defer { NSCursor.pop() }
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) {
+            if next.type == .keyDown {
+                if next.keyCode == 53 { target = nil; break } // Escape: no move
+                continue
+            }
+            if next.type == .leftMouseUp { break }
+            if !started {
+                guard hypot(next.locationInWindow.x - start.x, next.locationInWindow.y - start.y) >= 3 else { continue }
+                started = true
+                card.alphaValue = 0.5
+                documentView.addSubview(dropLine, positioned: .above, relativeTo: nil)
+            }
+            _ = scrollView.contentView.autoscroll(with: next)
+            let p = documentView.convert(next.locationInWindow, from: nil)
+            if let t = CardStackLayout.dropTarget(at: p.y, items: items, frames: frames, document: doc) {
+                target = t.blockOffset
+                let x = frames.first?.minX ?? Self.inset
+                dropLine.frame = NSRect(x: x, y: t.lineY - 1, width: max(0, documentView.bounds.width - x * 2), height: 2)
+                dropLine.isHidden = false
+            }
+        }
+        card.alphaValue = 1
+        dropLine.isHidden = true
+        if started, let target { moveCard(id, toBlockOffset: target) }
     }
 
     // MARK: - Actions
@@ -738,6 +1000,16 @@ final class CardStackVC: NSViewController {
         for cardId in lineage {
             cardViews[cardId]?.notesView?.setText(extracted.notes, force: true)
         }
+        relayout(anchor: .card(id))
+    }
+
+    /// Store the card's least body height and lay out. At or below what the
+    /// content needs it is "fit content" (nil): the handle only adds room.
+    private func setMinBodyHeight(_ id: String, _ height: CGFloat) {
+        guard let view = cardViews[id] else { return }
+        let floor: CGFloat? = height > view.contentBodyHeight + 0.5 ? height.rounded() : nil
+        mutate { doc in doc.setMinBodyHeight(cardId: id, floor.map { Double($0) }) }
+        view.minBodyHeight = floor ?? 0
         relayout(anchor: .card(id))
     }
 

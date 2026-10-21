@@ -66,7 +66,9 @@ Every card can keep notes: why the query exists, how to read its results, what t
 
 ### Size and scrolling
 
-A card grows to fit its text, so you never scroll inside a card vertically: only the stack scrolls. With **Wrap long lines** off (the default, in [Settings > Editor](settings.md#editor-pane)), a long line makes the card scroll sideways on its own.
+A card grows to fit its text and its notes, so you never scroll inside a card vertically: only the stack scrolls. With **Wrap long lines** off (the default, in [Settings > Editor](settings.md#editor-pane)), a long line makes the card scroll sideways on its own.
+
+To give a card more room (for example to write long notes beside a short query), drag its **bottom edge** down. The card keeps that height, and grows past it when its SQL or notes need more. Dragging the edge up never makes a card shorter than its content. Double-click the bottom edge to fit the content again. With VoiceOver, the bottom edge is a splitter: increment and decrement change the height by 24 points.
 
 ### Versions
 
@@ -80,13 +82,16 @@ A run with no edit replaces the card's results in place. A failed or cancelled r
 
 "Edited" compares the SQL **after** `{{variable}}` substitution. So a locked card run again with different [variable](query-variables.md) values also makes a new version.
 
-### Adding, moving between and deleting cards
+### Adding, moving and deleting cards
 
-- **New Card** (**Ctrl+Cmd+N**, **Query > New Card**, or the toolbar button) adds a card.
+- **New Card** (**Ctrl+Cmd+N**, **Query > New Card**, or the toolbar button) adds a card below the focused one. **New Query Card** at the end of the stack adds one at the end.
+- To add a card **between two cards**, move the pointer into the gap between them and click the **+** that appears. A card's **More** (⋯) menu also has **New Card Above** and **New Card Below**.
+- To **move** a card, drag it by the grip (≡) at the start of its name row; a line shows where it will go. Press **Escape** during the drag to cancel. You can also choose **Move Up** / **Move Down** in the card's ⋯ menu, or **Query > Move Card Up** / **Move Card Down** (**Option+Ctrl+Cmd+Up** / **Down**) for the focused card. A query's earlier versions move with it.
+- Moving and inserting are off while a [filter](#filtering-cards) is typed.
 - **Ctrl+Cmd+Up** / **Ctrl+Cmd+Down** (**Query > Previous Card** / **Next Card**) move the focus to the previous or next card.
 - The **chevron button** at the start of a card's name row folds the card to its name row (chevron points right), which then shows the start of the card's SQL on one line or opens it again (chevron points down). If an opened card reaches past the bottom of the editor area, the cards scroll so its top is at the top of the area.
 - **Query > Collapse All Cards** / **Expand All Cards**, or the toolbar button, collapses or expands every card.
-- **Cmd+Z** undoes adding, deleting or renaming a card. Because of this, deleting a card asks no confirmation.
+- **Cmd+Z** undoes adding, moving, deleting or renaming a card. Because of this, deleting a card asks no confirmation.
 
 Other actions also add a card to the active tab:
 
@@ -104,7 +109,7 @@ With a card focused, **Edit > Find** (**Cmd+F**, **Cmd+G**, **Cmd+Shift+G**, **C
 
 ### VoiceOver
 
-A **Query Cards** rotor moves card by card.
+A **Query Cards** rotor moves card by card. Each card has the actions **Move Up**, **Move Down**, **New Card Above** and **New Card Below** (VO-Command-Space).
 
 ## Syntax Highlighting
 

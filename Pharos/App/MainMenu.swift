@@ -237,6 +237,14 @@ enum MainMenu {
                                              keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!))
         nextCardItem.keyEquivalentModifierMask = [.control, .command]
 
+        // The focused card's query, with its versions. ⌥⌃⌘↑ / ⌥⌃⌘↓ are free.
+        let moveUpItem = queryMenu.addItem(withTitle: String(localized: "Move Card Up"), action: #selector(ContentViewController.menuMoveCardUp(_:)),
+                                           keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!))
+        moveUpItem.keyEquivalentModifierMask = [.option, .control, .command]
+        let moveDownItem = queryMenu.addItem(withTitle: String(localized: "Move Card Down"), action: #selector(ContentViewController.menuMoveCardDown(_:)),
+                                             keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!))
+        moveDownItem.keyEquivalentModifierMask = [.option, .control, .command]
+
         queryMenu.addItem(withTitle: String(localized: "Collapse All Cards"), action: #selector(ContentViewController.menuCollapseAllCards(_:)), keyEquivalent: "")
         queryMenu.addItem(withTitle: String(localized: "Expand All Cards"), action: #selector(ContentViewController.menuExpandAllCards(_:)), keyEquivalent: "")
 
