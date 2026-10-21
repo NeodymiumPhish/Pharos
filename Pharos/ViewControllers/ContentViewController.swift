@@ -1189,7 +1189,9 @@ class ContentViewController: NSViewController {
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         spacer.setContentCompressionResistancePriority(.init(1), for: .horizontal)
 
-        let rootStack = NSStackView(views: [actionStack, resultsVC.findControlsStack, spacer, labelStack, expandStack])
+        // Load More / Load All sit beside the row count they act on.
+        let rootStack = NSStackView(views: [actionStack, resultsVC.findControlsStack, spacer, labelStack,
+                                            resultsVC.loadControls, expandStack])
         rootStack.orientation = .horizontal
         rootStack.spacing = 8
         rootStack.translatesAutoresizingMaskIntoConstraints = false
@@ -1392,6 +1394,7 @@ class ContentViewController: NSViewController {
         // With the results hidden the bar is a status strip with two toggles;
         // the result tools come back with the results.
         resultToolsStack.isHidden = !layout.resultsVisible
+        resultsVC.loadControlsAllowed = layout.resultsVisible
     }
 
     private func persistSplitRatio() {
@@ -2530,11 +2533,14 @@ class ContentViewController: NSViewController {
                 && self.displayedResult?.runId == runId
         }
 
-        guard existingResult.hasMore else { return }
+        guard existingResult.hasMore, !existingResult.limitReached else { return }
 
         let trimmedSQL = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
         let offset = Int64(existingResult.rows.count)
-        let limit = Int64(stateManager.settings.query.defaultLimit)
+        // A page never grows the result past the Load All limit.
+        let loadAllLimit = ResultLoadState.clampedLimit(stateManager.settings.query.loadAllLimit)
+        let limit = min(Int64(stateManager.settings.query.defaultLimit), Int64(loadAllLimit) - offset)
+        guard limit > 0 else { return }
         let tabSchema = tab.schemaName
         let tabId = tab.id
 
@@ -2575,7 +2581,10 @@ class ContentViewController: NSViewController {
                         // Omitting this would take the nil default and drop every
                         // tag in the grid on the first Load More.
                         rowIdentity: existingResult.rowIdentity?.appendingPage(
-                            moreResult.rowIdentity, pageRowCount: moreResult.rows.count)
+                            moreResult.rowIdentity, pageRowCount: moreResult.rows.count),
+                        limitReached: ResultLoadState.isAtLimit(
+                            rowCount: existingResult.rows.count + moreResult.rows.count,
+                            hasMore: moreResult.hasMore, limit: loadAllLimit)
                     )
                     applyMerged(merged)
                     // Only mutate the visible grid if the paginated result is still shown.
@@ -2584,7 +2593,7 @@ class ContentViewController: NSViewController {
                         // without an outermost ORDER BY, PostgreSQL may return
                         // a different order for this second execution.
                         self.resultsVC.pagedWithoutOrderBy = !SQLOrderStability.hasTopLevelOrderBy(querySQL)
-                        self.resultsVC.appendRows(from: moreResult)
+                        self.resultsVC.appendRows(from: moreResult, limitReached: merged.limitReached)
                     } else {
                         self.resultsVC.setLoadingMore(false)
                     }
@@ -4249,7 +4258,8 @@ extension ContentViewController {
     private func loadAllRowsForChart() {
         guard let id = displayedCardId, let idx = cardResults.firstIndex(where: { $0.id == id }),
               let result = cardResults[idx].queryResult, result.hasMore else { return }
-        let cap = 200_000
+        // The chart's own ceiling, and never more than the Load All limit.
+        let cap = min(200_000, ResultLoadState.clampedLimit(stateManager.settings.query.loadAllLimit))
         fetchAllRemaining(upTo: cap) { [weak self] in
             guard let self, let i = self.cardResults.firstIndex(where: { $0.id == self.displayedCardId }) else { return }
             if self.cardResults[i].resultViewMode == .chart { self.presentChart(for: i) }
@@ -4271,22 +4281,22 @@ extension ContentViewController {
         runSnapshotLoad(forCard: id, cap: cap, showInGrid: false) { _ in completion() }
     }
 
-    /// Rows a "Load All Rows" snapshot will take before it stops and says the
-    /// result is larger. A hard ceiling on client memory, not a page size.
-    private static let snapshotRowCap = 500_000
-
     /// "Load All Rows": the explicit alternative to paging by OFFSET. Re-runs
     /// the displayed result's statement through a server cursor in one
-    /// transaction and replaces the result with a consistent snapshot.
+    /// transaction and replaces the result with a consistent snapshot of at
+    /// most Settings ▸ Query ▸ Load All limit rows — a ceiling on client
+    /// memory, not a page size.
     private func loadAllRowsSnapshot() {
         guard let id = displayedCardId,
               let idx = cardResults.firstIndex(where: { $0.id == id }),
-              cardResults[idx].queryResult?.hasMore == true else { return }
-        runSnapshotLoad(forCard: id, cap: Self.snapshotRowCap, showInGrid: true) { [weak self] capped in
+              let current = cardResults[idx].queryResult, current.hasMore, !current.limitReached else { return }
+        let cap = ResultLoadState.clampedLimit(stateManager.settings.query.loadAllLimit)
+        runSnapshotLoad(forCard: id, cap: cap, showInGrid: true) { [weak self] capped in
             guard let self, capped else { return }
+            let count = ResultsGridVC.rowCountFormatter.string(from: NSNumber(value: cap)) ?? "\(cap)"
             Toast.show(
                 in: self.view,
-                message: "Loaded the first \(ResultsGridVC.rowCountFormatter.string(from: NSNumber(value: Self.snapshotRowCap)) ?? "\(Self.snapshotRowCap)") rows as one snapshot. The result is larger.",
+                message: String(localized: "Loaded the first \(count) rows (Settings ▸ Query ▸ Load All limit). The result is larger."),
                 style: .warning, duration: 4.0)
         }
     }
@@ -4402,7 +4412,13 @@ extension ContentViewController {
                         executionTimeMs: current.executionTimeMs,
                         hasMore: snapshot.hasMore,
                         historyEntryId: current.historyEntryId,
-                        rowIdentity: snapshot.rowIdentity ?? current.rowIdentity
+                        // The snapshot's OWN keys, or none: the first page's
+                        // keys belong to another execution's rows, and a
+                        // misaligned block is worse than a gap.
+                        rowIdentity: snapshot.rowIdentity,
+                        limitReached: ResultLoadState.isAtLimit(
+                            rowCount: snapshot.rows.count, hasMore: snapshot.hasMore,
+                            limit: ResultLoadState.clampedLimit(self.stateManager.settings.query.loadAllLimit))
                     )
                     let held = self.session.resultStore.mutateResult(cardId: rtId) {
                         $0.queryResult = replaced

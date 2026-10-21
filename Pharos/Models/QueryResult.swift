@@ -120,6 +120,11 @@ struct QueryResult: Codable {
     /// history entry, so the loss survives a reopen and cannot be recovered
     /// without running the query again.
     let rowIdentity: RowIdentity?
+    /// More rows exist, but the Load All limit (Settings ▸ Query) keeps them
+    /// out: the row count says "(limit reached)" and Load More / Load All are
+    /// not offered (`ResultLoadState`). Set by the app, never decoded: not in
+    /// `CodingKeys`, so a result from the core or a cache starts false.
+    var limitReached: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case columns, rows
@@ -154,7 +159,8 @@ struct QueryResult: Codable {
         executionTimeMs: UInt64,
         hasMore: Bool,
         historyEntryId: String?,
-        rowIdentity: RowIdentity? = nil
+        rowIdentity: RowIdentity? = nil,
+        limitReached: Bool = false
     ) {
         self.columns = columns
         self.rows = rows
@@ -163,6 +169,7 @@ struct QueryResult: Codable {
         self.hasMore = hasMore
         self.historyEntryId = historyEntryId
         self.rowIdentity = rowIdentity
+        self.limitReached = limitReached
     }
 }
 

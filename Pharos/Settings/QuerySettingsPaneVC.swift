@@ -9,6 +9,8 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     static let limitRange = 1...100_000
+    /// Load All limit: at least one page, at most what memory can hold.
+    static let loadAllLimitRange = 1_000...5_000_000
     static let timeoutRange = 1...3600
 
     override var sections: [SettingsSection] {
@@ -30,6 +32,13 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
                     caption: String(localized: "Rows returned per query page. Load More fetches the next page."),
                     icon: "tablecells",
                     kind: .stepper(.settings(\.query.defaultLimit), range: Self.limitRange, unit: String(localized: "rows"))),
+                SettingsItem(
+                    id: "loadAllLimit",
+                    title: String(localized: "Load All limit"),
+                    caption: String(localized: "The most rows Load All Rows reads. Every row is kept in memory, so a large limit can use several GB."),
+                    icon: "arrow.down.to.line",
+                    help: String(localized: "When a result is larger, the row count says \"(limit reached)\" and Load More and Load All go away."),
+                    kind: .stepper(.settings(\.query.loadAllLimit), range: Self.loadAllLimitRange, unit: String(localized: "rows"))),
                 SettingsItem(
                     id: "timeout",
                     title: String(localized: "Statement timeout"),

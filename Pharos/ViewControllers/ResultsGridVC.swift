@@ -134,6 +134,9 @@ class ResultsGridVC: NSViewController {
     var isAbandoningEdit = false
 
     var hasMore: Bool = false
+    /// More rows exist, but the Load All limit keeps them out (`ResultLoadState`).
+    var limitReached: Bool = false
+    private var loadState: ResultLoadState { ResultLoadState(hasMore: hasMore, limitReached: limitReached) }
     /// True once Load More has appended a page for a statement with no
     /// outermost ORDER BY. PostgreSQL does not promise the same row order
     /// between two executions of such a statement, and each page is a new
@@ -158,13 +161,15 @@ class ResultsGridVC: NSViewController {
     let findNextButton = NSButton()
     let findCloseButton = NSButton()
 
-    // Load more
-    let loadMoreBar = NSView()
-    let loadMoreButton = NSButton(title: "Load More Rows", target: nil, action: nil)
+    // Load more. The controls live in the content controller's action bar,
+    // beside the row count they act on ("1,000 rows (more available)");
+    // this controller owns them and their state, and the bar places them.
+    let loadControls = NSStackView()
+    let loadMoreButton = NSButton(title: "Load More", target: nil, action: nil)
     /// Re-runs the statement through a server cursor and replaces the result
     /// with one consistent snapshot — the explicit, paid-for alternative to
     /// paging by OFFSET when the order between pages is not guaranteed.
-    let loadAllButton = NSButton(title: "Load All Rows", target: nil, action: nil)
+    let loadAllButton = NSButton(title: "Load All", target: nil, action: nil)
     /// Indeterminate, for `Load More`: one page is one round trip with nothing
     /// to count part-way through, so there is nothing a bar could show.
     let loadMoreSpinner = NSProgressIndicator()
@@ -177,10 +182,11 @@ class ResultsGridVC: NSViewController {
     /// Cap of the load in flight, so `updateLoadingAll` can say when the load
     /// stopped because it reached the ceiling rather than the end of the result.
     private var loadAllCap = 0
-
-    // Layout constraints to toggle
-    var scrollViewBottomToLoadMore: NSLayoutConstraint!
-    var scrollViewBottomToContainer: NSLayoutConstraint!
+    /// False while the results area is hidden: the owner's action bar then
+    /// shows only the row count and the two toggles.
+    var loadControlsAllowed = true {
+        didSet { updateLoadMoreVisibility() }
+    }
 
     // Callbacks
     var onLoadMore: (() -> Void)?
@@ -292,22 +298,13 @@ class ResultsGridVC: NSViewController {
         setupLoadMoreBar()
 
         container.addSubview(scrollView)
-        container.addSubview(loadMoreBar)
         container.addSubview(emptyState)
-
-        scrollViewBottomToContainer = scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        scrollViewBottomToLoadMore = scrollView.bottomAnchor.constraint(equalTo: loadMoreBar.topAnchor)
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: container.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollViewBottomToContainer,
-
-            loadMoreBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            loadMoreBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            loadMoreBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            loadMoreBar.heightAnchor.constraint(equalToConstant: 32),
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
 
             emptyState.topAnchor.constraint(equalTo: container.topAnchor),
             emptyState.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -555,6 +552,7 @@ class ResultsGridVC: NSViewController {
         self.rows = result.rows
         self.rowIdentity = result.rowIdentity
         self.hasMore = result.hasMore
+        self.limitReached = result.limitReached
         self.executionTimeMs = result.executionTimeMs
         pagedWithoutOrderBy = false
 
@@ -655,7 +653,8 @@ class ResultsGridVC: NSViewController {
         }
     }
 
-    func appendRows(from result: QueryResult) {
+    /// `limitReached`: the merged result is at the Load All limit.
+    func appendRows(from result: QueryResult, limitReached: Bool = false) {
         // A page belongs to THIS result only if its shape matches. A Load More
         // that lands after the tab re-ran a different query would otherwise
         // put rows with the wrong column count under this header.
@@ -668,6 +667,7 @@ class ResultsGridVC: NSViewController {
         rowIdentity = rowIdentity?.appendingPage(result.rowIdentity, pageRowCount: result.rows.count)
             ?? result.rowIdentity
         hasMore = result.hasMore
+        self.limitReached = limitReached
 
         let newIndices = Array(oldCount..<rows.count)
         unfilteredDisplayRows.append(contentsOf: newIndices)
@@ -708,6 +708,7 @@ class ResultsGridVC: NSViewController {
         unfilteredDisplayRows = []
         columnFilteredDisplayRows = []
         hasMore = false
+        limitReached = false
         executionTimeMs = 0
         columnCategories = []
         columnFilterController.clearAll()
@@ -815,6 +816,7 @@ class ResultsGridVC: NSViewController {
         } else {
             loadMoreSpinner.stopAnimation(nil)
         }
+        updateLoadMoreVisibility()
     }
 
     // MARK: - Load All Progress
@@ -836,7 +838,7 @@ class ResultsGridVC: NSViewController {
         loadAllLabel.isHidden = false
         loadAllCancelButton.isHidden = false
         loadAllCancelButton.isEnabled = true
-        loadMoreBar.toolTip = "Loads up to \(formatRowCount(loadAllCap)) rows"
+        loadAllProgress.toolTip = "Loads up to \(formatRowCount(loadAllCap)) rows (Settings ▸ Query ▸ Load All limit)"
         updateLoadingAll(rows: 0)
     }
 
@@ -863,6 +865,7 @@ class ResultsGridVC: NSViewController {
         loadAllLabel.isHidden = true
         loadAllLabel.stringValue = ""
         loadAllCancelButton.isHidden = true
+        updateLoadMoreVisibility()
     }
 
     // MARK: - Column Setup
@@ -1020,7 +1023,7 @@ class ResultsGridVC: NSViewController {
 
     func updateStatusBarText() {
         let timeStr = formatDuration(executionTimeMs)
-        let moreStr = (hasMore ? " (more available)" : "")
+        let moreStr = loadState.statusSuffix
             + (pagedWithoutOrderBy ? " \u{2022} page order not guaranteed (no ORDER BY)" : "")
         let filterCount = columnFilterController.activeFilterCount
         let filterSuffix = filterCount > 0
@@ -1048,11 +1051,14 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Load More
 
+    /// Load More / Load All are offered only while there is more to load
+    /// within the limit (`ResultLoadState`), and stay while a load runs so
+    /// its progress and Cancel are on screen.
     private func updateLoadMoreVisibility() {
-        loadMoreBar.isHidden = !hasMore
-        let toBar: [NSLayoutConstraint] = [scrollViewBottomToLoadMore]
-        let toEdge: [NSLayoutConstraint] = [scrollViewBottomToContainer]
-        NSLayoutConstraint.swap(activate: hasMore ? toBar : toEdge, deactivate: hasMore ? toEdge : toBar)
+        let offered = loadState.showsLoadButtons || isLoadingMore
+        loadControls.isHidden = !(loadControlsAllowed && offered)
+        loadMoreButton.isHidden = !loadState.showsLoadButtons && !isLoadingMore
+        loadAllButton.isHidden = loadMoreButton.isHidden
     }
 
     @objc func loadMoreTapped() {

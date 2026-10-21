@@ -135,6 +135,7 @@
     },
     "errorSheetTrigger": "never",
     "failureAlertStyle": "silent",
+    "loadAllLimit": 250000,
     "notifyMinDurationSeconds": 6,
     "notifyWhenAppInactive": false,
     "notifyWhenBackgroundTab": false,

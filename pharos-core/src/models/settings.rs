@@ -267,6 +267,10 @@ impl Default for DestructiveConfirmations {
 pub struct QuerySettings {
     #[serde(default = "default_default_limit")]
     pub default_limit: u32,
+    /// The most rows Load All Rows reads (Settings ▸ Query ▸ Load All limit).
+    /// Read by the app, which passes it as `max_rows`.
+    #[serde(default = "default_load_all_limit")]
+    pub load_all_limit: u32,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u32,
     #[serde(default = "default_confirm_destructive")]
@@ -296,6 +300,7 @@ pub struct QuerySettings {
 }
 
 fn default_default_limit() -> u32 { 1000 }
+fn default_load_all_limit() -> u32 { 500_000 }
 fn default_timeout_seconds() -> u32 { 300 }
 fn default_confirm_destructive() -> bool { true }
 fn default_notify_when_app_inactive() -> bool { true }
@@ -311,6 +316,7 @@ impl Default for QuerySettings {
     fn default() -> Self {
         QuerySettings {
             default_limit: default_default_limit(),
+            load_all_limit: default_load_all_limit(),
             timeout_seconds: default_timeout_seconds(),
             confirm_destructive: default_confirm_destructive(),
             notify_when_app_inactive: default_notify_when_app_inactive(),
@@ -1288,6 +1294,7 @@ pub(crate) mod fixture {
                 },
                 query: QuerySettings {
                     default_limit: 1001,
+                    load_all_limit: 250_000,
                     timeout_seconds: 301,
                     confirm_destructive: false,
                     notify_when_app_inactive: false,

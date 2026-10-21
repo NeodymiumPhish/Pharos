@@ -142,6 +142,7 @@
     },
     "errorSheetTrigger": "secondFailure",
     "failureAlertStyle": "sheet",
+    "loadAllLimit": 500000,
     "notifyMinDurationSeconds": 5,
     "notifyWhenAppInactive": true,
     "notifyWhenBackgroundTab": true,

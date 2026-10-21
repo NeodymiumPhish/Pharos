@@ -324,6 +324,9 @@ struct DestructiveConfirmations: Codable, Equatable {
 
 struct QuerySettings: Codable, Equatable {
     var defaultLimit: UInt32 = 1000
+    /// The most rows Load All Rows reads (and Load More pages grow a result
+    /// to). Every row is kept in memory as text.
+    var loadAllLimit: UInt32 = 500_000
     var timeoutSeconds: UInt32 = 300
     var confirmDestructive: Bool = true
     var notifyWhenAppInactive: Bool = true

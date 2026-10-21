@@ -147,7 +147,7 @@ Explain works on one statement at a time. Selecting a script reports "Explain on
 
 ## Row Limit and Load More
 
-Data queries return up to the **Row Limit** setting per page (default 1,000). When more rows exist, the status text notes "(more available)" and a **Load More Rows** bar appears below the grid. Loading more appends rows and re-applies any active sort and filters. On a tab connection, rows are read through a cursor, so a result cut at the limit keeps the connection and its settings (see [One Connection per Editor Tab](#one-connection-per-editor-tab)). [Charts](charts.md) offer a separate "Load all rows" shortcut, and server-side chart aggregation avoids loading rows entirely.
+Data queries return up to the **Row Limit** setting per page (default 1,000). When more rows exist, the row count above the grid says "(more available)", and **Load More** and **Load All** appear beside it. They go away when every row is loaded, or when the result reaches the **Load All limit** (Settings > Query), where the row count says "(limit reached)". Loading more appends rows and re-applies any active sort and filters. On a tab connection, rows are read through a cursor, so a result cut at the limit keeps the connection and its settings (see [One Connection per Editor Tab](#one-connection-per-editor-tab)). [Charts](charts.md) offer a separate "Load all rows" shortcut, and server-side chart aggregation avoids loading rows entirely.
 
 {: .tip }
 You can change the row limit in [Settings](settings.md) under the Query tab.
