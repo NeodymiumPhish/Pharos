@@ -97,9 +97,9 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
     // MARK: - Query and tab menu forwarding
 
-    // The Query and File menu items target `ContentViewController` selectors
-    // with a nil target. The content controller is a SIBLING of the sidebar
-    // and the inspector in the responder chain, so with the focus in either
+    // The Query, File and Edit menu items target `ContentViewController`
+    // selectors with a nil target. The content controller is a SIBLING of the
+    // sidebar and the inspector in the responder chain, so with the focus in either
     // of those the chain never reaches it and ⌘↩ and ⌘. go dead. This
     // controller is an ancestor of all three panes; it forwards those items
     // and their validation to the content controller. When the focus is
@@ -108,6 +108,7 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
 
     @objc func menuRunQuery(_ sender: Any?) { contentVC.menuRunQuery(sender) }
     @objc func menuCancelQuery(_ sender: Any?) { contentVC.menuCancelQuery(sender) }
+    @objc func menuCancelAllQueries(_ sender: Any?) { contentVC.menuCancelAllQueries(sender) }
     @objc func menuRunAllQueries(_ sender: Any?) { contentVC.menuRunAllQueries(sender) }
     @objc func menuRunAndReplaceResults(_ sender: Any?) { contentVC.menuRunAndReplaceResults(sender) }
     @objc func menuNewCard(_ sender: Any?) { contentVC.menuNewCard(sender) }
@@ -133,6 +134,14 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuExportEditorAsSQL(_ sender: Any?) { contentVC.menuExportEditorAsSQL(sender) }
     @objc func menuIncreaseEditorFont(_ sender: Any?) { contentVC.menuIncreaseEditorFont(sender) }
     @objc func menuDecreaseEditorFont(_ sender: Any?) { contentVC.menuDecreaseEditorFont(sender) }
+
+    /// Edit > Filter Results…, Add Tag… and Manage Tags… act on the results
+    /// grid, whatever has the focus: Add Tag… takes the grid's row selection
+    /// (the same rows it takes with the focus in the editor), Manage Tags…
+    /// edits the app-wide tag list.
+    @objc func showFilter() { contentVC.showFilter() }
+    @objc func menuTagRow(_ sender: Any?) { contentVC.menuTagRow(sender) }
+    @objc func menuManageTags(_ sender: Any?) { contentVC.menuManageTags(sender) }
 
     /// Edit > Find with the focus in the sidebar or the inspector: the editor
     /// and the grid handle it themselves when they are first responder; here

@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 
 # Present before this check existed; each needs a decision (forward, or make
 # it reachable another way). Remove a name when it is fixed.
-KNOWN="menuCancelAllQueries menuManageTags menuTagRow showFilter"
+KNOWN=""
 
 failures=0
 for action in $(grep -o '#selector(ContentViewController\.[A-Za-z]*' Pharos/App/MainMenu.swift | sed 's/.*\.//' | sort -u); do
