@@ -62,6 +62,38 @@ private final class Fixture {
 private let coda = TabContextBar.ConnectionItem(id: "c1", name: "Coda", state: .connected)
 private let billing = TabContextBar.ConnectionItem(id: "c2", name: "Billing", state: .disconnected)
 
+/// C1: a DuckDB item says where its file is, and "File not found" when the
+/// menu opens on a file that is gone.
+@MainActor
+private func testFileLocations() {
+    let f = Fixture()
+    let popUp = f.bar.connectionPopUp
+    let sales = TabContextBar.ConnectionItem(id: "d1", name: "sales", state: .disconnected,
+                                             location: "~/Data/sales.duckdb", filePath: "/Users/x/Data/sales.duckdb",
+                                             isDuckDB: true)
+    let open = TabContextBar.ConnectionItem(id: "d2", name: "open", state: .connected,
+                                            location: "~/open.duckdb", filePath: "/Users/x/open.duckdb", isDuckDB: true)
+    let mem = TabContextBar.ConnectionItem(id: "d3", name: "scratch", state: .connected, location: "In-memory",
+                                           isDuckDB: true)
+    f.bar.fileExists = { _ in false }
+    f.bar.showConnections([coda, sales, open, mem], selectedId: "d1")
+    let item = popUp.itemArray.first { $0.title == "sales" }
+    expect(item?.subtitle == "Not connected · ~/Data/sales.duckdb", "the subtitle is the state, then the location",
+           item?.subtitle ?? "nil")
+    expect(item?.toolTip == "/Users/x/Data/sales.duckdb", "the tooltip is the full path")
+    expect(popUp.itemArray.first { $0.title == "scratch" }?.subtitle == "Connected · In-memory", "in-memory says so")
+    expect(popUp.itemArray.first { $0.title == "Coda" }?.subtitle == "Connected", "a server keeps the state alone")
+    let headers = popUp.itemArray.filter(\.isSectionHeader).map(\.title)
+    expect(headers == ["PostgreSQL", "DuckDB"], "both engines: a header for each", "\(headers)")
+    f.bar.markMissingFiles()
+    expect(item?.subtitle == "File not found · ~/Data/sales.duckdb", "a gone file says so when the menu opens",
+           item?.subtitle ?? "nil")
+    expect(popUp.itemArray.first { $0.title == "open" }?.subtitle == "Connected · ~/open.duckdb",
+           "an open file is never marked missing")
+    f.bar.showConnections([sales], selectedId: "d1")
+    expect(!popUp.itemArray.contains(where: \.isSectionHeader), "one engine: no headers")
+}
+
 @MainActor
 private func testConnections() {
     let f = Fixture()
@@ -194,6 +226,7 @@ func runTests() {
     UserDefaults.standard.set(true, forKey: "NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints")
     MainActor.assumeIsolated {
         testConnections()
+        testFileLocations()
         testStates()
         testSchema()
         testChip()

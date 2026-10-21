@@ -16,7 +16,10 @@ extension EditorPaneVC {
             connections.map { config in
                 TabContextBar.ConnectionItem(
                     id: config.id, name: DisplayEscape.escaped(config.name),
-                    state: TabConnectionState(connectionId: config.id, status: stateManager.status(for: config.id)))
+                    state: TabConnectionState(connectionId: config.id, status: stateManager.status(for: config.id)),
+                    location: config.isDuckDB ? DisplayEscape.escaped(config.locationDescription) : nil,
+                    filePath: config.isDuckDB && !config.isInMemoryDuckDB ? config.database : nil,
+                    isDuckDB: config.isDuckDB)
             },
             selectedId: config?.id)
 

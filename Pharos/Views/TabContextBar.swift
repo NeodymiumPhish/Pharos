@@ -16,6 +16,20 @@ final class TabContextBar: NSView {
         let id: String
         let name: String
         let state: TabConnectionState
+        /// Where a DuckDB file is, `~` for home ("~/Data/sales.duckdb"), or
+        /// "In-memory"; nil for PostgreSQL, whose name says enough.
+        var location: String? = nil
+        /// The file's full path: the item's tooltip, and the path checked for
+        /// "File not found" when the menu opens. Nil for in-memory.
+        var filePath: String? = nil
+        var isDuckDB = false
+
+        /// "Connected · ~/Data/sales.duckdb". The state word stays first: it
+        /// is the signal that does not depend on colour.
+        func subtitle(fileMissing: Bool = false) -> String {
+            let state = fileMissing ? String(localized: "File not found") : self.state.label
+            return location.map { "\(state) · \($0)" } ?? state
+        }
     }
 
     let connectionPopUp = ConnectionPopUpButton(frame: .zero, pullsDown: false)
@@ -36,6 +50,14 @@ final class TabContextBar: NSView {
     private static let chooseTag = -1
     private static let manageTag = -2
     private var selectedConnectionId: String?
+    private var itemsById: [String: ConnectionItem] = [:]
+    /// Does a file exist? Injected so the harness needs no files.
+    var fileExists: (String) -> Bool = { path in
+        // A network volume that stopped answering can block a stat for a long
+        // time, and this runs as the menu opens: only local paths are checked.
+        guard !path.hasPrefix("/Volumes/"), !path.hasPrefix("/net/") else { return true }
+        return FileManager.default.fileExists(atPath: path)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -50,6 +72,7 @@ final class TabContextBar: NSView {
         connectionPopUp.setAccessibilityLabel(String(localized: "Connection"))
         connectionPopUp.setAccessibilityIdentifier("editor.context.connection")
         connectionPopUp.toolTip = String(localized: "This tab's database connection")
+        connectionPopUp.onWillPresent = { [weak self] in self?.markMissingFiles() }
 
         schemaButton.addItem(withTitle: "")
         schemaButton.onActivate = { [weak self] button in self?.onSchema?(button) }
@@ -126,17 +149,31 @@ final class TabContextBar: NSView {
             choose.image = Self.dot(.none)
             menu.addItem(choose)
         }
-        for item in items {
-            // Its own action: `ConnectionPopUpButton` opens the menu with
-            // `NSMenu.popUp`, which does not route a choice to the button.
-            let menuItem = NSMenuItem(title: item.name, action: #selector(connectionItemChosen(_:)), keyEquivalent: "")
-            menuItem.target = self
-            menuItem.representedObject = item.id
-            menuItem.image = Self.dot(item.state)
-            // The state in words as well as colour (Differentiate Without
-            // Color, VoiceOver).
-            menuItem.subtitle = item.state.label
-            menu.addItem(menuItem)
+        itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        // Both engines present: a header for each, the user's order kept in
+        // each (HIG, Menus: group long lists).
+        let sections: [(String?, [ConnectionItem])]
+        let servers = items.filter { !$0.isDuckDB }, files = items.filter(\.isDuckDB)
+        if !servers.isEmpty && !files.isEmpty {
+            sections = [(String(localized: "PostgreSQL"), servers), (String(localized: "DuckDB"), files)]
+        } else {
+            sections = [(nil, items)]
+        }
+        for (header, sectionItems) in sections {
+            if let header { menu.addItem(.sectionHeader(title: header)) }
+            for item in sectionItems {
+                // Its own action: `ConnectionPopUpButton` opens the menu with
+                // `NSMenu.popUp`, which does not route a choice to the button.
+                let menuItem = NSMenuItem(title: item.name, action: #selector(connectionItemChosen(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.representedObject = item.id
+                menuItem.image = Self.dot(item.state)
+                // The state in words as well as colour (Differentiate Without
+                // Color, VoiceOver), then where a file is.
+                menuItem.subtitle = item.subtitle()
+                menuItem.toolTip = item.filePath
+                menu.addItem(menuItem)
+            }
         }
         menu.addItem(.separator())
         let manage = NSMenuItem(title: String(localized: "Manage Connections…"), action: #selector(connectionItemChosen(_:)), keyEquivalent: "")
@@ -144,6 +181,18 @@ final class TabContextBar: NSView {
         manage.tag = Self.manageTag
         menu.addItem(manage)
         selectCurrent()
+    }
+
+    /// As the menu opens: a file record that is not open and whose file is
+    /// gone says "File not found". Checked here, not on every refresh, so a
+    /// stat runs only when someone looks.
+    func markMissingFiles() {
+        for menuItem in connectionPopUp.itemArray {
+            guard let id = menuItem.representedObject as? String, let item = itemsById[id] else { continue }
+            let open = item.state == .connected || item.state == .connecting
+            let missing = !open && item.filePath.map { !fileExists($0) } == true
+            menuItem.subtitle = item.subtitle(fileMissing: missing)
+        }
     }
 
     func showSchema(title: String, isEnabled: Bool) {
@@ -292,8 +341,12 @@ final class ConnectionPopUpButton: NSPopUpButton {
         return true
     }
 
+    /// Runs just before the menu opens.
+    var onWillPresent: (() -> Void)?
+
     func presentMenuBelow() {
         guard let menu else { return }
+        onWillPresent?()
         menu.minimumWidth = bounds.width
         highlight(true)
         menu.popUp(positioning: nil, at: Self.menuOrigin(in: bounds, flipped: isFlipped), in: self)

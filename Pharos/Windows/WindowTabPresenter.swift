@@ -29,7 +29,8 @@ final class WindowTabPresenter {
 
     private func refresh() {
         guard let window, let tab = session.tab else { return }
-        let connectionName = tab.connectionId.flatMap { id in stateManager.connections.first { $0.id == id }?.name }
+        let config = tab.connectionId.flatMap { id in stateManager.connections.first { $0.id == id } }
+        let connectionName = config?.name
         let state = TabConnectionState(
             connectionId: connectionName == nil ? nil : tab.connectionId,
             status: tab.connectionId.map { stateManager.status(for: $0) })
@@ -38,7 +39,9 @@ final class WindowTabPresenter {
         if window.title != tab.name { window.title = tab.name }
         if window.subtitle != context { window.subtitle = context }
         window.isDocumentEdited = tab.isDirty
-        window.tab.toolTip = "\(tab.name) — \(context) — \(state.label)"
+        // A DuckDB file's location as a third part: two files can share a name.
+        let location = config.flatMap { $0.isDuckDB ? DisplayEscape.escaped($0.locationDescription) : nil }
+        window.tab.toolTip = ["\(tab.name) — \(context) — \(state.label)", location].compactMap { $0 }.joined(separator: " — ")
         dot.state = state
         dot.isRunning = tab.isExecuting
     }
