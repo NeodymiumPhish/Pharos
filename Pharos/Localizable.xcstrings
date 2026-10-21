@@ -4,6 +4,12 @@
     "" : {
 
     },
+    " (limit reached)" : {
+
+    },
+    " (more available)" : {
+
+    },
     "—" : {
 
     },
@@ -640,6 +646,9 @@
     "Card %lld" : {
 
     },
+    "Card height" : {
+
+    },
     "Category" : {
 
     },
@@ -1144,6 +1153,18 @@
 
     },
     "Drafting…" : {
+
+    },
+    "Drag down for more room. Double-click to fit the content." : {
+
+    },
+    "Drag for more room. Double-click to fit the content." : {
+
+    },
+    "Drag to move the card" : {
+
+    },
+    "Drag to move the card. Move Up and Move Down are in the card's More menu." : {
 
     },
     "Drill: %@" : {
@@ -1797,7 +1818,13 @@
     "Lists pg_catalog and information_schema beside your own." : {
 
     },
+    "Load All limit" : {
+
+    },
     "Load all rows" : {
+
+    },
+    "Loaded the first %@ rows (Settings ▸ Query ▸ Load All limit). The result is larger." : {
 
     },
     "Loading…" : {
@@ -1893,10 +1920,28 @@
     "More lets queries, metadata and exports run side by side; fewer is kinder to a server with a low connection limit." : {
 
     },
+    "Move card" : {
+
+    },
+    "Move Card" : {
+
+    },
+    "Move Card Down" : {
+
+    },
+    "Move Card Up" : {
+
+    },
+    "Move Down" : {
+
+    },
     "Move down a row" : {
 
     },
     "Move the comments before this query into its notes" : {
+
+    },
+    "Move Up" : {
 
     },
     "Move up a row" : {
@@ -1933,6 +1978,15 @@
 
     },
     "New Card" : {
+
+    },
+    "New Card Above" : {
+
+    },
+    "New Card Below" : {
+
+    },
+    "New Card Here" : {
 
     },
     "New Connections" : {
@@ -3300,6 +3354,9 @@
     "The most query cards in one editor tab that hold their results in memory." : {
 
     },
+    "The most rows Load All Rows reads. Every row is kept in memory, so a large limit can use several GB." : {
+
+    },
     "The most rows the list ever holds. A large schema can match thousands; building them all is work nobody sees." : {
 
     },
@@ -3700,6 +3757,9 @@
 
     },
     "When a query fails" : {
+
+    },
+    "When a result is larger, the row count says \"(limit reached)\" and Load More and Load All go away." : {
 
     },
     "When a row fails" : {
