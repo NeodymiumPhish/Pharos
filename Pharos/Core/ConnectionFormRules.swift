@@ -58,6 +58,19 @@ enum ConnectionFormRules {
         return out
     }
 
+    /// The id prefix of the temporary record Test Connection saves to read
+    /// the schema list. pharos-core hides and purges records with it
+    /// (`commands::connection::SCHEMA_FETCH_ID_PREFIX`); the two must match.
+    static let schemaFetchIdPrefix = "__test_schema_fetch_"
+
+    /// Whether a passing Test Connection goes on to read the draft's schema
+    /// list. A DuckDB file that does not exist yet has no schemas, and the
+    /// read-only open the fetch uses would fail on it.
+    static func shouldFetchSchemas(_ d: ConnectionConfig, fileExists: (String) -> Bool) -> Bool {
+        guard d.engine == .duckdb, !d.isInMemoryDuckDB else { return true }
+        return fileExists((d.database as NSString).expandingTildeInPath)
+    }
+
     /// The path a DuckDB record stores: `:memory:` for in-memory, else the
     /// path as typed, trimmed of outer spaces.
     static func duckDBPath(inMemory: Bool, typed: String) -> String {

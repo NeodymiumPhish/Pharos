@@ -255,12 +255,45 @@ pub async fn reorder_connections(
     sqlite::reorder_connections(&mut db, &ids).map_err(|e| e.to_string())
 }
 
+/// The id prefix of the temporary record the Connections Manager saves while
+/// it reads a tested draft's schema list (Swift:
+/// `ConnectionFormRules.schemaFetchIdPrefix`). Such a record is never a
+/// connection the user made: it is never listed, and `pharos_init` deletes
+/// any that a failed fetch left behind.
+pub const SCHEMA_FETCH_ID_PREFIX: &str = "__test_schema_fetch_";
+
+/// Delete every leftover schema-fetch record: its row and its Keychain
+/// secrets. Returns how many there were.
+pub fn purge_schema_fetch_records(state: &AppState) -> Result<usize, String> {
+    let ids: Vec<String> = {
+        let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+        sqlite::load_connections(&db)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|c| c.id)
+            .filter(|id| id.starts_with(SCHEMA_FETCH_ID_PREFIX))
+            .collect()
+    };
+    for id in &ids {
+        {
+            let mut cache = state.password_cache.lock().map_err(|e| e.to_string())?;
+            credentials::delete_connection_secrets_with_cache(id, &mut cache)?;
+        }
+        let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+        sqlite::delete_connection(&db, id).map_err(|e| e.to_string())?;
+        drop(db);
+        state.remove_config(id);
+    }
+    Ok(ids.len())
+}
+
 /// Load all saved connection configurations
 pub async fn load_connections(state: &AppState) -> Result<Vec<ConnectionConfig>, String> {
     let mut configs = {
         let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
         sqlite::load_connections(&db).map_err(|e| e.to_string())?
     };
+    configs.retain(|c| !c.id.starts_with(SCHEMA_FETCH_ID_PREFIX));
 
     // Load the secrets from the in-memory cache (populated at startup). The
     // SQLite column holds the tunnel with an empty secret, so the tunnel is
@@ -1026,7 +1059,7 @@ mod live_connect_tests {
 /// passwords are never read or written by a test.
 #[cfg(test)]
 mod remember_password_tests {
-    use super::{password_action, save_connection, PasswordAction};
+    use super::{load_connections, password_action, purge_schema_fetch_records, save_connection, PasswordAction, SCHEMA_FETCH_ID_PREFIX};
     use crate::db::{credentials, sqlite};
     use crate::models::{ConnectionConfig, SslMode};
     use crate::state::AppState;
@@ -1082,6 +1115,35 @@ mod remember_password_tests {
             ssl_root_cert_path: None,
             engine: Default::default(),
         }
+    }
+
+    /// A leftover Test Connection record (the duplicate the user saw) is never
+    /// listed, and the startup purge removes its row and its Keychain secret
+    /// while a real record stays.
+    #[test]
+    fn leftover_schema_fetch_records_are_hidden_and_purged() {
+        let _keychain = credentials::isolated_keychain("schemafetch");
+        let dir = temp_db_dir("schemafetch");
+        let state = AppState::new(sqlite::init_database(&dir).expect("sqlite"));
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let temp_id = format!("{}{}", SCHEMA_FETCH_ID_PREFIX, "abc");
+        rt.block_on(save_connection(config(&temp_id, "pw", true), &state)).expect("save temp");
+        rt.block_on(save_connection(config("real", "pw2", true), &state)).expect("save real");
+
+        let listed: Vec<String> =
+            rt.block_on(load_connections(&state)).expect("load").into_iter().map(|c| c.id).collect();
+        assert_eq!(listed, vec!["real".to_string()], "the temporary record is never listed");
+
+        assert_eq!(purge_schema_fetch_records(&state).expect("purge"), 1);
+        let db = state.metadata_db.lock().unwrap();
+        let ids: Vec<String> = sqlite::load_connections(&db).unwrap().into_iter().map(|c| c.id).collect();
+        drop(db);
+        assert_eq!(ids, vec!["real".to_string()], "the row is gone, the real one stays");
+        let stored = credentials::load_all_passwords().expect("read keychain");
+        assert!(!stored.contains_key(&temp_id), "its Keychain secret is gone");
+        assert_eq!(stored.get("real").map(String::as_str), Some("pw2"));
+        assert_eq!(purge_schema_fetch_records(&state).expect("purge again"), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A save with the switch ON writes the password; the same record saved

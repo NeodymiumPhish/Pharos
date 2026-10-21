@@ -2034,19 +2034,32 @@ final class ConnectionsManagerVC: NSViewController {
     }
 
     private func populateDefaultSchemas(using config: ConnectionConfig) {
+        guard ConnectionFormRules.shouldFetchSchemas(config, fileExists: { FileManager.default.fileExists(atPath: $0) })
+        else { return }
         Task { [weak self] in
+            let tempId = ConnectionFormRules.schemaFetchIdPrefix + UUID().uuidString
+            var saved = false
+            // The temporary record goes away on EVERY exit. A fetch that
+            // failed half-way used to leave it in the store, where it showed
+            // as a second copy of the connection.
+            func removeTemporaryRecord() async {
+                guard saved else { return }
+                try? await PharosCore.disconnect(connectionId: tempId)
+                try? PharosCore.deleteConnection(id: tempId)
+            }
             do {
-                let tempId = "__test_schema_fetch_\(UUID().uuidString)"
                 var tempConfig = config
                 tempConfig.id = tempId
-                // Reading a DuckDB file's schemas must never create or change
-                // it. A missing file then simply has no list yet.
+                // Reading a DuckDB file's schemas must never create or change it.
                 if tempConfig.isDuckDB && !tempConfig.isInMemoryDuckDB { tempConfig.readOnly = true }
                 try PharosCore.saveConnection(tempConfig)
-                _ = try await PharosCore.connect(connectionId: tempId)
+                saved = true
+                let info = try await PharosCore.connect(connectionId: tempId)
+                guard info.status == .connected else {
+                    throw PharosCoreError.rustError(info.error ?? "The connection did not open.")
+                }
                 let schemas: [SchemaInfo] = try await PharosCore.getSchemas(connectionId: tempId)
-                try await PharosCore.disconnect(connectionId: tempId)
-                try PharosCore.deleteConnection(id: tempId)
+                await removeTemporaryRecord()
 
                 await MainActor.run { [weak self] in
                     guard let self, let id = self.draft?.id else { return }
@@ -2061,6 +2074,7 @@ final class ConnectionsManagerVC: NSViewController {
                     self.syncFormIntoDraft()
                 }
             } catch {
+                await removeTemporaryRecord()
                 Log.ui.error("Failed to fetch schemas for default schema picker: \(error.localizedDescription, privacy: .public)")
             }
         }

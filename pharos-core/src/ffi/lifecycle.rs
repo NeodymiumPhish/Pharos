@@ -88,6 +88,16 @@ pub extern "C" fn pharos_init(app_data_dir: *const c_char) -> bool {
         }
     }
 
+    // A schema read that failed during Test Connection used to leave its
+    // temporary record behind, which showed as a second copy of the
+    // connection. Remove any such leftovers (the Keychain is only written
+    // when there is one).
+    match crate::commands::connection::purge_schema_fetch_records(&state) {
+        Ok(0) => {}
+        Ok(n) => log::warn!("Removed {} leftover Test Connection record(s)", n),
+        Err(e) => log::warn!("Could not remove leftover Test Connection records: {}", e),
+    }
+
     // Load the settings blob once. Every engine-side reader takes a snapshot
     // from `state.settings()`; `save_settings` refreshes it.
     {

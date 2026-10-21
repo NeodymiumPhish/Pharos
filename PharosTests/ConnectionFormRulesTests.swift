@@ -39,6 +39,17 @@ func runTests() {
     expect(ConnectionFormRules.normalized(server) == server, "a PostgreSQL record is untouched")
     expect(ConnectionFormRules.readOnlyHelp(for: .duckdb) != ConnectionFormRules.readOnlyHelp(for: .postgres), "the read-only help names the engine's behaviour")
 
+    // Test Connection's schema fetch (the cause of the duplicate record).
+    let missing = ConnectionConfig.duckDB(path: "/no/such/new.duckdb")
+    expect(!ConnectionFormRules.shouldFetchSchemas(missing, fileExists: { _ in false }), "a DuckDB file that does not exist yet: no schema fetch")
+    expect(ConnectionFormRules.shouldFetchSchemas(missing, fileExists: { _ in true }), "an existing DuckDB file: fetch")
+    var seen = ""
+    _ = ConnectionFormRules.shouldFetchSchemas(ConnectionConfig.duckDB(path: "~/x.duckdb"), fileExists: { seen = $0; return true })
+    expect(seen.hasPrefix("/") && seen.hasSuffix("/x.duckdb"), "the tilde is expanded before the check")
+    expect(ConnectionFormRules.shouldFetchSchemas(ConnectionConfig.duckDB(path: ConnectionConfig.duckDBInMemoryPath), fileExists: { _ in false }), "in-memory: fetch")
+    expect(ConnectionFormRules.shouldFetchSchemas(server, fileExists: { _ in false }), "PostgreSQL: always fetch")
+    expect(ConnectionFormRules.schemaFetchIdPrefix == "__test_schema_fetch_", "the prefix pharos-core hides and purges")
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
