@@ -1599,7 +1599,7 @@ class ContentViewController: NSViewController {
               stateManager.status(for: connectionId) == .connected else {
             // Say so. A silent return on ⌘↩ reads as a key the app did not receive.
             if isViewLoaded {
-                Toast.show(in: view, message: "Connect to a database to run a query.", style: .warning)
+                Toast.show(in: view, message: String(localized: "Connect to a database to run a query."), style: .warning)
             }
             return
         }
@@ -1650,7 +1650,7 @@ class ContentViewController: NSViewController {
               let connectionId = tab.connectionId,
               stateManager.status(for: connectionId) == .connected else {
             if isViewLoaded {
-                Toast.show(in: view, message: "Connect to a database to run a query.", style: .warning)
+                Toast.show(in: view, message: String(localized: "Connect to a database to run a query."), style: .warning)
             }
             return
         }

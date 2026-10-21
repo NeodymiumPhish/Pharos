@@ -19,6 +19,12 @@ func runTests() {
 
     let none = r(nil, nil, nil)
     expect(none?.contains("no database connection") == true, "no connection: says the tab has none", "got \(String(describing: none))")
+    for status: ConnectionStatus? in [nil, .disconnected, .error] {
+        let r = CardRunAvailability.reason(connectionId: "c", connectionName: "Coda", status: status) ?? ""
+        expect(!r.contains("toolbar"), "no reason points at the removed toolbar menu (\(String(describing: status)))")
+        expect(r.contains("above the cards") && r.contains("File ▸ Connect"), "the reason names the context row and File ▸ Connect")
+    }
+    expect(none?.contains("Connection pop-up above the cards") == true, "no connection: names the pop-up")
     let gone = r("c1", nil, .connected)
     expect(gone == none, "a connection that no longer exists reads as no connection", "got \(String(describing: gone))")
 

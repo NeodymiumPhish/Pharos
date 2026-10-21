@@ -10,7 +10,7 @@ enum CardRunAvailability {
     ///   - status: that connection's status, nil when it was never connected.
     static func reason(connectionId: String?, connectionName: String?, status: ConnectionStatus?) -> String? {
         guard connectionId != nil, let name = connectionName else {
-            return String(localized: "This tab has no database connection. Choose one from the Connection menu in the toolbar to run this card.")
+            return String(localized: "This tab has no database connection. Choose one from the Connection pop-up above the cards.")
         }
         switch status {
         case .connected:
@@ -18,9 +18,9 @@ enum CardRunAvailability {
         case .connecting:
             return String(localized: "Connecting to “\(name)”. You can run this card when the connection is ready.")
         case .error:
-            return String(localized: "Could not connect to “\(name)”. Choose Connect from the Connection menu in the toolbar to try again.")
+            return String(localized: "Could not connect to “\(name)”. Click Try Again above the cards, or choose File ▸ Connect.")
         case .disconnected, nil:
-            return String(localized: "Not connected to “\(name)”. Choose Connect from the Connection menu in the toolbar to run this card.")
+            return String(localized: "Not connected to “\(name)”. Click Connect above the cards, or choose File ▸ Connect.")
         }
     }
 }
