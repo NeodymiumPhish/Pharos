@@ -92,6 +92,16 @@ private func testFileLocations() {
            "an open file is never marked missing")
     f.bar.showConnections([sales], selectedId: "d1")
     expect(!popUp.itemArray.contains(where: \.isSectionHeader), "one engine: no headers")
+
+    // C2: the Read-only badge reads as plain words, with the help.
+    expect(f.bar.readOnlyBadge.isHidden, "no badge by default")
+    f.bar.showReadOnly(help: "Set to Read-only.")
+    let label = f.bar.readOnlyBadge.arrangedSubviews.compactMap { $0 as? NSTextField }.first
+    expect(!f.bar.readOnlyBadge.isHidden && label?.stringValue == "Read-only", "the badge shows the words")
+    expect(label?.accessibilityHelp() == "Set to Read-only.", "the help reaches VoiceOver")
+    expect(!(label?.stringValue.contains("\u{FFFC}") ?? true), "no attachment character in what VoiceOver reads")
+    f.bar.showReadOnly(help: nil)
+    expect(f.bar.readOnlyBadge.isHidden, "nil hides it")
 }
 
 @MainActor

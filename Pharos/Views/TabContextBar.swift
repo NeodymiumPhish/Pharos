@@ -39,7 +39,10 @@ final class TabContextBar: NSView {
     let spinner = NSProgressIndicator()
     let transactionChip = NSButton()
     /// "Read-only", with a lock, while the connection is open read-only.
-    let readOnlyBadge = NSTextField(labelWithString: "")
+    /// A lock image and a plain label: an image attachment in the text would
+    /// put U+FFFC in what VoiceOver reads.
+    let readOnlyBadge = NSStackView()
+    private let readOnlyLabel = NSTextField(labelWithString: String(localized: "Read-only"))
     private let separatorLabel = NSTextField(labelWithString: "›")
 
     var onChooseConnection: ((String) -> Void)?
@@ -97,16 +100,18 @@ final class TabContextBar: NSView {
         stateButton.action = #selector(connectPressed)
         stateButton.setAccessibilityIdentifier("editor.context.connect")
 
-        let lock = NSTextAttachment()
-        lock.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: NSFont.smallSystemFontSize, weight: .regular))
-        let badgeText = NSMutableAttributedString(attachment: lock)
-        badgeText.append(NSAttributedString(string: " " + String(localized: "Read-only")))
-        readOnlyBadge.attributedStringValue = badgeText
-        readOnlyBadge.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        readOnlyBadge.textColor = .secondaryLabelColor
-        readOnlyBadge.setAccessibilityLabel(String(localized: "Read-only"))
-        readOnlyBadge.setAccessibilityIdentifier("editor.context.readOnly")
+        let lock = NSImageView(image: NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil) ?? NSImage())
+        lock.symbolConfiguration = .init(pointSize: NSFont.smallSystemFontSize, weight: .regular)
+        lock.contentTintColor = .secondaryLabelColor
+        lock.setAccessibilityElement(false)
+        readOnlyLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        readOnlyLabel.textColor = .secondaryLabelColor
+        readOnlyLabel.setAccessibilityIdentifier("editor.context.readOnly")
+        readOnlyBadge.addArrangedSubview(lock)
+        readOnlyBadge.addArrangedSubview(readOnlyLabel)
+        readOnlyBadge.orientation = .horizontal
+        readOnlyBadge.spacing = 3
+        readOnlyBadge.alignment = .centerY
         readOnlyBadge.isHidden = true
 
         spinner.style = .spinning
@@ -214,7 +219,8 @@ final class TabContextBar: NSView {
     func showReadOnly(help: String?) {
         readOnlyBadge.isHidden = help == nil
         readOnlyBadge.toolTip = help
-        readOnlyBadge.setAccessibilityHelp(help)
+        readOnlyLabel.toolTip = help
+        readOnlyLabel.setAccessibilityHelp(help)
     }
 
     func showSchema(title: String, isEnabled: Bool) {
