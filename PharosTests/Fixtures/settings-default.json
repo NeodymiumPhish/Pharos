@@ -17,6 +17,7 @@
     "connectTimeoutSeconds": 10,
     "defaultPort": 5432,
     "defaultTimeZone": "",
+    "duckdbCloudSecrets": [],
     "duckdbMemoryLimit": "",
     "duckdbThreads": 0,
     "idleInTransactionSeconds": 30,

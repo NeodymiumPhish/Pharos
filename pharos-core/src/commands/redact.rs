@@ -16,6 +16,9 @@
 //!    `SSLPASSWORD`, `OAUTH_CLIENT_SECRET`). `KEY_ID` is an id and stays.
 //! 3. Inside any string literal or dollar-quoted body: a libpq
 //!    `…password=<value>` and the password of a URI `scheme://user:<pw>@`.
+//! 4. DuckDB's older settings form, `SET [GLOBAL|SESSION|LOCAL]
+//!    s3_secret_access_key = '…'` (and the other secret settings in
+//!    `SECRET_SETTINGS`): the value literal.
 //!
 //! The scanner uses `sql_lexer`'s quoting rules, so text in a comment or a
 //! quoted identifier is never taken for a literal, and a column named
@@ -34,6 +37,11 @@ pub const MASK: &str = "********";
 const SECRET_KEYS: [&str; 10] = [
     "password", "secret", "token", "session_token", "account_key", "client_secret", "connection_string", "uri",
     "sslpassword", "oauth_client_secret",
+];
+
+/// DuckDB settings whose value is a secret (rule 4).
+const SECRET_SETTINGS: [&str; 5] = [
+    "s3_secret_access_key", "s3_session_token", "azure_storage_connection_string", "hf_token", "gcs_secret",
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -116,15 +124,18 @@ fn secret_ranges(sql: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut statement_start = 0usize;
     let mut in_create_secret = false;
+    let mut in_set_secret = false;
 
     for (k, tok) in toks.iter().enumerate() {
         match tok {
             Tok::Semi => {
                 statement_start = k + 1;
                 in_create_secret = false;
+                in_set_secret = false;
             }
             Tok::Word(_) if k == statement_start => {
                 in_create_secret = is_create_secret(&toks[k..], sql);
+                in_set_secret = is_set_secret(&toks[k..], sql);
             }
             Tok::Str { content } | Tok::Dollar { content } => {
                 let key = match k.checked_sub(1).map(|p| &toks[p]) {
@@ -132,7 +143,9 @@ fn secret_ranges(sql: &str) -> Vec<Range<usize>> {
                     _ => None,
                 };
                 let whole = matches!(tok, Tok::Str { .. })
-                    && key.as_deref().is_some_and(|key| key == "password" || (in_create_secret && SECRET_KEYS.contains(&key)));
+                    && (in_set_secret
+                        || key.as_deref().is_some_and(|key| key == "password" || (in_create_secret && SECRET_KEYS.contains(&key))));
+                in_set_secret = false;
                 if whole {
                     if !content.is_empty() {
                         out.push(content.clone());
@@ -145,6 +158,23 @@ fn secret_ranges(sql: &str) -> Vec<Range<usize>> {
         }
     }
     out
+}
+
+/// `SET [GLOBAL | SESSION | LOCAL] <secret setting>`, at a statement's start.
+fn is_set_secret(toks: &[Tok], sql: &str) -> bool {
+    let words: Vec<String> = toks
+        .iter()
+        .take(3)
+        .map(|t| match t { Tok::Word(r) => sql[r.clone()].to_ascii_lowercase(), _ => String::new() })
+        .collect();
+    if words.first().map(String::as_str) != Some("set") {
+        return false;
+    }
+    let name = match words.get(1).map(String::as_str) {
+        Some("global") | Some("session") | Some("local") => words.get(2),
+        _ => words.get(1),
+    };
+    name.is_some_and(|n| SECRET_SETTINGS.contains(&n.as_str()))
 }
 
 /// `CREATE [OR REPLACE] [PERSISTENT | TEMPORARY] SECRET`, at a statement's start.
@@ -310,6 +340,11 @@ mod tests {
             "CREATE OR REPLACE PERSISTENT SECRET s3x (TYPE s3, KEY_ID 'AKIA1', SECRET '********', REGION 'eu-west-1')"
         );
         assert_eq!(r("create secret (type gcs, token 't0k')"), "create secret (type gcs, token '********')");
+        // Rule 4: DuckDB's older SET form.
+        assert_eq!(r("SET s3_secret_access_key = 'abc'; SET s3_access_key_id = 'AKIA'"),
+                   "SET s3_secret_access_key = '********'; SET s3_access_key_id = 'AKIA'");
+        assert_eq!(r("set global S3_SESSION_TOKEN to 'tok'"), "set global S3_SESSION_TOKEN to '********'");
+        assert_eq!(r("SET search_path = 'main'"), "SET search_path = 'main'");
         assert_eq!(r("CREATE SECRET pg (TYPE postgres, HOST 'h', PASSWORD 'pw')"),
                    "CREATE SECRET pg (TYPE postgres, HOST 'h', PASSWORD '********')");
         assert_eq!(r("CREATE SECRET a (TYPE azure, CONNECTION_STRING 'AccountKey=zz')"),

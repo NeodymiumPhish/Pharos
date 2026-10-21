@@ -1029,6 +1029,45 @@ struct ConnectionSettings: Codable, Equatable {
     var duckdbThreads: UInt32 = 0
     /// `memory_limit` per database, e.g. "4GB". Empty = DuckDB's default.
     var duckdbMemoryLimit: String = ""
+    /// Cloud storage credentials (S3, R2, GCS), made a temporary secret of
+    /// every DuckDB database when it opens. Each one's secret key is in the
+    /// Keychain, never here.
+    var duckdbCloudSecrets: [DuckDBCloudSecret] = []
+}
+
+/// One S3-compatible credential for DuckDB (Settings ▸ Connections ▸ DuckDB).
+/// Mirrors `DuckdbCloudSecret` in `pharos-core/src/models/settings.rs`.
+struct DuckDBCloudSecret: Codable, Equatable, Identifiable {
+    /// Stable id: the Keychain key and the DuckDB secret's name.
+    var id: String = UUID().uuidString
+    var name: String = ""
+    var provider: CloudProvider = .s3
+    /// The access key id. An id, not a secret.
+    var keyId: String = ""
+    /// S3: the region. Empty: DuckDB's default.
+    var region: String = ""
+    /// S3-compatible storage: the endpoint host. Empty for AWS.
+    var endpoint: String = ""
+    /// R2: the Cloudflare account id.
+    var accountId: String = ""
+    /// The path prefix it applies to, e.g. "s3://my-bucket". Empty: every
+    /// path of the provider's scheme.
+    var scope: String = ""
+}
+
+enum CloudProvider: String, Codable, CaseIterable {
+    case s3, r2, gcs
+
+    var displayName: String {
+        switch self {
+        case .s3: return String(localized: "Amazon S3 or compatible")
+        case .r2: return String(localized: "Cloudflare R2")
+        case .gcs: return String(localized: "Google Cloud Storage")
+        }
+    }
+
+    /// The URL scheme its paths use.
+    var scheme: String { rawValue + "://" }
 }
 
 /// The time zones a session may be asked for: the ones this Mac knows, plus

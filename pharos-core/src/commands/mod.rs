@@ -2,6 +2,7 @@ pub mod connection;
 pub mod ddl;
 pub mod duck;
 pub mod duck_attach;
+pub mod duck_cloud;
 pub mod duck_session;
 pub mod metadata;
 pub mod model_feedback;

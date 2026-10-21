@@ -20,7 +20,12 @@ pub async fn save_settings(
         let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
         sqlite::save_settings(&db, &settings).map_err(|e| format!("Failed to save settings: {}", e))?;
     }
+    let clouds_changed = state.settings().connections.duckdb_cloud_secrets != settings.connections.duckdb_cloud_secrets;
     state.replace_settings(settings);
+    // DuckDB cloud credentials reach the databases that are open now too.
+    if clouds_changed {
+        super::duck_cloud::sync_open(state);
+    }
     Ok(())
 }
 

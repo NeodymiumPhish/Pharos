@@ -207,6 +207,22 @@ The Database Navigator then shows the PostgreSQL schemas as `name.schema`, after
 - The attach lasts while the PostgreSQL connection stays connected. When you disconnect it, Pharos detaches it from DuckDB. To detach it sooner, right-click one of its schemas and choose **Detach**.
 - `verify-ca` and `verify-full` use the connection's SSL root certificate, or the certificates that macOS ships (`/etc/ssl/cert.pem`) when the connection has none. Certificates you added to the Keychain are not used.
 
+## Cloud storage (S3, R2, GCS)
+
+To read `s3://`, `r2://` or `gcs://` paths, add a credential in **Settings > Connections > DuckDB > Cloud storage credentials**:
+
+1. Click **+**.
+2. Type a name, choose the provider, and type the key ID and the secret key.
+3. For S3, type the region. For S3-compatible storage such as MinIO, also type the endpoint. For Cloudflare R2, type the account ID.
+4. Optional: type a scope, for example `s3://my-bucket`, so the credential applies to that bucket only. With no scope, it applies to every path of the provider.
+5. Click **Save**.
+
+Pharos keeps the secret key in the Keychain. Each DuckDB database gets every credential as a temporary secret when it opens, and a database that is open gets a changed credential at once. Then `SELECT * FROM read_parquet('s3://my-bucket/sales/*.parquet')` works with no `CREATE SECRET` card.
+
+A public file, or a presigned `https://` link, needs no credential.
+
 ## Secrets
 
-DuckDB secrets (for example S3 keys for `httpfs`) live in memory only: use `CREATE SECRET`, not `CREATE PERSISTENT SECRET`. DuckDB writes a persistent secret to disk in plain text, so Pharos refuses it. Pharos also does not load secrets that other DuckDB tools saved in `~/.duckdb/stored_secrets`. Query history replaces passwords and keys in SQL text with `'********'`.
+DuckDB secrets (for example S3 keys for `httpfs`) live in memory only: use `CREATE SECRET`, not `CREATE PERSISTENT SECRET`. DuckDB writes a persistent secret to disk in plain text, so Pharos refuses it. Pharos also does not load secrets that other DuckDB tools saved in `~/.duckdb/stored_secrets`.
+
+Query history replaces passwords and keys in SQL text with `'********'`, for `CREATE SECRET` and for the older `SET s3_secret_access_key = '…'` form. But a card's own text is kept as you typed it: relaunch restore and saved Sessions keep a `CREATE SECRET` card in plain text. Use **Cloud storage credentials** in Settings instead, or delete the card after it runs.

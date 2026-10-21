@@ -114,6 +114,45 @@ pub extern "C" fn pharos_export_parquet(
     });
 }
 
+/// Store a DuckDB cloud credential's secret key in the Keychain (Settings ▸
+/// Connections ▸ DuckDB), and apply the entries to the open databases.
+/// Returns false when the Keychain refused it.
+#[no_mangle]
+pub extern "C" fn pharos_duckdb_cloud_secret_store(id: *const c_char, secret: *const c_char) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let id = unsafe { c_str_to_string(id) };
+        let secret = unsafe { c_str_to_string(secret) };
+        match crate::commands::duck_cloud::store_secret(app_state(), &id, &secret) {
+            Ok(()) => true,
+            Err(e) => {
+                log::error!("DuckDB cloud secret not stored: {}", e);
+                false
+            }
+        }
+    }))
+    .unwrap_or(false)
+}
+
+/// Remove a DuckDB cloud credential's secret key (its entry was deleted).
+#[no_mangle]
+pub extern "C" fn pharos_duckdb_cloud_secret_delete(id: *const c_char) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let id = unsafe { c_str_to_string(id) };
+        crate::commands::duck_cloud::delete_secret(app_state(), &id).is_ok()
+    }))
+    .unwrap_or(false)
+}
+
+/// Whether a DuckDB cloud credential has a secret key stored.
+#[no_mangle]
+pub extern "C" fn pharos_duckdb_cloud_secret_exists(id: *const c_char) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let id = unsafe { c_str_to_string(id) };
+        crate::commands::duck_cloud::has_secret(app_state(), &id)
+    }))
+    .unwrap_or(false)
+}
+
 /// The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
 /// string. Free with `pharos_free_string`.
 #[no_mangle]

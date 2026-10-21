@@ -116,4 +116,22 @@ extension PharosCore {
     static func duckDBVersion() -> String {
         (try? callSync { pharos_duckdb_version() }) ?? "unknown"
     }
+
+    // MARK: - Cloud storage credentials (Settings ▸ Connections ▸ DuckDB)
+
+    /// Keep a cloud credential's secret key in the Keychain; false when the
+    /// Keychain refused it.
+    @discardableResult
+    static func storeDuckDBCloudSecret(id: String, secret: String) -> Bool {
+        id.withCString { cId in secret.withCString { cSecret in pharos_duckdb_cloud_secret_store(cId, cSecret) } }
+    }
+
+    @discardableResult
+    static func deleteDuckDBCloudSecret(id: String) -> Bool {
+        id.withCString { pharos_duckdb_cloud_secret_delete($0) }
+    }
+
+    static func duckDBCloudSecretExists(id: String) -> Bool {
+        id.withCString { pharos_duckdb_cloud_secret_exists($0) }
+    }
 }

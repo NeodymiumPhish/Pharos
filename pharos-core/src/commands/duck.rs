@@ -80,6 +80,8 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
         .map_err(|e| e.to_string())?;
     match opened {
         Ok(instance) => {
+            // Cloud storage credentials from Settings (D12), before any card.
+            super::duck_cloud::apply(state, &instance);
             state.add_duck(config.id.clone(), Arc::new(instance));
             Ok(info(&config, ConnectionStatus::Connected, None, Some(start.elapsed().as_millis() as u64)))
         }

@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import SwiftUI
 
 /// Settings ▸ Connections. What a NEW connection starts as, and how every pool
 /// the app opens is tuned.
@@ -13,6 +15,10 @@ import AppKit
 /// under a live connection, so a change reaches a connection the next time it
 /// opens and not before.
 final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
+
+    /// The DuckDB cloud credentials editor's model (D12).
+    private let cloudModel = DuckDBCloudSecretsModel(entries: [])
+    private var cloudObserver: AnyCancellable?
 
     init() { super.init(paneId: .connections) }
 
@@ -189,6 +195,17 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     help: String(localized: "Leave it empty for DuckDB's default, 80% of this Mac's memory."),
                     kind: .text(.settings(\.connections.duckdbMemoryLimit), width: 120)),
                 SettingsItem(
+                    id: "duckdbCloud",
+                    title: String(localized: "Cloud storage credentials"),
+                    caption: String(localized: "Keys for s3://, r2:// and gcs:// paths. Each becomes a temporary secret of every DuckDB database when it opens."),
+                    icon: "key.icloud",
+                    help: String(localized: "The secret keys are kept in the Keychain. A credential with no scope applies to every path of its provider."),
+                    kind: .custom { [cloudModel] in
+                        let hosting = NSHostingView(rootView: DuckDBCloudSecretsEditor(model: cloudModel))
+                        hosting.sizingOptions = [.intrinsicContentSize]
+                        return hosting
+                    }),
+                SettingsItem(
                     id: "duckdbExtensions",
                     title: String(localized: "Built-in extensions"),
                     caption: String(localized: "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, PostgreSQL databases, files over HTTPS and S3, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded."),
@@ -196,5 +213,35 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     kind: .display),
             ]),
         ]
+    }
+
+    override func loadView() {
+        super.loadView()
+        cloudModel.onStoreSecret = { id, secret in
+            if let secret {
+                if !PharosCore.storeDuckDBCloudSecret(id: id, secret: secret) {
+                    let alert = NSAlert()
+                    alert.messageText = String(localized: "The secret key was not saved.")
+                    alert.informativeText = String(localized: "The Keychain refused it. Try again, or check Keychain Access.")
+                    alert.runModal()
+                }
+            } else {
+                PharosCore.deleteDuckDBCloudSecret(id: id)
+            }
+        }
+        cloudModel.secretExists = { PharosCore.duckDBCloudSecretExists(id: $0) }
+        cloudObserver = cloudModel.$entries
+            .dropFirst()
+            .debounce(for: .milliseconds(250), scheduler: RunLoop.main)
+            .sink { [weak self] entries in
+                self?.apply { $0.connections.duckdbCloudSecrets = entries }
+            }
+    }
+
+    override func reloadFromSettings() {
+        super.reloadFromSettings()
+        let stored = stateManager.settings.connections.duckdbCloudSecrets
+        guard stored != cloudModel.entries else { return }
+        populating { cloudModel.entries = stored }
     }
 }

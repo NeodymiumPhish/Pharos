@@ -173,6 +173,23 @@ void pharos_export_parquet(const char *connection_id,
                            void *context);
 
 /**
+ * Store a DuckDB cloud credential's secret key in the Keychain (Settings ▸
+ * Connections ▸ DuckDB), and apply the entries to the open databases.
+ * Returns false when the Keychain refused it.
+ */
+ bool pharos_duckdb_cloud_secret_store(const char *id, const char *secret);
+
+/**
+ * Remove a DuckDB cloud credential's secret key (its entry was deleted).
+ */
+ bool pharos_duckdb_cloud_secret_delete(const char *id);
+
+/**
+ * Whether a DuckDB cloud credential has a secret key stored.
+ */
+ bool pharos_duckdb_cloud_secret_exists(const char *id);
+
+/**
  * The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
  * string. Free with `pharos_free_string`.
  */

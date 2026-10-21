@@ -810,6 +810,51 @@ pub struct ConnectionSettings {
     /// default (80% of RAM).
     #[serde(default)]
     pub duckdb_memory_limit: String,
+    /// DuckDB: cloud storage credentials (S3, R2, GCS), made a temporary
+    /// secret of every DuckDB database when it opens. The secret itself is
+    /// in the Keychain (`duckdb_cloud::secret_key`), never here.
+    #[serde(default)]
+    pub duckdb_cloud_secrets: Vec<DuckdbCloudSecret>,
+}
+
+/// One S3-compatible credential for DuckDB's httpfs (Settings ▸ Connections
+/// ▸ DuckDB). Everything but the secret key; that is in the Keychain.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckdbCloudSecret {
+    /// Stable id: the Keychain key and the DuckDB secret's name.
+    pub id: String,
+    /// What the user calls it.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub provider: CloudProvider,
+    /// The access key id (`KEY_ID`). An id, not a secret.
+    #[serde(default)]
+    pub key_id: String,
+    /// S3: the region, e.g. "eu-west-1". Empty: DuckDB's default.
+    #[serde(default)]
+    pub region: String,
+    /// S3-compatible storage (MinIO and others): the endpoint host. Empty
+    /// for AWS.
+    #[serde(default)]
+    pub endpoint: String,
+    /// R2: the Cloudflare account id.
+    #[serde(default)]
+    pub account_id: String,
+    /// The path prefix it applies to, e.g. "s3://my-bucket". Empty: every
+    /// path of the provider's scheme.
+    #[serde(default)]
+    pub scope: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CloudProvider {
+    #[default]
+    S3,
+    R2,
+    Gcs,
 }
 
 fn default_tab_idle_in_transaction_seconds() -> u32 { 600 }
@@ -841,6 +886,7 @@ impl Default for ConnectionSettings {
             max_tab_sessions_per_connection: default_max_tab_sessions_per_connection(),
             duckdb_threads: 0,
             duckdb_memory_limit: String::new(),
+            duckdb_cloud_secrets: Vec::new(),
         }
     }
 }
@@ -1424,6 +1470,16 @@ pub(crate) mod fixture {
                     max_tab_sessions_per_connection: 9,
                     duckdb_threads: 3,
                     duckdb_memory_limit: "2GB".to_string(),
+                    duckdb_cloud_secrets: vec![DuckdbCloudSecret {
+                        id: "cloud-1".to_string(),
+                        name: "Data lake".to_string(),
+                        provider: CloudProvider::R2,
+                        key_id: "AKIA-EXAMPLE".to_string(),
+                        region: "auto".to_string(),
+                        endpoint: String::new(),
+                        account_id: "acct-123".to_string(),
+                        scope: "r2://lake".to_string(),
+                    }],
                 },
                 data_export: DataExportSettings {
                     default_format: ExportFormat::Tsv,

@@ -12,6 +12,18 @@
     "connectTimeoutSeconds": 11,
     "defaultPort": 5433,
     "defaultTimeZone": "Asia/Tokyo",
+    "duckdbCloudSecrets": [
+      {
+        "accountId": "acct-123",
+        "endpoint": "",
+        "id": "cloud-1",
+        "keyId": "AKIA-EXAMPLE",
+        "name": "Data lake",
+        "provider": "r2",
+        "region": "auto",
+        "scope": "r2://lake"
+      }
+    ],
     "duckdbMemoryLimit": "2GB",
     "duckdbThreads": 3,
     "idleInTransactionSeconds": 31,
