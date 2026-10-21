@@ -90,6 +90,9 @@ final class CardStackVC: NSViewController {
     /// the tab's text changed, so the tab is edited.
     var onStructureEdited: (() -> Void)?
     var validationConnectionId: () -> String? = { nil }
+    /// Whether a data file dropped on a card is queried in place (a DuckDB
+    /// tab). Asked at drag time.
+    var acceptsDataFileDrops: () -> Bool = { false }
     /// Why the tab's cards cannot run now (no connected database), or nil.
     var runUnavailableReason: () -> String? = { nil }
     /// The schema the tab's toolbar pull-down shows, for validation on the tab's connection.
@@ -495,6 +498,7 @@ final class CardStackVC: NSViewController {
         editor.textView.textFinderActionHandler = { [weak self] action in self?.performFind(action) ?? false }
         editor.textView.textFinderActionValidator = { [weak self] action in self?.canPerformFind(action) ?? false }
         editor.validationConnectionId = { [weak self] in self?.validationConnectionId() }
+        editor.textView.acceptsDataFileDrops = { [weak self] in self?.acceptsDataFileDrops() ?? false }
         editor.validationTab = { [weak self] in
             guard let self, let tabId = self.tabId else { return nil }
             return (tabId, self.validationSchema())

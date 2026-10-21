@@ -87,6 +87,21 @@ Pharos closes a DuckDB file a few seconds after the last tab that uses it closes
 
 **File > Disconnect** closes the file at once.
 
+## Query files in place
+
+DuckDB reads CSV, TSV, JSON, newline-delimited JSON, Parquet and Excel files where they are, with no import. On a DuckDB tab:
+
+| To do this | Do this |
+|---|---|
+| Query a file | Drag the file from Finder onto an empty card. The card gets `SELECT * FROM read_csv('/Users/you/Data/sales.csv')` (or `read_json`, `read_parquet`, `read_xlsx`). |
+| Use a file in a query you are writing | Drag the file onto a card with text. Pharos inserts the quoted path at the drop point, for example `'/Users/you/Data/sales.csv'`. A quoted path is a valid `FROM` target: `SELECT region, sum(total) FROM '/Users/you/Data/sales.csv' GROUP BY ALL`. |
+| Query several files together | Drag them together onto an empty card: `read_csv(['/Users/you/a.csv', '/Users/you/b.csv'], union_by_name = true)`. |
+| Choose the files in a panel | **Query > Insert File Reference…** |
+
+**Edit > Undo** removes the inserted text in one step. On a PostgreSQL tab, a dropped CSV or SQL file opens as a tab of its own, and a dropped `.duckdb` file opens the database on any tab.
+
+Load More and Load All read the file again for each page. For a large file you query often, make a table from it first.
+
 ## What differs from PostgreSQL
 
 | | PostgreSQL | DuckDB |

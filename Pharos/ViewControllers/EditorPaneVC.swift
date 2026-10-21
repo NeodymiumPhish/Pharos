@@ -339,6 +339,10 @@ class EditorPaneVC: NSViewController {
             self?.formatListButton.isHidden = !offered
         }
         cardStack.validationConnectionId = { [weak self] in self?.session.activeConnectionId }
+        cardStack.acceptsDataFileDrops = { [weak self] in
+            guard let self, let id = self.session.tab?.connectionId else { return false }
+            return self.stateManager.connections.first { $0.id == id }?.isDuckDB ?? false
+        }
         // The same test `ContentViewController.runCard` applies, on the tab
         // the stack shows.
         cardStack.runUnavailableReason = { [weak self] in

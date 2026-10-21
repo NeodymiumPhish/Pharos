@@ -356,6 +356,7 @@
 		E0EA67613142938E238898C7 /* ChartPalette+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30FCEFFB7D70B745C0B226 /* ChartPalette+Color.swift */; };
 		E1D926BA02E4F6533E2D564D /* SettingsSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB145E84466583565F196D2B /* SettingsSearchIndex.swift */; };
 		E25DF354E5E4120E4218B4AB /* SavedQueriesVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F53AF7990A74B49CE70A7E63 /* SavedQueriesVC.swift */; };
+		E2CEB7F7772CC2D0B646284A /* DataFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804A3CF0C8C55C1AAC949047 /* DataFiles.swift */; };
 		E2E9BBE587E2EC05CE695784 /* SavedQuerySpotlightIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C8ADB503C233C3EC173772 /* SavedQuerySpotlightIndexer.swift */; };
 		E33FF1F03DD458F921BDD92C /* SQLSegmentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */; };
 		E3E975360299E9A0D90D96D4 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20F3DD4F4CC33C47BF5D7DBB /* Session.swift */; };
@@ -579,6 +580,7 @@
 		7DEC3690225F794408E62D29 /* ChartAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartAggregator.swift; sourceTree = "<group>"; };
 		7E1A79C0687366CE6000F5A3 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		7F3C560169FD08DB0ABC0375 /* PharosCore+TabSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TabSession.swift"; sourceTree = "<group>"; };
+		804A3CF0C8C55C1AAC949047 /* DataFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataFiles.swift; sourceTree = "<group>"; };
 		80F909BA1DFB449B2034C69C /* CardStackFinderClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardStackFinderClient.swift; sourceTree = "<group>"; };
 		817314200CBD84014D407C80 /* AppDelegate+Help.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Help.swift"; sourceTree = "<group>"; };
 		819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDetailSheet.swift; sourceTree = "<group>"; };
@@ -1099,6 +1101,7 @@
 				8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */,
 				F64ECD492568816876D0E808 /* ContentPaneLayout.swift */,
 				CFE4964E6E0EFB8FE685BE32 /* CountedNounText.swift */,
+				804A3CF0C8C55C1AAC949047 /* DataFiles.swift */,
 				F0BCCCCFD4E9B5194DCA6176 /* DestructiveConfirmationText.swift */,
 				4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */,
 				5757A383E8948F38AB9B6545 /* Diagnostics.swift */,
@@ -1539,6 +1542,7 @@
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,
 				F940C916FDF93F9D48DE2BBB /* CountedNounText.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
+				E2CEB7F7772CC2D0B646284A /* DataFiles.swift in Sources */,
 				2C0ED764FC791B6EA6A28A48 /* DescribeQueryPopoverVC.swift in Sources */,
 				8BD5C948806AAF45D1D1821F /* DestructiveConfirmationText.swift in Sources */,
 				26B04812BFD5A8814F0B729A /* DestructiveSQLScanner.swift in Sources */,

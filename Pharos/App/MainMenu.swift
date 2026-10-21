@@ -207,6 +207,10 @@ enum MainMenu {
         let attachPG = queryMenu.addItem(withTitle: String(localized: "Attach PostgreSQL Connection…"),
                                          action: #selector(ContentViewController.menuAttachPostgres(_:)), keyEquivalent: "")
         attachPG.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+        // DuckDB: put a CSV, JSON, Parquet or Excel file's path in the card.
+        let insertFile = queryMenu.addItem(withTitle: String(localized: "Insert File Reference…"),
+                                           action: #selector(ContentViewController.menuInsertFileReference(_:)), keyEquivalent: "")
+        insertFile.image = NSImage(systemSymbolName: "doc.badge.plus", accessibilityDescription: nil)
 
         queryMenu.addItem(.separator())
 

@@ -4866,6 +4866,35 @@ extension ContentViewController {
         stateManager.refreshMetadata(connectionId: id)
     }
 
+    /// The tab's connection is DuckDB (connected or not): data files can be
+    /// queried in place.
+    var isDuckDBTab: Bool {
+        guard let id = session.activeTab?.connectionId else { return false }
+        return stateManager.connections.first { $0.id == id }?.isDuckDB ?? false
+    }
+
+    /// Query ▸ Insert File Reference…: choose CSV, JSON, Parquet or Excel
+    /// files and put a reference to them in the focused card (the whole
+    /// query when the card is empty). HIG, File management: the panel's
+    /// button says Insert, since the files go into the current document.
+    @objc func menuInsertFileReference(_: Any?) {
+        guard isDuckDBTab, let window = view.window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Insert")
+        panel.message = String(localized: "Choose CSV, JSON, Parquet or Excel files to query in place.")
+        panel.allowedContentTypes = DataFiles.dataExtensions.compactMap { UTType(filenameExtension: $0) }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self else { return }
+            let stack = self.editorPane.cardStack
+            let cardId = self.session.activeTab?.document.focusedCardId ?? self.session.activeTab?.document.cards.last?.id
+            guard let editor = stack.focusedEditor ?? cardId.flatMap({ stack.editor(for: $0) }) else { return }
+            editor.textView.insertFileReference(panel.urls)
+        }
+    }
+
     /// Query ▸ Attach PostgreSQL Connection…: on a connected DuckDB tab.
     @objc func menuAttachPostgres(_: Any?) {
         guard let id = canAttachPostgresConnectionId else { return }
@@ -5194,6 +5223,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
         if menuItem.action == #selector(menuShowInFinder(_:)) { return duckDBFileRecord != nil }
         if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
+        if menuItem.action == #selector(menuInsertFileReference(_:)) { return isDuckDBTab }
         if menuItem.action == #selector(menuCommitTransaction(_:)) || menuItem.action == #selector(menuRollBackTransaction(_:)) {
             guard let tabId = session.activeTabId, let report = TabSessionMonitor.shared.report(for: tabId),
                   report.open else { return false }

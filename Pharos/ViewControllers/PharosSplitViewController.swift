@@ -127,6 +127,7 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuCommitTransaction(_ sender: Any?) { contentVC.menuCommitTransaction(sender) }
     @objc func menuRollBackTransaction(_ sender: Any?) { contentVC.menuRollBackTransaction(sender) }
     @objc func menuAttachPostgres(_ sender: Any?) { contentVC.menuAttachPostgres(sender) }
+    @objc func menuInsertFileReference(_ sender: Any?) { contentVC.menuInsertFileReference(sender) }
     @objc func menuMoveCardUp(_ sender: Any?) { contentVC.menuMoveCardUp(sender) }
     @objc func menuMoveCardDown(_ sender: Any?) { contentVC.menuMoveCardDown(sender) }
     @objc func menuDuplicateTab(_ sender: Any?) { contentVC.menuDuplicateTab(sender) }

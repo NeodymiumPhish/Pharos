@@ -299,46 +299,99 @@ class SQLTextView: NSTextView {
 
     // MARK: - File Drop
 
-    /// A `.sql` (or any text) file dropped on the editor opens as a TAB of its
-    /// own rather than being inserted into the query under the cursor —
-    /// the same result as File > Open… or a drop on the Dock icon, which is
-    /// what an editor drop means everywhere else on the system.
+    /// What a FILE dropped on the editor does:
     ///
-    /// The files are handed to the app delegate's `application(_:open:)`, the
-    /// one entry point that already turns a URL into a tab, so this view needs
-    /// no reference to `AppStateManager` (and keeps compiling on its own in
-    /// scripts/test-completion-accessibility.sh).
+    /// - A DuckDB database (`.duckdb`, `.ddb`) opens as a connection, on any
+    ///   tab — the same as a drop on the Dock icon.
+    /// - On a DuckDB tab (`acceptsDataFileDrops`), data files (CSV, TSV,
+    ///   JSON, Parquet, Excel) are QUERIED IN PLACE: an empty card gets
+    ///   `SELECT * FROM read_csv('<path>')`, a card with text gets the quoted
+    ///   path at the drop point (`DataFiles.insertion`). One undo step.
+    /// - Any other text file (`.sql`, and CSV on a PostgreSQL tab) opens as a
+    ///   TAB of its own, as File > Open… does.
+    ///
+    /// Files that open are handed to the app delegate's
+    /// `application(_:open:)`, so this view needs no reference to
+    /// `AppStateManager` (and keeps compiling on its own in the harnesses).
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         fileDropOperation(sender) ?? super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        fileDropOperation(sender) ?? super.draggingUpdated(sender)
+        if isDataFileDrop(sender) {
+            // NSTextView draws the insertion caret where the path will go.
+            _ = super.draggingUpdated(sender)
+            return .copy
+        }
+        return fileDropOperation(sender) ?? super.draggingUpdated(sender)
     }
 
+    /// Whether this editor's tab queries data files in place (a DuckDB tab).
+    /// Asked at drag time: the tab's connection can change.
+    var acceptsDataFileDrops: () -> Bool = { false }
+
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let urls = Self.textFileURLs(from: sender.draggingPasteboard)
+        let pasteboard = sender.draggingPasteboard
+        if isDataFileDrop(sender) {
+            let point = convert(sender.draggingLocation, from: nil)
+            insertFileReference(Self.fileURLs(from: pasteboard), at: characterIndexForInsertion(at: point))
+            return true
+        }
+        let databases = Self.fileURLs(from: pasteboard).filter { DataFiles.kind(of: $0) == .duckdb }
+        if !databases.isEmpty {
+            NSApp.delegate?.application?(NSApp, open: databases)
+            return true
+        }
+        let urls = Self.textFileURLs(from: pasteboard)
         guard !urls.isEmpty else {
             // Not a file drag at all — a dragged string, say — keeps the
             // editor's own insert-the-text behaviour.
-            guard Self.fileURLs(from: sender.draggingPasteboard).isEmpty else { return false }
+            guard Self.fileURLs(from: pasteboard).isEmpty else { return false }
             return super.performDragOperation(sender)
         }
         NSApp.delegate?.application?(NSApp, open: urls)
         return true
     }
 
-    /// How this view answers a FILE drag: `.copy` for text files, refused for
-    /// any other file, and nil for a drag that carries no file at all (the
-    /// caller then defers to NSTextView).
+    /// Put a reference to these data files in the card: at `index`, or over
+    /// the whole text when the card is empty. One undo step, "Insert File
+    /// Reference", and the inserted text is selected.
+    func insertFileReference(_ urls: [URL], at index: Int? = nil) {
+        let files = urls.filter(DataFiles.isDataFile)
+        guard !files.isEmpty else { return }
+        let isEmpty = string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let text = DataFiles.insertion(for: files, cardIsEmpty: isEmpty)
+        let range = isEmpty ? NSRange(location: 0, length: (string as NSString).length)
+                            : NSRange(location: min(index ?? selectedRange().location, (string as NSString).length), length: 0)
+        guard shouldChangeText(in: range, replacementString: text) else { return }
+        textStorage?.replaceCharacters(in: range, with: text)
+        didChangeText()
+        undoManager?.setActionName(String(localized: "Insert File Reference"))
+        setSelectedRange(NSRange(location: range.location, length: (text as NSString).length))
+        window?.makeFirstResponder(self)
+    }
+
+    /// A drag of data files only, onto a tab that queries them in place.
+    private func isDataFileDrop(_ sender: NSDraggingInfo) -> Bool {
+        guard acceptsDataFileDrops() else { return false }
+        let urls = Self.fileURLs(from: sender.draggingPasteboard)
+        return !urls.isEmpty && urls.allSatisfy(DataFiles.isDataFile)
+    }
+
+    /// How this view answers a FILE drag: `.copy` for files it opens or
+    /// inserts, refused for any other file, and nil for a drag that carries
+    /// no file at all (the caller then defers to NSTextView).
     ///
-    /// A file the editor cannot open must be refused HERE, not just at the
+    /// A file the editor cannot take must be refused HERE, not just at the
     /// drop: NSTextView's own answer is `.copy` — it would insert the file's
     /// name as text — so the cursor would promise a drop that
     /// `performDragOperation` then silently refuses.
     private func fileDropOperation(_ sender: NSDraggingInfo) -> NSDragOperation? {
+        if isDataFileDrop(sender) { return .copy }
+        let files = Self.fileURLs(from: sender.draggingPasteboard)
+        if files.contains(where: { DataFiles.kind(of: $0) == .duckdb }) { return .copy }
         if !Self.textFileURLs(from: sender.draggingPasteboard).isEmpty { return .copy }
-        if !Self.fileURLs(from: sender.draggingPasteboard).isEmpty { return [] }
+        if !files.isEmpty { return [] }
         return nil
     }
 
