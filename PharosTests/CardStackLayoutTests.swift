@@ -142,7 +142,44 @@ private func testFilterCount() {
     expect(CardStackLayout.filterCountText(shown: 1200, total: 1500) == "1,200 of 1,500 cards", "text: grouped numbers")
 }
 
+private func testInsertAndDropTargets() {
+    // versioned(): a1, a2 fold into one row above a3; then b; then the add row.
+    var d = versioned()
+    d.cards.append(card("c", sql: "SELECT 'c'"))
+    let items = CardStackLayout.items(d)
+    expect(items.count == 5, "targets: group, a3, b, c, add", "\(items)")
+    let frames = CardStackLayout.frames(items, height: { _ in 40 }, width: 400, spacing: 10, inset: 12)
+    func gapMid(_ k: Int) -> CGFloat { (frames[k].maxY + frames[k + 1].minY) / 2 }
+    // Rows: 0 group(a) 12-52, 1 a3 62-102, 2 b 112-152, 3 c 162-202, 4 add 212-252.
+    expect(CardStackLayout.insertionGap(at: gapMid(0), items: items, frames: frames, document: d) == nil,
+           "insert: no gap inside one query's versions")
+    expect(CardStackLayout.insertionGap(at: gapMid(1), items: items, frames: frames, document: d) == 1,
+           "insert: between a and b")
+    expect(CardStackLayout.insertionGap(at: gapMid(2), items: items, frames: frames, document: d) == 2,
+           "insert: between b and c")
+    expect(CardStackLayout.insertionGap(at: gapMid(3), items: items, frames: frames, document: d) == nil,
+           "insert: not next to the add row")
+    expect(CardStackLayout.insertionGap(at: frames[2].midY, items: items, frames: frames, document: d) == nil,
+           "insert: not over a card")
+
+    func drop(_ y: CGFloat) -> Int? { CardStackLayout.dropTarget(at: y, items: items, frames: frames, document: d)?.blockOffset }
+    expect(drop(0) == 0, "drop: above the first query is offset 0")
+    // Mid-gap inside query a (y 57) is no boundary: the nearest one wins,
+    // above a (y 9) rather than below it (y 107).
+    expect(drop(gapMid(0)) == 0, "drop: never inside a query's versions")
+    expect(drop(gapMid(1)) == 1, "drop: between a and b is offset 1")
+    expect(drop(gapMid(2)) == 2, "drop: between b and c is offset 2")
+    expect(drop(10_000) == 3, "drop: below the last query is offset 3 (the end)")
+    let line = CardStackLayout.dropTarget(at: gapMid(1), items: items, frames: frames, document: d)?.lineY
+    expect(line == gapMid(1), "drop: the line sits mid-gap", "\(String(describing: line))")
+    // The offsets are what the model moves by.
+    var moved = d
+    expect(moved.moveLineage(of: "c", toBlockOffset: drop(gapMid(1))!), "drop: c moves between a and b")
+    expect(moved.cards.map(\.id) == ["a1", "a2", "a3", "c", "b"], "drop: the model order", "\(moved.cards.map(\.id))")
+}
+
 func runTests() {
+    testInsertAndDropTargets()
     testFilterCount()
     testRotor()
     testExpandScroll()

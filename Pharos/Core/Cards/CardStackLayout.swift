@@ -101,6 +101,55 @@ enum CardStackLayout {
         }
     }
 
+    // MARK: - Insert and move targets
+
+    /// The query a row belongs to (nil: the add row, or a card not found).
+    static func lineage(of item: CardStackItem, in document: CardDocument) -> String? {
+        switch item {
+        case let .card(id): return document.card(id)?.lineageId
+        case let .versionGroup(lineage, _, _): return lineage
+        case .addCard: return nil
+        }
+    }
+
+    /// The gap under the pointer where a new card can go: `k` for the gap
+    /// between rows `k` and `k + 1`, only between rows of two different
+    /// queries (never inside one query's versions, never next to the add
+    /// row). `y` is in the document's flipped coordinates.
+    static func insertionGap(at y: CGFloat, items: [CardStackItem], frames: [CGRect],
+                             document: CardDocument) -> Int? {
+        guard items.count == frames.count, items.count >= 2 else { return nil }
+        for k in 0..<(items.count - 1) where frames[k].maxY <= y && y <= frames[k + 1].minY {
+            guard let above = lineage(of: items[k], in: document),
+                  let below = lineage(of: items[k + 1], in: document), above != below else { return nil }
+            return k
+        }
+        return nil
+    }
+
+    /// Where a dragged query would land: the block offset for
+    /// `CardDocument.moveLineage(of:toBlockOffset:)`, and the y of the line
+    /// that shows it (mid-gap between two queries, or just above the first /
+    /// below the last). The nearest query boundary to `y` wins.
+    static func dropTarget(at y: CGFloat, items: [CardStackItem], frames: [CGRect],
+                           document: CardDocument) -> (blockOffset: Int, lineY: CGFloat)? {
+        guard items.count == frames.count else { return nil }
+        // Rows that belong to a query, in order, with their frames.
+        let rows = zip(items, frames).compactMap { item, frame in
+            lineage(of: item, in: document).map { (lineage: $0, frame: frame) }
+        }
+        guard let first = rows.first, let last = rows.last else { return nil }
+        var boundaries: [(offset: Int, y: CGFloat)] = [(0, first.frame.minY - 3)]
+        var block = 0
+        for k in 1..<max(1, rows.count) where rows.count > 1 && rows[k].lineage != rows[k - 1].lineage {
+            block += 1
+            boundaries.append((block, (rows[k - 1].frame.maxY + rows[k].frame.minY) / 2))
+        }
+        boundaries.append((block + 1, last.frame.maxY + 3))
+        let nearest = boundaries.min { abs($0.y - y) < abs($1.y - y) }!
+        return (nearest.offset, nearest.y)
+    }
+
     /// The document height for `frames`, bottom inset included.
     static func contentHeight(_ frames: [CGRect], inset: CGFloat) -> CGFloat {
         (frames.last?.maxY ?? inset) + inset

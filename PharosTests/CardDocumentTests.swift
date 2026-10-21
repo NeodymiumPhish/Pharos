@@ -374,7 +374,79 @@ private func testNotes() {
            "import: a locked card is refused")
 }
 
+/// A document: A (with versions A1, A2), B, C. Returns the ids.
+private func orderDoc() -> (CardDocument, a1: String, a2: String, b: String, c: String) {
+    var (d, a1) = doc("SELECT 1")
+    _ = d.completeRun(d.beginRun(cardId: a1, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
+    _ = d.updateSQL(cardId: a1, "SELECT 2")
+    guard case let .split(_, a2) = d.completeRun(d.beginRun(cardId: a1, mode: .run, renderedSQL: "SELECT 2")!, outcome: rows(2)) else {
+        fatalError("order: the split")
+    }
+    let b = d.insertCard(afterQueryOf: a2, sql: "SELECT 'b'")
+    let c = d.insertCard(afterQueryOf: b, sql: "SELECT 'c'")
+    return (d, a1, a2, b, c)
+}
+
+private func testOrder() {
+    var (d, a1, a2, b, c) = orderDoc()
+    expect(d.cards.map(\.id) == [a1, a2, b, c], "order: start")
+    expect(d.lineageBlocks == [0..<2, 2..<3, 3..<4], "order: three query blocks", "\(d.lineageBlocks)")
+    expect(d.blockIndex(of: a1) == 0 && d.blockIndex(of: a2) == 0 && d.blockIndex(of: c) == 2, "order: block of each card")
+
+    expect(d.moveLineage(of: a2, by: 1), "order: move the versioned query down")
+    expect(d.cards.map(\.id) == [b, a1, a2, c], "order: both versions moved together", "\(d.cards.map(\.id))")
+    expect(d.moveLineage(of: c, toBlockOffset: 0), "order: move the last query to the top")
+    expect(d.cards.map(\.id) == [c, b, a1, a2], "order: to the top", "\(d.cards.map(\.id))")
+    expect(d.moveLineage(of: c, toBlockOffset: 3), "order: and to the end")
+    expect(d.cards.map(\.id) == [b, a1, a2, c], "order: to the end", "\(d.cards.map(\.id))")
+    expect(!d.moveLineage(of: b, by: -1) && !d.moveLineage(of: c, by: 1), "order: nothing moves past the ends")
+    expect(!d.moveLineage(of: b, toBlockOffset: 0) && !d.moveLineage(of: b, toBlockOffset: 1), "order: onto itself is no move")
+
+    // Undo puts it back.
+    let before = d.cards.map(\.id)
+    let old = d.blockIndex(of: b)!
+    _ = d.moveLineage(of: b, toBlockOffset: 3)
+    _ = d.moveLineage(of: b, toBlockOffset: d.undoOffset(for: b, oldIndex: old)!)
+    expect(d.cards.map(\.id) == before, "order: undo restores the order", "\(d.cards.map(\.id))")
+    _ = d.moveLineage(of: c, toBlockOffset: 0)
+    _ = d.moveLineage(of: c, toBlockOffset: d.undoOffset(for: c, oldIndex: 2)!)
+    expect(d.cards.map(\.id) == before, "order: undo of a move up", "\(d.cards.map(\.id))")
+}
+
+private func testInsertAround() {
+    var (d, a1, a2, b, _) = orderDoc()
+    let top = d.insertCard(before: a2)
+    expect(d.cards.first?.id == top, "insert: before a version goes before the whole query", "\(d.cards.map(\.id))")
+    expect(d.focusedCardId == top, "insert: the new card has focus")
+    let mid = d.insertCard(afterQueryOf: a1)
+    expect(d.index(of: mid) == 3 && d.cards[2].id == a2, "insert: after a version goes after the newest one")
+    let beforeB = d.insertCard(before: b)
+    expect(d.index(of: beforeB) == d.index(of: b)! - 1, "insert: before a single card")
+    expect(d.lineageBlocks.count == 6, "insert: no query split apart")
+}
+
+private func testMinBodyHeight() {
+    let old = #"{"cards":[{"id":"c1","lineageId":"c1","version":1,"sql":"SELECT 1","nameIsSuggested":false,"isLocked":false,"isCollapsed":false,"resultsRemoved":false,"cursorPosition":0,"kind":"sql"}],"focusedCardId":"c1","expandedLineages":[]}"#
+    let decoded = try? JSONDecoder().decode(CardDocument.self, from: Data(old.utf8))
+    expect(decoded != nil && decoded?.cards.first?.minBodyHeight == nil, "height: an old document decodes, fit-content")
+    var (d, a) = doc("SELECT 1")
+    d.setMinBodyHeight(cardId: a, 240)
+    expect(d.card(a)?.minBodyHeight == 240, "height: set")
+    _ = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
+    _ = d.updateSQL(cardId: a, "SELECT 2")
+    if case let .split(_, v2) = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 2")!, outcome: rows(2)) {
+        expect(d.card(v2)?.minBodyHeight == 240, "height: the next version keeps it")
+    } else { expect(false, "height: split") }
+    let round = try? JSONDecoder().decode(CardDocument.self, from: JSONEncoder().encode(d))
+    expect(round?.card(a)?.minBodyHeight == 240, "height: survives encode/decode")
+    d.setMinBodyHeight(cardId: a, nil)
+    expect(d.card(a)?.minBodyHeight == nil, "height: back to fit-content")
+}
+
 func runTests() {
+    testOrder()
+    testInsertAround()
+    testMinBodyHeight()
     testForReuse()
     testNewDocument()
     testFirstRunReplacesInPlace()

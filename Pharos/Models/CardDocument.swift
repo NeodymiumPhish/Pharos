@@ -76,6 +76,11 @@ struct QueryCard: Identifiable, Equatable, Codable {
     /// The card came from a `.sql` file with comments before its statement:
     /// the Notes button offers to move them into the notes.
     var offersCommentImport: Bool?
+    /// The least height of the card's body (SQL and notes), set by dragging
+    /// its bottom edge. The body is never shorter than its content, so this
+    /// only adds room. nil: fit the content. Optional for the same reason as
+    /// the notes fields.
+    var minBodyHeight: Double?
 
     /// True when the notes hold more than whitespace.
     var hasNotes: Bool {
@@ -189,6 +194,101 @@ struct CardDocument: Equatable, Codable {
         cards.insert(card, at: at)
         focusedCardId = card.id
         return card.id
+    }
+
+    /// Insert a card before `cardId`'s query (before its first version, so a
+    /// query's versions stay together) and give it focus. At the start when
+    /// `cardId` is not found. Returns its id.
+    @discardableResult
+    mutating func insertCard(before cardId: String, sql: String = "", name: String? = nil,
+                             kind: QueryCardKind = .sql) -> String {
+        let card = QueryCard(name: name, sql: sql, kind: kind)
+        cards.insert(card, at: lineageRange(of: cardId)?.lowerBound ?? 0)
+        focusedCardId = card.id
+        return card.id
+    }
+
+    /// Insert a card after `cardId`'s query (after its newest version) and
+    /// give it focus. Returns its id.
+    @discardableResult
+    mutating func insertCard(afterQueryOf cardId: String, sql: String = "", name: String? = nil,
+                             kind: QueryCardKind = .sql) -> String {
+        let card = QueryCard(name: name, sql: sql, kind: kind)
+        cards.insert(card, at: lineageRange(of: cardId)?.upperBound ?? cards.count)
+        focusedCardId = card.id
+        return card.id
+    }
+
+    // MARK: - Order
+
+    /// The positions of `cardId`'s query: the run of consecutive cards with
+    /// its lineage. A query's versions always stand together, so they move as
+    /// one block.
+    func lineageRange(of cardId: String) -> Range<Int>? {
+        guard let i = index(of: cardId) else { return nil }
+        let lineage = cards[i].lineageId
+        var lower = i
+        while lower > 0, cards[lower - 1].lineageId == lineage { lower -= 1 }
+        var upper = i + 1
+        while upper < cards.count, cards[upper].lineageId == lineage { upper += 1 }
+        return lower..<upper
+    }
+
+    /// The queries in stack order, each as its range of card positions.
+    var lineageBlocks: [Range<Int>] {
+        var blocks: [Range<Int>] = []
+        var start = 0
+        while start < cards.count {
+            let end = lineageRange(of: cards[start].id)?.upperBound ?? start + 1
+            blocks.append(start..<end)
+            start = end
+        }
+        return blocks
+    }
+
+    /// Which query block (0-based, in stack order) holds `cardId`.
+    func blockIndex(of cardId: String) -> Int? {
+        guard let i = index(of: cardId) else { return nil }
+        return lineageBlocks.firstIndex { $0.contains(i) }
+    }
+
+    /// Move `cardId`'s query (all its versions) so it stands before block
+    /// `offset` of the CURRENT order (`0...blocks.count`, as
+    /// `Array.move(fromOffsets:toOffset:)` counts). False when nothing moves.
+    @discardableResult
+    mutating func moveLineage(of cardId: String, toBlockOffset offset: Int) -> Bool {
+        let blocks = lineageBlocks
+        guard let b = blockIndex(of: cardId), (0...blocks.count).contains(offset),
+              offset != b, offset != b + 1 else { return false }
+        let moving = Array(cards[blocks[b]])
+        var rest = cards
+        rest.removeSubrange(blocks[b])
+        // Where block `offset` starts once the moving block is out.
+        let target = offset < blocks.count ? blocks[offset].lowerBound : cards.count
+        let at = offset > b ? target - moving.count : target
+        rest.insert(contentsOf: moving, at: at)
+        cards = rest
+        return true
+    }
+
+    /// Move `cardId`'s query one place up (-1) or down (+1). False at the end.
+    @discardableResult
+    mutating func moveLineage(of cardId: String, by delta: Int) -> Bool {
+        guard let b = blockIndex(of: cardId), delta == -1 || delta == 1 else { return false }
+        return moveLineage(of: cardId, toBlockOffset: delta < 0 ? b - 1 : b + 2)
+    }
+
+    /// The offset that puts `cardId`'s query back at block `oldIndex` (undo of
+    /// a move that left it where it is now).
+    func undoOffset(for cardId: String, oldIndex: Int) -> Int? {
+        guard let now = blockIndex(of: cardId) else { return nil }
+        return oldIndex < now ? oldIndex : oldIndex + 1
+    }
+
+    /// Set a card's least body height (nil: fit the content).
+    mutating func setMinBodyHeight(cardId: String, _ height: Double?) {
+        guard let i = index(of: cardId) else { return }
+        cards[i].minBodyHeight = height.map { max(0, $0) }
     }
 
     /// Set a card's text. Refused (false) for a locked or missing card.
@@ -334,6 +434,7 @@ struct CardDocument: Equatable, Codable {
         copy.notes = source.notes
         copy.isNotesOpen = source.isNotesOpen
         copy.notesWidthFraction = source.notesWidthFraction
+        copy.minBodyHeight = source.minBodyHeight
         cards.insert(copy, at: indexAfterLineage(source.lineageId))
         focusedCardId = copy.id
         return copy.id
@@ -379,6 +480,7 @@ struct CardDocument: Equatable, Codable {
             next.notes = cards[i].notes
             next.isNotesOpen = cards[i].isNotesOpen
             next.notesWidthFraction = cards[i].notesWidthFraction
+            next.minBodyHeight = cards[i].minBodyHeight
             next.lastRun = record
             next.cursorPosition = cards[i].cursorPosition
             next.colorIndex = nextColorIndex()
@@ -433,6 +535,7 @@ struct CardDocument: Equatable, Codable {
             c.notes = old.notes
             c.isNotesOpen = old.isNotesOpen
             c.notesWidthFraction = old.notesWidthFraction
+            c.minBodyHeight = old.minBodyHeight
             c.offersCommentImport = old.offersCommentImport
             if keepingRuns {
                 c.lastRun = old.lastRun
