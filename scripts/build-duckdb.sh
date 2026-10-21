@@ -116,9 +116,9 @@ main() {
     # sqlite_scanner's manifest (at the pinned commit) lists openssl and curl, but
     # none of its sources include or link either (checked with grep, 2026-10-20).
     # Building them would cost minutes and put OpenSSL in the app for nothing.
-    python3 -I - "$MANIFEST_DIR/vcpkg.json" "$VCPKG/ports" <<'PY'
+    python3 -I - "$MANIFEST_DIR/vcpkg.json" "$VCPKG/ports" "$(git -C "$VCPKG" rev-parse HEAD)" <<'PY'
 import json, os, sys
-path, ports = sys.argv[1], sys.argv[2]
+path, ports, vcpkg_head = sys.argv[1], sys.argv[2], sys.argv[3]
 manifest = json.load(open(path))
 unused = set()  # SPIKE: httpfs and postgres_scanner need what the manifests list
 deps, seen = [], set()
@@ -129,6 +129,11 @@ for d in manifest.get("dependencies", []):
     seen.add(name)
     deps.append(d)
 manifest["dependencies"] = deps
+# The ports come from the checked-out vcpkg (VCPKG_TAG), whatever baseline
+# DuckDB's manifest names: a shallow clone has no other commit, and this is
+# what makes a VCPKG_TAG bump the one edit that updates OpenSSL, curl and
+# libpq (SECURITY.md).
+manifest["builtin-baseline"] = vcpkg_head
 # A version override makes vcpkg read old port versions from git history,
 # which the shallow clone lacks. Drop each override that the checked-out
 # port already satisfies; stop on any other.

@@ -71,4 +71,6 @@ Full documentation at **[neodymiumphish.github.io/Pharos](https://neodymiumphish
 
 [MIT with Non-Commercial Clause](LICENSE) -- free to use, modify, and distribute, but the software and derivatives may not be sold or commercially monetized without permission.
 
+[SECURITY.md](SECURITY.md) says what Pharos stores and how the C libraries compiled into it (OpenSSL, curl, libpq) are kept up to date.
+
 Pharos contains third-party open-source software (DuckDB, its extensions and their libraries, and the Rust crates of `pharos-core`). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists each one with its licence; the app shows the same notices in **Settings ▸ About ▸ Third-party notices**.
