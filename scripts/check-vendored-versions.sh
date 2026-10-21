@@ -4,39 +4,64 @@
 #
 #   scripts/check-vendored-versions.sh
 #
-# Pinned versions come from scripts/build-duckdb.sh (DuckDB, vcpkg) and the
-# vcpkg checkout it made (each port's vcpkg.json). Latest versions come from
-# read-only GETs (/usr/bin/curl): the GitHub releases API and postgresql.org's versions.json.
+# Pinned versions come from scripts/build-duckdb.sh (DuckDB, vcpkg); library
+# versions come from what vcpkg installed into each build tree
+# (build-<arch>/release/vcpkg_installed/vcpkg/info), not from the vcpkg
+# checkout's ports: an extension's overlay port can win over vcpkg's port.
+# When the architectures differ, the oldest version is shown and the
+# difference is reported. Latest versions come from read-only GETs
+# (/usr/bin/curl): the GitHub releases API and postgresql.org's versions.json.
 # DuckDB, OpenSSL and libpq are compared with the newest release of the SAME
 # series (DuckDB/OpenSSL x.y, PostgreSQL major), which is where security fixes
 # land; a newer series is reported but is a planned upgrade, not a fix.
 #
-# Exit status: 0 all current, 1 something is behind, 2 a lookup failed.
-# Needs scripts/build-duckdb.sh to have run once (the vcpkg checkout).
+# Exit status: 0 all current, 1 something is behind or the build trees differ,
+# 2 a lookup failed or a library is not installed.
+# Needs scripts/build-duckdb.sh to have built at least one architecture.
 set -euo pipefail
 
 main() {
-    local root vcpkg
+    local root work
     root="$(cd "$(dirname "$0")/.." && pwd)"
-    vcpkg="${PHAROS_DUCKDB_WORK:-$root/pharos-core/target/duckdb-build}/vcpkg"
-    [ -d "$vcpkg/ports" ] || { echo "check-vendored-versions: no vcpkg checkout at $vcpkg; run scripts/build-duckdb.sh first" >&2; exit 2; }
+    work="${PHAROS_DUCKDB_WORK:-$root/pharos-core/target/duckdb-build}"
 
-    python3 -I - "$root/scripts/build-duckdb.sh" "$vcpkg/ports" <<'PY'
-import json, re, subprocess, sys
+    python3 -I - "$root/scripts/build-duckdb.sh" "$work" <<'PY'
+import glob, json, os, re, subprocess, sys
 
-script, ports = sys.argv[1], sys.argv[2]
+script, work = sys.argv[1], sys.argv[2]
 text = open(script).read()
 
 def pinned_var(name):
     m = re.search(rf'^\s*{name}="([^"]+)"', text, re.M)
     return m.group(1) if m else "?"
 
+def numbers(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v))
+
+# vcpkg keeps one info/<port>_<version>_<triplet>.list per installed port;
+# port names and triplets have no "_".
+installed = {}   # port -> {triplet: version}
+trees = glob.glob(os.path.join(work, "build-*", "release", "vcpkg_installed", "vcpkg", "info"))
+for info in trees:
+    for f in os.listdir(info):
+        if f.endswith(".list"):
+            port, rest = f[:-len(".list")].split("_", 1)
+            version, triplet = rest.rsplit("_", 1)
+            installed.setdefault(port, {})[triplet] = version
+if not installed:
+    print(f"check-vendored-versions: no vcpkg_installed in {work}/build-*; run scripts/build-duckdb.sh first", file=sys.stderr)
+    sys.exit(2)
+
 def port_version(port):
-    try:
-        data = json.load(open(f"{ports}/{port}/vcpkg.json"))
-    except OSError:
-        return "?"
-    return data.get("version") or data.get("version-semver") or data.get("version-string") or "?"
+    """The oldest version any build tree has, or None when none has the port."""
+    by_triplet = installed.get(port)
+    if not by_triplet:
+        return None
+    if len(set(by_triplet.values())) > 1:
+        differ.append(f"{port}: " + ", ".join(f"{t} {v}" for t, v in sorted(by_triplet.items())))
+    return min(by_triplet.values(), key=numbers)
+
+differ = []
 
 def get(url):
     # /usr/bin/curl, not urllib: it uses the macOS trust store, which a
@@ -51,9 +76,6 @@ def get(url):
 
 def latest_release(repo):
     return get(f"https://api.github.com/repos/{repo}/releases/latest")["tag_name"]
-
-def numbers(v):
-    return tuple(int(x) for x in re.findall(r"\d+", v))
 
 def libpq_latest(pinned):
     major = str(numbers(pinned)[0])
@@ -93,6 +115,10 @@ def plain(tag):
 behind = failed = 0
 print(f"{'library':<12} {'pinned':<12} {'same series':<13} {'newest':<12} status")
 for name, pinned, repo, depth in checks:
+    if pinned is None:
+        print(f"{name:<12} {'-':<12} {'?':<13} {'?':<12} NOT INSTALLED (no build tree has the port)")
+        failed += 1
+        continue
     try:
         if repo is None:
             series = newest = libpq_latest(pinned)
@@ -113,6 +139,13 @@ for name, pinned, repo, depth in checks:
         status = "current"
     print(f"{name:<12} {plain(pinned):<12} {plain(series):<13} {plain(newest):<12} {status}")
 
+triplets = sorted({t for by_triplet in installed.values() for t in by_triplet})
+print(f"\nLibrary versions are the oldest installed in: {', '.join(triplets)}.")
+if differ:
+    print("The build trees differ; run scripts/build-duckdb.sh for each architecture:")
+    for line in differ:
+        print(f"  {line}")
+    behind += 1
 if failed:
     sys.exit(2)
 if behind:
