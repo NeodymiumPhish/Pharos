@@ -87,4 +87,25 @@ enum DuckDBFiles {
         while taken.contains(key("\(stem) \(n)")) { n += 1 }
         return "\(stem) \(n)"
     }
+
+    /// The Open Recent list: the recent URLs that are DuckDB files (by
+    /// extension, or named by a file record, so a `.db` file counts).
+    static func recentFiles(_ urls: [URL], in connections: [ConnectionConfig]) -> [URL] {
+        urls.filter { url in
+            url.isFileURL && (isDuckDBFile(url) || record(for: url.path, in: connections) != nil)
+        }
+    }
+
+    /// Open Recent titles: each file's display name, and " — <folder>" for
+    /// names that would otherwise look the same. No full paths (HIG, File
+    /// management); the tooltip has the path.
+    static func recentTitles(_ urls: [URL], displayName: (URL) -> String) -> [String] {
+        let names = urls.map(displayName)
+        var counts: [String: Int] = [:]
+        for name in names { counts[name.lowercased(), default: 0] += 1 }
+        return zip(urls, names).map { url, name in
+            guard counts[name.lowercased(), default: 0] > 1 else { return name }
+            return "\(name) — \(displayName(url.deletingLastPathComponent()))"
+        }
+    }
 }

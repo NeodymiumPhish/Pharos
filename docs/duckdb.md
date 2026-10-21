@@ -27,8 +27,8 @@ A DuckDB file is a **connection**. Each file you open gets a connection record, 
 | To | Do this |
 |---|---|
 | Create a new database file | **File > New DuckDB Database…**, choose a folder and a name. The file is created when the connection opens. In the Connections Manager, **New…** and then **Save** creates it. |
-| Open an existing file | **File > Open DuckDB Database…** (**Cmd+Shift+O**), or double-click a `.duckdb` or `.ddb` file in Finder, or drop it on the Dock icon. |
-| Open a file again | **File > Open Recent**. The Dock's recent list shows the same files. |
+| Open an existing file | **File > Open DuckDB Database…** (**Cmd+Shift+O**) opens a file with any extension, for example `.db`. **File > Open…** (**Cmd+O**) opens `.duckdb` and `.ddb` files as well as SQL files. You can also double-click a `.duckdb` or `.ddb` file in Finder, or drop it on the Dock icon. |
+| Open a file again | **File > Open Recent**. A file moves to the top of the list each time a tab uses it or it connects. Two files with the same name show their folder, for example "data.duckdb — Reports". The Dock's recent list shows the same files, so the Dock menu lists only PostgreSQL connections and in-memory databases. |
 | Find the file on disk | **File > Show in Finder** shows the tab's database file. The Connections Manager has a **Show in Finder** button beside **New…**. |
 | Use an in-memory database | In the Connections Manager, set **Engine** to **DuckDB** and select **In-memory database**. |
 

@@ -1,7 +1,10 @@
 import AppKit
 
-/// Dock icon menu: New Tab, and one item per saved connection that jumps
-/// straight to a fresh tab bound to that connection.
+/// Dock icon menu: New Tab, and one item per PostgreSQL connection and
+/// in-memory DuckDB database that jumps straight to a fresh tab bound to it.
+/// DuckDB files are left out: the Dock already lists them as recent
+/// documents (File ▸ Open Recent's list), and a short custom menu is easier
+/// to use.
 extension AppDelegate {
     @MainActor
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -14,8 +17,12 @@ extension AppDelegate {
 
         menu.addItem(.separator())
 
-        let connections = AppStateManager.shared.connections
-        if connections.isEmpty {
+        let all = AppStateManager.shared.connections
+        let connections = all.filter { !$0.isDuckDB || $0.isInMemoryDuckDB }
+        if connections.isEmpty && !all.isEmpty {
+            // Only DuckDB files: the Dock's recent documents list them.
+            menu.removeItem(at: menu.numberOfItems - 1)
+        } else if connections.isEmpty {
             let noneItem = NSMenuItem(title: String(localized: "No Connections"), action: nil, keyEquivalent: "")
             noneItem.isEnabled = false
             menu.addItem(noneItem)

@@ -344,12 +344,21 @@ final class AppStateManager: ObservableObject {
             session.activeConnectionId = connectionId
             if connectionChanged { session.activeSchema = newSchema }
         }
+        if connectionChanged { noteRecentDuckDBFile(connectionId) }
         switch status(for: connectionId) {
         case .disconnected, .error:
             connect(id: connectionId, in: session)
         case .connecting, .connected:
             break
         }
+    }
+
+    /// A DuckDB file used from anywhere (the pop-up, the Dock, a connect)
+    /// moves to the top of File ▸ Open Recent, as a document does.
+    func noteRecentDuckDBFile(_ id: String) {
+        guard let config = connections.first(where: { $0.id == id }), config.isDuckDB,
+              !config.isInMemoryDuckDB, !config.database.isEmpty else { return }
+        NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: config.database))
     }
 
     /// Why the last connect attempt for a connection did not succeed, keyed by
@@ -550,7 +559,10 @@ final class AppStateManager: ObservableObject {
                     : create
                         ? try await PharosCore.connectCreate(connectionId: id)
                         : try await PharosCore.connect(connectionId: id)
-                if info.status == .connected { self.quietConnects.remove(id) }
+                if info.status == .connected {
+                    self.quietConnects.remove(id)
+                    self.noteRecentDuckDBFile(id)
+                }
                 self.connectionStatuses[id] = info.status
                 // A refused connection comes back as a value, not a throw, so
                 // without this the reason was lost and the toolbar only turned

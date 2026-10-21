@@ -52,6 +52,18 @@ func runTests() {
     let r1 = ConnectionConfig.duckDB(path: "/t.duckdb", id: "r1")
     expect(DuckDBFiles.uniqueName(forPath: "/t.duckdb", in: [r1]) == "t 2", "no folder left: a number is added")
 
+    // F6: Open Recent keeps DuckDB files (by extension or by record) and
+    // tells same-named files apart by folder.
+    let dbRecord = ConnectionConfig.duckDB(path: "/w/legacy.db", id: "db1")
+    let recents = [URL(fileURLWithPath: "/w/legacy.db"), URL(fileURLWithPath: "/w/notes.sql"),
+                   URL(fileURLWithPath: "/a/data.duckdb"), URL(fileURLWithPath: "/b/data.duckdb"),
+                   URL(fileURLWithPath: "/c/other.ddb")]
+    let kept = DuckDBFiles.recentFiles(recents, in: [dbRecord]).map(\.path)
+    expect(kept == ["/w/legacy.db", "/a/data.duckdb", "/b/data.duckdb", "/c/other.ddb"],
+           "a .db file a record names is kept; a .sql file is not \(kept)")
+    let titles = DuckDBFiles.recentTitles(Array(recents.dropFirst(2))) { $0.lastPathComponent }
+    expect(titles == ["data.duckdb — a", "data.duckdb — b", "other.ddb"], "same names get their folder \(titles)")
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

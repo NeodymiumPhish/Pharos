@@ -117,9 +117,11 @@ final class DuckDBRecentMenuDelegate: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        let urls = NSDocumentController.shared.recentDocumentURLs.filter(DuckDBFiles.isDuckDBFile)
-        for url in urls {
-            let item = NSMenuItem(title: url.lastPathComponent,
+        let urls = DuckDBFiles.recentFiles(NSDocumentController.shared.recentDocumentURLs,
+                                           in: AppStateManager.shared.connections)
+        let titles = DuckDBFiles.recentTitles(urls) { FileManager.default.displayName(atPath: $0.path) }
+        for (url, title) in zip(urls, titles) {
+            let item = NSMenuItem(title: DisplayEscape.escaped(title),
                                   action: #selector(AppDelegate.menuOpenRecentDuckDB(_:)), keyEquivalent: "")
             item.representedObject = url
             item.toolTip = ConnectionConfig.abbreviatingHome(url.path)
