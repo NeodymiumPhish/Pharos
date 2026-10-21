@@ -191,7 +191,7 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "duckdbExtensions",
                     title: String(localized: "Built-in extensions"),
-                    caption: String(localized: "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded."),
+                    caption: String(localized: "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, PostgreSQL databases, files over HTTPS and S3, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded."),
                     icon: "puzzlepiece.extension",
                     kind: .display),
             ]),

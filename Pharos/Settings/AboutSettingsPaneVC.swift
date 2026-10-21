@@ -70,7 +70,7 @@ final class AboutSettingsPaneVC: SettingsFormPaneVC {
                     SettingsItem(
                         id: "duckdb",
                         title: "DuckDB",
-                        caption: String(localized: "DuckDB \(PharosCore.duckDBVersion()) with the icu, inet, fts, excel, sqlite, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation."),
+                        caption: String(localized: "DuckDB \(PharosCore.duckDBVersion()) with the icu, inet, fts, excel, sqlite, postgres, httpfs, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation."),
                         icon: "cylinder.split.1x2",
                         kind: .display),
                     SettingsItem(

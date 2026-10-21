@@ -86,11 +86,13 @@ These DuckDB extensions are built into Pharos. You do not install or load them; 
 | `fts` | Full-text search: `PRAGMA create_fts_index`, `match_bm25` |
 | `excel` | `read_xlsx`, `COPY … TO 'x.xlsx'`, Excel number formats |
 | `sqlite_scanner` | `ATTACH 'file.sqlite' (TYPE sqlite)`, `sqlite_scan` |
+| `httpfs` | `read_csv`, `read_parquet` and `read_json` over `https://`, `s3://`, `gcs://` and `r2://` |
+| `postgres_scanner` | `ATTACH` a PostgreSQL database, `postgres_query` (see **Attach a PostgreSQL connection**) |
 | `autocomplete` | `sql_auto_complete` |
 
 `SELECT * FROM duckdb_extensions()` shows these with the install path `(BUILT-IN)`.
 
 {: .note }
-Pharos does not download extensions. macOS lets the app load only the libraries it shipped with, so an extension that is not in the list above (for example `httpfs` or `spatial`) is not available.
+Pharos does not download extensions. macOS lets the app load only the libraries it shipped with, so an extension that is not in the list above (for example `spatial`) is not available.
 
 **Settings > Connections > DuckDB** sets the worker threads and the memory limit. These settings apply the next time a database opens.

@@ -426,8 +426,8 @@ pub fn tag_read_only(message: String) -> String {
 /// extensions are linked in, so only a `LOAD '/path/x.duckdb_extension'`
 /// gets here.
 pub const EXTENSION_BLOCKED_SENTENCE: &str = "macOS did not let Pharos load this DuckDB extension: the app's code signature \
-     only allows libraries it shipped with. Pharos has icu, inet, fts, excel, sqlite_scanner, json, parquet and \
-     autocomplete built in; other extensions are not available.";
+     only allows libraries it shipped with. Pharos has icu, inet, fts, excel, sqlite_scanner, postgres_scanner, httpfs, json, \
+     parquet and autocomplete built in; other extensions are not available.";
 
 /// Run blocking DuckDB `work` off the runtime, and stop it with `interrupt`
 /// when `cancel` fires or `timeout_seconds` (0 = none) runs out.
