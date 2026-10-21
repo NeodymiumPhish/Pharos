@@ -5132,10 +5132,15 @@ extension ContentViewController: NSMenuItemValidation {
             switch action {
             case .nextMatch, .previousMatch:
                 return resultsVC.findController.isFindVisible
+            case .showFindInterface:
+                // This fallback opens the grid find bar (the editor validates
+                // its own Find… when it has the focus).
+                return resultsVC.findController?.canShowFindBar ?? false
             default:
                 return true
             }
         }
+        if menuItem.action == #selector(showFilter) { return resultsVC.findController?.canShowFindBar ?? false }
         if menuItem.action == #selector(menuRunQuery(_:)) { return canRunQuery }
         if menuItem.action == #selector(menuCancelQuery(_:)) { return canCancelQuery }
         if menuItem.action == #selector(menuCancelAllQueries(_:)) { return canCancelQuery }

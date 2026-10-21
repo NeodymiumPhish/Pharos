@@ -108,8 +108,14 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
 
     // MARK: - Show / Hide
 
+    /// Whether there are rows to find in or filter: Find… and Filter Results…
+    /// do nothing without them, so the menu disables both.
+    var canShowFindBar: Bool {
+        !(delegate?.findRows.isEmpty ?? true)
+    }
+
     @objc func showFind() {
-        guard delegate != nil, !(delegate?.findRows.isEmpty ?? true) else { return }
+        guard canShowFindBar else { return }
         if isFindVisible {
             findField.window?.makeFirstResponder(findField)
             return
@@ -121,7 +127,7 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
     }
 
     @objc func showFilter() {
-        guard delegate != nil, !(delegate?.findRows.isEmpty ?? true) else { return }
+        guard canShowFindBar else { return }
         if !isFindVisible {
             isFindVisible = true
             findBar.isHidden = false

@@ -1103,7 +1103,10 @@ class ResultsGridVC: NSViewController {
             findController.showFind()
         }
     }
-    @objc func showFilter() { findController.showFilter() }
+    /// Not `@objc`: Edit > Filter Results… must reach the content controller,
+    /// which validates it (no rows, no filter). An `@objc` method here would
+    /// answer first with the grid focused and leave the item always enabled.
+    func showFilter() { findController.showFilter() }
 
     /// Display text for "Use Selection for Find" (⌘E): the active cell when
     /// one is set, otherwise the first selected row's first data column.

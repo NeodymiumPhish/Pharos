@@ -361,6 +361,7 @@ class CellSelectionController {
 /// own file.
 protocol ResultsTableFindRouting: AnyObject {
     var isFindVisible: Bool { get }
+    var canShowFindBar: Bool { get }
     func showFind()
     func closeFind(_ sender: Any?)
     func findNext(_ sender: Any?)
@@ -699,7 +700,8 @@ class ResultsTableView: NSTableView {
     }
 
     /// Find Next / Find Previous are only meaningful while the find bar is
-    /// showing; Find… (and everything else routed elsewhere) always enabled.
+    /// showing, and Find… only while the grid has rows; everything else
+    /// routed elsewhere is always enabled.
     /// NSTableView already conforms to `NSUserInterfaceValidations`, so this
     /// overrides its default rather than declaring the conformance again;
     /// unrelated actions fall back to "does this responder implement the
@@ -715,6 +717,8 @@ class ResultsTableView: NSTableView {
         switch action {
         case .nextMatch, .previousMatch:
             return findController?.isFindVisible ?? false
+        case .showFindInterface:
+            return findController?.canShowFindBar ?? false
         default:
             return true
         }
