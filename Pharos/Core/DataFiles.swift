@@ -106,10 +106,14 @@ enum DataFiles {
     /// The default table name for a file: its stem, lower-cased, every
     /// character that is not a letter, digit or `_` turned into `_`.
     static func tableName(for url: URL) -> String {
-        let stem = url.deletingPathExtension().lastPathComponent.lowercased()
-        var name = String(stem.map { $0.isLetter || $0.isNumber || $0 == "_" ? $0 : "_" })
+        identifier(from: url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// A plain SQL identifier from any text (a file stem, a card name).
+    static func identifier(from text: String, fallback: String = "imported") -> String {
+        var name = String(text.lowercased().map { $0.isLetter || $0.isNumber || $0 == "_" ? $0 : "_" })
         if name.first?.isNumber == true { name = "t_" + name }
-        return name.isEmpty ? "imported" : name
+        return name.isEmpty ? fallback : name
     }
 
     static func quoted(_ identifier: String) -> String {

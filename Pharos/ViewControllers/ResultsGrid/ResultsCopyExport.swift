@@ -35,6 +35,17 @@ protocol ResultsCopyExportDelegate: AnyObject {
 ///
 /// So: nothing in this file may call `ResultCellText` or `DisplayEscape`.
 class ResultsCopyExport: NSObject {
+    /// An export the ENGINE does (DuckDB's COPY of every row), added below
+    /// the formats this class writes itself.
+    struct EngineAction {
+        let title: String
+        let help: String?
+        let run: () -> Void
+    }
+
+    /// The engine exports for the result on screen; empty for none.
+    var engineExportActions: () -> [EngineAction] = { [] }
+
     private let tableView: NSTableView
     private let copyButton: NSButton
     private let exportButton: NSButton
@@ -656,7 +667,7 @@ class ResultsCopyExport: NSObject {
             ("\(prefix) as Markdown\u{2026}", #selector(exportAsMarkdown)),
             (String(localized: "Share\u{2026}"), #selector(shareResults)),
         ]
-        showPopover(from: exportButton, items: items)
+        showPopover(from: exportButton, items: items, engineActions: engineExportActions())
     }
 
     // MARK: - Share
@@ -710,12 +721,13 @@ class ResultsCopyExport: NSObject {
     /// callback each box is wired to, is exactly what an ordinary copy-paste
     /// fault gets wrong — and the popover carries the five format buttons, so
     /// a wrong wiring here copies the wrong rows.
-    func makePopoverVC(items: [(String, Selector)]) -> CopyExportPopoverVC {
+    func makePopoverVC(items: [(String, Selector)], engineActions: [EngineAction] = []) -> CopyExportPopoverVC {
         CopyExportPopoverVC(
             onSummary: { [weak self] in self?.summaryCaption() ?? "" },
             includeHeaders: includeHeaders,
             taggedOnly: taggedRows.isEmpty ? nil : taggedOnly,
             items: items,
+            engineActions: engineActions,
             target: self,
             onToggleHeaders: { [weak self] newValue in
                 guard let self else { return }
@@ -732,9 +744,9 @@ class ResultsCopyExport: NSObject {
         )
     }
 
-    private func showPopover(from button: NSButton, items: [(String, Selector)]) {
+    private func showPopover(from button: NSButton, items: [(String, Selector)], engineActions: [ResultsCopyExport.EngineAction] = []) {
         let popover = NSPopover()
-        popover.contentViewController = makePopoverVC(items: items)
+        popover.contentViewController = makePopoverVC(items: items, engineActions: engineActions)
         popover.behavior = .transient
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
         activePopover = popover
@@ -1010,6 +1022,7 @@ class CopyExportPopoverVC: NSViewController {
     /// nil hides the row (no tag map to scope on).
     private let initialTaggedOnly: Bool?
     private let items: [(String, Selector)]
+    private let engineActions: [ResultsCopyExport.EngineAction]
     private weak var actionTarget: AnyObject?
     private let onToggleHeaders: (Bool) -> Void
     private let onToggleTagged: (Bool) -> Void
@@ -1020,7 +1033,7 @@ class CopyExportPopoverVC: NSViewController {
     private var taggedCheckbox: NSButton?
 
     init(onSummary: @escaping () -> String, includeHeaders: Bool, taggedOnly: Bool?,
-         items: [(String, Selector)], target: AnyObject,
+         items: [(String, Selector)], engineActions: [ResultsCopyExport.EngineAction] = [], target: AnyObject,
          onToggleHeaders: @escaping (Bool) -> Void,
          onToggleTagged: @escaping (Bool) -> Void,
          onAction: @escaping () -> Void) {
@@ -1028,6 +1041,7 @@ class CopyExportPopoverVC: NSViewController {
         self.initialIncludeHeaders = includeHeaders
         self.initialTaggedOnly = taggedOnly
         self.items = items
+        self.engineActions = engineActions
         self.actionTarget = target
         self.onToggleHeaders = onToggleHeaders
         self.onToggleTagged = onToggleTagged
@@ -1082,10 +1096,34 @@ class CopyExportPopoverVC: NSViewController {
             button.trailingAnchor.constraint(equalTo: buttonStack.trailingAnchor).isActive = true
         }
 
+        // The engine's own exports (every row, not the loaded ones), after a
+        // separator: they ignore the toggles above.
+        var engineViews: [NSView] = []
+        if !engineActions.isEmpty {
+            let engineSeparator = NSBox()
+            engineSeparator.boxType = .separator
+            engineSeparator.translatesAutoresizingMaskIntoConstraints = false
+            let engineStack = NSStackView()
+            engineStack.orientation = .vertical
+            engineStack.alignment = .leading
+            engineStack.spacing = 2
+            engineStack.translatesAutoresizingMaskIntoConstraints = false
+            for (index, action) in engineActions.enumerated() {
+                let button = createFormatButton(title: action.title, action: #selector(engineButtonClicked(_:)))
+                button.tag = index
+                button.toolTip = action.help
+                engineStack.addArrangedSubview(button)
+                button.leadingAnchor.constraint(equalTo: engineStack.leadingAnchor).isActive = true
+                button.trailingAnchor.constraint(equalTo: engineStack.trailingAnchor).isActive = true
+            }
+            engineViews = [engineSeparator, engineStack]
+        }
+
         // Main vertical stack
         var stackedViews: [NSView] = [summaryLabel, headerCheckbox]
         if let taggedCheckbox { stackedViews.append(taggedCheckbox) }
         stackedViews.append(contentsOf: [separator, buttonStack])
+        stackedViews.append(contentsOf: engineViews)
         let mainStack = NSStackView(views: stackedViews)
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
@@ -1107,6 +1145,12 @@ class CopyExportPopoverVC: NSViewController {
             buttonStack.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor, constant: 12),
             buttonStack.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor, constant: -12),
         ])
+        for view in engineViews {
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor, constant: 12),
+                view.trailingAnchor.constraint(equalTo: mainStack.trailingAnchor, constant: -12),
+            ])
+        }
 
         self.view = container
     }
@@ -1142,10 +1186,21 @@ class CopyExportPopoverVC: NSViewController {
         summaryLabel.stringValue = onSummary()
     }
 
+    /// An engine action's button: `createFormatButton` routes every button
+    /// here through `formatButtonClicked`, with this selector stored on it.
+    @objc func engineButtonClicked(_ sender: NSButton) {
+        guard engineActions.indices.contains(sender.tag) else { return }
+        engineActions[sender.tag].run()
+    }
+
     @objc private func formatButtonClicked(_ sender: NSButton) {
         guard let selectorString = objc_getAssociatedObject(sender, &AssociatedKeys.selectorValue) as? String else { return }
         let sel = NSSelectorFromString(selectorString)
         onAction()
+        if sel == #selector(engineButtonClicked(_:)) {
+            engineButtonClicked(sender)
+            return
+        }
         _ = actionTarget?.perform(sel, with: nil)
     }
 }

@@ -114,6 +114,18 @@ Load More and Load All read the file again for each page. For a large file you q
 
 For a CSV file, the NULL text and the encoding in **Settings > Export & Import** apply. The first card is ordinary SQL: edit it to set reader options such as `delim` or `header`, or to make a view instead. Pharos never replaces a table: when the name is in use, DuckDB says so. A CSV dropped on an existing table still opens **Import Data…** for that table.
 
+## Keep a result
+
+On a DuckDB tab, the result's **Export** popover has three more items below the formats:
+
+| Item | What it does |
+|---|---|
+| **Export All Rows as Parquet…** | Adds a card `COPY (<query>) TO '<file>' (FORMAT parquet, COMPRESSION zstd)` after the result's card and runs it. |
+| **Export All Rows as Excel…** | The same, with `(FORMAT xlsx, HEADER true)`. |
+| **Save Result as Table…** | Adds a card `CREATE TABLE "main"."<name>" AS <query>`. Edit the name, then run it. |
+
+These run the query again on the tab's own connection, so its temporary tables apply, and they write every row, not only the loaded rows. Grid filters, sort and tags do not apply. The formats above them (CSV, JSON and the others) write the rows the grid has loaded.
+
 ## What differs from PostgreSQL
 
 | | PostgreSQL | DuckDB |

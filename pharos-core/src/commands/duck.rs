@@ -614,6 +614,31 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// D4: the result's "Export All Rows as Parquet/Excel" cards are COPY
+    /// statements; both formats are built in.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn copy_to_parquet_and_xlsx_works_built_in() {
+        let path = temp("copyfmt", "duckdb");
+        let state = state_with("d", &path);
+        state.request_duck_create_once("d");
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        let parquet = temp("all", "parquet");
+        let xlsx = temp("all", "xlsx");
+        for (file, options) in [(&parquet, "FORMAT parquet, COMPRESSION zstd"), (&xlsx, "FORMAT xlsx, HEADER true")] {
+            let sql = format!("COPY (SELECT range AS n FROM range(1000)) TO '{}' ({})", file, options);
+            execute_statement("d".into(), sql, None, None, &state).await.unwrap();
+            assert!(std::fs::metadata(file).map(|m| m.len() > 0).unwrap_or(false), "{file} written");
+        }
+        let r = execute_query("d".into(), format!("SELECT count(*) FROM read_parquet('{}')", parquet), None, None, None, None, &state)
+            .await.unwrap();
+        assert_eq!(r.rows, vec![serde_json::json!(["1000"])]);
+        let r = execute_query("d".into(), format!("SELECT count(*) FROM read_xlsx('{}')", xlsx), None, None, None, None, &state)
+            .await.unwrap();
+        assert_eq!(r.rows, vec![serde_json::json!(["1000"])]);
+        disconnect("d", &state).await;
+        for f in [&path, &parquet, &xlsx] { let _ = std::fs::remove_file(f); }
+    }
+
     /// Two records on one file share one instance only when their Read-only
     /// settings agree.
     #[tokio::test(flavor = "multi_thread")]

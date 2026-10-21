@@ -285,6 +285,8 @@ class ContentViewController: NSViewController {
         }
         actionBar.translatesAutoresizingMaskIntoConstraints = false
         resultsVC.view.translatesAutoresizingMaskIntoConstraints = false
+        // DuckDB's own exports of every row (D4), in the grid's Export popover.
+        resultsVC.copyExport.engineExportActions = { [weak self] in self?.duckDBResultExportActions() ?? [] }
 
         // The two arranged subviews are frame-managed by the split view; their
         // own children lay out against them with Auto Layout.
@@ -2631,7 +2633,7 @@ class ContentViewController: NSViewController {
     /// The result tab the grid is currently showing for the active editor tab,
     /// or nil when this editor tab's results still live in the legacy inline
     /// fields.
-    private var displayedResult: CardResult? {
+    var displayedResult: CardResult? {
         displayedCardId.flatMap { id in cardResults.first { $0.id == id } }
     }
 
