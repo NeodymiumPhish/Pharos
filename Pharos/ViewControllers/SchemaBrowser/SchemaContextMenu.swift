@@ -182,6 +182,10 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         case .table, .partition:
             presentTableDDLSheet(for: node)
             return true
+        case .view where isDuckDB:
+            // DuckDB returns a view's CREATE VIEW (catalog::table_ddl).
+            presentTableDDLSheet(for: node)
+            return true
         default:
             return false
         }
@@ -203,7 +207,8 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                 )
                 await MainActor.run {
                     guard let self else { return }
-                    let sheet = TableDDLSheet(schema: schemaName, table: tableName, ddl: ddl) { [weak self] targetName, includeData, rowScope in
+                    let isView: Bool = { if case .view = node.kind { return true }; return false }()
+                    let sheet = TableDDLSheet(schema: schemaName, table: tableName, ddl: ddl, isView: isView) { [weak self] targetName, includeData, rowScope in
                         Task {
                             do {
                                 let options = CloneTableOptions(
@@ -586,6 +591,13 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
             // Data operations
             menu.addItem(.separator())
+
+            if isDuckDB {
+                let definition = NSMenuItem(title: String(localized: "View Definition\u{2026}"),
+                                            action: #selector(contextViewTableDDL), keyEquivalent: "")
+                definition.target = self
+                menu.addItem(definition)
+            }
 
             let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
             exportItem.target = self

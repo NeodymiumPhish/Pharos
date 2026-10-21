@@ -105,6 +105,7 @@ func runTests() {
     testPartitionedSourceCannotAskForRows()
     testScopeRadiosFollowTheCheckbox()
     testTheChosenScopeReachesTheCallback()
+    testAViewShowsItsDefinition()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
@@ -233,6 +234,27 @@ func testPlainTableHasNoCloneChrome() {
     let include = window.contentView?.button(id: "sheet.tableddl.includeRows")
     expectTrue(include?.isEnabled == true, "rows can be copied from an ordinary table")
     expectTrue(sheet.selectedRowScope == .ownRows, "the scope falls back to the safe one")
+}
+
+/// N2: a DuckDB view: "View Definition", no detail levels, "Copy into Table…".
+func testAViewShowsItsDefinition() {
+    let sheet = TableDDLSheet(schema: "s", table: "v", ddl: ddl(), isView: true) { _, _, _ in }
+    let window = host(sheet)
+    defer { window.close() }
+    func texts(_ v: NSView) -> [String] {
+        ((v as? NSTextField).map { [$0.stringValue] } ?? []) + v.subviews.flatMap(texts)
+    }
+    func buttons(_ v: NSView) -> [NSButton] {
+        ((v as? NSButton).map { [$0] } ?? []) + v.subviews.flatMap(buttons)
+    }
+    let root = window.contentView!
+    expectTrue(texts(root).contains("View Definition"), "the title says View Definition")
+    expectTrue(buttons(root).contains { $0.title == "Copy into Table\u{2026}" }, "the clone button says what it makes")
+    let tables = { (v: NSView) -> [NSTableView] in
+        func walk(_ v: NSView) -> [NSTableView] { ((v as? NSTableView).map { [$0] } ?? []) + v.subviews.flatMap(walk) }
+        return walk(v)
+    }(root)
+    expectTrue(tables.allSatisfy { $0.enclosingScrollView?.isHidden == true }, "no detail-level sidebar")
 }
 
 func testPartitionedSourceCannotAskForRows() {

@@ -96,10 +96,17 @@ class TableDDLSheet: NSViewController {
     private let cloneCancelButton = NSButton()
     private let cloneButton = NSButton()
 
-    init(schema: String, table: String, ddl: TableDDL, onClone: @escaping (String, Bool, CloneRowScope) -> Void) {
+    /// A DuckDB view: "View Definition", no detail levels (every level is
+    /// the same CREATE VIEW), and the clone action says what it makes from a
+    /// view: a table with the view's rows.
+    private let isView: Bool
+
+    init(schema: String, table: String, ddl: TableDDL, isView: Bool = false,
+         onClone: @escaping (String, Bool, CloneRowScope) -> Void) {
         self.schema = schema
         self.table = table
         self.ddl = ddl
+        self.isView = isView
         self.onClone = onClone
         super.init(nibName: nil, bundle: nil)
     }
@@ -131,7 +138,7 @@ class TableDDLSheet: NSViewController {
         self.view = container
 
         // Title
-        let titleLabel = NSTextField(labelWithString: "Table DDL")
+        let titleLabel = NSTextField(labelWithString: isView ? String(localized: "View Definition") : "Table DDL")
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         // Display-only: schema/table are server-derived. The clone action and
         // the DDL request keep using the raw stored strings.
@@ -178,6 +185,8 @@ class TableDDLSheet: NSViewController {
         textScroll.documentView = textView
         textScroll.translatesAutoresizingMaskIntoConstraints = false
 
+        // A view's levels all show the same text: no sidebar to choose from.
+        sidebarScroll.isHidden = isView
         let paneRow = NSStackView(views: [sidebarScroll, textScroll])
         paneRow.orientation = .horizontal
         paneRow.spacing = 8
@@ -193,7 +202,7 @@ class TableDDLSheet: NSViewController {
             .withSymbolConfiguration(copyConfig)
         copyButton.imagePosition = .imageLeading
 
-        cloneToggle.title = "Clone Table\u{2026}"
+        cloneToggle.title = isView ? String(localized: "Copy into Table\u{2026}") : "Clone Table\u{2026}"
         cloneToggle.target = self
         cloneToggle.action = #selector(toggleCloneSection)
         cloneToggle.bezelStyle = .rounded

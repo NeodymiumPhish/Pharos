@@ -181,6 +181,10 @@ Pharos does not download extensions. macOS lets the app load only the libraries 
 
 **Settings > Connections > DuckDB** sets the worker threads and the memory limit. These settings apply the next time a database opens.
 
+## View definitions
+
+On a DuckDB view row in the Database Navigator, choose **View Definition…** (or double-click the row when **Settings > Navigator > Double-click** is set to Describe). The sheet shows the `CREATE VIEW` statement with **Copy DDL**. **Copy into Table…** makes a table with the view's rows.
+
 ## Temporary tables
 
 A `CREATE TEMP TABLE` belongs to the tab that ran it: each tab has its own connection, and other tabs cannot see it. The Database Navigator does not list temporary tables. To list a tab's temporary tables, run `SHOW ALL TABLES` in a card of that tab.
