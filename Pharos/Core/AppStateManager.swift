@@ -602,6 +602,10 @@ final class AppStateManager: ObservableObject {
                 if info.status == .connected {
                     self.quietConnects.remove(id)
                     self.noteRecentDuckDBFile(id)
+                    let recordReadOnly = self.connections.first { $0.id == id }?.readOnly ?? false
+                    self.readOnlyReasons[id] = readOnly ? .otherAppHoldsFile : recordReadOnly ? .recordSetting : nil
+                } else {
+                    self.readOnlyReasons[id] = nil
                 }
                 self.connectionStatuses[id] = info.status
                 // A refused connection comes back as a value, not a throw, so
@@ -655,6 +659,7 @@ final class AppStateManager: ObservableObject {
     }
 
     func disconnect(id: String) {
+        readOnlyReasons[id] = nil
         // Disconnected at once, before the core is done: a connect started
         // meanwhile (a tab reopening the file) waits for this one to finish
         // (`performConnect`), so it never meets a half-closed record.
@@ -678,6 +683,10 @@ final class AppStateManager: ObservableObject {
             if self.disconnecting[id] == task { self.disconnecting[id] = nil }
         }
     }
+
+    /// Connections open read-only now, and why: the record's setting, or the
+    /// lock alert's one-time read-only open. Drives the context row's badge.
+    @Published private(set) var readOnlyReasons: [String: ReadOnlyReason] = [:]
 
     /// Disconnects the core has not finished, by connection id.
     private var disconnecting: [String: Task<Void, Never>] = [:]

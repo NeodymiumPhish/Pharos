@@ -43,6 +43,10 @@ fn info(config: &ConnectionConfig, status: ConnectionStatus, error: Option<Strin
 
 // MARK: - Connect
 
+/// A second record on a file that is open with the other Read-only setting.
+pub const READ_ONLY_MISMATCH: &str =
+    "This file is already open in Pharos with a different Read-only setting. Disconnect the other connection first.";
+
 /// Open the record's database. A file another record already has open is
 /// shared, never opened twice in one process.
 pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<ConnectionInfo, String> {
@@ -53,6 +57,12 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
     let create = state.take_duck_create_once(&config.id);
     let path = normalized_path(&config.database);
     if let Some(existing) = state.duck_instance_for_path(&path).or_else(|| state.duck_still_closing(&path)) {
+        // One instance has ONE mode. Sharing a writable instance with a
+        // Read-only record would let its editor write; sharing a read-only
+        // one would refuse the writable record's writes. (Plan C9 exception.)
+        if existing.read_only != read_only {
+            return Ok(info(&config, ConnectionStatus::Error, Some(READ_ONLY_MISMATCH.to_string()), None));
+        }
         state.add_duck(config.id.clone(), existing);
         return Ok(info(&config, ConnectionStatus::Connected, None, Some(0)));
     }
@@ -601,6 +611,38 @@ mod tests {
         let r = execute_query("d".into(), "SELECT count(*) FROM t".into(), None, None, None, None, &state).await.unwrap();
         assert_eq!(r.rows, vec![serde_json::json!(["3"])]);
         disconnect("d", &state).await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Two records on one file share one instance only when their Read-only
+    /// settings agree.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_read_only_record_never_shares_a_writable_instance() {
+        let path = temp("mismatch", "duckdb");
+        let state = state_with("w", &path);
+        state.request_duck_create_once("w");
+        let writer = state.get_config("w").unwrap();
+        assert_eq!(connect(writer.clone(), &state).await.unwrap().status, ConnectionStatus::Connected);
+        let mut reader = writer.clone();
+        reader.id = "r".into();
+        reader.read_only = true;
+        state.set_config(reader.clone());
+        let refused = connect(reader.clone(), &state).await.unwrap();
+        assert_eq!(refused.status, ConnectionStatus::Error);
+        assert_eq!(refused.error.as_deref(), Some(READ_ONLY_MISMATCH));
+        assert!(state.get_duck("r").is_none());
+        // Same setting: shared as before.
+        let mut twin = writer.clone();
+        twin.id = "w2".into();
+        state.set_config(twin.clone());
+        assert_eq!(connect(twin, &state).await.unwrap().status, ConnectionStatus::Connected);
+        disconnect("w", &state).await;
+        disconnect("w2", &state).await;
+        // With the writer gone, the read-only record opens the file itself.
+        let alone = connect(reader, &state).await.unwrap();
+        assert_eq!(alone.status, ConnectionStatus::Connected, "{:?}", alone.error);
+        assert!(state.get_duck("r").unwrap().read_only);
+        disconnect("r", &state).await;
         let _ = std::fs::remove_file(&path);
     }
 

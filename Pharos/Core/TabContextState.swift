@@ -61,3 +61,42 @@ enum TabContextState: Equatable {
         }
     }
 }
+
+/// Why a connection is open read-only, as the core opened it.
+enum ReadOnlyReason: Equatable {
+    /// The record's Read-only setting.
+    case recordSetting
+    /// The lock alert's Open Read-Only: another app holds the file.
+    case otherAppHoldsFile
+}
+
+/// The context row's Read-only badge: shown while the tab's connection is
+/// open read-only, with help that says why and how to write. A persistent
+/// mark, not an alert (HIG, Alerts: avoid an alert merely to inform).
+enum ReadOnlyBadge {
+    /// The badge's help, or nil when no badge shows. `reportReadOnly`: the
+    /// tab session's own report, which for PostgreSQL follows the record's
+    /// CURRENT setting (each tab session reads it).
+    static func help(isConnected: Bool, engine: DatabaseEngine, reason: ReadOnlyReason?, reportReadOnly: Bool?) -> String? {
+        guard isConnected else { return nil }
+        let effective: ReadOnlyReason?
+        if engine == .postgres, let reportReadOnly {
+            effective = reportReadOnly ? (reason ?? .recordSetting) : nil
+        } else {
+            effective = reason
+        }
+        switch effective {
+        case nil:
+            return nil
+        case .otherAppHoldsFile:
+            return String(localized: "Opened read-only because another app holds the file. Disconnect, then connect again when the other app closes it.")
+        case .recordSetting:
+            switch engine {
+            case .duckdb:
+                return String(localized: "This connection is set to Read-only. To write, turn off Read-only in the Connections Manager, then disconnect and connect again.")
+            case .postgres:
+                return String(localized: "This connection is set to Read-only, so the server refuses writes. To write, turn off Read-only in the Connections Manager.")
+            }
+        }
+    }
+}

@@ -365,6 +365,7 @@ class EditorPaneVC: NSViewController {
     @objc private func tabSessionDidChange(_ note: Notification) {
         guard let tabId = note.userInfo?["tabId"] as? String, tabId == session.activeTabId else { return }
         refreshTransactionChip()
+        refreshReadOnlyBadge()
     }
 
     /// The chip's menu, and Query ▸ Commit / Roll Back Transaction.

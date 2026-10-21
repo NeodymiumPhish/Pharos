@@ -28,6 +28,15 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         return stateManager.connections.first { $0.id == id }?.isDuckDB ?? false
     }
 
+    /// The clicked connection is open read-only (its setting, or the lock
+    /// alert's read-only open): the items that write are left out, since the
+    /// database would refuse each one.
+    private var isReadOnly: Bool {
+        guard let id = delegate?.contextConnectionId else { return false }
+        return stateManager.readOnlyReasons[id] != nil
+            || stateManager.connections.first { $0.id == id }?.readOnly == true
+    }
+
     weak var delegate: SchemaContextMenuDelegate?
 
     init(outlineView: NSOutlineView) {
@@ -551,11 +560,13 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             addParquetItem(to: menu)
 
             // Destructive
-            menu.addItem(.separator())
+            if !isReadOnly {
+                menu.addItem(.separator())
 
-            let dropView = NSMenuItem(title: "Drop View", action: #selector(contextDropTable), keyEquivalent: "")
-            dropView.target = self
-            menu.addItem(dropView)
+                let dropView = NSMenuItem(title: "Drop View", action: #selector(contextDropTable), keyEquivalent: "")
+                dropView.target = self
+                menu.addItem(dropView)
+            }
 
             // Inspection
             menu.addItem(.separator())
@@ -640,9 +651,11 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         viewDDL.target = self
         menu.addItem(viewDDL)
 
-        let importItem = NSMenuItem(title: "Import Data\u{2026}", action: #selector(contextImportData), keyEquivalent: "")
-        importItem.target = self
-        menu.addItem(importItem)
+        if !isReadOnly {
+            let importItem = NSMenuItem(title: "Import Data\u{2026}", action: #selector(contextImportData), keyEquivalent: "")
+            importItem.target = self
+            menu.addItem(importItem)
+        }
 
         let exportItem = NSMenuItem(title: "Export Data\u{2026}", action: #selector(contextExportData), keyEquivalent: "")
         exportItem.target = self
@@ -650,15 +663,17 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         addParquetItem(to: menu)
 
         // Destructive
-        menu.addItem(.separator())
+        if !isReadOnly {
+            menu.addItem(.separator())
 
-        let truncate = NSMenuItem(title: "Truncate Table", action: #selector(contextTruncateTable), keyEquivalent: "")
-        truncate.target = self
-        menu.addItem(truncate)
+            let truncate = NSMenuItem(title: "Truncate Table", action: #selector(contextTruncateTable), keyEquivalent: "")
+            truncate.target = self
+            menu.addItem(truncate)
 
-        let drop = NSMenuItem(title: "Drop Table", action: #selector(contextDropTable), keyEquivalent: "")
-        drop.target = self
-        menu.addItem(drop)
+            let drop = NSMenuItem(title: "Drop Table", action: #selector(contextDropTable), keyEquivalent: "")
+            drop.target = self
+            menu.addItem(drop)
+        }
 
         // Inspection
         menu.addItem(.separator())

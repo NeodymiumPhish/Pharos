@@ -66,6 +66,8 @@ DuckDB lets one app write a database file at a time, or several apps read it whe
 
 Read-only applies to that connect only.
 
+While a connection is open read-only, the tab's context row shows **Read-only** with a lock. Its help says why: the connection's Read-only setting, or another app that holds the file. The Database Navigator then leaves out Import Data…, Truncate and Drop. Two connections on the same file must have the same Read-only setting: when one is open, the other does not connect and says so.
+
 A file written by a newer DuckDB than the one in Pharos does not open; the message says so.
 
 ## Remove a file from Pharos

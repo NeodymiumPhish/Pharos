@@ -43,6 +43,19 @@ extension EditorPaneVC {
         tabContextBar.showSchema(title: schemaState.title, isEnabled: schemaState.isEnabled)
 
         refreshTransactionChip()
+        refreshReadOnlyBadge()
+    }
+
+    /// The Read-only badge, from the mode the core opened (and, for
+    /// PostgreSQL, the tab session's report).
+    func refreshReadOnlyBadge() {
+        let config = session.tab?.connectionId.flatMap { id in stateManager.connections.first { $0.id == id } }
+        let report = session.activeTabId.flatMap { TabSessionMonitor.shared.report(for: $0) }
+        tabContextBar.showReadOnly(help: config.flatMap { config in
+            ReadOnlyBadge.help(isConnected: stateManager.status(for: config.id) == .connected, engine: config.engine,
+                               reason: stateManager.readOnlyReasons[config.id],
+                               reportReadOnly: report?.open == true ? report?.readOnly : nil)
+        })
     }
 
     /// The chip: an open or failed transaction, or a reset. It ticks once a

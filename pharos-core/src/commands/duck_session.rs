@@ -256,8 +256,11 @@ where
 
 /// Read the transaction state from DuckDB and publish the report.
 async fn finish(guard: &mut Option<Live>, session: &DuckSession, state: &AppState) -> SessionReport {
-    let read_only = state.get_config(&session.connection_id).map(|c| c.read_only).unwrap_or(false)
-        || state.get_duck(&session.connection_id).map(|d| d.read_only).unwrap_or(false);
+    // The mode the instance was OPENED in is the truth: a record shares an
+    // instance only with the same setting (`duck::connect`), and a one-time
+    // read-only open (the lock alert) is read-only whatever the record says.
+    let read_only = state.get_duck(&session.connection_id).map(|d| d.read_only)
+        .unwrap_or_else(|| state.get_config(&session.connection_id).map(|c| c.read_only).unwrap_or(false));
     if let Some(live) = guard.as_mut() {
         let conn = live.conn.clone();
         let probe = tokio::task::spawn_blocking(move || {

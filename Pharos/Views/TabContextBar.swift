@@ -38,6 +38,8 @@ final class TabContextBar: NSView {
     let stateButton = NSButton()
     let spinner = NSProgressIndicator()
     let transactionChip = NSButton()
+    /// "Read-only", with a lock, while the connection is open read-only.
+    let readOnlyBadge = NSTextField(labelWithString: "")
     private let separatorLabel = NSTextField(labelWithString: "›")
 
     var onChooseConnection: ((String) -> Void)?
@@ -95,6 +97,18 @@ final class TabContextBar: NSView {
         stateButton.action = #selector(connectPressed)
         stateButton.setAccessibilityIdentifier("editor.context.connect")
 
+        let lock = NSTextAttachment()
+        lock.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: NSFont.smallSystemFontSize, weight: .regular))
+        let badgeText = NSMutableAttributedString(attachment: lock)
+        badgeText.append(NSAttributedString(string: " " + String(localized: "Read-only")))
+        readOnlyBadge.attributedStringValue = badgeText
+        readOnlyBadge.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        readOnlyBadge.textColor = .secondaryLabelColor
+        readOnlyBadge.setAccessibilityLabel(String(localized: "Read-only"))
+        readOnlyBadge.setAccessibilityIdentifier("editor.context.readOnly")
+        readOnlyBadge.isHidden = true
+
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
@@ -113,7 +127,7 @@ final class TabContextBar: NSView {
             popUp.setContentCompressionResistancePriority(.init(300), for: .horizontal)
         }
 
-        let row = NSStackView(views: [connectionPopUp, separatorLabel, schemaButton, spinner, stateLabel,
+        let row = NSStackView(views: [connectionPopUp, separatorLabel, schemaButton, readOnlyBadge, spinner, stateLabel,
                                       stateButton, transactionChip])
         row.orientation = .horizontal
         row.alignment = .centerY
@@ -193,6 +207,14 @@ final class TabContextBar: NSView {
             let missing = !open && item.filePath.map { !fileExists($0) } == true
             menuItem.subtitle = item.subtitle(fileMissing: missing)
         }
+    }
+
+    /// The Read-only badge; `help` nil hides it. The help is its tooltip
+    /// and VoiceOver help.
+    func showReadOnly(help: String?) {
+        readOnlyBadge.isHidden = help == nil
+        readOnlyBadge.toolTip = help
+        readOnlyBadge.setAccessibilityHelp(help)
     }
 
     func showSchema(title: String, isEnabled: Bool) {

@@ -55,6 +55,21 @@ private func testChipTitles() {
 }
 
 func runTests() {
+    // C2: the Read-only badge.
+    expect(ReadOnlyBadge.help(isConnected: false, engine: .duckdb, reason: .recordSetting, reportReadOnly: nil) == nil,
+           "no badge while not connected")
+    expect(ReadOnlyBadge.help(isConnected: true, engine: .duckdb, reason: nil, reportReadOnly: nil) == nil,
+           "no badge on a writable connection")
+    expect(ReadOnlyBadge.help(isConnected: true, engine: .duckdb, reason: .recordSetting, reportReadOnly: false)?
+            .hasPrefix("This connection is set to Read-only") == true, "DuckDB: the opened mode wins over a report")
+    expect(ReadOnlyBadge.help(isConnected: true, engine: .duckdb, reason: .otherAppHoldsFile, reportReadOnly: nil)?
+            .hasPrefix("Opened read-only because another app") == true, "the lock alert's read-only open says why")
+    expect(ReadOnlyBadge.help(isConnected: true, engine: .postgres, reason: .recordSetting, reportReadOnly: false) == nil,
+           "PostgreSQL follows the tab session's report: Read-only turned off")
+    expect(ReadOnlyBadge.help(isConnected: true, engine: .postgres, reason: nil, reportReadOnly: true) != nil,
+           "PostgreSQL: Read-only turned on since the connect")
+    expect(ReadOnlyBadge.help(isConnected: true, engine: .postgres, reason: .recordSetting, reportReadOnly: nil) != nil,
+           "PostgreSQL with no report yet: the connect's mode")
     testState()
     testChipTitles()
     if failures == 0 { print("\nAll tab context state tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
