@@ -1102,10 +1102,11 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
     let mut guard = lock_or_cancel(&session, &cancel).await?;
     let reset = ensure_live(&mut guard, &session, state).await?;
     let cap = request.max_rows.max(1) as usize;
-    let outcome: Result<(Vec<PgRow>, bool), ReadError> = {
+    let in_transaction: bool;
+    let outcome: Result<(Vec<PgRow>, bool, Vec<super::row_identity::ColumnDef>), ReadError> = {
         let live = guard.as_mut().expect("ensure_live leaves a connection");
         apply_schema(live, t.schema.as_deref(), state).await;
-        let in_transaction = live.txn == TxnState::InTransaction;
+        in_transaction = live.txn == TxnState::InTransaction;
         if live.txn == TxnState::Failed {
             Err(ReadError::Sql(FAILED_TRANSACTION.to_string()))
         } else {
@@ -1129,13 +1130,15 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
                     Ok((chunk, n)) => {
                         let done = n < want;
                         rows.extend(chunk);
-                        if rows.len() > cap {
+                        let capped = rows.len() > cap;
+                        if capped {
                             rows.truncate(cap);
                             more = true;
-                            break;
                         }
+                        // After the truncation, as the pool path does, so the
+                        // last tick reads the limit itself.
                         on_progress(rows.len() as u64);
-                        if done { break; }
+                        if capped || done { break; }
                     }
                     Err(e) => result = Err(e),
                 }
@@ -1145,8 +1148,18 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
                     result = Err(ReadError::Lost("The load would not stop; the connection was closed".to_string()));
                 }
             }
+            // Column metadata for an empty result, before the transaction ends
+            // (the pool path does the same).
+            let empty_columns = if result.is_ok() && rows.is_empty() {
+                match (&mut live.conn).describe(request.sql.trim().trim_end_matches(';')).await {
+                    Ok(desc) => pg_columns_to_defs(desc.columns()),
+                    Err(_) => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
             match result {
-                Ok(()) => exec(&mut live.conn, close_ok).await.map(|_| (rows, more)).map_err(ReadError::Sql),
+                Ok(()) => exec(&mut live.conn, close_ok).await.map(|_| (rows, more, empty_columns)).map_err(ReadError::Sql),
                 Err(e) => {
                     let _ = exec(&mut live.conn, close_err).await;
                     Err(e)
@@ -1155,7 +1168,7 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
         }
     };
     drop(registered);
-    let (rows, has_more) = match outcome {
+    let (rows, has_more, empty_columns) = match outcome {
         Ok(v) => v,
         Err(e) => {
             let message = read_error_message(e, &mut guard, state);
@@ -1165,9 +1178,21 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
     };
     let (report, _) = finish(&mut guard, &session, state, reset).await;
     drop(guard);
-    let columns = rows.first().map(|r| pg_columns_to_defs(r.columns())).unwrap_or_default();
+    let columns = rows.first().map(|r| pg_columns_to_defs(r.columns())).unwrap_or(empty_columns);
     let row_count = rows.len();
     let json_rows = rows_to_json(rows, &columns, usize::MAX);
+    // The snapshot is a new execution, so its rows need their own keys (the
+    // app must never keep the first page's). Same rule as a card's run: the
+    // identity reads the catalogue through the pool, which cannot see a
+    // table the open transaction created, so none inside one.
+    let row_identity = if in_transaction || json_rows.is_empty() {
+        None
+    } else {
+        match state.require_pool(&t.connection_id) {
+            Ok(pool) => build_row_identity(&pool, &t.connection_id, &columns, &json_rows, state).await,
+            Err(_) => None,
+        }
+    };
     Ok(SessionQueryResult {
         result: QueryResult {
             columns,
@@ -1176,7 +1201,7 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
             execution_time_ms: start.elapsed().as_millis() as u64,
             has_more,
             history_entry_id: None,
-            row_identity: None,
+            row_identity,
         },
         session: report,
     })
@@ -1957,6 +1982,44 @@ mod live_tab_session_tests {
             assert!(!v.valid);
             assert_eq!(state.tab_session(TAB).unwrap().report().txn, TxnState::InTransaction);
             statement(&state, "ROLLBACK").await.unwrap();
+        });
+    }
+
+    /// Load All on a tab's connection: the last progress tick reads the
+    /// limit, a result of exactly the limit is not "more", an empty result
+    /// still has its columns, and the snapshot carries its OWN row keys.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_tab_session_load_all_limit_columns_and_keys() {
+        block_on(async {
+            let state = live_state(false).await;
+            let all = |sql: &str, cap: i64| SessionFetchAllRequest { target: target(TAB), sql: sql.into(), max_rows: cap };
+            let ticks = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen = ticks.clone();
+            let capped = session_fetch_all_rows(all("SELECT g FROM generate_series(1, 12000) g", 10_000), &state,
+                                                move |n| seen.lock().unwrap().push(n))
+                .await.expect("capped");
+            assert_eq!(capped.result.row_count, 10_000);
+            assert!(capped.result.has_more);
+            assert_eq!(ticks.lock().unwrap().last().copied(), Some(10_000), "the bar can say the limit");
+
+            let exact = session_fetch_all_rows(all("SELECT g FROM generate_series(1, 10000) g", 10_000), &state, |_| {})
+                .await.expect("exact");
+            assert!(!exact.result.has_more, "a result of exactly the limit is complete");
+
+            let empty = session_fetch_all_rows(all("SELECT g AS only_col FROM generate_series(1, 0) g", 100), &state, |_| {})
+                .await.expect("empty");
+            assert_eq!(empty.result.row_count, 0);
+            assert_eq!(empty.result.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["only_col"]);
+
+            let table = format!("pharos_snap_{}", uuid::Uuid::new_v4().simple());
+            statement(&state, &format!("CREATE TABLE {table} (id int PRIMARY KEY, v text)")).await.unwrap();
+            statement(&state, &format!("INSERT INTO {table} SELECT g, 'x' FROM generate_series(1, 25) g")).await.unwrap();
+            let keyed = session_fetch_all_rows(all(&format!("SELECT id, v FROM {table} ORDER BY id"), 1000), &state, |_| {}).await;
+            statement(&state, &format!("DROP TABLE {table}")).await.unwrap();
+            let keyed = keyed.expect("keyed");
+            let identity = keyed.result.row_identity.expect("the snapshot has row keys of its own");
+            assert_eq!(identity.candidates[0].keys.len(), 25, "one key per snapshot row");
         });
     }
 
