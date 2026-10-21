@@ -163,7 +163,7 @@ void pharos_connect_with_ssh_secret(const char *connection_id,
 
 /**
  * Export a query to Parquet with DuckDB's own writer.
- * `options_json`: `{"sql": "...", "schema": "main" | null, "filePath": "/abs/x.parquet"}`.
+ * `options_json`: `{"sql": "...", "schema": "main" | null, "filePath": "/abs/x.parquet", "queryId": "…" | null}`.
  * Returns `ExportTableResult` JSON via callback.
  */
 
