@@ -18,7 +18,7 @@ final class TabContextBar: NSView {
         let state: TabConnectionState
     }
 
-    let connectionPopUp = NSPopUpButton(frame: .zero, pullsDown: false)
+    let connectionPopUp = ConnectionPopUpButton(frame: .zero, pullsDown: false)
     let schemaButton = SchemaPopUpButton(frame: .zero, pullsDown: false)
     let stateLabel = NSTextField(labelWithString: "")
     let stateButton = NSButton()
@@ -127,7 +127,10 @@ final class TabContextBar: NSView {
             menu.addItem(choose)
         }
         for item in items {
-            let menuItem = NSMenuItem(title: item.name, action: nil, keyEquivalent: "")
+            // Its own action: `ConnectionPopUpButton` opens the menu with
+            // `NSMenu.popUp`, which does not route a choice to the button.
+            let menuItem = NSMenuItem(title: item.name, action: #selector(connectionItemChosen(_:)), keyEquivalent: "")
+            menuItem.target = self
             menuItem.representedObject = item.id
             menuItem.image = Self.dot(item.state)
             // The state in words as well as colour (Differentiate Without
@@ -136,7 +139,8 @@ final class TabContextBar: NSView {
             menu.addItem(menuItem)
         }
         menu.addItem(.separator())
-        let manage = NSMenuItem(title: String(localized: "Manage Connections…"), action: nil, keyEquivalent: "")
+        let manage = NSMenuItem(title: String(localized: "Manage Connections…"), action: #selector(connectionItemChosen(_:)), keyEquivalent: "")
+        manage.target = self
         manage.tag = Self.manageTag
         menu.addItem(manage)
         selectCurrent()
@@ -188,6 +192,12 @@ final class TabContextBar: NSView {
 
     // MARK: - Actions
 
+    /// A menu item chosen from the menu `ConnectionPopUpButton` opened.
+    @objc private func connectionItemChosen(_ item: NSMenuItem) {
+        connectionPopUp.select(item)
+        connectionChosen(connectionPopUp)
+    }
+
     @objc private func connectionChosen(_ sender: NSPopUpButton) {
         guard let item = sender.selectedItem else { return }
         if item.tag == Self.manageTag {
@@ -208,6 +218,10 @@ final class TabContextBar: NSView {
             connectionPopUp.selectItem(at: index)
         } else {
             connectionPopUp.selectItem(withTag: Self.chooseTag)
+        }
+        // The tab's connection carries the checkmark in the open menu.
+        for item in connectionPopUp.itemArray {
+            item.state = item === connectionPopUp.selectedItem && item.tag != Self.chooseTag ? .on : .off
         }
     }
 
@@ -237,5 +251,52 @@ final class TabContextBar: NSView {
         }
         image.accessibilityDescription = state.label
         return image
+    }
+}
+
+/// The tab's connection pop-up. It opens its menu BELOW the button (the
+/// menu's top edge at the button's bottom edge), not the way AppKit places a
+/// pop-up menu, with the selected item over the button: with a long list and
+/// the tab's connection near the end, that placement ran the menu off the top
+/// of the screen. (Apple HIG, *Pop-up buttons*, describes the standard
+/// placement; this follows the owner's request instead, as a pull-down shows
+/// its menu.) It stays a pop-up, so the closed button shows the tab's
+/// connection and keeps its accessibility role and value.
+final class ConnectionPopUpButton: NSPopUpButton {
+
+    /// The space between the button and the menu, as the transaction chip's.
+    static let menuGap: CGFloat = 2
+
+    /// The menu's top-left corner, in the button's coordinates.
+    static func menuOrigin(in bounds: NSRect, flipped: Bool) -> NSPoint {
+        NSPoint(x: bounds.minX, y: flipped ? bounds.maxY + menuGap : bounds.minY - menuGap)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return super.mouseDown(with: event) }
+        presentMenuBelow()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // Space, Return, Enter and Down Arrow open the menu, as for any pop-up.
+        let keys: Set<String> = [" ", "\r", "\u{3}", String(UnicodeScalar(NSDownArrowFunctionKey)!)]
+        guard isEnabled, let chars = event.charactersIgnoringModifiers, keys.contains(chars) else {
+            return super.keyDown(with: event)
+        }
+        presentMenuBelow()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        presentMenuBelow()
+        return true
+    }
+
+    func presentMenuBelow() {
+        guard let menu else { return }
+        menu.minimumWidth = bounds.width
+        highlight(true)
+        menu.popUp(positioning: nil, at: Self.menuOrigin(in: bounds, flipped: isFlipped), in: self)
+        highlight(false)
     }
 }

@@ -89,8 +89,25 @@ private func testConnections() {
     popUp.sendAction(popUp.action, to: popUp.target)
     expect(managed == 1 && popUp.titleOfSelectedItem == "Coda", "Manage Connections… opens the manager and the button snaps back")
 
+    // The menu opens below the button (ConnectionPopUpButton), so each item
+    // routes itself; the result is the same as through the button's action.
+    expect(popUp.itemArray.first { $0.title == "Coda" }?.state == .on, "the tab's connection has the checkmark")
+    expect(popUp.itemArray.first { $0.title == "Billing" }?.state == .off, "another connection has none")
+    let billingItem = popUp.itemArray.first { $0.title == "Billing" }!
+    _ = (billingItem.target as AnyObject).perform(billingItem.action, with: billingItem)
+    expect(chosen == ["c2", "c2"], "an item's own action asks the owner once", "\(chosen)")
+    expect(popUp.titleOfSelectedItem == "Coda", "and the button snaps back")
+    let manageItem = popUp.itemArray.first { $0.title == "Manage Connections…" }!
+    _ = (manageItem.target as AnyObject).perform(manageItem.action, with: manageItem)
+    expect(managed == 2, "Manage Connections… routes itself too")
+    let b = NSRect(x: 0, y: 0, width: 180, height: 24)
+    expect(ConnectionPopUpButton.menuOrigin(in: b, flipped: true) == NSPoint(x: 0, y: 26), "the menu's top edge sits 2 pt below the button (flipped)")
+    expect(ConnectionPopUpButton.menuOrigin(in: b, flipped: false) == NSPoint(x: 0, y: -2), "and below it when not flipped")
+    expect(popUp.isFlipped, "NSPopUpButton is flipped, so the flipped origin is the one used")
+
     f.bar.showConnections([coda, billing], selectedId: nil)
     expect(popUp.titleOfSelectedItem == "Choose Connection", "no connection: the button says Choose Connection")
+    expect(!popUp.itemArray.contains { $0.state == .on }, "no checkmark without a connection")
     expect(popUp.accessibilityIdentifier() == "editor.context.connection", "AX id")
 }
 
