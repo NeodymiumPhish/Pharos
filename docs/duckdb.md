@@ -74,6 +74,7 @@ A file written by a newer DuckDB than the one in Pharos does not open; the messa
 | Default schema | `public` | `main` |
 | Other attached databases | — | Shown as `database.schema` in the schema browser |
 | Cancel and the query timeout | Server cancel | DuckDB's interrupt |
+| Exports (Export Data…, Export as Parquet…, Shortcuts) | No time limit | No time limit |
 | A card that fails inside a transaction | Undone alone (savepoint) | Can fail the transaction; roll it back from the transaction chip |
 | Idle-transaction timeout | Set by the server | None |
 | Editing result cells | Yes | No |

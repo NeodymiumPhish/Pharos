@@ -1003,6 +1003,63 @@ async fn stream_export(
     batch_size: i64,
     progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
 ) -> Result<ExportTableResult, String> {
+    let tmp = export_temp_path(file_path);
+    let result = stream_export_into(conn, base_sql, &tmp.to_string_lossy(), format, sql_insert_target, null_as_empty,
+                                    include_headers, dialect, batch_size, progress_callback).await;
+    finish_export(&tmp, file_path, result)
+}
+
+// MARK: - Safe export writes
+
+/// Where an export writes before it is complete: a hidden file beside the
+/// target (same folder, so the final rename stays on one volume).
+fn export_temp_path(target: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(target);
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "export".into());
+    path.with_file_name(format!(".{}.pharos-export", name))
+}
+
+/// Put a finished export in place, or take a failed one away. A failed or
+/// cancelled export never leaves a partial file (a partial CSV ends on a
+/// record boundary and looks complete) and never destroys an earlier one.
+/// The rename replaces the old file as a new file: its tags, extended
+/// attributes and permissions are the new file's, and a symlink at the
+/// target is replaced, not followed.
+fn finish_export(tmp: &std::path::Path, target: &str, result: Result<ExportTableResult, String>)
+                 -> Result<ExportTableResult, String> {
+    match result {
+        Ok(done) => {
+            std::fs::rename(tmp, target).map_err(|e| {
+                let _ = std::fs::remove_file(tmp);
+                format!("Failed to save the file: {}", e)
+            })?;
+            Ok(done)
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(tmp);
+            let note = if std::path::Path::new(target).exists() {
+                "The existing file was not changed."
+            } else {
+                "No file was written."
+            };
+            Err(format!("{} {}", e, note))
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn stream_export_into(
+    conn: &mut sqlx::PgConnection,
+    base_sql: &str,
+    file_path: &str,
+    format: &ExportFormat,
+    sql_insert_target: &str,
+    null_as_empty: bool,
+    include_headers: bool,
+    dialect: &CsvDialect,
+    batch_size: i64,
+    progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
+) -> Result<ExportTableResult, String> {
     use futures::StreamExt;
 
     // 0 would wedge the LIMIT/OFFSET loop on an empty batch forever.
@@ -1248,6 +1305,24 @@ pub(crate) struct TextPage {
 /// runtime.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn write_text_pages(
+    next_page: impl FnMut(i64, i64) -> Result<TextPage, String>,
+    file_path: &str,
+    format: &ExportFormat,
+    sql_insert_target: &str,
+    null_as_empty: bool,
+    include_headers: bool,
+    dialect: &CsvDialect,
+    batch_size: i64,
+    progress_callback: Option<&(dyn Fn(u64, bool) + Send)>,
+) -> Result<ExportTableResult, String> {
+    let tmp = export_temp_path(file_path);
+    let result = write_text_pages_into(next_page, &tmp.to_string_lossy(), format, sql_insert_target, null_as_empty,
+                                       include_headers, dialect, batch_size, progress_callback);
+    finish_export(&tmp, file_path, result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_text_pages_into(
     mut next_page: impl FnMut(i64, i64) -> Result<TextPage, String>,
     file_path: &str,
     format: &ExportFormat,
@@ -2530,5 +2605,57 @@ mod live_clone_tests {
 
             drop_fixture(&pool, STANDALONE).await;
         });
+    }
+}
+
+#[cfg(test)]
+mod safe_write_tests {
+    use super::*;
+    use crate::models::CsvDialect;
+
+    fn dir() -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("pharos_safe_write_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn page(rows: usize) -> TextPage {
+        TextPage { names: vec!["a".into()], types: vec!["TEXT".into()], rows: (0..rows).map(|i| vec![Some(i.to_string())]).collect() }
+    }
+
+    /// A failed export leaves the old file as it was and no temporary file;
+    /// a finished one replaces it.
+    #[test]
+    fn an_export_replaces_the_file_only_when_it_finishes() {
+        let d = dir();
+        let target = d.join("out.csv");
+        std::fs::write(&target, "old contents\n").unwrap();
+        let target_s = target.to_string_lossy().to_string();
+
+        let mut calls = 0;
+        let failing = |_offset: i64, _limit: i64| -> Result<TextPage, String> {
+            calls += 1;
+            if calls == 1 { Ok(page(2)) } else { Err("the connection was lost".into()) }
+        };
+        let err = write_text_pages(failing, &target_s, &ExportFormat::Csv, "t", true, true, &CsvDialect::default(), 2, None)
+            .unwrap_err();
+        assert!(err.ends_with("The existing file was not changed."), "{err}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "old contents\n", "the earlier export survives");
+        assert!(!export_temp_path(&target_s).exists(), "no temporary file is left");
+
+        let mut served = false;
+        let ok = |_o: i64, _l: i64| -> Result<TextPage, String> {
+            if served { Ok(page(0)) } else { served = true; Ok(page(1)) }
+        };
+        write_text_pages(ok, &target_s, &ExportFormat::Csv, "t", true, true, &CsvDialect::default(), 10, None).unwrap();
+        assert!(std::fs::read_to_string(&target).unwrap().starts_with("a"), "the new export is in place");
+        assert!(!export_temp_path(&target_s).exists());
+
+        let fresh = d.join("new.csv").to_string_lossy().to_string();
+        let err = write_text_pages(|_, _| Err("boom".into()), &fresh, &ExportFormat::Csv, "t", true, true,
+                                   &CsvDialect::default(), 10, None).unwrap_err();
+        assert!(err.ends_with("No file was written."), "{err}");
+        assert!(!std::path::Path::new(&fresh).exists());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -125,8 +125,10 @@ pub async fn test(config: ConnectionConfig, state: Option<&AppState>) -> Result<
 
 /// Run `work` on a fresh connection of the record's database, with the
 /// toolbar schema applied, stoppable by `query_id`'s cancel and the timeout.
-async fn on_fresh<T, F>(state: &AppState, connection_id: &str, schema: Option<String>, query_id: Option<String>, work: F)
-                        -> Result<T, String>
+/// `timeout_seconds`: 0 = none. Card-like runs pass the query timeout;
+/// exports pass 0, as the PostgreSQL export has no deadline.
+async fn on_fresh<T, F>(state: &AppState, connection_id: &str, schema: Option<String>, query_id: Option<String>,
+                        timeout_seconds: u32, work: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(&Connection) -> Result<T, String> + Send + 'static,
@@ -137,7 +139,7 @@ where
     let registered = state.register_query(query_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()));
     registered.attach_progress(conn.progress_handle());
     let cancel = registered.cancel.clone();
-    run_cancellable(interrupt, &cancel, query_timeout_seconds(state), move || {
+    run_cancellable(interrupt, &cancel, timeout_seconds, move || {
         if let Some(s) = schema.filter(|s| !s.is_empty()) {
             let path = if s == "main" { "'main'".to_string() } else { format!("'{},main'", s.replace('\'', "''")) };
             let _ = conn.execute_batch(&format!("SET search_path = {}", path));
@@ -154,7 +156,7 @@ pub async fn execute_query(connection_id: String, sql: String, query_id: Option<
     let limit = limit.unwrap_or(1000) as usize;
     let start = Instant::now();
     let text = sql.clone();
-    let rows = on_fresh(state, &connection_id, schema.clone(), query_id, move |c| exec::query_text(c, &text, Some(limit), 0)).await?;
+    let rows = on_fresh(state, &connection_id, schema.clone(), query_id, query_timeout_seconds(state), move |c| exec::query_text(c, &text, Some(limit), 0)).await?;
     let execution_time_ms = start.elapsed().as_millis() as u64;
     let row_count = rows.rows.len();
     let entry = history_entry(state, &connection_id, &sql, &schema, source, row_count as i64, execution_time_ms,
@@ -176,7 +178,7 @@ pub async fn execute_statement(connection_id: String, sql: String, query_id: Opt
                                state: &AppState) -> Result<ExecuteResult, String> {
     let start = Instant::now();
     let text = sql.clone();
-    let rows_affected = on_fresh(state, &connection_id, schema.clone(), query_id, move |c| exec::execute_text(c, &text)).await?;
+    let rows_affected = on_fresh(state, &connection_id, schema.clone(), query_id, query_timeout_seconds(state), move |c| exec::execute_text(c, &text)).await?;
     let execution_time_ms = start.elapsed().as_millis() as u64;
     let entry = history_entry(state, &connection_id, &sql, &schema, None, rows_affected as i64, execution_time_ms, None);
     let id = entry.id.clone();
@@ -189,7 +191,7 @@ pub async fn fetch_rows(connection_id: String, sql: String, query_id: Option<Str
                         schema: Option<String>, state: &AppState) -> Result<QueryResult, String> {
     let start = Instant::now();
     let statement = exec::statements(&sql).pop().ok_or_else(|| "There is no statement to read.".to_string())?;
-    let rows = on_fresh(state, &connection_id, schema, query_id, move |c| exec::page_rows(c, &statement, Some(limit), offset)).await?;
+    let rows = on_fresh(state, &connection_id, schema, query_id, query_timeout_seconds(state), move |c| exec::page_rows(c, &statement, Some(limit), offset)).await?;
     let row_count = rows.rows.len();
     Ok(QueryResult {
         columns: rows.columns,
@@ -214,7 +216,7 @@ pub async fn validate_sql(connection_id: String, sql: String, schema: Option<Str
 /// a transaction that is rolled back.
 pub async fn explain(connection_id: String, sql: String, analyze: bool, state: &AppState) -> Result<String, String> {
     let statement = super::query::single_statement(&sql)?;
-    on_fresh(state, &connection_id, None, None, move |c| {
+    on_fresh(state, &connection_id, None, None, query_timeout_seconds(state), move |c| {
         if analyze {
             c.execute_batch("BEGIN").map_err(|e| e.to_string())?;
         }
@@ -319,7 +321,7 @@ async fn export_statement(state: &AppState, connection_id: &str, schema: Option<
                           null_as_empty: bool, include_headers: bool, dialect: crate::models::CsvDialect,
                           progress: Option<Box<dyn Fn(u64, bool) + Send>>) -> Result<ExportTableResult, String> {
     let batch = state.settings().data_export.batch_size as i64;
-    on_fresh(state, connection_id, schema, None, move |c| {
+    on_fresh(state, connection_id, schema, None, 0, move |c| {
         let pager = |offset: i64, limit: i64| -> Result<TextPage, String> {
             let page = exec::rows_of(c, &statement, Some(limit as usize), offset as usize)?;
             if !page.pageable && offset > 0 {
@@ -354,10 +356,17 @@ pub async fn export_table(connection_id: String, options: ExportTableOptions, st
     let schema = options.schema_name.clone();
     let table = options.table_name.clone();
     let columns = options.columns.clone();
-    let target = catalog_read(state, &connection_id, move |c| qualified(c, &schema, &table)).await?;
+    // The INSERT target is "schema"."table", as the PostgreSQL export writes
+    // it, so the file replays into another database. A navigator schema of
+    // an attached database ("pg.public") is split first: quoted whole it was
+    // one dotted identifier that no database has.
+    let (target, insert_target) = catalog_read(state, &connection_id, move |c| {
+        let (_, schema_name) = catalog::split_schema(c, &schema)?;
+        Ok((qualified(c, &schema, &table)?, format!("{}.{}", quote_ident(&schema_name), quote_ident(&table))))
+    })
+    .await?;
     let list = if columns.is_empty() { "*".to_string() } else { columns.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ") };
     let statement = format!("SELECT {} FROM {}", list, target);
-    let insert_target = format!("{}.{}", quote_ident(&options.schema_name), quote_ident(&options.table_name));
     export_statement(state, &connection_id, None, statement, options.file_path, options.format, insert_target,
                      options.null_as_empty, options.include_headers, options.csv, None).await
 }
@@ -367,7 +376,7 @@ pub async fn export_parquet(connection_id: String, sql: String, schema: Option<S
                             state: &AppState) -> Result<ExportTableResult, String> {
     validate_file_path(&file_path)?;
     let statement = exec::statements(&sql).pop().ok_or_else(|| "There is no statement to export.".to_string())?;
-    let rows = on_fresh(state, &connection_id, schema, None, move |c| {
+    let rows = on_fresh(state, &connection_id, schema, None, 0, move |c| {
         let sql = format!(
             "COPY ({}) TO '{}' (FORMAT parquet, COMPRESSION zstd)",
             statement,
@@ -616,6 +625,59 @@ mod tests {
         // In-memory needs no file.
         let mem = state_with("m", IN_MEMORY);
         assert_eq!(connect(mem.get_config("m").unwrap(), &mem).await.unwrap().status, ConnectionStatus::Connected);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// An export has no deadline (as the PostgreSQL export): it finishes
+    /// even when it runs longer than the statement timeout a card obeys.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_export_ignores_the_statement_timeout() {
+        let state = state_with("d", IN_MEMORY);
+        let mut settings = (*state.settings()).clone();
+        settings.query.timeout_seconds = 1;
+        state.replace_settings(settings);
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        let slow = "SELECT count(DISTINCT hash(range) % 1000000007) AS n FROM range(150000000)";
+        let started = Instant::now();
+        let card = execute_query("d".into(), slow.into(), None, None, None, None, &state).await;
+        assert!(card.unwrap_err().contains("timed out"), "a card obeys the timeout");
+        let path = temp("slow", "csv");
+        let exported = export_query(
+            "d".into(),
+            serde_json::from_value(serde_json::json!({ "sql": slow, "filePath": path, "format": "csv" })).unwrap(),
+            &state,
+            None,
+        )
+        .await
+        .expect("the export runs to the end");
+        assert_eq!(exported.rows_exported, 1);
+        assert!(started.elapsed().as_secs_f64() > 1.0, "the export ran past the timeout");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A table of an attached database exports as SQL INSERT into
+    /// "schema"."table", never into one dotted identifier.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_attached_table_exports_a_two_part_insert_target() {
+        let state = state_with("d", IN_MEMORY);
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        execute_statement("d".into(), "ATTACH ':memory:' AS other; CREATE TABLE other.main.t AS SELECT 1 AS a".into(),
+                          None, None, &state).await.unwrap();
+        let path = temp("insert", "sql");
+        export_table(
+            "d".into(),
+            serde_json::from_value(serde_json::json!({
+                "schemaName": "other.main", "tableName": "t", "columns": [], "includeHeaders": true,
+                "nullAsEmpty": true, "filePath": path, "format": "sqlInsert"
+            }))
+            .unwrap(),
+            &state,
+        )
+        .await
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("INSERT INTO \"main\".\"t\""), "{text}");
+        assert!(!text.contains("other.main"), "{text}");
         let _ = std::fs::remove_file(&path);
     }
 
