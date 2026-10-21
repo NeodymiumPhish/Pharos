@@ -9,8 +9,15 @@ protocol SchemaContextMenuDelegate: AnyObject {
     func contextMenuDidRequestReload()
     func contextMenuPresentSheet(_ viewController: NSViewController)
     func contextMenuWindow() -> NSWindow?
-    func contextMenuDidStartImport(connectionId: String, schema: String, table: String)
+    /// A job (an import or an export) starts or ends on a table: its row
+    /// shows the count, and a stop button when `queryId` can cancel it (D9).
+    func contextMenuDidStartImport(connectionId: String, schema: String, table: String,
+                                   kind: TableJobKind, queryId: String?)
     func contextMenuDidEndImport(connectionId: String, schema: String, table: String)
+    func contextMenuRunningJob(schema: String, table: String) -> (kind: TableJobKind, queryId: String?)?
+    func contextMenuStopJob(schema: String, table: String)
+    /// Whether this job's failure was the user's stop (no alert then).
+    func contextMenuTakeStopped(_ queryId: String?) -> Bool
 }
 
 // MARK: - SchemaContextMenu
@@ -209,13 +216,29 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     guard let self else { return }
                     let isView: Bool = { if case .view = node.kind { return true }; return false }()
                     let sheet = TableDDLSheet(schema: schemaName, table: tableName, ddl: ddl, isView: isView) { [weak self] targetName, includeData, rowScope in
+                        // A DuckDB clone runs in one transaction that the
+                        // source row's stop button can end (D9 phase 2).
+                        let queryId = self?.isDuckDB == true ? UUID().uuidString : nil
+                        if let queryId {
+                            self?.delegate?.contextMenuDidStartImport(connectionId: connectionId, schema: schemaName,
+                                                                      table: tableName, kind: .cloning, queryId: queryId)
+                        }
                         Task {
+                            defer {
+                                if queryId != nil {
+                                    Task { @MainActor in
+                                        self?.delegate?.contextMenuDidEndImport(connectionId: connectionId,
+                                                                                schema: schemaName, table: tableName)
+                                    }
+                                }
+                            }
                             do {
-                                let options = CloneTableOptions(
+                                var options = CloneTableOptions(
                                     sourceSchema: schemaName, sourceTable: tableName,
                                     targetSchema: schemaName, targetTable: targetName,
                                     includeData: includeData, rowScope: rowScope
                                 )
+                                options.queryId = queryId
                                 let result = try await PharosCore.cloneTable(connectionId: connectionId, options: options)
                                 await MainActor.run {
                                     // A partitioned copy is the one outcome that
@@ -231,6 +254,7 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                                 }
                             } catch {
                                 await MainActor.run {
+                                    if self?.delegate?.contextMenuTakeStopped(queryId) == true { return }
                                     self?.showErrorAlert(title: "Clone Failed", message: error.localizedDescription)
                                 }
                             }
@@ -265,8 +289,13 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                                     preselectedFileURL: preselectedFileURL,
                                     settings: AppStateManager.shared.settings.dataImport) { [weak self] options in
             Task { @MainActor in
+                // DuckDB imports can be stopped (D9): the row's stop button.
+                var options = options
+                let queryId = self?.isDuckDB == true ? UUID().uuidString : nil
+                options.queryId = queryId
                 self?.delegate?.contextMenuDidStartImport(
-                    connectionId: connectionId, schema: schemaName, table: tableName
+                    connectionId: connectionId, schema: schemaName, table: tableName,
+                    kind: .importing, queryId: queryId
                 )
                 defer {
                     self?.delegate?.contextMenuDidEndImport(
@@ -279,6 +308,8 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                                         message: ImportOutcomeText.message(for: result))
                     self?.delegate?.contextMenuDidRequestReload()
                 } catch {
+                    // A stop the user asked for is not a failure to report.
+                    if self?.delegate?.contextMenuTakeStopped(queryId) == true { return }
                     self?.showErrorAlert(title: "Import Failed", message: error.localizedDescription)
                 }
             }
@@ -301,6 +332,11 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         var info: [String: Any] = [:]
         if let schema = sender.representedObject as? String { info["schema"] = schema }
         NotificationCenter.default.post(name: .newTableFromFileRequested, object: nil, userInfo: info)
+    }
+
+    @objc private func contextStopJob(_: Any?) {
+        guard let node = clickedNode(), let schema = node.schemaName, let table = node.tableName else { return }
+        delegate?.contextMenuStopJob(schema: schema, table: table)
     }
 
     @objc private func contextRefreshMetadata(_: Any?) {
@@ -329,17 +365,20 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         panel.message = String(localized: "Export \(tableName) as a Parquet file.")
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            Task {
+            let queryId = UUID().uuidString
+            self?.delegate?.contextMenuDidStartImport(connectionId: connectionId, schema: schemaName, table: tableName,
+                                                      kind: .exportingWhole, queryId: queryId)
+            Task { @MainActor in
+                defer {
+                    self?.delegate?.contextMenuDidEndImport(connectionId: connectionId, schema: schemaName, table: tableName)
+                }
                 do {
                     let result = try await PharosCore.exportParquet(connectionId: connectionId, sql: sql,
-                                                                     schema: nil, filePath: url.path)
-                    await MainActor.run {
-                        self?.showInfoAlert(title: "Export Successful", message: ExportOutcomeText.message(for: result))
-                    }
+                                                                     schema: nil, filePath: url.path, queryId: queryId)
+                    self?.showInfoAlert(title: "Export Successful", message: ExportOutcomeText.message(for: result))
                 } catch {
-                    await MainActor.run {
-                        self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
-                    }
+                    if self?.delegate?.contextMenuTakeStopped(queryId) == true { return }
+                    self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
                 }
             }
         }
@@ -362,17 +401,25 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                     let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns,
                                                 settings: AppStateManager.shared.settings.dataExport) { [weak self] options in
                         DataExportSettings.rememberIfAsked(options)
-                        Task {
+                        // The row shows "Exporting: n rows" and a stop button
+                        // (both engines: PostgreSQL stops between batches).
+                        var options = options
+                        let queryId: String? = UUID().uuidString
+                        options.queryId = queryId
+                        self?.delegate?.contextMenuDidStartImport(connectionId: connectionId, schema: schemaName,
+                                                                  table: tableName, kind: .exporting, queryId: queryId)
+                        Task { @MainActor in
+                            defer {
+                                self?.delegate?.contextMenuDidEndImport(connectionId: connectionId, schema: schemaName,
+                                                                        table: tableName)
+                            }
                             do {
                                 let result = try await PharosCore.exportTable(connectionId: connectionId, options: options)
-                                await MainActor.run {
-                                    self?.showInfoAlert(title: "Export Successful",
-                                                        message: ExportOutcomeText.message(for: result))
-                                }
+                                self?.showInfoAlert(title: "Export Successful",
+                                                    message: ExportOutcomeText.message(for: result))
                             } catch {
-                                await MainActor.run {
-                                    self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
-                                }
+                                if self?.delegate?.contextMenuTakeStopped(queryId) == true { return }
+                                self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
                             }
                         }
                     }
@@ -567,6 +614,15 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
                 menu.addItem(refresh)
             }
             return
+        }
+
+        // A running import or export on this row: Cancel comes first (D9).
+        if let schema = node.schemaName, let table = node.tableName,
+           let job = delegate?.contextMenuRunningJob(schema: schema, table: table), job.queryId != nil {
+            let cancel = NSMenuItem(title: job.kind.cancelTitle, action: #selector(contextStopJob), keyEquivalent: "")
+            cancel.target = self
+            menu.addItem(cancel)
+            menu.addItem(.separator())
         }
 
         switch node.kind {

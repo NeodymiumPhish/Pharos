@@ -172,6 +172,27 @@ func runTests() {
     expectTrue(tableCell.toolTip == nil, "prepareForReuse clears the tooltip")
     expectTrue(tableCell.badgeLabelForTesting.isHidden, "prepareForReuse clears the pill")
 
+    // --- D9: a running job's caption, and its stop button ---
+    let jobNode = makeTableNode(name: "events", rows: 10, bytes: nil)
+    jobNode.importingRowCount = 12_000
+    jobNode.job = .exporting
+    jobNode.jobCancellable = true
+    let jobCell = SchemaTreeCellView(identifier: NSUserInterfaceItemIdentifier("cell"))
+    jobCell.configure(node: jobNode)
+    layout(jobCell, width: sidebarWidth, height: 28)
+    expectTrue(jobNode.importingSubtitle == "Exporting: 12,000 rows", "an export says its row count")
+    expectTrue(!jobCell.stopButtonForTesting.isHidden, "a stoppable job shows the stop button")
+    expectTrue(jobCell.stopButtonForTesting.accessibilityLabel() == "Cancel Export", "the stop button says what it stops")
+    expectTrue(placed(jobCell.captionLabelForTesting).maxX <= placed(jobCell.stopButtonForTesting).minX + 0.5,
+               "the caption stops before the stop button")
+    jobNode.job = .casting
+    expectTrue(jobNode.importingSubtitle == "Importing: casting rows…", "the import's last phase says so")
+    jobNode.job = .exportingWhole
+    expectTrue(jobNode.importingSubtitle == "Exporting…", "a Parquet export has no count")
+    jobNode.jobCancellable = false
+    jobCell.configure(node: jobNode)
+    expectTrue(jobCell.stopButtonForTesting.isHidden, "a job that cannot stop shows no button")
+
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) test(s) failed")
     exit(failures == 0 ? 0 : 1)
 }

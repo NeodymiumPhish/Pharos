@@ -20,8 +20,14 @@ class SchemaTreeNode: NSObject {
     var children: [SchemaTreeNode] = []
     var isLoaded = false
     var hasRowCount = false
-    /// Live row count while a CSV import is running into this table. nil when not importing.
+    /// Live row count while an import or an export runs on this table. nil
+    /// when no job runs.
     var importingRowCount: Int64?
+    /// What the running job is (D9); nil with `importingRowCount`.
+    var job: TableJobKind?
+    /// The job can be stopped (a DuckDB job with a query id): the row shows
+    /// a stop button.
+    var jobCancellable = false
     weak var parent: SchemaTreeNode?
     /// Child partition names known from the filter index (set on `.table`/`.partition`
     /// parents at schema load). Used by the filter to match without loading detail.
@@ -159,14 +165,22 @@ class SchemaTreeNode: NSObject {
         return nil
     }
 
-    /// Localized "Importing: 1,151,448" suffix shown next to the subtitle while a CSV import runs.
-    /// nil when no import is active.
+    /// The suffix shown next to the subtitle while a job runs: "Importing:
+    /// 1,151,448", "Importing: casting rows…", "Exporting: 12,000 rows", or
+    /// "Exporting…" for a Parquet export (no row count until it ends). nil
+    /// when no job runs.
     var importingSubtitle: String? {
         guard let count = importingRowCount else { return nil }
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         let formatted = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-        return "Importing: \(formatted)"
+        switch job ?? .importing {
+        case .importing: return "Importing: \(formatted)"
+        case .casting: return String(localized: "Importing: casting rows…")
+        case .exporting: return String(localized: "Exporting: \(formatted) rows")
+        case .exportingWhole: return String(localized: "Exporting…")
+        case .cloning: return String(localized: "Cloning…")
+        }
     }
 
     var icon: NSImage? {
@@ -231,6 +245,27 @@ class SchemaTreeNode: NSObject {
             return String(format: "%.1fK rows", Double(count) / 1_000)
         } else {
             return "\(count) rows"
+        }
+    }
+}
+
+/// A Database Navigator job on a table (D9).
+enum TableJobKind: Equatable {
+    case importing
+    /// The import's last phase: the one INSERT … SELECT that casts the rows.
+    case casting
+    case exporting
+    /// A Parquet export: DuckDB writes it in one statement, with no row count.
+    case exportingWhole
+    /// A clone from this table, in one DuckDB transaction.
+    case cloning
+
+    /// The stop button's title and the row menu's first item.
+    var cancelTitle: String {
+        switch self {
+        case .importing, .casting: return String(localized: "Cancel Import")
+        case .exporting, .exportingWhole: return String(localized: "Cancel Export")
+        case .cloning: return String(localized: "Cancel Clone")
         }
     }
 }

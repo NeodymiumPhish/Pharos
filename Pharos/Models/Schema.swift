@@ -262,6 +262,8 @@ struct CloneTableOptions: Codable {
     let includeData: Bool
     /// Ignored unless `includeData`.
     let rowScope: CloneRowScope
+    /// Makes a DuckDB clone cancellable (`PharosCore.cancelQuery`).
+    var queryId: String? = nil
 }
 
 struct CloneTableResult: Codable {
@@ -280,6 +282,8 @@ struct ExportTableOptions: Codable {
     /// The CSV shape this export asks for, from `AppSettings.dataExport`.
     /// Read by the CSV/TSV branch of `stream_export` in pharos-core.
     let csv: CsvDialect
+    /// Makes a DuckDB export cancellable (`PharosCore.cancelQuery`).
+    var queryId: String? = nil
 }
 
 struct ExportTableResult: Codable {
@@ -301,6 +305,8 @@ struct ImportCsvOptions: Codable {
     let onError: ImportErrorPolicy
     /// Rows per transaction. 0 is one transaction for the whole file.
     let commitEvery: UInt32
+    /// Makes a DuckDB import cancellable (`PharosCore.cancelQuery`).
+    var queryId: String? = nil
 }
 
 struct ImportCsvResult: Codable {

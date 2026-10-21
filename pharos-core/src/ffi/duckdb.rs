@@ -76,7 +76,7 @@ pub extern "C" fn pharos_duckdb_vocabulary(
 }
 
 /// Export a query to Parquet with DuckDB's own writer.
-/// `options_json`: `{"sql": "...", "schema": "main" | null, "filePath": "/abs/x.parquet"}`.
+/// `options_json`: `{"sql": "...", "schema": "main" | null, "filePath": "/abs/x.parquet", "queryId": "…" | null}`.
 /// Returns `ExportTableResult` JSON via callback.
 #[no_mangle]
 pub extern "C" fn pharos_export_parquet(
@@ -97,6 +97,9 @@ pub extern "C" fn pharos_export_parquet(
         #[serde(default)]
         schema: Option<String>,
         file_path: String,
+        /// Makes the export cancellable through `pharos_cancel_query`.
+        #[serde(default)]
+        query_id: Option<String>,
     }
 
     ffi_spawn!(callback, context, async move {
@@ -104,7 +107,7 @@ pub extern "C" fn pharos_export_parquet(
             Ok(o) => o,
             Err(e) => return callback_err(callback, ctx, &format!("Invalid options: {}", e)),
         };
-        match crate::commands::duck::export_parquet(id, options.sql, options.schema, options.file_path, state).await {
+        match crate::commands::duck::export_parquet(id, options.sql, options.schema, options.file_path, options.query_id, state).await {
             Ok(result) => callback_ok(callback, ctx, &serde_json::to_string(&result).unwrap_or_default()),
             Err(e) => callback_err(callback, ctx, &e),
         }

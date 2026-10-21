@@ -18,6 +18,12 @@ class SchemaTreeCellView: NSTableCellView {
     private let primaryLabel = NSTextField(labelWithString: "")
     private let badgeLabel = NSTextField(labelWithString: "")
     private let secondaryLabel = NSTextField(labelWithString: "")
+    /// Stops the row's import or export (D9). Shown only while a job that
+    /// can be stopped runs; it posts `.tableJobStopRequested` with the node.
+    private let stopButton = NSButton()
+    private weak var node: SchemaTreeNode?
+    /// Active while the stop button shows: the caption stops before it.
+    private var secondaryTrailingToStop: NSLayoutConstraint!
 
     /// Active when a partition badge is shown: the caption stops before the badge.
     private var secondaryTrailingToBadge: NSLayoutConstraint!
@@ -76,15 +82,29 @@ class SchemaTreeCellView: NSTableCellView {
             .init(rawValue: NSLayoutConstraint.Priority.defaultLow.rawValue - 1), for: .horizontal)
         secondaryLabel.wantsLayer = true
 
+        stopButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)
+        stopButton.imageScaling = .scaleProportionallyDown
+        stopButton.isBordered = false
+        stopButton.bezelStyle = .regularSquare
+        stopButton.contentTintColor = .secondaryLabelColor
+        stopButton.target = self
+        stopButton.action = #selector(stopPressed)
+        stopButton.isHidden = true
+        stopButton.translatesAutoresizingMaskIntoConstraints = false
+        stopButton.setAccessibilityIdentifier("schema.row.stopJob")
+
         addSubview(iconView)
         addSubview(primaryLabel)
         addSubview(secondaryLabel)
         addSubview(badgeLabel)
+        addSubview(stopButton)
 
         secondaryTrailingToBadge = secondaryLabel.trailingAnchor.constraint(
             equalTo: badgeLabel.leadingAnchor, constant: -6)
         secondaryTrailingToCell = secondaryLabel.trailingAnchor.constraint(
             equalTo: trailingAnchor, constant: -4)
+        secondaryTrailingToStop = secondaryLabel.trailingAnchor.constraint(
+            equalTo: stopButton.leadingAnchor, constant: -4)
         secondaryMinimumWidth = secondaryLabel.widthAnchor.constraint(
             greaterThanOrEqualToConstant: Self.minimumCaptionWidth)
         // Below required, so an absurdly narrow sidebar collapses the caption
@@ -106,6 +126,11 @@ class SchemaTreeCellView: NSTableCellView {
 
             badgeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             badgeLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            stopButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stopButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stopButton.widthAnchor.constraint(equalToConstant: 14),
+            stopButton.heightAnchor.constraint(equalToConstant: 14),
         ])
         // Default (no badge) trailing constraint; configure() swaps as needed.
         secondaryTrailingToCell.isActive = true
@@ -119,13 +144,30 @@ class SchemaTreeCellView: NSTableCellView {
         // this is where they went.
         toolTip = node.tooltip
 
-        if let badge = node.partitionBadge {
+        self.node = node
+        let stoppable = node.jobCancellable && node.importingRowCount != nil
+        stopButton.isHidden = !stoppable
+        if stoppable {
+            let title = (node.job ?? .importing).cancelTitle
+            stopButton.toolTip = title
+            stopButton.setAccessibilityLabel(title)
+        }
+        if stoppable {
+            // The stop button takes the trailing place; a partition pill
+            // waits until the job ends.
+            badgeLabel.isHidden = true
+            secondaryTrailingToBadge.isActive = false
+            secondaryTrailingToCell.isActive = false
+            secondaryTrailingToStop.isActive = true
+        } else if let badge = node.partitionBadge {
+            secondaryTrailingToStop.isActive = false
             badgeLabel.stringValue = " \(badge) "
             badgeLabel.isHidden = false
             secondaryTrailingToCell.isActive = false
             secondaryTrailingToBadge.isActive = true
             renderBadge()
         } else {
+            secondaryTrailingToStop.isActive = false
             badgeLabel.isHidden = true
             secondaryTrailingToBadge.isActive = false
             secondaryTrailingToCell.isActive = true
@@ -157,6 +199,11 @@ class SchemaTreeCellView: NSTableCellView {
         } else {
             primaryLabel.textColor = .labelColor
         }
+    }
+
+    @objc private func stopPressed() {
+        guard let node else { return }
+        NotificationCenter.default.post(name: .tableJobStopRequested, object: node)
     }
 
     /// Colour the badge as an accent-tinted pill, switching to a light-on-selection
@@ -271,7 +318,10 @@ class SchemaTreeCellView: NSTableCellView {
         toolTip = nil
         badgeLabel.isHidden = true
         badgeLabel.stringValue = ""
+        stopButton.isHidden = true
+        node = nil
         secondaryTrailingToBadge.isActive = false
+        secondaryTrailingToStop.isActive = false
         secondaryTrailingToCell.isActive = true
     }
 
@@ -283,4 +333,10 @@ class SchemaTreeCellView: NSTableCellView {
     var captionLabelForTesting: NSTextField { secondaryLabel }
     var badgeLabelForTesting: NSTextField { badgeLabel }
     var iconViewForTesting: NSImageView { iconView }
+    var stopButtonForTesting: NSButton { stopButton }
+}
+
+extension Notification.Name {
+    /// A schema row's stop button: object is the row's `SchemaTreeNode`.
+    static let tableJobStopRequested = Notification.Name("PharosTableJobStopRequested")
 }

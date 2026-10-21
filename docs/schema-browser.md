@@ -49,7 +49,11 @@ When a name is too long for the row, the **name** truncates and the caption keep
 
 **Hover a table** for its exact row count and its size on disk ("1,234,567 rows · 88 MB"); the [Inspector](inspector.md) shows the same figures, and lists the table's columns.
 
-During a CSV import, the target table's row shows a live "Importing: N" progress counter.
+While an import, an export or a clone runs, the table's row shows its progress: "Importing: N", "Importing: casting rows…" (the last step of a DuckDB import), "Exporting: N rows", "Exporting…" (a Parquet export, which has no count until it ends) or "Cloning…". A job that can stop has a stop button (**ⓧ**) at the end of the row, and **Cancel Import**, **Cancel Export** or **Cancel Clone** is the first item of the row's menu. A stopped job shows no error:
+
+- An export stops and writes no file. If a file with that name was there, it is not changed. A PostgreSQL export stops after the batch it is reading.
+- A DuckDB import stops and inserts no rows.
+- A DuckDB clone stops and leaves no new table.
 
 ## Nothing Connected
 

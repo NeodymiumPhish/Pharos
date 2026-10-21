@@ -85,13 +85,16 @@ extension PharosCore {
     }
 
     /// Write a query's whole result to a Parquet file with DuckDB's own writer.
-    static func exportParquet(connectionId: String, sql: String, schema: String?, filePath: String) async throws -> ExportTableResult {
+    static func exportParquet(connectionId: String, sql: String, schema: String?, filePath: String,
+                              queryId: String? = nil) async throws -> ExportTableResult {
         struct Options: Encodable {
             let sql: String
             let schema: String?
             let filePath: String
+            let queryId: String?
         }
-        let json = String(data: try JSONEncoder().encode(Options(sql: sql, schema: schema, filePath: filePath)), encoding: .utf8) ?? "{}"
+        let json = String(data: try JSONEncoder().encode(Options(sql: sql, schema: schema, filePath: filePath, queryId: queryId)),
+                          encoding: .utf8) ?? "{}"
         return try await withAsyncCallback { callback, context in
             connectionId.withCString { cId in
                 json.withCString { cJson in

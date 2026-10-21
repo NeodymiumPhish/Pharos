@@ -332,9 +332,10 @@ fn export_type(duck: &str) -> String {
 async fn export_statement(state: &AppState, connection_id: &str, schema: Option<String>, statement: String,
                           file_path: String, format: crate::models::ExportFormat, insert_target: String,
                           null_as_empty: bool, include_headers: bool, dialect: crate::models::CsvDialect,
+                          query_id: Option<String>,
                           progress: Option<Box<dyn Fn(u64, bool) + Send>>) -> Result<ExportTableResult, String> {
     let batch = state.settings().data_export.batch_size as i64;
-    on_fresh(state, connection_id, schema, None, 0, move |c| {
+    on_fresh(state, connection_id, schema, query_id, 0, move |c| {
         let pager = |offset: i64, limit: i64| -> Result<TextPage, String> {
             let page = exec::rows_of(c, &statement, Some(limit as usize), offset as usize)?;
             if !page.pageable && offset > 0 {
@@ -361,7 +362,7 @@ pub async fn export_query(connection_id: String, options: ExportQueryOptions, st
     validate_file_path(&options.file_path)?;
     let statement = exec::statements(&options.sql).pop().ok_or_else(|| "There is no statement to export.".to_string())?;
     export_statement(state, &connection_id, options.schema, statement, options.file_path, options.format,
-                     "\"_query_results\"".to_string(), true, true, options.csv, progress).await
+                     "\"_query_results\"".to_string(), true, true, options.csv, None, progress).await
 }
 
 pub async fn export_table(connection_id: String, options: ExportTableOptions, state: &AppState) -> Result<ExportTableResult, String> {
@@ -380,16 +381,21 @@ pub async fn export_table(connection_id: String, options: ExportTableOptions, st
     .await?;
     let list = if columns.is_empty() { "*".to_string() } else { columns.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ") };
     let statement = format!("SELECT {} FROM {}", list, target);
+    // The Database Navigator row shows "Exporting: n" from this counter, and
+    // its stop button cancels `query_id` (D9).
+    let (progress, _guard) = state.track_table_job(crate::state::table_job_key(
+        &connection_id, &options.schema_name, &options.table_name));
     export_statement(state, &connection_id, None, statement, options.file_path, options.format, insert_target,
-                     options.null_as_empty, options.include_headers, options.csv, None).await
+                     options.null_as_empty, options.include_headers, options.csv, options.query_id,
+                     Some(Box::new(move |rows, _| progress.store(rows, Ordering::Relaxed)))).await
 }
 
 /// Write a whole query to Parquet with DuckDB's own writer.
 pub async fn export_parquet(connection_id: String, sql: String, schema: Option<String>, file_path: String,
-                            state: &AppState) -> Result<ExportTableResult, String> {
+                            query_id: Option<String>, state: &AppState) -> Result<ExportTableResult, String> {
     validate_file_path(&file_path)?;
     let statement = exec::statements(&sql).pop().ok_or_else(|| "There is no statement to export.".to_string())?;
-    let rows = on_fresh(state, &connection_id, schema, None, 0, move |c| {
+    let rows = on_fresh(state, &connection_id, schema, query_id, 0, move |c| {
         let sql = format!(
             "COPY ({}) TO '{}' (FORMAT parquet, COMPRESSION zstd)",
             statement,
@@ -418,19 +424,21 @@ pub async fn validate_csv(connection_id: String, schema: String, table: String, 
 pub async fn import_csv(connection_id: String, options: ImportCsvOptions, state: &AppState) -> Result<ImportCsvResult, String> {
     state.require_writable(&connection_id)?;
     validate_file_path(&options.file_path)?;
-    let progress_key = format!("{}|{}|{}", connection_id, options.schema_name, options.table_name);
-    let progress = state.register_import_progress(progress_key.clone());
-    struct Guard<'a>(&'a AppState, String);
-    impl Drop for Guard<'_> {
-        fn drop(&mut self) {
-            self.0.unregister_import_progress(&self.1);
-        }
-    }
-    let _guard = Guard(state, progress_key);
+    let key = crate::state::table_job_key(&connection_id, &options.schema_name, &options.table_name);
+    let (progress, _guard) = state.track_table_job(key.clone());
+    // The phase, polled beside the count: 0 while rows are read, 1 while the
+    // one INSERT … SELECT casts them ("Importing: casting rows…", D9).
+    let (phase, _phase_guard) = state.track_table_job(format!("{}|phase", key));
+    // Cancellable: the stop button cancels `query_id`; the row loop checks the
+    // flag, and the final INSERT is interrupted, then rolled back.
+    let registered = state.register_query(options.query_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()));
+    let cancel = registered.cancel.clone();
+    let cancel_in_loop = registered.cancel.clone();
 
     let instance = state.require_duck(&connection_id)?;
-    tokio::task::spawn_blocking(move || -> Result<ImportCsvResult, String> {
-        let c = instance.connect()?;
+    let c = instance.connect()?;
+    let interrupt = c.interrupt_handle();
+    exec::run_cancellable(interrupt, &cancel, 0, move || -> Result<ImportCsvResult, String> {
         let cols = catalog::columns(&c, &options.schema_name, &options.table_name)?;
         if cols.is_empty() {
             return Err(format!("No table {}.{}", options.schema_name, options.table_name));
@@ -480,6 +488,10 @@ pub async fn import_csv(connection_id: String, options: ImportCsvOptions, state:
                     .map_err(|e| format!("Failed to stage row {}: {}", row, e))?;
                 read += 1;
                 progress.store(read, Ordering::Relaxed);
+                if read % 1000 == 0 && cancel_in_loop.is_cancelled() {
+                    let _ = c.execute_batch("DROP TABLE IF EXISTS _pharos_import");
+                    return Err(crate::commands::query::QUERY_CANCELLED.to_string());
+                }
             }
             appender.flush().map_err(|e| e.to_string())?;
         }
@@ -500,6 +512,7 @@ pub async fn import_csv(connection_id: String, options: ImportCsvOptions, state:
             String::new()
         };
         let insert = format!("INSERT INTO {} ({}) SELECT {} FROM _pharos_import{}", target, names.join(", "), casts.join(", "), filter);
+        phase.store(1, Ordering::Relaxed);
         c.execute_batch("BEGIN").map_err(|e| e.to_string())?;
         let inserted = match c.execute(&insert, []) {
             Ok(n) => n as u64,
@@ -516,14 +529,35 @@ pub async fn import_csv(connection_id: String, options: ImportCsvOptions, state:
         Ok(ImportCsvResult { success: true, rows_imported: inserted, rows_skipped: skipped + cast_skipped, errors, committed_batches: 0 })
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(exec::RunStop::message)
 }
 
 /// Clone a table. "With constraints" re-runs the DDL DuckDB stored for the
 /// source under the new name; the rows follow with `INSERT … SELECT`.
 pub async fn clone_table(connection_id: String, options: CloneTableOptions, state: &AppState) -> Result<CloneTableResult, String> {
     state.require_writable(&connection_id)?;
-    catalog_read(state, &connection_id, move |c| {
+    // One transaction on a fresh connection, stoppable by `query_id` (D9
+    // phase 2): a stopped or failed copy leaves no half-made table behind.
+    let query_id = options.query_id.clone();
+    on_fresh(state, &connection_id, None, query_id, 0, move |c| {
+        c.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+        let outcome = clone_in_transaction(c, &options);
+        match outcome {
+            Ok(done) => {
+                c.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+                Ok(done)
+            }
+            Err(e) => {
+                let _ = c.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    })
+    .await
+}
+
+fn clone_in_transaction(c: &Connection, options: &CloneTableOptions) -> Result<CloneTableResult, String> {
+    {
         let source = qualified(c, &options.source_schema, &options.source_table)?;
         let target = qualified(c, &options.target_schema, &options.target_table)?;
         let cols = catalog::columns(c, &options.source_schema, &options.source_table)?;
@@ -550,8 +584,7 @@ pub async fn clone_table(connection_id: String, options: CloneTableOptions, stat
             None
         };
         Ok(CloneTableResult { success: true, rows_copied: rows })
-    })
-    .await
+    }
 }
 
 #[cfg(test)]
@@ -795,6 +828,94 @@ mod tests {
         assert!(!test(bad, None).await.unwrap().success);
     }
 
+    /// D9: an import's query id cancels it; nothing is inserted, and the
+    /// progress entries are gone afterwards.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_import_can_be_cancelled() {
+        let state = std::sync::Arc::new(state_with("d", IN_MEMORY));
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        execute_statement("d".into(), "CREATE TABLE big (id INTEGER, v VARCHAR)".into(), None, None, &state).await.unwrap();
+        let csv_path = temp("big", "csv");
+        let mut text = String::from("id,v\n");
+        for i in 0..400_000 { text.push_str(&format!("{i},value {i}\n")); }
+        std::fs::write(&csv_path, text).unwrap();
+        let s2 = state.clone();
+        let path2 = csv_path.clone();
+        let job = tokio::spawn(async move {
+            import_csv("d".into(), serde_json::from_value(serde_json::json!({
+                "schemaName": "main", "tableName": "big", "filePath": path2, "hasHeaders": true, "queryId": "imp-1"
+            })).unwrap(), &s2).await
+        });
+        // Wait for rows to move, then cancel.
+        let key = crate::state::table_job_key("d", "main", "big");
+        for _ in 0..200 {
+            if state.get_import_progress(&key).unwrap_or(0) > 0 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(crate::commands::cancel_query("d".into(), "imp-1".into(), &state).await.unwrap(), "the import is registered");
+        let outcome = job.await.unwrap();
+        assert_eq!(outcome.err().as_deref(), Some(crate::commands::query::QUERY_CANCELLED));
+        let r = execute_query("d".into(), "SELECT count(*) FROM big".into(), None, None, None, None, &state).await.unwrap();
+        assert_eq!(r.rows, vec![serde_json::json!(["0"])], "nothing inserted");
+        assert!(state.get_import_progress(&key).is_none() && state.get_import_progress(&format!("{key}|phase")).is_none());
+        let _ = std::fs::remove_file(&csv_path);
+    }
+
+    /// D9 phase 2: a stopped clone leaves no half-made table.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_stopped_clone_leaves_no_table() {
+        let state = std::sync::Arc::new(state_with("d", IN_MEMORY));
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        execute_statement("d".into(), "CREATE TABLE src AS SELECT range AS id, md5(range::VARCHAR) AS v FROM range(20000000)".into(),
+                          None, None, &state).await.unwrap();
+        let s2 = state.clone();
+        let job = tokio::spawn(async move {
+            clone_table("d".into(), serde_json::from_value(serde_json::json!({
+                "sourceSchema": "main", "sourceTable": "src", "targetSchema": "main", "targetTable": "dst",
+                "includeData": true, "queryId": "clone-1"
+            })).unwrap(), &s2).await
+        });
+        let mut cancelled = false;
+        for _ in 0..400 {
+            if crate::commands::cancel_query("d".into(), "clone-1".into(), &state).await.is_ok() { cancelled = true; break; }
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        assert!(cancelled, "the clone registered its query id");
+        let outcome = job.await.unwrap();
+        assert_eq!(outcome.err().as_deref(), Some(crate::commands::query::QUERY_CANCELLED));
+        let r = execute_query("d".into(), "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'dst'".into(),
+                              None, None, None, None, &state).await.unwrap();
+        assert_eq!(r.rows, vec![serde_json::json!(["0"])], "the CREATE was rolled back with the copy");
+    }
+
+    /// D9: an export's query id cancels it; the target is never written (D8).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_export_can_be_cancelled() {
+        let state = std::sync::Arc::new(state_with("d", IN_MEMORY));
+        connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        execute_statement("d".into(), "CREATE TABLE big AS SELECT range AS id, repeat('x', 50) AS v FROM range(3000000)".into(),
+                          None, None, &state).await.unwrap();
+        let csv_path = temp("bigout", "csv");
+        let s2 = state.clone();
+        let path2 = csv_path.clone();
+        let job = tokio::spawn(async move {
+            export_table("d".into(), serde_json::from_value(serde_json::json!({
+                "schemaName": "main", "tableName": "big", "columns": [], "includeHeaders": true,
+                "nullAsEmpty": true, "filePath": path2, "format": "csv", "queryId": "exp-1"
+            })).unwrap(), &s2).await
+        });
+        let key = crate::state::table_job_key("d", "main", "big");
+        for _ in 0..400 {
+            if state.get_import_progress(&key).unwrap_or(0) > 0 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(state.get_import_progress(&key).unwrap_or(0) > 0, "the row shows the export's progress");
+        assert!(crate::commands::cancel_query("d".into(), "exp-1".into(), &state).await.unwrap());
+        assert!(job.await.unwrap().is_err(), "a cancelled export fails");
+        assert!(!std::path::Path::new(&csv_path).exists(), "no file was written");
+        assert!(state.get_import_progress(&key).is_none());
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn export_import_round_trip_and_clone() {
         let state = state_with("d", IN_MEMORY);
@@ -865,7 +986,7 @@ mod tests {
         assert_eq!((imported.rows_imported, imported.rows_skipped), (1, 1));
 
         let parquet = temp("export", "parquet");
-        let p = export_parquet("d".into(), "SELECT * FROM src".into(), None, parquet.clone(), &state).await.unwrap();
+        let p = export_parquet("d".into(), "SELECT * FROM src".into(), None, parquet.clone(), None, &state).await.unwrap();
         assert_eq!(p.rows_exported, 3);
         let back = execute_query("d".into(), format!("SELECT count(*) FROM '{}'", parquet), None, None, None, None, &state).await.unwrap();
         assert_eq!(back.rows, vec![serde_json::json!(["3"])]);

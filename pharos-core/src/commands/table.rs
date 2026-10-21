@@ -172,6 +172,9 @@ pub struct CloneTableOptions {
     /// what an older or partial caller gets.
     #[serde(default)]
     pub row_scope: CloneRowScope,
+    /// Makes a DuckDB clone cancellable through `pharos_cancel_query`.
+    #[serde(default)]
+    pub query_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -483,6 +486,9 @@ pub struct ImportCsvOptions {
     /// is what the importer did before this existed.
     #[serde(default)]
     pub commit_every: u32,
+    /// Makes the import cancellable through `pharos_cancel_query` (DuckDB).
+    #[serde(default)]
+    pub query_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -530,19 +536,8 @@ pub async fn import_csv(
     validate_identifier(&options.table_name)?;
 
     // Register live progress counter so the UI can poll row count.
-    let progress_key = format!("{}|{}|{}", connection_id, options.schema_name, options.table_name);
-    let progress = state.register_import_progress(progress_key.clone());
-    // RAII guard: ensure counter is removed on every exit path.
-    struct ProgressGuard<'a> {
-        state: &'a AppState,
-        key: String,
-    }
-    impl<'a> Drop for ProgressGuard<'a> {
-        fn drop(&mut self) {
-            self.state.unregister_import_progress(&self.key);
-        }
-    }
-    let _guard = ProgressGuard { state, key: progress_key };
+    let (progress, _guard) = state.track_table_job(crate::state::table_job_key(
+        &connection_id, &options.schema_name, &options.table_name));
 
     // Get table columns for ordering
     let columns = postgres::get_columns(&pool, &options.schema_name, &options.table_name)
@@ -767,6 +762,9 @@ pub struct ExportTableOptions {
     /// client's JSON decoding, at today's behaviour.
     #[serde(default)]
     pub csv: CsvDialect,
+    /// Makes the export cancellable through `pharos_cancel_query` (DuckDB).
+    #[serde(default)]
+    pub query_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -827,6 +825,12 @@ pub async fn export_table(
 
     let mut conn = pool.acquire().await.map_err(|e| e.to_string())?;
 
+    // The Database Navigator row shows "Exporting: n" from this counter, and
+    // its stop button ends the export between batches.
+    let (progress, _guard) = state.track_table_job(crate::state::table_job_key(
+        &connection_id, &options.schema_name, &options.table_name));
+    let registered = options.query_id.clone().map(|id| state.register_query(id));
+    let cancel = registered.as_ref().map(|r| r.cancel.clone());
     stream_export(
         &mut conn,
         &select_sql,
@@ -837,7 +841,8 @@ pub async fn export_table(
         options.include_headers,
         &options.csv,
         state.settings().data_export.batch_size as i64,
-        None,
+        Some(Box::new(move |rows, _| progress.store(rows, std::sync::atomic::Ordering::Relaxed))),
+        cancel,
     )
     .await
 }
@@ -974,6 +979,7 @@ pub async fn export_query(
         &options.csv,
         state.settings().data_export.batch_size as i64,
         progress_callback,
+        None,
     )
     .await
 }
@@ -1002,10 +1008,11 @@ async fn stream_export(
     dialect: &CsvDialect,
     batch_size: i64,
     progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
+    cancel: Option<std::sync::Arc<crate::state::QueryCancel>>,
 ) -> Result<ExportTableResult, String> {
     let tmp = export_temp_path(file_path);
     let result = stream_export_into(conn, base_sql, &tmp.to_string_lossy(), format, sql_insert_target, null_as_empty,
-                                    include_headers, dialect, batch_size, progress_callback).await;
+                                    include_headers, dialect, batch_size, progress_callback, cancel).await;
     finish_export(&tmp, file_path, result)
 }
 
@@ -1042,7 +1049,9 @@ fn finish_export(tmp: &std::path::Path, target: &str, result: Result<ExportTable
             } else {
                 "No file was written."
             };
-            Err(format!("{} {}", e, note))
+            // "Query was cancelled" has no full stop of its own.
+            let sentence = if e.trim_end().ends_with(['.', '!', '?']) { e } else { format!("{}.", e.trim_end()) };
+            Err(format!("{} {}", sentence, note))
         }
     }
 }
@@ -1059,6 +1068,7 @@ async fn stream_export_into(
     dialect: &CsvDialect,
     batch_size: i64,
     progress_callback: Option<Box<dyn Fn(u64, bool) + Send>>,
+    cancel: Option<std::sync::Arc<crate::state::QueryCancel>>,
 ) -> Result<ExportTableResult, String> {
     use futures::StreamExt;
 
@@ -1257,6 +1267,11 @@ async fn stream_export_into(
         // Report progress
         if let Some(ref cb) = progress_callback {
             cb(total_exported, false);
+        }
+        // A stop between batches (D9 phase 2): the batch in flight finishes,
+        // then the export ends and its temp file goes (finish_export).
+        if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+            return Err(crate::commands::query::QUERY_CANCELLED.to_string());
         }
 
         // If batch was smaller than limit, we've reached the end
@@ -2037,6 +2052,45 @@ mod live_import_tests {
         std::env::var("PHAROS_TEST_DATABASE_URL").unwrap_or_else(|_| DEFAULT_URL.to_string())
     }
 
+    /// D9 phase 2: a PostgreSQL export stops between batches when its query
+    /// id is cancelled, and leaves no file.
+    #[test]
+    #[ignore = "needs a live PostgreSQL"]
+    fn a_postgres_export_stops_between_batches() {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let pool = live_pool(&url()).await;
+            sqlx::raw_sql("DROP TABLE IF EXISTS public.pharos_export_stop; \
+                           CREATE TABLE public.pharos_export_stop AS SELECT g AS id, repeat('x', 40) AS v FROM generate_series(1, 400000) g")
+                .execute(&pool).await.expect("table");
+            let state = std::sync::Arc::new(AppState::new(SqliteConnection::open_in_memory().expect("sqlite")));
+            state.add_pool("live-export".to_string(), pool.clone());
+            let mut settings = (*state.settings()).clone();
+            settings.data_export.batch_size = 1000;
+            state.replace_settings(settings);
+            let out = write_csv("pharos_export_stop.csv", "");
+            remove_csv("pharos_export_stop.csv");
+            let s2 = state.clone();
+            let out2 = out.clone();
+            let job = tokio::spawn(async move {
+                export_table("live-export".into(), serde_json::from_value(serde_json::json!({
+                    "schemaName": "public", "tableName": "pharos_export_stop", "columns": [], "includeHeaders": true,
+                    "nullAsEmpty": true, "filePath": out2, "format": "csv", "queryId": "pg-exp-1"
+                })).unwrap(), &s2).await
+            });
+            let key = crate::state::table_job_key("live-export", "public", "pharos_export_stop");
+            for _ in 0..500 {
+                if state.get_import_progress(&key).unwrap_or(0) > 0 { break; }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            assert!(crate::commands::cancel_query("live-export".into(), "pg-exp-1".into(), &state).await.unwrap());
+            let outcome = job.await.unwrap();
+            assert_eq!(outcome.err().as_deref(), Some("Query was cancelled. No file was written."));
+            assert!(!std::path::Path::new(&out).exists(), "no file was written");
+            sqlx::raw_sql("DROP TABLE public.pharos_export_stop").execute(&pool).await.ok();
+        });
+    }
+
     /// skipRow leaves n−1 rows: one duplicate key is rolled back to its
     /// savepoint and the rows after it still land.
     #[test]
@@ -2066,6 +2120,7 @@ mod live_import_tests {
                     csv: CsvDialect::default(),
                     on_error: ImportErrorPolicy::SkipRow,
                     commit_every: 0,
+                    query_id: None,
                 },
                 &state,
             )
@@ -2112,6 +2167,7 @@ mod live_import_tests {
                     csv: CsvDialect::default(),
                     on_error: ImportErrorPolicy::Abort,
                     commit_every: 2,
+                    query_id: None,
                 },
                 &state,
             )
@@ -2143,6 +2199,7 @@ mod clone_sql_tests {
             target_table: "dns_log_copy".into(),
             include_data: false,
             row_scope: CloneRowScope::OwnRows,
+            query_id: None,
         }
     }
 
@@ -2305,6 +2362,7 @@ mod live_clone_tests {
             target_table: target.to_string(),
             include_data: false,
             row_scope: CloneRowScope::OwnRows,
+            query_id: None,
         }
     }
 

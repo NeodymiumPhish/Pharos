@@ -37,6 +37,10 @@ class SchemaBrowserVC: NSViewController {
 
     /// Imports currently in progress: `(connectionId, schema, table)`.
     private var activeImports: Set<ImportKey> = []
+    /// What each running table job is, and the query id that stops it (D9).
+    private var jobs: [ImportKey: (kind: TableJobKind, queryId: String?)] = [:]
+    /// Jobs the user stopped: their "Cancelled" error shows no alert.
+    private(set) var stoppedJobQueryIds: Set<String> = []
     private var importPollTimer: Timer?
 
     private struct ImportKey: Hashable {
@@ -154,6 +158,10 @@ class SchemaBrowserVC: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        // A row's stop button (D9).
+        NotificationCenter.default.addObserver(self, selector: #selector(stopRequested(_:)),
+                                               name: .tableJobStopRequested, object: nil)
 
         // Refresh the tree when a setting that changes its SHAPE changes:
         // "Show Leaf Partitions" adds or removes the Partitions group, and
@@ -494,22 +502,54 @@ class SchemaBrowserVC: NSViewController {
     // MARK: - Import Progress API
 
     /// Begin tracking an in-progress CSV import. Starts the polling timer if needed.
-    func beginImportTracking(connectionId: String, schema: String, table: String) {
+    func beginImportTracking(connectionId: String, schema: String, table: String,
+                             kind: TableJobKind = .importing, queryId: String? = nil) {
         let key = ImportKey(connectionId: connectionId, schema: schema, table: table)
         activeImports.insert(key)
+        jobs[key] = (kind, queryId)
         if let node = findTableNode(connectionId: connectionId, schema: schema, table: table) {
             node.importingRowCount = 0
+            node.job = kind
+            node.jobCancellable = queryId != nil
             reloadDisplayNode(matching: node)
         }
         startImportPollTimer()
+    }
+
+    /// The job running on a table, for the row menu's Cancel item.
+    func runningJob(schema: String, table: String) -> (kind: TableJobKind, queryId: String?)? {
+        guard let connectionId else { return nil }
+        return jobs[ImportKey(connectionId: connectionId, schema: schema, table: table)]
+    }
+
+    /// Stop a table's job: cancel its query. Its error shows no alert.
+    func stopJob(schema: String, table: String) {
+        guard let connectionId, let queryId = jobs[ImportKey(connectionId: connectionId, schema: schema, table: table)]?.queryId
+        else { return }
+        stoppedJobQueryIds.insert(queryId)
+        Task { _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: queryId) }
+    }
+
+    /// Whether this job's failure is the user's own stop (then: no alert).
+    func takeStopped(_ queryId: String?) -> Bool {
+        guard let queryId else { return false }
+        return stoppedJobQueryIds.remove(queryId) != nil
+    }
+
+    @objc private func stopRequested(_ note: Notification) {
+        guard let node = note.object as? SchemaTreeNode, let schema = node.schemaName, let table = node.tableName else { return }
+        stopJob(schema: schema, table: table)
     }
 
     /// Stop tracking an import. Clears the row counter and stops the timer when none remain.
     func endImportTracking(connectionId: String, schema: String, table: String) {
         let key = ImportKey(connectionId: connectionId, schema: schema, table: table)
         activeImports.remove(key)
+        jobs[key] = nil
         if let node = findTableNode(connectionId: connectionId, schema: schema, table: table) {
             node.importingRowCount = nil
+            node.job = nil
+            node.jobCancellable = false
             reloadDisplayNode(matching: node)
         }
         if activeImports.isEmpty {
@@ -534,10 +574,20 @@ class SchemaBrowserVC: NSViewController {
                 connectionId: key.connectionId, schema: key.schema, table: key.table
             )
             guard let node = findTableNode(connectionId: key.connectionId, schema: key.schema, table: key.table) else { continue }
+            // The row may have been rebuilt (a refresh): the job follows it.
+            var kind = jobs[key]?.kind ?? .importing
+            if kind == .importing || kind == .casting {
+                let phase = PharosCore.getImportProgress(connectionId: key.connectionId, schema: key.schema,
+                                                         table: key.table, phase: true)
+                kind = phase == 1 ? .casting : .importing
+            }
             // Only update display if the value changed.
             let newValue: Int64 = count ?? 0
-            if node.importingRowCount != newValue {
+            let cancellable = jobs[key]?.queryId != nil
+            if node.importingRowCount != newValue || node.job != kind || node.jobCancellable != cancellable {
                 node.importingRowCount = newValue
+                node.job = kind
+                node.jobCancellable = cancellable
                 reloadDisplayNode(matching: node)
             }
         }
@@ -1032,8 +1082,21 @@ extension SchemaBrowserVC: SchemaContextMenuDelegate {
         view.window
     }
 
-    func contextMenuDidStartImport(connectionId: String, schema: String, table: String) {
-        beginImportTracking(connectionId: connectionId, schema: schema, table: table)
+    func contextMenuRunningJob(schema: String, table: String) -> (kind: TableJobKind, queryId: String?)? {
+        runningJob(schema: schema, table: table)
+    }
+
+    func contextMenuStopJob(schema: String, table: String) {
+        stopJob(schema: schema, table: table)
+    }
+
+    func contextMenuTakeStopped(_ queryId: String?) -> Bool {
+        takeStopped(queryId)
+    }
+
+    func contextMenuDidStartImport(connectionId: String, schema: String, table: String,
+                                   kind: TableJobKind, queryId: String?) {
+        beginImportTracking(connectionId: connectionId, schema: schema, table: table, kind: kind, queryId: queryId)
     }
 
     func contextMenuDidEndImport(connectionId: String, schema: String, table: String) {

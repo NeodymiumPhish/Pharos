@@ -45,8 +45,11 @@ extension PharosCore {
     }
 
     /// Read live row count for an in-progress import. Returns nil if no active import.
-    static func getImportProgress(connectionId: String, schema: String, table: String) -> Int64? {
-        let key = "\(connectionId)|\(schema)|\(table)"
+    /// A Database Navigator job's row count (an import or an export), or
+    /// nil when none runs. `phase`: the import's phase counter instead (0
+    /// reading rows, 1 casting them).
+    static func getImportProgress(connectionId: String, schema: String, table: String, phase: Bool = false) -> Int64? {
+        let key = "\(connectionId)|\(schema)|\(table)" + (phase ? "|phase" : "")
         let result = key.withCString { pharos_get_import_progress($0) }
         return result < 0 ? nil : result
     }

@@ -51,6 +51,23 @@ pub struct RunningQuery {
 /// A query's place in `AppState::running_queries`, held for as long as the
 /// query can be cancelled. Dropping it unregisters the query, so every return
 /// path — `?` included — unregisters.
+/// Removes a table job's progress entry when dropped (`track_table_job`).
+pub struct TableJobGuard<'a> {
+    state: &'a AppState,
+    key: String,
+}
+
+impl Drop for TableJobGuard<'_> {
+    fn drop(&mut self) {
+        self.state.unregister_import_progress(&self.key);
+    }
+}
+
+/// The key of a table job's progress: what Swift polls.
+pub fn table_job_key(connection_id: &str, schema: &str, table: &str) -> String {
+    format!("{}|{}|{}", connection_id, schema, table)
+}
+
 pub struct RegisteredQuery<'a> {
     state: &'a AppState,
     query_id: String,
@@ -216,6 +233,15 @@ impl AppState {
         let mut map = self.import_progress.lock().unwrap_or_else(|e| e.into_inner());
         map.insert(key, counter.clone());
         counter
+    }
+
+    /// Track a Database Navigator job (an import or an export) on a table:
+    /// its row counter, read by `pharos_get_import_progress`, under the key
+    /// Swift polls (`connection|schema|table`). The entry goes when the
+    /// guard drops, on every path out of the job.
+    pub fn track_table_job(&self, key: String) -> (Arc<AtomicU64>, TableJobGuard<'_>) {
+        let counter = self.register_import_progress(key.clone());
+        (counter, TableJobGuard { state: self, key })
     }
 
     /// Remove an import progress entry (call on completion or error).
