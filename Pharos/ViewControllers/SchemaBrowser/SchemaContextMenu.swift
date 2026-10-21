@@ -478,6 +478,28 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         }
     }
 
+    @objc private func contextAttachPostgres(_: Any?) {
+        guard let id = delegate?.contextConnectionId else { return }
+        delegate?.contextMenuPresentSheet(AttachPostgresSheet(duckConnectionId: id))
+    }
+
+    /// Detach an attached database (one Pharos attached, or one the user
+    /// attached with SQL) from the DuckDB database.
+    @objc private func contextDetachDatabase(_ sender: NSMenuItem) {
+        guard let id = delegate?.contextConnectionId, let db = sender.representedObject as? String else { return }
+        Task { @MainActor in
+            do {
+                try await PharosCore.duckDetach(duckConnectionId: id, alias: db)
+                DuckDBAttachments.shared.didDetach(duckConnectionId: id)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "Could not detach “\(db)”")
+                alert.informativeText = error.localizedDescription
+                if let window = self.delegate?.contextMenuWindow() { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
+            }
+        }
+    }
+
     @objc private func contextViewFunctions(_: Any?) {
         guard let node = clickedNode(),
               let connectionId = delegate?.contextConnectionId, let schemaName = node.schemaName else { return }
@@ -559,6 +581,21 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             let functions = NSMenuItem(title: "View Functions", action: #selector(contextViewFunctions), keyEquivalent: "")
             functions.target = self
             menu.addItem(functions)
+
+            if isDuckDB {
+                menu.addItem(.separator())
+                let attach = NSMenuItem(title: String(localized: "Attach PostgreSQL Connection…"),
+                                        action: #selector(contextAttachPostgres), keyEquivalent: "")
+                attach.target = self
+                menu.addItem(attach)
+                if let db = node.schemaName.flatMap(DuckDBAttachRules.attachedDatabase(ofSchema:)) {
+                    let detach = NSMenuItem(title: String(localized: "Detach “\(db)”"),
+                                            action: #selector(contextDetachDatabase(_:)), keyEquivalent: "")
+                    detach.target = self
+                    detach.representedObject = db
+                    menu.addItem(detach)
+                }
+            }
 
             menu.addItem(.separator())
 

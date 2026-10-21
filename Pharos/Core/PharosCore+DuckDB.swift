@@ -9,7 +9,49 @@ struct DuckDBVocabulary: Decodable, Equatable {
     let functions: [String]
 }
 
+/// A PostgreSQL connection attached to a DuckDB database
+/// (`pharos-core` `duck_attach::AttachmentInfo`, camelCase).
+struct DuckDBAttachment: Decodable, Equatable {
+    /// The DuckDB database name: its schemas show as `alias.schema`.
+    let alias: String
+    let pgId: String
+    let pgName: String
+    let readOnly: Bool
+}
+
 extension PharosCore {
+
+    /// Attach a CONNECTED PostgreSQL connection to an open DuckDB database.
+    /// The password goes into a temporary DuckDB secret, never into SQL text
+    /// or history. `alias` empty = a default from the connection's name.
+    static func duckAttachPostgres(duckConnectionId: String, pgConnectionId: String, alias: String,
+                                   readOnly: Bool) async throws -> DuckDBAttachment {
+        try await withAsyncCallback { callback, context in
+            duckConnectionId.withCString { d in
+                pgConnectionId.withCString { p in
+                    alias.withCString { a in
+                        pharos_duck_attach_postgres(d, p, a, readOnly, callback, context)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Detach a PostgreSQL connection Pharos attached.
+    static func duckDetach(duckConnectionId: String, alias: String) async throws {
+        let _: EmptyResult = try await withAsyncCallback { callback, context in
+            duckConnectionId.withCString { d in
+                alias.withCString { a in pharos_duck_detach(d, a, callback, context) }
+            }
+        }
+    }
+
+    /// The PostgreSQL connections attached to a DuckDB database.
+    static func duckAttachments(duckConnectionId: String) async throws -> [DuckDBAttachment] {
+        try await withAsyncCallback { callback, context in
+            duckConnectionId.withCString { d in pharos_duck_attachments(d, callback, context) }
+        }
+    }
 
     /// Connect a DuckDB record READ-ONLY, for this connect only — the
     /// "Open Read-Only" answer to a file another process holds for writing.

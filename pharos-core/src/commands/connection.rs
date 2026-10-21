@@ -5,7 +5,7 @@ use crate::models::{ConnectionConfig, ConnectionInfo, ConnectionStatus, TestConn
 use crate::state::AppState;
 
 /// Sanitize error messages to remove sensitive data like passwords
-fn sanitize_error(error: &str) -> String {
+pub(crate) fn sanitize_error(error: &str) -> String {
     // Remove anything that looks like a postgres connection URL
     let mut sanitized = error.to_string();
 
@@ -216,6 +216,7 @@ pub async fn delete_connection(
     // A DuckDB record: close its database (the file itself is the user's
     // and stays where it is).
     super::duck::disconnect(&connection_id, state).await;
+    super::duck_attach::detach_all_for(&connection_id, state).await;
     // Disconnect if connected: the tabs' own connections first.
     super::tab_session::close_sessions_for_connection(state, &connection_id).await;
     state.forget_session_options(&connection_id);
@@ -514,6 +515,9 @@ pub async fn disconnect_postgres(
         super::duck::disconnect(&connection_id, state).await;
         return Ok(());
     }
+    // DuckDB databases that attached this connection let go first: the
+    // attach rides on this connection's tunnel.
+    super::duck_attach::detach_all_for(&connection_id, state).await;
     // The tabs' own connections go first: each rolls back its open
     // transaction while the tunnel still carries it.
     super::tab_session::close_sessions_for_connection(state, &connection_id).await;

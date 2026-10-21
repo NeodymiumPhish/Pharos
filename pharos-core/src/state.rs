@@ -145,6 +145,9 @@ pub struct AppState {
     /// equivalent of `connections`. Two records naming the same file share
     /// one instance (`duck_instance_for_path`).
     pub duck_dbs: Mutex<HashMap<String, Arc<DuckDbInstance>>>,
+    /// PostgreSQL connections attached to DuckDB databases
+    /// (`commands::duck_attach`).
+    pub pg_attachments: Mutex<Vec<crate::commands::duck_attach::PgAttachment>>,
     /// Each editor tab's own DuckDB connection, by tab id
     /// (`commands::duck_session`).
     pub duck_sessions: Mutex<HashMap<String, Arc<crate::commands::duck_session::DuckSession>>>,
@@ -180,6 +183,7 @@ impl AppState {
             session_options: Mutex::new(HashMap::new()),
             duck_dbs: Mutex::new(HashMap::new()),
             duck_sessions: Mutex::new(HashMap::new()),
+            pg_attachments: Mutex::new(Vec::new()),
             duck_read_only_once: Mutex::new(HashSet::new()),
         }
     }
@@ -316,6 +320,12 @@ impl AppState {
     pub fn take_all_tunnels(&self) -> Vec<SshTunnel> {
         let mut tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
         tunnels.drain().map(|(_, t)| t).collect()
+    }
+
+    /// The local port of this connection's SSH tunnel, while it has one.
+    pub fn tunnel_local_port(&self, connection_id: &str) -> Option<u16> {
+        let tunnels = self.tunnels.lock().unwrap_or_else(|e| e.into_inner());
+        tunnels.get(connection_id).map(|t| t.local_port)
     }
 
     pub fn has_tunnel(&self, connection_id: &str) -> bool {

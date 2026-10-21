@@ -133,6 +133,7 @@
 		4ABE0F444FDE66FB28CA6600 /* NavigatorSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22235FED412A763052DA524B /* NavigatorSettingsPaneVC.swift */; };
 		4B0B8CFAFFFE974941B76BC8 /* SQLStatementScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E4D8BB54E620DAB642CDC4 /* SQLStatementScope.swift */; };
 		4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267FBF59C6FA236284E961CC /* HistoryRowText.swift */; };
+		4B3FD470B22989F8B446F4C4 /* DuckDBAttachRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B9E7C1E552BBD06043E902 /* DuckDBAttachRules.swift */; };
 		4C3EE67E727E2EAC99388180 /* TagFunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */; };
 		4C7E553E5E47C3132C5D59A9 /* ChartsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */; };
 		4C8E251BE4AB6F08307B8F32 /* WindowTabPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC1C0351D90429040B7D046 /* WindowTabPresenter.swift */; };
@@ -194,6 +195,7 @@
 		78413229F9C91C2A31B801BA /* WindowSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DA9A294A7A9EC938B10375E /* WindowSession.swift */; };
 		78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20973E948617F8AF21A804FE /* Toast.swift */; };
 		791DFD71C76A7DBEA6C8BA58 /* CardPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CEEB8796DC2B8361BC29CF /* CardPersistence.swift */; };
+		795FADEB64B07B9887E4E664 /* AttachPostgresSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D49A7883D57D3969DE869EF /* AttachPostgresSheet.swift */; };
 		7A33E40CC68795515D1A946F /* SchemaDraftFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0069EE2EC87C536275B40B69 /* SchemaDraftFacts.swift */; };
 		7B0EBAB5C93A48B9E7BE444C /* QuickLookItemBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0387D201E65BB04093EBEA /* QuickLookItemBuilder.swift */; };
 		7B96EA478077991B282BD62D /* ExportImportSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC013254D67DAF57E03E4AA6 /* ExportImportSettingsPaneVC.swift */; };
@@ -570,6 +572,7 @@
 		7B832E30AFF53EE26EA14F13 /* ConnectionFormRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFormRules.swift; sourceTree = "<group>"; };
 		7BE7B34EE17E4997F6314065 /* SettingsEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEffects.swift; sourceTree = "<group>"; };
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
+		7D49A7883D57D3969DE869EF /* AttachPostgresSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachPostgresSheet.swift; sourceTree = "<group>"; };
 		7DEC3690225F794408E62D29 /* ChartAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartAggregator.swift; sourceTree = "<group>"; };
 		7E1A79C0687366CE6000F5A3 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		7F3C560169FD08DB0ABC0375 /* PharosCore+TabSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TabSession.swift"; sourceTree = "<group>"; };
@@ -697,6 +700,7 @@
 		CEF3C40C432AC99C1C526FFB /* AboutSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutSettingsPaneVC.swift; sourceTree = "<group>"; };
 		CFE4964E6E0EFB8FE685BE32 /* CountedNounText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountedNounText.swift; sourceTree = "<group>"; };
 		CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CIDRRange.swift; sourceTree = "<group>"; };
+		D0B9E7C1E552BBD06043E902 /* DuckDBAttachRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckDBAttachRules.swift; sourceTree = "<group>"; };
 		D0C76528D86F1C170F35A764 /* CardNotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardNotesView.swift; sourceTree = "<group>"; };
 		D14B40F475E3FEB12C3F9B9F /* InsetScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsetScrollView.swift; sourceTree = "<group>"; };
 		D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueListView.swift; sourceTree = "<group>"; };
@@ -1050,6 +1054,7 @@
 		8ED98EA5EBB73F5BFD44F68D /* Sheets */ = {
 			isa = PBXGroup;
 			children = (
+				7D49A7883D57D3969DE869EF /* AttachPostgresSheet.swift */,
 				FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */,
 				20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */,
 				080E74E651B82BE21F196DDC /* ImportDataSheet.swift */,
@@ -1093,6 +1098,7 @@
 				5757A383E8948F38AB9B6545 /* Diagnostics.swift */,
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
+				D0B9E7C1E552BBD06043E902 /* DuckDBAttachRules.swift */,
 				312D6DCAE7C41B74E819934F /* DuckDBFiles.swift */,
 				159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */,
 				AB1E5037B8F3B1BB2DA446A4 /* ExportImportOutcomeText.swift */,
@@ -1462,6 +1468,7 @@
 				47B86FA148892E5014AFBD23 /* AppInfo.swift in Sources */,
 				65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */,
 				95A33984D8A036AFD8CA4EB6 /* AppearanceSettingsPaneVC.swift in Sources */,
+				795FADEB64B07B9887E4E664 /* AttachPostgresSheet.swift in Sources */,
 				EB024138B8243B0BC5FF4CDD /* AuthoredLabelSanitizer.swift in Sources */,
 				6542D77ED87980EB583419A1 /* AuthoredLabelTextField.swift in Sources */,
 				FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */,
@@ -1536,6 +1543,7 @@
 				7547DC2BB482125631EE84BF /* DrillSqlTranslator.swift in Sources */,
 				F94A3BE1A6CD5B7B31BD8BD0 /* DrillSummary.swift in Sources */,
 				F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */,
+				4B3FD470B22989F8B446F4C4 /* DuckDBAttachRules.swift in Sources */,
 				8BA5D322E3AAE0EE87353DA2 /* DuckDBFiles.swift in Sources */,
 				834A89BB88BF7F87A3247D2D /* DuckDBVocabularyCache.swift in Sources */,
 				806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */,

@@ -4,6 +4,13 @@ use std::path::PathBuf;
 fn main() {
     link_duckdb();
 
+    // A build script that prints any rerun-if-changed (link_duckdb does)
+    // reruns ONLY for the paths it names, so the header's inputs are named
+    // here; without them a new FFI function never reaches pharos_core.h.
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=cbindgen.toml");
+    println!("cargo:rerun-if-changed=build.rs");
+
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_dir = PathBuf::from(&crate_dir).join("include");
     std::fs::create_dir_all(&out_dir).ok();

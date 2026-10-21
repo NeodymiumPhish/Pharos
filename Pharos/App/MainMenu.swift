@@ -199,6 +199,12 @@ enum MainMenu {
                           action: #selector(ContentViewController.menuRollBackTransaction(_:)), keyEquivalent: "")
 
         queryMenu.addItem(.separator())
+        // DuckDB: query a saved PostgreSQL connection's tables from DuckDB.
+        let attachPG = queryMenu.addItem(withTitle: String(localized: "Attach PostgreSQL Connection…"),
+                                         action: #selector(ContentViewController.menuAttachPostgres(_:)), keyEquivalent: "")
+        attachPG.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+
+        queryMenu.addItem(.separator())
 
         // ⌘E is Edit > Find > Use Selection for Find, the only other "e" in the
         // menu bar; ⇧⌘E and ⌥⇧⌘E are free.

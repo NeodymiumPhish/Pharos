@@ -115,3 +115,73 @@ pub extern "C" fn pharos_query_progress(query_id: *const c_char) -> *mut c_char 
         to_c_string(&json.to_string())
     })
 }
+
+/// Attach a connected PostgreSQL connection to an open DuckDB database
+/// (`commands::duck_attach`). `alias` empty = a default from the connection's
+/// name. The password goes into a temporary DuckDB secret, never into SQL a
+/// user sees or history keeps. Returns `AttachmentInfo` JSON via callback.
+#[no_mangle]
+pub extern "C" fn pharos_duck_attach_postgres(
+    duck_connection_id: *const c_char,
+    pg_connection_id: *const c_char,
+    alias: *const c_char,
+    read_only: bool,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let duck_id = unsafe { c_str_to_string(duck_connection_id) };
+    let pg_id = unsafe { c_str_to_string(pg_connection_id) };
+    let alias = unsafe { c_str_to_string(alias) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        let alias = if alias.trim().is_empty() { None } else { Some(alias) };
+        match crate::commands::duck_attach::attach_postgres(duck_id, pg_id, alias, read_only, state).await {
+            Ok(info) => callback_ok(callback, ctx, &serde_json::to_string(&info).unwrap_or_default()),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
+/// Detach a PostgreSQL connection Pharos attached to a DuckDB database.
+/// Returns `null` via callback.
+#[no_mangle]
+pub extern "C" fn pharos_duck_detach(
+    duck_connection_id: *const c_char,
+    alias: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let duck_id = unsafe { c_str_to_string(duck_connection_id) };
+    let alias = unsafe { c_str_to_string(alias) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::duck_attach::detach(duck_id, alias, state).await {
+            Ok(()) => callback_ok(callback, ctx, "null"),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
+/// The PostgreSQL connections attached to a DuckDB database:
+/// `[AttachmentInfo]` JSON via callback.
+#[no_mangle]
+pub extern "C" fn pharos_duck_attachments(
+    duck_connection_id: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let duck_id = unsafe { c_str_to_string(duck_connection_id) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::duck_attach::list(&duck_id, state) {
+            Ok(list) => callback_ok(callback, ctx, &serde_json::to_string(&list).unwrap_or_default()),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}

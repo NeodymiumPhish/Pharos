@@ -4827,6 +4827,20 @@ extension ContentViewController {
         NotificationCenter.default.post(name: .connectionMetadataRefreshRequested, object: nil)
     }
 
+    /// Query ▸ Attach PostgreSQL Connection…: on a connected DuckDB tab.
+    @objc func menuAttachPostgres(_: Any?) {
+        guard let id = canAttachPostgresConnectionId else { return }
+        presentAsSheet(AttachPostgresSheet(duckConnectionId: id))
+    }
+
+    /// The tab's DuckDB connection when it can attach a PostgreSQL connection.
+    var canAttachPostgresConnectionId: String? {
+        guard let id = session.activeTab?.connectionId, stateManager.status(for: id) == .connected,
+              let config = stateManager.connections.first(where: { $0.id == id }),
+              config.engine.capabilities.attachPostgres else { return nil }
+        return id
+    }
+
     /// Query ▸ Commit Transaction: the tab's own connection's transaction.
     @objc func menuCommitTransaction(_: Any?) {
         editorPane.sessionBannerAction(.commit)
@@ -5134,6 +5148,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
+        if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
         if menuItem.action == #selector(menuCommitTransaction(_:)) || menuItem.action == #selector(menuRollBackTransaction(_:)) {
             guard let tabId = session.activeTabId, let report = TabSessionMonitor.shared.report(for: tabId),
                   report.open else { return false }

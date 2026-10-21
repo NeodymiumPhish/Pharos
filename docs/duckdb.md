@@ -96,3 +96,25 @@ These DuckDB extensions are built into Pharos. You do not install or load them; 
 Pharos does not download extensions. macOS lets the app load only the libraries it shipped with, so an extension that is not in the list above (for example `spatial`) is not available.
 
 **Settings > Connections > DuckDB** sets the worker threads and the memory limit. These settings apply the next time a database opens.
+
+## Attach a PostgreSQL connection
+
+You can query and join the tables of a saved PostgreSQL connection from a DuckDB tab.
+
+1. Open a DuckDB tab and connect it.
+2. Choose **Query > Attach PostgreSQL Connection…**, or right-click a schema in the Database Navigator and choose **Attach PostgreSQL Connection…**.
+3. Choose the connection. If it is not connected, Pharos connects it first (Touch ID and the password prompt work as usual).
+4. Optional: type a name for the attached database. The default comes from the connection's name, for example `live_analysis`.
+5. Keep **Read-only** on unless you want DuckDB to write to the PostgreSQL database. A read-only connection always attaches read-only.
+6. Click **Attach**.
+
+The Database Navigator then shows the PostgreSQL schemas as `name.schema`. Query them as `name.schema.table`, for example `SELECT * FROM live_analysis.public.events e JOIN read_csv('events.csv') c USING (id)`.
+
+- Pharos gives DuckDB the password in a temporary secret. The password is not in any SQL text, in query history or on disk.
+- A connection that uses an SSH tunnel attaches through that tunnel.
+- The attach lasts while the PostgreSQL connection stays connected. When you disconnect it, Pharos detaches it from DuckDB. To detach it sooner, right-click one of its schemas and choose **Detach**.
+- `verify-ca` and `verify-full` use the connection's SSL root certificate, or the certificates that macOS ships (`/etc/ssl/cert.pem`) when the connection has none. Certificates you added to the Keychain are not used.
+
+## Secrets
+
+DuckDB secrets (for example S3 keys for `httpfs`) live in memory only: use `CREATE SECRET`, not `CREATE PERSISTENT SECRET`. DuckDB writes a persistent secret to disk in plain text, so Pharos refuses it. Pharos also does not load secrets that other DuckDB tools saved in `~/.duckdb/stored_secrets`. Query history replaces passwords and keys in SQL text with `'********'`.

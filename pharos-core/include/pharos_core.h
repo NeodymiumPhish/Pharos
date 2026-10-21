@@ -179,6 +179,39 @@ void pharos_export_parquet(const char *connection_id,
  char *pharos_query_progress(const char *query_id);
 
 /**
+ * Attach a connected PostgreSQL connection to an open DuckDB database
+ * (`commands::duck_attach`). `alias` empty = a default from the connection's
+ * name. The password goes into a temporary DuckDB secret, never into SQL a
+ * user sees or history keeps. Returns `AttachmentInfo` JSON via callback.
+ */
+
+void pharos_duck_attach_postgres(const char *duck_connection_id,
+                                 const char *pg_connection_id,
+                                 const char *alias,
+                                 bool read_only,
+                                 AsyncCallback callback,
+                                 void *context);
+
+/**
+ * Detach a PostgreSQL connection Pharos attached to a DuckDB database.
+ * Returns `null` via callback.
+ */
+
+void pharos_duck_detach(const char *duck_connection_id,
+                        const char *alias,
+                        AsyncCallback callback,
+                        void *context);
+
+/**
+ * The PostgreSQL connections attached to a DuckDB database:
+ * `[AttachmentInfo]` JSON via callback.
+ */
+
+void pharos_duck_attachments(const char *duck_connection_id,
+                             AsyncCallback callback,
+                             void *context);
+
+/**
  * Initialize the Rust runtime, SQLite database, and credential cache.
  * `app_data_dir` must be a valid UTF-8 path to the application support directory.
  * Returns true on success.
