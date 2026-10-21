@@ -105,7 +105,7 @@ DuckDB reads CSV, TSV, JSON, newline-delimited JSON, Parquet and Excel files whe
 | Use a file in a query you are writing | Drag the file onto a card with text. Pharos inserts the quoted path at the drop point, for example `'/Users/you/Data/sales.csv'`. A quoted path is a valid `FROM` target: `SELECT region, sum(total) FROM '/Users/you/Data/sales.csv' GROUP BY ALL`. |
 | Query several files together | Drag them together onto an empty card: `read_csv(['/Users/you/a.csv', '/Users/you/b.csv'], union_by_name = true)`. |
 | Choose the files in a panel | **Query > Insert File Reference…** |
-| Open a file from Finder, the Dock or **File > Open…** | With a DuckDB tab in front, each file gets its own card after the current one, `SELECT * FROM read_parquet('…')`, and the card runs when the tab is connected. Pharos is listed in Finder's **Open With** for CSV, TSV, JSON, Excel and Parquet files, but it never becomes their default app. |
+| Open a file from Finder, the Dock or **File > Open…** | With a DuckDB tab in front, each file gets its own card after the current one, `SELECT * FROM read_parquet('…')`, and the card runs when the tab is connected. With no DuckDB tab in front, Pharos makes a new in-memory database in a new tab, with one card per file, and runs the cards. Pharos is listed in Finder's **Open With** for CSV, TSV, JSON, Excel and Parquet files, but it never becomes their default app. |
 
 **Edit > Undo** removes the inserted text in one step. On a PostgreSQL tab, a dropped CSV or SQL file opens as a tab of its own, and a dropped `.duckdb` file opens the database on any tab.
 

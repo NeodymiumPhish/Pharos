@@ -132,20 +132,41 @@ extension AppDelegate {
         openDataFilesWithoutDuckDBTab(urls)
     }
 
-    /// No DuckDB tab to read them in: a text-like file (CSV, JSON) opens as
-    /// text as before; any other says how to read it.
+    /// No DuckDB tab to read them in (decision 8): a NEW in-memory database
+    /// in a new tab, with one read card per file. The cards run once the
+    /// database is connected — a card started before that would fail.
     @MainActor
     func openDataFilesWithoutDuckDBTab(_ urls: [URL]) {
-        for url in urls {
-            if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType, type.conforms(to: .text) {
-                AppStateManager.shared.openTextFile(at: url)
-                continue
+        let manager = AppStateManager.shared
+        let record = ConnectionConfig.duckDB(path: ConnectionConfig.duckDBInMemoryPath,
+                                             name: DuckDBFiles.uniqueInMemoryName(in: manager.connections))
+        manager.saveConnection(record)
+        let cards = urls.map { QueryCard(name: $0.lastPathComponent, sql: DataFiles.insertion(for: [$0], cardIsEmpty: true)) }
+        var tab = QueryTab(name: record.name, connectionId: record.id, schemaName: record.effectiveDefaultSchema)
+        tab.document = CardDocument(cards: cards)
+        showMainWindow()
+        let controller = frontmostWindowController.map { openTab(tab, beside: $0) } ?? openItem(tab)
+        let session = controller.session
+        let tabId = tab.id
+        let ids = cards.map(\.id)
+        // Run the cards when the new database is connected (once).
+        var observer: NSObjectProtocol?
+        observer = NotificationCenter.default.addObserver(
+            forName: AppStateManager.connectionStatusDidChange, object: nil, queue: .main
+        ) { [weak self] note in
+            guard (note.userInfo?["connectionId"] as? String) == record.id else { return }
+            MainActor.assumeIsolated {
+                let status = AppStateManager.shared.status(for: record.id)
+                guard status == .connected || status == .error else { return }
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+                observer = nil
+                if status == .connected {
+                    self?.contentController(for: session)?.runBatch(ids, inTab: tabId)
+                }
             }
-            let alert = NSAlert()
-            alert.messageText = String(localized: "Open a DuckDB database to read “\(DisplayEscape.escaped(url.lastPathComponent))”.")
-            alert.informativeText = String(localized: "DuckDB reads Parquet and Excel files in place. Open or create a DuckDB database (File ▸ Open DuckDB Database…), then open the file again.")
-            alert.runModal()
         }
+        manager.useConnection(record.id, forTabId: tabId, in: session)
+        NSApp.activate()
     }
 
     /// Put a connection in a tab and connect it.
