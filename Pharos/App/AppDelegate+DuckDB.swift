@@ -94,18 +94,56 @@ extension AppDelegate {
         }
         NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
         if create { manager.allowCreateOnNextConnect(record.id) }
-        openConnectionInTab(record)
+        // A new database is a new file: no tab shows it yet, whatever a tab
+        // on the old file at this path holds.
+        openConnectionInTab(record, bringForward: !create)
     }
 
-    /// Put a connection in the tab the user is in when it is untouched, else
-    /// in a new tab, and connect it.
+    /// Put a connection in a tab and connect it.
+    ///
+    /// A DuckDB file is a document: a tab that already shows it comes forward
+    /// (`bringForward`), as NSDocumentController does for an open document,
+    /// and a tab on ANOTHER DuckDB database is never replaced, so opening
+    /// three files gives three tabs. Otherwise the tab the user is in takes
+    /// it when it is untouched (`openItem`), else a new tab beside it.
     @MainActor
-    func openConnectionInTab(_ record: ConnectionConfig) {
+    func openConnectionInTab(_ record: ConnectionConfig, bringForward: Bool = true) {
+        let manager = AppStateManager.shared
+        if record.isDuckDB, bringForward, let existing = windowShowing(record) {
+            front(existing.session)
+            if let tabId = existing.session.tab?.id {
+                manager.useConnection(record.id, forTabId: tabId, in: existing.session)
+            }
+            manager.noteRecentDuckDBFile(record.id)
+            NSApp.activate()
+            return
+        }
         showMainWindow()
         let tab = QueryTab(name: record.name, connectionId: record.id, schemaName: record.effectiveDefaultSchema)
-        let controller = openItem(tab)
-        AppStateManager.shared.useConnection(record.id, forTabId: tab.id, in: controller.session)
+        let current = frontmostWindowController
+        let onOtherDuckDB = current?.session.tab?.connectionId.flatMap { id in
+            manager.connections.first { $0.id == id }
+        }.map { $0.isDuckDB && $0.id != record.id } ?? false
+        let controller = record.isDuckDB && onOtherDuckDB ? openTab(tab, beside: current) : openItem(tab)
+        manager.useConnection(record.id, forTabId: tab.id, in: controller.session)
         NSApp.activate()
+    }
+
+    /// The frontmost window whose tab shows this DuckDB file: the record
+    /// itself, or another record on the same file.
+    @MainActor
+    private func windowShowing(_ record: ConnectionConfig) -> MainWindowController? {
+        let path = record.isInMemoryDuckDB ? nil : DuckDBFiles.canonicalPath(record.database)
+        let connections = AppStateManager.shared.connections
+        func shows(_ controller: MainWindowController) -> Bool {
+            guard let id = controller.session.tab?.connectionId else { return false }
+            if id == record.id { return true }
+            guard let path, let other = connections.first(where: { $0.id == id }), other.isDuckDB,
+                  !other.isInMemoryDuckDB else { return false }
+            return DuckDBFiles.canonicalPath(other.database) == path
+        }
+        let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? MainWindowController }
+        return ordered.first(where: shows) ?? windowControllers.first(where: shows)
     }
 }
 

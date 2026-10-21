@@ -9,6 +9,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// opened.
     private(set) var windowControllers: [MainWindowController] = []
 
+    /// Files and links that arrived before the restored tabs were back (a
+    /// cold launch from Finder delivers them before launch finishes). They
+    /// open once restore ends, so a restored tab on the same file is found
+    /// and brought forward instead of a duplicate being made.
+    private var pendingOpenURLs: [URL] = []
+    private var readyForOpens = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // First, before anything can throw: the uncaught-exception handler
         // that writes `~/Library/Logs/Pharos/pharos-crash-*.log`. It existed
@@ -97,7 +104,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Put the saved tabs — and any further saved windows — back. This needs
         // the content controller alive and observing, so it runs after the
         // first window is on screen.
-        state.restoreSession()
+        state.restoreSession { [weak self] in
+            self?.readyForOpens = true
+            let urls = self?.pendingOpenURLs ?? []
+            self?.pendingOpenURLs = []
+            if !urls.isEmpty { self?.application(NSApp, open: urls) }
+        }
 
         // Last, because `LaunchConnectPolicy` skips a connection the restore
         // has already opened, and it can only know that once the restore has
@@ -420,6 +432,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard readyForOpens else {
+            pendingOpenURLs += urls
+            return
+        }
         let textType = UTType.text
         for url in urls {
             // A DuckDB database file opens as a connection, not as text.

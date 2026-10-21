@@ -144,7 +144,9 @@ final class AppStateManager: ObservableObject {
     func beginTerminating() { isTerminating = true }
 
     func retire(_ session: WindowSession) {
-        if !isTerminating, let tab = session.tab, !tab.isPristine {
+        // A tab on a DuckDB file is worth reopening even with no cards: it is
+        // how the file was opened (File ▸ Open, Finder).
+        if !isTerminating, let tab = session.tab, !tab.isPristine || isOnDuckDBFile(tab) {
             closedTabs.append(tab)
             if closedTabs.count > Self.maxClosedTabs { closedTabs.removeFirst() }
         }
@@ -351,6 +353,12 @@ final class AppStateManager: ObservableObject {
         case .connecting, .connected:
             break
         }
+    }
+
+    /// Is this tab bound to a DuckDB database file (not in-memory)?
+    func isOnDuckDBFile(_ tab: QueryTab) -> Bool {
+        guard let id = tab.connectionId, let config = connections.first(where: { $0.id == id }) else { return false }
+        return config.isDuckDB && !config.isInMemoryDuckDB
     }
 
     /// A DuckDB file used from anywhere (the pop-up, the Dock, a connect)
@@ -874,9 +882,10 @@ final class AppStateManager: ObservableObject {
     /// first main window is on screen: it takes the first stored tab, and a
     /// tab bound to a workspace is rebuilt by its window's
     /// `ContentViewController`, which must be alive and observing.
-    func restoreSession() {
+    func restoreSession(then finished: @escaping @MainActor () -> Void = {}) {
         guard let stored = pendingSession, let delegate = NSApp.delegate as? AppDelegate else {
             startSessionAutosave()
+            finished()
             return
         }
         pendingSession = nil
@@ -927,6 +936,7 @@ final class AppStateManager: ObservableObject {
             for session in self.sessions { session.ensureTab() }
             self.sessionDirty = false
             self.startSessionAutosave()
+            finished()
         }
     }
 

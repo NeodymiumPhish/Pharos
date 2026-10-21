@@ -32,7 +32,7 @@ A DuckDB file is a **connection**. Each file you open gets a connection record, 
 | Find the file on disk | **File > Show in Finder** shows the tab's database file. The Connections Manager has a **Show in Finder** button beside **New…**. |
 | Use an in-memory database | In the Connections Manager, set **Engine** to **DuckDB** and select **In-memory database**. |
 
-Opening a file finds the connection that already names it, or makes a new one. The file opens in the tab you are in when that tab is empty, otherwise in a new tab.
+Opening a file finds the connection that already names it, or makes a new one. When a tab already shows the file, Pharos brings that tab forward. Otherwise the file opens in the tab you are in when that tab is empty and not on another DuckDB database, else in a new tab. Opening three files at once gives three tabs. Closing a tab on a file keeps it in **File > Reopen Closed Tab**.
 
 {: .warning }
 An in-memory database exists only while its connection is open. Its tables are lost when you disconnect or quit.
