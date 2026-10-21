@@ -1051,6 +1051,16 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             config.engine.as_str(),
         ],
     )?;
+    // History and workspaces keep the name the connection had when they
+    // were written. A rename (or a DuckDB record renamed after its file)
+    // follows into them, so search finds the name the user sees. The FTS
+    // trigger reindexes the history rows.
+    for table in ["query_history", "workspaces"] {
+        conn.execute(
+            &format!("UPDATE {table} SET connection_name = ?2 WHERE connection_id = ?1 AND connection_name <> ?2"),
+            rusqlite::params![&config.id, &config.name],
+        )?;
+    }
     Ok(())
 }
 
@@ -1173,6 +1183,38 @@ mod connection_auth_flag_tests {
             .into_iter()
             .find(|c| c.id == id)
             .unwrap_or_else(|| panic!("connection {} present", id))
+    }
+
+    /// A rename follows into history and workspaces, and history search
+    /// finds the new name.
+    #[test]
+    fn a_rename_follows_into_history_and_workspaces() {
+        let dir = temp_db_dir("conn_rename");
+        let conn = init_database(&dir).expect("init_database");
+        let mut c = config("r", false);
+        c.name = "data".to_string();
+        save_connection(&conn, &c).expect("save");
+        conn.execute_batch(
+            "INSERT INTO query_history (id, connection_id, connection_name, sql, execution_time_ms, executed_at)
+                 VALUES ('h1', 'r', 'data', 'SELECT 1', 1, '2026-10-21T00:00:00Z'),
+                        ('h2', 'other', 'data', 'SELECT 2', 1, '2026-10-21T00:00:00Z');
+             INSERT INTO workspaces (id, connection_id, connection_name, created_at, last_activity_at)
+                 VALUES ('w1', 'r', 'data', 'x', 'x');",
+        )
+        .expect("rows");
+        c.name = "data (Reports)".to_string();
+        save_connection(&conn, &c).expect("rename");
+        let names: Vec<String> = conn
+            .prepare("SELECT connection_name FROM query_history ORDER BY id").unwrap()
+            .query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(names, vec!["data (Reports)".to_string(), "data".to_string()], "only this record's rows");
+        let ws: String = conn.query_row("SELECT connection_name FROM workspaces WHERE id = 'w1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(ws, "data (Reports)");
+        let found: i64 = conn
+            .query_row("SELECT count(*) FROM query_history_fts WHERE query_history_fts MATCH '\"Reports\"'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(found, 1, "search finds the new name");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Every stored column, set to a value that is not its default, read back.

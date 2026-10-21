@@ -24,14 +24,15 @@ extension EditorPaneVC {
             selectedId: config?.id)
 
         let status = config.map { stateManager.status(for: $0.id) }
-        let missingFile = status == .error
-            && DuckDBOpenError.isMissing(config.flatMap { stateManager.connectionError(for: $0.id) })
+        let rawError = status == .error ? config.flatMap { stateManager.connectionError(for: $0.id) } : nil
+        let missingFile = DuckDBOpenError.isMissing(rawError)
         let reason = status == .error
             ? config.flatMap { stateManager.connectionError(for: $0.id) }
                 .map { DisplayEscape.escaped(DuckDBOpenError.humanised(SshTunnelAuthError.humanised($0))) }
             : nil
         tabContextBar.showState(TabContextState(connectionName: config?.name, status: status, failureReason: reason,
-                                                missingFile: missingFile))
+                                                missingFile: missingFile, inUse: DuckDBOpenError.isLocked(rawError),
+                                                tooNew: DuckDBOpenError.isTooNew(rawError)))
 
         let metadata = metadataCache.metadata(for: config?.id)
         let schemaState = SchemaButtonState(
@@ -111,12 +112,19 @@ extension EditorPaneVC {
         tabContextBar.onConnect = { [weak self] in
             guard let self else { return }
             // "File not found": the button finds the file, it does not retry.
+            // "In use by another app": it opens the file read-only.
             if let id = self.session.tab?.connectionId,
                let config = self.stateManager.connections.first(where: { $0.id == id }),
-               self.stateManager.status(for: id) == .error,
-               DuckDBOpenError.isMissing(self.stateManager.connectionError(for: id)) {
-                PasswordPromptCoordinator.shared.locate(config)
-                return
+               self.stateManager.status(for: id) == .error {
+                let error = self.stateManager.connectionError(for: id)
+                if DuckDBOpenError.isMissing(error) {
+                    PasswordPromptCoordinator.shared.locate(config)
+                    return
+                }
+                if DuckDBOpenError.isLocked(error) {
+                    PasswordPromptCoordinator.shared.openReadOnly(id)
+                    return
+                }
             }
             self.delegate?.editorPaneDidRequestConnect(self)
         }

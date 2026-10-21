@@ -55,6 +55,15 @@ private func testChipTitles() {
 }
 
 func runTests() {
+    // Follow-ups: a locked file and a too-new file get their own words.
+    let locked = TabContextState(connectionName: "s", status: .error, failureReason: "held", inUse: true)
+    expect(locked == .inUseElsewhere(reason: "held") && locked.text == "In use by another app"
+           && locked.buttonTitle == "Open Read-Only", "a locked file: In use by another app, Open Read-Only")
+    let tooNew = TabContextState(connectionName: "s", status: .error, failureReason: "v2", tooNew: true)
+    expect(tooNew.text == "Needs a newer DuckDB" && tooNew.buttonTitle == nil && tooNew.toolTip == "v2",
+           "a too-new file: no Try Again, which cannot succeed")
+    expect(TabContextState(connectionName: "s", status: .error, failureReason: nil, missingFile: true, inUse: true)
+           == .fileNotFound(reason: nil), "missing wins over the other markers")
     // C2: the Read-only badge.
     expect(ReadOnlyBadge.help(isConnected: false, engine: .duckdb, reason: .recordSetting, reportReadOnly: nil) == nil,
            "no badge while not connected")

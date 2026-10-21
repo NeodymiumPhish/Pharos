@@ -74,11 +74,12 @@ final class PasswordPromptCoordinator {
         // can answer is a file another process holds for writing.
         if config.isDuckDB {
             let failure = state.connectionError(for: id)
+            // A connect Pharos started on its own (at launch, from a
+            // Shortcut) asks nothing: the tab's context row says "In use by
+            // another app" (Open Read-Only) or "File not found" (Locate…).
             if DuckDBOpenError.isLocked(failure) {
-                offerReadOnly(config, failure: failure ?? "")
+                if !state.takeQuietConnect(id) { offerReadOnly(config, failure: failure ?? "") }
             } else if DuckDBOpenError.isMissing(failure) {
-                // A connect Pharos started on its own (at launch, from a
-                // Shortcut) says so in the tab's context row instead.
                 if !state.takeQuietConnect(id) { offerMissingFile(config) }
             }
             return
@@ -171,6 +172,14 @@ final class PasswordPromptCoordinator {
     /// for the case where the other app is itself only reading; when it is
     /// writing, the read-only try meets the same lock, and the user is told
     /// to close the file there instead of being asked again.
+    /// The context row's Open Read-Only: one read-only try. If a writer
+    /// still holds the file, the alert says so once instead of offering
+    /// read-only again.
+    func openReadOnly(_ id: String) {
+        readOnlyTried.insert(id)
+        AppStateManager.shared.connect(id: id, readOnly: true)
+    }
+
     /// The app or command that has this process id: its localized app name
     /// ("Python", "Terminal"), else the BSD process name ("duckdb"). Pharos
     /// is not sandboxed, so `proc_name` can read another user process.

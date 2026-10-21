@@ -12,6 +12,12 @@ enum TabContextState: Equatable {
     /// A DuckDB record's file is not there (moved, renamed, deleted, or its
     /// disk is not connected). The button locates it.
     case fileNotFound(reason: String?)
+    /// A DuckDB file another app holds a lock on. The button opens it
+    /// read-only, which works when that app only reads it.
+    case inUseElsewhere(reason: String?)
+    /// A DuckDB file written by a newer DuckDB. No button: trying again
+    /// cannot succeed.
+    case needsNewerDuckDB(reason: String?)
 
     /// - Parameters:
     ///   - connectionName: the tab's connection's name; nil when the tab has
@@ -19,12 +25,19 @@ enum TabContextState: Equatable {
     ///   - status: that connection's status.
     ///   - failureReason: why its last connect attempt failed.
     ///   - missingFile: the failure was a DuckDB file that is not there.
-    init(connectionName: String?, status: ConnectionStatus?, failureReason: String?, missingFile: Bool = false) {
+    ///   - inUse: the failure was a DuckDB file another app holds.
+    ///   - tooNew: the failure was a file from a newer DuckDB.
+    init(connectionName: String?, status: ConnectionStatus?, failureReason: String?, missingFile: Bool = false,
+         inUse: Bool = false, tooNew: Bool = false) {
         guard connectionName != nil else { self = .chooseConnection; return }
         switch status {
         case .connected: self = .connected
         case .connecting: self = .connecting
-        case .error: self = missingFile ? .fileNotFound(reason: failureReason) : .failed(reason: failureReason)
+        case .error:
+            if missingFile { self = .fileNotFound(reason: failureReason) }
+            else if tooNew { self = .needsNewerDuckDB(reason: failureReason) }
+            else if inUse { self = .inUseElsewhere(reason: failureReason) }
+            else { self = .failed(reason: failureReason) }
         case .disconnected, nil: self = .notConnected
         }
     }
@@ -38,6 +51,8 @@ enum TabContextState: Equatable {
         case .connected: return String(localized: "Connected")
         case .failed: return String(localized: "Could not connect")
         case .fileNotFound: return String(localized: "File not found")
+        case .inUseElsewhere: return String(localized: "In use by another app")
+        case .needsNewerDuckDB: return String(localized: "Needs a newer DuckDB")
         }
     }
 
@@ -47,7 +62,8 @@ enum TabContextState: Equatable {
         case .notConnected: return String(localized: "Connect")
         case .failed: return String(localized: "Try Again")
         case .fileNotFound: return String(localized: "Locate…")
-        case .chooseConnection, .connecting, .connected: return nil
+        case .inUseElsewhere: return String(localized: "Open Read-Only")
+        case .chooseConnection, .connecting, .connected, .needsNewerDuckDB: return nil
         }
     }
 
@@ -56,7 +72,8 @@ enum TabContextState: Equatable {
     /// The failure's reason, on the words and the button.
     var toolTip: String? {
         switch self {
-        case let .failed(reason), let .fileNotFound(reason): return reason
+        case let .failed(reason), let .fileNotFound(reason), let .inUseElsewhere(reason), let .needsNewerDuckDB(reason):
+            return reason
         default: return nil
         }
     }

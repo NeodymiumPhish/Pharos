@@ -255,15 +255,17 @@ struct ExportTableIntent: AppIntent {
     @Parameter(title: "Connection")
     var connection: ConnectionEntity
 
-    @Parameter(title: "Schema", default: "public")
-    var schema: String
+    /// Empty: the connection's default schema (`public` for PostgreSQL,
+    /// `main` for DuckDB) — a fixed "public" was wrong for DuckDB.
+    @Parameter(title: "Schema", description: "Leave empty for the connection's default schema.")
+    var schema: String?
 
     @Parameter(title: "Table")
     var table: String
 
     init() {}
 
-    init(connection: ConnectionEntity, schema: String, table: String) {
+    init(connection: ConnectionEntity, schema: String?, table: String) {
         self.connection = connection
         self.schema = schema
         self.table = table
@@ -273,6 +275,13 @@ struct ExportTableIntent: AppIntent {
         _ = try await MainActor.run { try PharosIntentBridge.showMainWindow() }
         let connectionId = connection.id
         try await PharosIntentBridge.ensureConnected(connectionId)
+        let typed = schema?.trimmingCharacters(in: .whitespaces) ?? ""
+        let schema = typed.isEmpty
+            ? await MainActor.run {
+                AppStateManager.shared.connections.first { $0.id == connectionId }?.effectiveDefaultSchema
+                    ?? DatabaseEngine.postgres.defaultSchema
+            }
+            : typed
 
         let columns: [ColumnInfo]
         do {

@@ -68,7 +68,9 @@ Read-only applies to that connect only.
 
 While a connection is open read-only, the tab's context row shows **Read-only** with a lock. Its help says why: the connection's Read-only setting, or another app that holds the file. The Database Navigator then leaves out Import Data…, Truncate and Drop. Two connections on the same file must have the same Read-only setting: when one is open, the other does not connect and says so.
 
-A file written by a newer DuckDB than the one in Pharos does not open; the message says so.
+A file written by a newer DuckDB than the one in Pharos does not open. The tab's context row says "Needs a newer DuckDB", with no Try Again, because a retry cannot succeed.
+
+When Pharos connects on its own (at launch, or from a Shortcut), it shows no alert. The tab's context row says "In use by another app" with an **Open Read-Only** button, or "File not found" with a **Locate…** button.
 
 ## Remove a file from Pharos
 
