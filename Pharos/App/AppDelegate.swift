@@ -105,16 +105,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // the content controller alive and observing, so it runs after the
         // first window is on screen.
         state.restoreSession { [weak self] in
+            // Once the tabs are back: the restore has reopened the DuckDB
+            // files they use, and `LaunchConnectPolicy` skips a connection
+            // that is open or opening. (It ran before the restore's Task
+            // finished, when it could see nothing.)
+            state.connectFlaggedConnectionsAtLaunch()
             self?.readyForOpens = true
             let urls = self?.pendingOpenURLs ?? []
             self?.pendingOpenURLs = []
             if !urls.isEmpty { self?.application(NSApp, open: urls) }
         }
-
-        // Last, because `LaunchConnectPolicy` skips a connection the restore
-        // has already opened, and it can only know that once the restore has
-        // run.
-        state.connectFlaggedConnectionsAtLaunch()
     }
 
     // MARK: - Windows

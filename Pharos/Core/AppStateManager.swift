@@ -475,11 +475,25 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Relaunch restore opens the DuckDB files the restored tabs use again
+    /// (Q4, decision 3; `RestoreConnectPolicy`), each once, in the window of
+    /// the first tab that names it. Quietly: a file that is gone or locked
+    /// says so in its tab's context row, not in an alert at launch.
+    private func reopenRestoredDuckDBFiles() {
+        let tabs = sessions.flatMap { session in session.tabs.map { (session, $0.connectionId) } }
+        let ids = RestoreConnectPolicy.recordsToOpen(
+            tabConnectionIds: tabs.map(\.1), connections: connections, status: { [unowned self] in self.status(for: $0) })
+        for id in ids {
+            markQuietConnect(id)
+            connect(id: id, in: tabs.first { $0.1 == id }?.0)
+        }
+    }
+
     /// Open the connections whose "Connect when Pharos starts" is set.
     ///
-    /// Call AFTER `restoreSession()`: a restored tab may already have brought
-    /// its connection up, and `LaunchConnectPolicy` skips those rather than
-    /// asking twice.
+    /// Call AFTER the restore has FINISHED (`restoreSession`'s completion):
+    /// it may have opened DuckDB files again, and `LaunchConnectPolicy` skips
+    /// a connection that is open or opening rather than asking twice.
     ///
     /// Connections that will put a Touch ID prompt on screen are opened ONE
     /// AT A TIME, and last. Several `DeviceOwnerGate` prompts raised together
@@ -496,7 +510,8 @@ final class AppStateManager: ObservableObject {
                 id: config.id,
                 name: config.name,
                 connectOnLaunch: config.connectOnLaunch,
-                isAlreadyConnected: connectionStatuses[config.id] == .connected,
+                isAlreadyConnected: connectionStatuses[config.id] == .connected
+                    || connectionStatuses[config.id] == .connecting,
                 requiresAuthentication: config.requiresAuthentication)
         }
         let toOpen = LaunchConnectPolicy.connectionsToOpen(candidates)
@@ -997,6 +1012,7 @@ final class AppStateManager: ObservableObject {
             for session in self.sessions { session.ensureTab() }
             self.sessionDirty = false
             self.startSessionAutosave()
+            self.reopenRestoredDuckDBFiles()
             finished()
         }
     }
@@ -1036,8 +1052,9 @@ final class AppStateManager: ObservableObject {
     /// this draft first, and its window then swaps the workspace in; when the
     /// workspace row is gone, the draft is what the user gets back.
     private func draftTab(_ saved: SessionTab) -> QueryTab {
-        // The connection is recorded, not dialled: restoring must never open a
-        // database connection the user did not ask for.
+        // The connection is recorded, not dialled here. When the restore ends,
+        // `reopenRestoredDuckDBFiles` opens the DuckDB files the tabs use; a
+        // server connection is never opened by a restore.
         var tab = QueryTab(name: saved.name, connectionId: saved.connectionId, schemaName: saved.schemaName,
                            document: CardPersistence.decode(json: saved.cardsJson, text: saved.sql))
         tab.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }

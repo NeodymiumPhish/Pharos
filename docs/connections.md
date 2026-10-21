@@ -96,7 +96,7 @@ Edits are made inline — click **Save** to persist, or **Revert** to discard. U
 
 ## Connecting at launch
 
-**Connect when Pharos starts** opens this connection as the app starts, after the saved tabs are back. A connection the restored session has already opened is left alone rather than opened twice.
+**Connect when Pharos starts** opens this connection as the app starts, once the saved tabs are back. Restoring the saved tabs opens the DuckDB files they use again, but no server connection; a connection that is already open or opening is left alone rather than opened twice.
 
 A connection that asks for Touch ID is opened **last, and one at a time**. Several system authentication prompts raised together stack on one another, and there is nothing on a prompt to say which connection it belongs to. Connections that ask for nothing all go at once, since there is nothing to queue behind.
 

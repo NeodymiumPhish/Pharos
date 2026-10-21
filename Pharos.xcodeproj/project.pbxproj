@@ -75,6 +75,7 @@
 		2DA2CC6487D9C4BFD53F3CF1 /* IntelligenceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9AB0873C57969274A41108 /* IntelligenceSession.swift */; };
 		2E2D04CAAE6675C81B15D999 /* TagValueNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */; };
 		2ED1DB1D0547080DFEA6B854 /* NameSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D231D081993C950E11523AB /* NameSuggestion.swift */; };
+		2ED41922CF0DE93531A6EB5E /* RestoreConnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1479D79997ED32FEF972F612 /* RestoreConnectPolicy.swift */; };
 		2F09F5016B7370BEA3F4F4B3 /* PharosCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB204A7203DFE7F75AE059A /* PharosCore.swift */; };
 		2FC992A0A3C5DE670CA34E46 /* TabContextBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B56739DE04EEB4C1F4850DB /* TabContextBar.swift */; };
 		30A7C93CCBFF9136F1562B32 /* NavigatorToolbarGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72879944504BD16192C63A9C /* NavigatorToolbarGroup.swift */; };
@@ -434,6 +435,7 @@
 		1240AA7DD9358837FF59AC79 /* QueryVariableStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariableStore.swift; sourceTree = "<group>"; };
 		13897D85C05525947FD11603 /* ColumnIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnIdentifier.swift; sourceTree = "<group>"; };
 		144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshSecretPrompt.swift; sourceTree = "<group>"; };
+		1479D79997ED32FEF972F612 /* RestoreConnectPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreConnectPolicy.swift; sourceTree = "<group>"; };
 		14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsavedWorkPolicy.swift; sourceTree = "<group>"; };
 		153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSuggestionPolicy.swift; sourceTree = "<group>"; };
 		159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckDBVocabularyCache.swift; sourceTree = "<group>"; };
@@ -1157,6 +1159,7 @@
 				2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */,
 				A9114095BC992F8AAD07387C /* QueryProgressText.swift */,
 				1240AA7DD9358837FF59AC79 /* QueryVariableStore.swift */,
+				1479D79997ED32FEF972F612 /* RestoreConnectPolicy.swift */,
 				A8D25AD58B2B79D406530A63 /* ResultLoadState.swift */,
 				DF8414CD13DF3D760B5E9830 /* ResultValueFormatter.swift */,
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
@@ -1697,6 +1700,7 @@
 				7B0EBAB5C93A48B9E7BE444C /* QuickLookItemBuilder.swift in Sources */,
 				75F6AB8A66D389286E0A1C1D /* ResizeDividerView.swift in Sources */,
 				F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */,
+				2ED41922CF0DE93531A6EB5E /* RestoreConnectPolicy.swift in Sources */,
 				FB448EB1A7763038E94ADAC5 /* ResultCellText.swift in Sources */,
 				6BA96F1C55425E22450B0287 /* ResultLoadState.swift in Sources */,
 				E4DA12266E68AD108BF10535 /* ResultValueFormatter.swift in Sources */,

@@ -660,7 +660,7 @@ final class ConnectionsManagerVC: NSViewController {
         connectOnLaunchCheckbox.action = #selector(perConnectionFlagChanged)
         connectOnLaunchCheckbox.setAccessibilityIdentifier("connections.connectOnLaunch")
         connectOnLaunchCheckbox.toolTip = String(localized:
-            "Opens this connection as Pharos starts, after the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together.")
+            "Opens this connection as Pharos starts, once the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together.")
 
         sessionTimeZonePopup.target = self
         sessionTimeZonePopup.action = #selector(perConnectionFlagChanged)

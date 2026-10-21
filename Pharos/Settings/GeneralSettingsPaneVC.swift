@@ -40,7 +40,7 @@ final class GeneralSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "restoreOpenTabs",
                     title: String(localized: "Restore open tabs"),
-                    caption: String(localized: "Reopen the editor tabs that were open when you last quit, with their results. No connection is opened."),
+                    caption: String(localized: "Reopen the editor tabs that were open when you last quit, with their results. DuckDB files that the tabs use are opened again; server connections are not."),
                     icon: "macwindow.on.rectangle",
                     kind: .toggle(.settings(\.query.restoreOpenTabs))),
             ]),

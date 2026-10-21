@@ -15,8 +15,8 @@ enum LaunchConnectPolicy {
         let name: String
         /// The per-connection "Connect when Pharos starts" flag.
         let connectOnLaunch: Bool
-        /// Whether this connection is already up — a session restore may have
-        /// opened it before this runs.
+        /// Whether this connection is already up or opening — relaunch restore
+        /// reopens the DuckDB files its tabs use before this runs.
         let isAlreadyConnected: Bool
         /// Whether opening it will put a Touch ID prompt on screen.
         let requiresAuthentication: Bool
