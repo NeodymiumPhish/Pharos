@@ -59,6 +59,11 @@ extension EditorPaneVC {
         })
     }
 
+    /// The tab's connection's engine (the transaction text differs, Q3).
+    var tabEngine: DatabaseEngine {
+        session.tab?.connectionId.flatMap { id in stateManager.connections.first { $0.id == id }?.engine } ?? .postgres
+    }
+
     /// The chip: an open or failed transaction, or a reset. It ticks once a
     /// second while a transaction is open, for its age.
     func refreshTransactionChip() {
@@ -68,7 +73,7 @@ extension EditorPaneVC {
                 report: monitor.report(for: tabId), receivedAt: monitor.receivedAt[tabId],
                 pendingReset: monitor.pendingResets[tabId], now: Date())
         }
-        tabContextBar.showTransaction(state)
+        tabContextBar.showTransaction(state, engine: tabEngine)
         if case .transaction = state {
             if transactionChipTimer == nil {
                 let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
@@ -93,7 +98,7 @@ extension EditorPaneVC {
                 pendingReset: monitor.pendingResets[tabId], now: Date()) else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let info = NSMenuItem(title: state.message, action: nil, keyEquivalent: "")
+        let info = NSMenuItem(title: state.message(engine: tabEngine), action: nil, keyEquivalent: "")
         info.isEnabled = false
         menu.addItem(info)
         menu.addItem(.separator())

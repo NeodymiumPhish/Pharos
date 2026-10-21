@@ -246,7 +246,7 @@ final class TabContextBar: NSView {
         schemaButton.isHidden = !hasConnection
     }
 
-    func showTransaction(_ state: TabSessionBannerState?) {
+    func showTransaction(_ state: TabSessionBannerState?, engine: DatabaseEngine = .postgres) {
         guard let state else {
             transactionChip.isHidden = true
             return
@@ -261,9 +261,9 @@ final class TabContextBar: NSView {
         transactionChip.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         transactionChip.contentTintColor = tint
         transactionChip.title = state.chipTitle
-        transactionChip.toolTip = state.message
+        transactionChip.toolTip = state.message(engine: engine)
         transactionChip.setAccessibilityLabel(state.chipTitle)
-        transactionChip.setAccessibilityHelp(state.message)
+        transactionChip.setAccessibilityHelp(state.message(engine: engine))
         transactionChip.isHidden = false
     }
 

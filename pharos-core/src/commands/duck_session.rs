@@ -27,7 +27,7 @@ use duckdb::{Connection, InterruptHandle, ProgressHandle};
 use super::query::{history_entry, query_timeout_seconds, record_history, result_cache, ExecuteResult, QueryResult, QUERY_CANCELLED};
 use super::tab_session::{
     CloseOutcome, SessionEndTransactionResult, SessionExecuteResult, SessionExplainResult, SessionQueryResult,
-    SessionReport, SessionReset, SessionRunRequest, SessionTarget, TxnState, SESSION_LIMIT_MARKER,
+    SessionReport, SessionReset, SessionRunRequest, SessionTarget, TxnState,
 };
 use crate::db::duckdb::exec::{self, probe_transaction, run_cancellable, RunStop, TxnProbe};
 use crate::state::{AppState, QueryCancel};
@@ -111,10 +111,6 @@ impl AppState {
             .map(|s| s.id.clone())
             .collect()
     }
-
-    fn duck_session_count(&self, connection_id: &str) -> usize {
-        self.duck_session_ids(connection_id).len()
-    }
 }
 
 /// The session for an editor tab, made when it has none. A tab that moved to
@@ -127,14 +123,9 @@ async fn session_for(state: &AppState, session_id: &str, connection_id: &str) ->
     }
     super::tab_session::close_tab_session(state, session_id).await;
     state.require_duck(connection_id)?;
-    let cap = state.settings().connections.max_tab_sessions_per_connection as usize;
-    if cap > 0 && state.duck_session_count(connection_id) >= cap {
-        return Err(format!(
-            "{} This database already has {} editor-tab connections open (Settings ▸ Connections). \
-             Close a tab, or raise the limit.",
-            SESSION_LIMIT_MARKER, cap
-        ));
-    }
+    // No per-database cap (Q3): the cap protects a server's connection slots,
+    // and a DuckDB connection is a handle in this process. A ninth tab used
+    // to fall back to a shared connection and lose its tab state.
     let session = Arc::new(DuckSession::new(session_id, connection_id));
     state.insert_duck_session(session.clone());
     Ok(session)
@@ -653,6 +644,22 @@ mod tests {
         assert_eq!(more.result.rows, vec![serde_json::json!(["2"]), serde_json::json!(["3"])]);
         let all = fetch_all_rows(target, "SELECT x FROM t ORDER BY x".into(), 100, &state, |_| {}).await.unwrap();
         assert_eq!(all.result.row_count, 5);
+    }
+
+    /// Q3: the per-server tab-connection cap does not apply to DuckDB: with
+    /// a cap of 2, a third tab still gets its own connection (its temp table
+    /// stays its own).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn duckdb_tabs_are_not_capped() {
+        let state = state_with_duck("d1");
+        let mut settings = (*state.settings()).clone();
+        settings.connections.max_tab_sessions_per_connection = 2;
+        state.replace_settings(settings);
+        for tab in ["t1", "t2", "t3"] {
+            execute_statement(run(tab, &format!("CREATE TEMP TABLE mine AS SELECT '{tab}' AS who")), &state).await.unwrap();
+        }
+        let r = execute_query(run("t3", "SELECT who FROM mine"), &state).await.unwrap();
+        assert_eq!(r.result.rows, vec![serde_json::json!(["t3"])]);
     }
 
     #[tokio::test(flavor = "multi_thread")]

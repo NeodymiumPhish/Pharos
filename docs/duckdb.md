@@ -155,7 +155,8 @@ These run the query again on the tab's own connection, so its temporary tables a
 | Other attached databases | — | Shown as `database.schema` in the schema browser |
 | Cancel and the query timeout | Server cancel | DuckDB's interrupt |
 | Exports (Export Data…, Export as Parquet…, Shortcuts) | No time limit | No time limit |
-| A card that fails inside a transaction | Undone alone (savepoint) | Can fail the transaction; roll it back from the transaction chip |
+| A card that fails inside a transaction | Undone alone (savepoint) | DuckDB has no savepoints: an error while a statement runs, or Cancel, fails the whole transaction (a syntax error does not). Roll it back from the transaction chip, whose help says so. |
+| Editor-tab connections per connection | Limited by **Settings > Connections** | No limit: each tab always has its own connection |
 | Idle-transaction timeout | Set by the server | None |
 | Editing result cells | Yes | No |
 | Explain | PostgreSQL's plan | DuckDB's plan, with row counts and timings but no costs |

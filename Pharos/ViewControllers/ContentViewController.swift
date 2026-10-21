@@ -2095,8 +2095,11 @@ class ContentViewController: NSViewController {
         Task {
             do {
                 // On the tab's own connection when it has one: the plan then
-                // sees its temp tables and settings, and an open transaction
-                // stays open (ANALYZE is undone to a savepoint).
+                // sees its temp tables and settings. PostgreSQL undoes ANALYZE
+                // to a savepoint, so an open transaction stays open. DuckDB has
+                // no savepoints: it wraps EXPLAIN ANALYZE in its own rolled-back
+                // transaction only when the tab is idle, and destructive
+                // statements are refused before this (DestructiveSQLScanner).
                 let json: String
                 if let target = CardExecutor.auxTarget(tabId: tabId, connectionId: connectionId, schema: tabSchema) {
                     do {
