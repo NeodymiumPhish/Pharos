@@ -876,6 +876,7 @@ pub async fn get_schemas(
             Some(SchemaInfo {
                 name: raw_str(&row, "schema_name")?,
                 owner: raw_str(&row, "schema_owner"),
+                attached_database: None,
             })
         })
         .collect();

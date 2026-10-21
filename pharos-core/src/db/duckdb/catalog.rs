@@ -94,8 +94,9 @@ pub fn schemas(conn: &Connection, include_system: bool) -> Result<Vec<SchemaInfo
         if system && !include_system {
             continue;
         }
-        let name = if db == home { schema } else { format!("{}.{}", db, schema) };
-        out.push(SchemaInfo { name, owner: None });
+        let attached = db != home;
+        let name = if attached { format!("{}.{}", db, schema) } else { schema };
+        out.push(SchemaInfo { name, owner: None, attached_database: attached.then_some(db) });
     }
     Ok(out)
 }
@@ -600,6 +601,9 @@ mod tests {
         let c = sample();
         let names: Vec<String> = schemas(&c, false).unwrap().into_iter().map(|s| s.name).collect();
         assert_eq!(names, ["main", "sales", "other.main"]);
+        let attached: Vec<Option<String>> =
+            schemas(&c, false).unwrap().into_iter().map(|s| s.attached_database).collect();
+        assert_eq!(attached, [None, None, Some("other".to_string())], "an attached schema names its database");
         let all: Vec<String> = schemas(&c, true).unwrap().into_iter().map(|s| s.name).collect();
         assert!(all.len() > names.len(), "{all:?}");
         // The temp catalog is always empty on a catalog connection: never listed.

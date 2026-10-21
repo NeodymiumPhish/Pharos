@@ -231,13 +231,19 @@ class SchemaBrowserVC: NSViewController {
                 // returns them by name (`ORDER BY schema_name`), so the
                 // default mode re-states that order rather than changing it.
                 let schemas = await MainActor.run { () -> [SchemaInfo] in
-                    let byName = Dictionary(fetched.map { ($0.name, $0) },
+                    // DuckDB's attached databases keep the core's order, after
+                    // the home database's schemas: "Order schemas by" sorts
+                    // the home schemas only, so an attached `pg.public` is
+                    // never sorted in among them.
+                    let home = fetched.filter { $0.attachedDatabase == nil }
+                    let attached = fetched.filter { $0.attachedDatabase != nil }
+                    let byName = Dictionary(home.map { ($0.name, $0) },
                                             uniquingKeysWith: { first, _ in first })
                     let order = NavigatorOrdering.sortedSchemas(
-                        fetched.map(\.name),
+                        home.map(\.name),
                         by: self.stateManager.settings.navigator.schemaSort,
                         defaultSchema: self.defaultSchemaName(for: connectionId))
-                    return order.compactMap { byName[$0] }
+                    return order.compactMap { byName[$0] } + attached
                 }
 
                 var schemaNodes: [SchemaTreeNode] = []
@@ -605,6 +611,12 @@ class SchemaBrowserVC: NSViewController {
                 nodes = schemaNode.children
             } else {
                 nodes = []
+            }
+            // DuckDB: the attached databases' schemas follow the pinned
+            // schema's tables, so an Attach shows while a tab is pinned.
+            nodes += unfilteredRootNodes.filter { node in
+                guard case let .schema(info) = node.kind else { return false }
+                return info.attachedDatabase != nil && info.name != schemaName
             }
         } else {
             nodes = unfilteredRootNodes

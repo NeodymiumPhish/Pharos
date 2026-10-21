@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 pub struct SchemaInfo {
     pub name: String,
     pub owner: Option<String>,
+    /// DuckDB: the attached database this schema belongs to, when it is not
+    /// the home database (`name` is then `db.schema`). None for PostgreSQL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attached_database: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -144,7 +144,7 @@ You can query and join the tables of a saved PostgreSQL connection from a DuckDB
 5. Keep **Read-only** on unless you want DuckDB to write to the PostgreSQL database. A read-only connection always attaches read-only.
 6. Click **Attach**.
 
-The Database Navigator then shows the PostgreSQL schemas as `name.schema`. Query them as `name.schema.table`, for example `SELECT * FROM live_analysis.public.events e JOIN read_csv('events.csv') c USING (id)`.
+The Database Navigator then shows the PostgreSQL schemas as `name.schema`, after the DuckDB file's own schemas. When the tab shows one schema only, the attached schemas follow its tables. Query them as `name.schema.table`, for example `SELECT * FROM live_analysis.public.events e JOIN read_csv('events.csv') c USING (id)`.
 
 - Pharos gives DuckDB the password in a temporary secret. The password is not in any SQL text, in query history or on disk.
 - A connection that uses an SSH tunnel attaches through that tunnel.

@@ -3,6 +3,9 @@ import Foundation
 struct SchemaInfo: Codable {
     let name: String
     let owner: String?
+    /// DuckDB: the attached database this schema belongs to (`name` is then
+    /// `db.schema`); nil for the home database and for PostgreSQL.
+    var attachedDatabase: String? = nil
 }
 
 enum TableType: String, Codable {
