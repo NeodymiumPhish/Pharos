@@ -414,6 +414,8 @@ pub fn tag_read_only(message: String) -> String {
         format!("{} {}", crate::commands::query::READ_ONLY_MARKER, message)
     } else if message.contains("different Team IDs") {
         format!("{}\n\n{}", EXTENSION_BLOCKED_SENTENCE, message)
+    } else if message.contains("Persistent secrets are disabled") {
+        format!("{}\n\n{}", PERSISTENT_SECRET_SENTENCE, message)
     } else {
         message
     }
@@ -428,6 +430,12 @@ pub fn tag_read_only(message: String) -> String {
 pub const EXTENSION_BLOCKED_SENTENCE: &str = "macOS did not let Pharos load this DuckDB extension: the app's code signature \
      only allows libraries it shipped with. Pharos has icu, inet, fts, excel, sqlite_scanner, postgres_scanner, httpfs, json, \
      parquet and autocomplete built in; other extensions are not available.";
+
+/// What a refused `CREATE PERSISTENT SECRET` means, said before DuckDB's own
+/// text (which suggests a SET that Pharos does not allow at open).
+pub const PERSISTENT_SECRET_SENTENCE: &str = "Pharos keeps DuckDB secrets in memory only, because DuckDB stores a \
+     persistent secret on disk in plain text. Use CREATE SECRET without PERSISTENT; the secret lasts until the \
+     database closes.";
 
 /// Run blocking DuckDB `work` off the runtime, and stop it with `interrupt`
 /// when `cancel` fires or `timeout_seconds` (0 = none) runs out.

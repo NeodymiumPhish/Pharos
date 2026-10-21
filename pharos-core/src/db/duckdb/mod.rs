@@ -54,27 +54,43 @@ pub struct OpenOptions {
     pub memory_limit: Option<String>,
 }
 
-static EXTENSION_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+static APP_DATA_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 
-/// Give DuckDB a Pharos-owned extension folder (`pharos_init`) instead of
-/// `~/.duckdb/extensions`. That folder is shared with the DuckDB CLI and the
-/// Python package: an extension downloaded there would load in a Debug build
-/// and fail in the hardened Release build, and `duckdb_extensions()` would
-/// show the download in place of the built-in copy. Pharos's own folder stays
-/// empty, so every build behaves the same.
-pub fn set_extension_directory(app_data_dir: &Path) {
-    let dir = app_data_dir.join("duckdb_extensions");
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = EXTENSION_DIRECTORY.set(dir);
+/// Give DuckDB Pharos-owned folders (`pharos_init`) in place of the ones in
+/// `~/.duckdb`, which it shares with the DuckDB CLI and the Python package:
+///
+/// - `duckdb_extensions`: an extension downloaded to `~/.duckdb` would load
+///   in a Debug build and fail in the hardened Release build, and
+///   `duckdb_extensions()` would show the download in place of the built-in
+///   copy. Pharos's folder stays empty, so every build behaves the same.
+/// - `duckdb_secrets` (mode 0700): DuckDB loads every persistent secret in
+///   its secret folder at startup, so another tool's S3 keys would be live in
+///   Pharos. Pharos also refuses `CREATE PERSISTENT SECRET`
+///   (`allow_persistent_secrets = false`), because DuckDB writes those
+///   secrets to disk in plain text.
+pub fn set_app_data_directory(app_data_dir: &Path) {
+    let _ = std::fs::create_dir_all(app_data_dir.join("duckdb_extensions"));
+    let secrets = app_data_dir.join("duckdb_secrets");
+    let _ = std::fs::create_dir_all(&secrets);
+    let _ = std::fs::set_permissions(&secrets, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    let _ = APP_DATA_DIRECTORY.set(app_data_dir.to_path_buf());
 }
 
-/// The folder from `set_extension_directory`, or (before it, and in tests) an
-/// empty folder in the temporary directory.
+/// `<app data>/<name>`, or (before `set_app_data_directory`, and in tests) a
+/// folder in the temporary directory.
+fn app_folder(name: &str) -> PathBuf {
+    match APP_DATA_DIRECTORY.get() {
+        Some(dir) => dir.join(name),
+        None => std::env::temp_dir().join(format!("pharos_{}", name)),
+    }
+}
+
 fn extension_directory() -> PathBuf {
-    EXTENSION_DIRECTORY
-        .get()
-        .cloned()
-        .unwrap_or_else(|| std::env::temp_dir().join("pharos_duckdb_extensions"))
+    app_folder("duckdb_extensions")
+}
+
+fn secret_directory() -> PathBuf {
+    app_folder("duckdb_secrets")
 }
 
 impl OpenOptions {
@@ -126,6 +142,10 @@ impl DuckDbInstance {
             .with("autoinstall_known_extensions", "false")
             .map_err(|e| e.to_string())?
             .with("allow_community_extensions", "false")
+            .map_err(|e| e.to_string())?
+            .with("secret_directory", &secret_directory().to_string_lossy())
+            .map_err(|e| e.to_string())?
+            .with("allow_persistent_secrets", "false")
             .map_err(|e| e.to_string())?;
 
         let conn = if path == IN_MEMORY {
@@ -544,6 +564,30 @@ mod tests {
         c.execute_batch("ATTACH '' AS pg (TYPE postgres, SECRET pharos_pg, READ_ONLY)").unwrap();
         let one: i32 = c.query_row("SELECT * FROM postgres_query('pg', 'SELECT 1')", [], |r| r.get(0)).unwrap();
         assert_eq!(one, 1);
+    }
+
+    /// Secrets live in memory only: a persistent one is refused with a plain
+    /// sentence, a temporary one works, and DuckDB's secret folder is
+    /// Pharos's own, not `~/.duckdb/stored_secrets`.
+    #[test]
+    fn secrets_are_never_written_to_disk() {
+        let c = memory_conn();
+        let err = c
+            .execute_batch("CREATE PERSISTENT SECRET s1 (TYPE s3, KEY_ID 'k', SECRET 'never-on-disk')")
+            .unwrap_err()
+            .to_string();
+        let shown = exec::RunStop::Failed(err.clone()).message();
+        assert!(shown.starts_with(exec::PERSISTENT_SECRET_SENTENCE), "{shown}");
+        assert!(shown.ends_with(&err), "DuckDB's own text stays");
+        c.execute_batch("CREATE SECRET s2 (TYPE s3, KEY_ID 'k', SECRET 'in-memory')").unwrap();
+        let (persistent, n): (bool, i64) = c
+            .query_row("SELECT bool_or(persistent), count(*) FROM duckdb_secrets()", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert!(!persistent);
+        assert_eq!(n, 1, "only the temporary secret, no other tool's");
+        let dir: String = c.query_row("SELECT current_setting('secret_directory')", [], |r| r.get(0)).unwrap();
+        assert_eq!(PathBuf::from(dir), secret_directory());
+        assert!(!secret_directory().join("s1.duckdb_secret").exists());
     }
 
     #[test]
