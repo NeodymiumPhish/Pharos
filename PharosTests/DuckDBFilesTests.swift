@@ -32,6 +32,26 @@ func runTests() {
     expect(DuckDBFiles.openRecords(for: "/tmp/sales.duckdb", in: [pg], isOpen: { _ in true }).isEmpty,
            "a PostgreSQL record never counts")
 
+    // F5: a new record's name is unique among ALL record names.
+    let data = ConnectionConfig.duckDB(path: "/Users/x/a/data.duckdb", id: "d1")
+    expect(DuckDBFiles.uniqueName(forPath: "/Users/x/new/sales.duckdb", in: [data]) == "sales", "a free stem is the name")
+    expect(DuckDBFiles.uniqueName(forPath: "/Users/x/b/data.duckdb", in: [data]) == "data (b)",
+           "same stem in another folder: the folder is added")
+    let dataB = ConnectionConfig.duckDB(path: "/Users/x/b/data.duckdb", name: "data (b)", id: "d2")
+    expect(DuckDBFiles.uniqueName(forPath: "/Users/y/b/data.duckdb", in: [data, dataB]) == "data (y/b)",
+           "same folder name in two parents: more folders are added")
+    let upper = ConnectionConfig.duckDB(path: "/q/DATA.duckdb", id: "d3")
+    expect(DuckDBFiles.uniqueName(forPath: "/r/data.duckdb", in: [upper]) == "data (r)", "names compare case-folded")
+    expect(DuckDBFiles.uniqueName(forPath: "/r/In-memory DuckDB.duckdb", in: [mem]) == "In-memory DuckDB (r)",
+           "an in-memory record's name counts too")
+    let pgNamed = ConnectionConfig(id: "pg2", name: " sales ", host: "h", port: 5432, database: "d", username: "u")
+    expect(DuckDBFiles.uniqueName(forPath: "/s/sales.duckdb", in: [pgNamed]) == "sales (s)",
+           "a PostgreSQL record's name counts, trimmed")
+    expect(DuckDBFiles.uniqueName(forPath: "/Users/x/a/data.duckdb", in: [data], excluding: "d1") == "data",
+           "the record being edited does not clash with itself")
+    let r1 = ConnectionConfig.duckDB(path: "/t.duckdb", id: "r1")
+    expect(DuckDBFiles.uniqueName(forPath: "/t.duckdb", in: [r1]) == "t 2", "no folder left: a number is added")
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

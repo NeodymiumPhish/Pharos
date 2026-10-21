@@ -20,7 +20,7 @@ nav_order: 20
 
 Pharos opens [DuckDB](https://duckdb.org) database files as well as PostgreSQL servers. DuckDB 1.5.6 is built into the app: there is nothing else to install, and the database runs inside Pharos.
 
-A DuckDB file is a **connection**. Each file you open gets a connection record, named after the file, in the Connections Manager. Query cards, tabs, query history, Sessions, workspaces, variables and tags work the same way as for a PostgreSQL connection.
+A DuckDB file is a **connection**. Each file you open gets a connection record, named after the file, in the Connections Manager. When another connection already has that name, Pharos adds the folder name, for example "data (Reports)". Query cards, tabs, query history, Sessions, workspaces, variables and tags work the same way as for a PostgreSQL connection.
 
 ## Open or create a database
 

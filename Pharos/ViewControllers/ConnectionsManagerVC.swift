@@ -1637,8 +1637,8 @@ final class ConnectionsManagerVC: NSViewController {
         }
     }
 
-    /// New… — where a new database file goes. Nothing is written until the
-    /// connection opens; DuckDB creates the file then.
+    /// New… — where a new database file goes. Save creates the file
+    /// (`createDuckDBFileIfNew`); Connect never does.
     @objc private func newDuckDBFile() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [DuckDBFiles.contentType]
@@ -1652,11 +1652,19 @@ final class ConnectionsManagerVC: NSViewController {
     }
 
     private func useDuckDBFile(_ url: URL) {
+        let oldPath = duckPathField.stringValue
         duckPathField.stringValue = url.path
         duckInMemoryCheckbox.state = .off
-        // A record still named by default takes the file's name.
-        if let d = draft, d.name.isEmpty || d.name == "Untitled" {
-            nameField.stringValue = url.deletingPathExtension().lastPathComponent
+        // A name Pharos gave (the + button's, or one taken from the previous
+        // file) follows the new file; a name the user typed stays.
+        if let d = draft {
+            let others = connections.filter { $0.id != d.id }
+            let given = [Self.newConnectionName,
+                         URL(fileURLWithPath: oldPath).deletingPathExtension().lastPathComponent,
+                         DuckDBFiles.uniqueName(forPath: oldPath, in: others)]
+            if d.name.isEmpty || given.contains(d.name) {
+                nameField.stringValue = DuckDBFiles.uniqueName(forPath: url.path, in: others)
+            }
         }
         applyEngineVisibility(selectedEngine)
         syncFormIntoDraft()
@@ -2112,11 +2120,14 @@ final class ConnectionsManagerVC: NSViewController {
 
     // MARK: - +/- Actions
 
+    /// The + button's name for a new record.
+    private static let newConnectionName = "Untitled"
+
     private func addStub() {
         beginNewConnection(
             prefilled: ConnectionConfig(
                 id: UUID().uuidString,
-                name: "Untitled",
+                name: Self.newConnectionName,
                 host: "localhost",
                 // Settings ▸ Connections ▸ Default port. A NEW connection
                 // only; nothing already saved is touched.

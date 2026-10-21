@@ -254,9 +254,12 @@ final class PasswordPromptCoordinator {
             guard response == .OK, let url = panel.url else { return }
             let manager = AppStateManager.shared
             guard var record = manager.connections.first(where: { $0.id == id }) else { return }
+            // A name Pharos gave from the old file follows the new one; a
+            // name the user typed stays.
+            let others = manager.connections.filter { $0.id != id }
             let oldStem = (old.lastPathComponent as NSString).deletingPathExtension
-            if record.name == oldStem {
-                record.name = (url.lastPathComponent as NSString).deletingPathExtension
+            if record.name == oldStem || record.name == DuckDBFiles.uniqueName(forPath: old.path, in: others) {
+                record.name = DuckDBFiles.uniqueName(forPath: url.path, in: others)
             }
             record.database = DuckDBFiles.canonicalPath(url.path)
             manager.saveConnection(record)

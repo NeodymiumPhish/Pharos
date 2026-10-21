@@ -88,7 +88,7 @@ extension AppDelegate {
         if let existing = DuckDBFiles.record(for: path, in: manager.connections) {
             record = existing
         } else {
-            let made = ConnectionConfig.duckDB(path: path)
+            let made = ConnectionConfig.duckDB(path: path, name: DuckDBFiles.uniqueName(forPath: path, in: manager.connections))
             manager.saveConnection(made)
             record = made
         }

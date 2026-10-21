@@ -60,4 +60,31 @@ enum DuckDBFiles {
             $0.isDuckDB && !$0.isInMemoryDuckDB && canonicalPath($0.database) == target && isOpen($0.id)
         }
     }
+
+    /// The name for a new record on this file: the file's stem when no other
+    /// record has that name, else "stem (folder)", then more folders
+    /// ("stem (b/folder)"), then a number ("stem 2"). Names compare trimmed
+    /// and case-folded. `excluding`: the record being edited, whose own name
+    /// does not count. ~/a/data.duckdb and ~/b/data.duckdb so never share a
+    /// name in the pop-up, the Dock menu, a window title or VoiceOver.
+    static func uniqueName(forPath path: String, in connections: [ConnectionConfig],
+                           excluding id: String? = nil) -> String {
+        func key(_ s: String) -> String {
+            s.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        }
+        let taken = Set(connections.filter { $0.id != id }.map { key($0.name) })
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let stem = url.deletingPathExtension().lastPathComponent
+        if !taken.contains(key(stem)) { return stem }
+        let folders = url.deletingLastPathComponent().pathComponents.filter { $0 != "/" }
+        var parts: [String] = []
+        for folder in folders.reversed() {
+            parts.insert(folder, at: 0)
+            let candidate = "\(stem) (\(parts.joined(separator: "/")))"
+            if !taken.contains(key(candidate)) { return candidate }
+        }
+        var n = 2
+        while taken.contains(key("\(stem) \(n)")) { n += 1 }
+        return "\(stem) \(n)"
+    }
 }
