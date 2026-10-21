@@ -285,8 +285,6 @@ class ContentViewController: NSViewController {
         }
         actionBar.translatesAutoresizingMaskIntoConstraints = false
         resultsVC.view.translatesAutoresizingMaskIntoConstraints = false
-        // DuckDB's own exports of every row (D4), in the grid's Export popover.
-        resultsVC.copyExport.engineExportActions = { [weak self] in self?.duckDBResultExportActions() ?? [] }
 
         // The two arranged subviews are frame-managed by the split view; their
         // own children lay out against them with Auto Layout.
@@ -340,6 +338,9 @@ class ContentViewController: NSViewController {
         // Wire results VC to use toolbar elements from this VC
         resultsVC.contentVC = self
         resultsVC.setupHelpers()
+        // DuckDB's own exports of every row (D4), in the grid's Export popover.
+        // After setupHelpers: that is where `copyExport` is made.
+        resultsVC.copyExport.engineExportActions = { [weak self] in self?.duckDBResultExportActions() ?? [] }
 
         // Empty state (no connection)
         setupEmptyState()
