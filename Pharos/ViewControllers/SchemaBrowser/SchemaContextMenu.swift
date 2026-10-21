@@ -281,6 +281,28 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         delegate?.contextMenuPresentSheet(sheet)
     }
 
+    /// DuckDB, writable: New Table from File…, into `schema` (nil: the
+    /// tab's schema).
+    private func addNewTableItem(to menu: NSMenu, schema: String?) {
+        guard !isReadOnly, let id = delegate?.contextConnectionId, stateManager.status(for: id) == .connected else { return }
+        let item = NSMenuItem(title: String(localized: "New Table from File…"),
+                              action: #selector(contextNewTableFromFile(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = schema
+        menu.addItem(item)
+    }
+
+    @objc private func contextNewTableFromFile(_ sender: NSMenuItem) {
+        var info: [String: Any] = [:]
+        if let schema = sender.representedObject as? String { info["schema"] = schema }
+        NotificationCenter.default.post(name: .newTableFromFileRequested, object: nil, userInfo: info)
+    }
+
+    @objc private func contextRefreshMetadata(_: Any?) {
+        guard let id = delegate?.contextConnectionId else { return }
+        stateManager.refreshMetadata(connectionId: id)
+    }
+
     /// DuckDB only: Export as Parquet…, written by DuckDB's own Parquet writer.
     private func addParquetItem(to menu: NSMenu) {
         guard let id = delegate?.contextConnectionId,
@@ -529,7 +551,18 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        guard let node = clickedNode() else { return }
+        guard let node = clickedNode() else {
+            // Empty space: on a DuckDB connection, the two things that make
+            // sense for the whole file (D3, N1).
+            if isDuckDB { addNewTableItem(to: menu, schema: nil) }
+            if delegate?.contextConnectionId != nil {
+                let refresh = NSMenuItem(title: String(localized: "Refresh Metadata"),
+                                         action: #selector(contextRefreshMetadata), keyEquivalent: "")
+                refresh.target = self
+                menu.addItem(refresh)
+            }
+            return
+        }
 
         switch node.kind {
         case .table:
@@ -595,6 +628,11 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
             if isDuckDB {
                 menu.addItem(.separator())
+                // The file's own schemas only: an attached PostgreSQL
+                // database is not where a table from a file goes.
+                if let schema = node.schemaName, DuckDBAttachRules.attachedDatabase(ofSchema: schema) == nil {
+                    addNewTableItem(to: menu, schema: schema)
+                }
                 let attach = NSMenuItem(title: String(localized: "Attach PostgreSQL Connection…"),
                                         action: #selector(contextAttachPostgres), keyEquivalent: "")
                 attach.target = self
@@ -613,6 +651,11 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             let copyName = NSMenuItem(title: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")
             copyName.target = self
             menu.addItem(copyName)
+
+            let refresh = NSMenuItem(title: String(localized: "Refresh Metadata"),
+                                     action: #selector(contextRefreshMetadata), keyEquivalent: "")
+            refresh.target = self
+            menu.addItem(refresh)
 
         case .column:
             let copyName = NSMenuItem(title: "Copy Name", action: #selector(contextCopyName), keyEquivalent: "")

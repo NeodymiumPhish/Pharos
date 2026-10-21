@@ -162,7 +162,7 @@ class ContentViewController: NSViewController {
     private var displacedFilters: [String: ColumnFilter] = [:]
 
     /// The editor: tab bar, SQL editor, variables and result-tabs panels.
-    private let editorPane: EditorPaneVC
+    let editorPane: EditorPaneVC
 
     /// Owns the one live query-error sheet. Its `showSheet`/`closeSheet` seams
     /// are filled in `viewDidLoad`.
@@ -171,7 +171,7 @@ class ContentViewController: NSViewController {
     /// This window's tabs, results and connection. Handed in at build time
     /// by `PharosSplitViewController`.
     let session: WindowSession
-    private let stateManager = AppStateManager.shared
+    let stateManager = AppStateManager.shared
     private let metadataCache = MetadataCache.shared
     private var cancellables = Set<AnyCancellable>()
     /// Local key monitor so Esc clears an in-progress chart selection. A monitor is
@@ -600,6 +600,12 @@ class ContentViewController: NSViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleRunQueryInCurrentTab(_:)),
             name: .runQueryInCurrentTab, object: nil
+        )
+
+        // New Table from File… from the Database Navigator (menu or drop).
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleNewTableFromFileRequested(_:)),
+            name: .newTableFromFileRequested, object: nil
         )
 
         // Observe "insert text in editor" from schema browser context menu
@@ -1645,7 +1651,7 @@ class ContentViewController: NSViewController {
         runBatch(ids, inTab: tab.id)
     }
 
-    private func runBatch(_ cardIds: [String], inTab tabId: String) {
+    func runBatch(_ cardIds: [String], inTab tabId: String) {
         guard !cardIds.isEmpty else { return }
         var queue = runQueues[tabId] ?? CardRunQueue()
         let start = queue.enqueueBatch(cardIds: cardIds)
@@ -1681,7 +1687,7 @@ class ContentViewController: NSViewController {
     /// Add a card holding SQL the user did not type in the card stack — a
     /// browse action, a drill-down, a selection — and run it. After
     /// `after`, or at the end.
-    private func runGeneratedCard(sql: String, name: String?, inTab tabId: String, after: String? = nil) {
+    func runGeneratedCard(sql: String, name: String?, inTab tabId: String, after: String? = nil) {
         var newId = ""
         session.updateTab(id: tabId) { tab in
             newId = tab.document.insertCard(after: after ?? tab.document.cards.last?.id, sql: sql, name: name)
@@ -3415,7 +3421,7 @@ extension ContentViewController {
     /// restore aims each stored window's tabs. With none, the key window takes
     /// it, which is what the sidebar, the schema browser and a Spotlight or
     /// Handoff activity mean: the window the user is in.
-    private func ownsBroadcast(_ notification: Notification) -> Bool {
+    func ownsBroadcast(_ notification: Notification) -> Bool {
         if let id = notification.userInfo?["sessionId"] as? String { return id == session.id }
         return AppStateManager.shared.keySession === session
     }
@@ -5224,6 +5230,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuShowInFinder(_:)) { return duckDBFileRecord != nil }
         if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
         if menuItem.action == #selector(menuInsertFileReference(_:)) { return isDuckDBTab }
+        if menuItem.action == #selector(menuNewTableFromFile(_:)) { return canMakeTableFromFile }
         if menuItem.action == #selector(menuCommitTransaction(_:)) || menuItem.action == #selector(menuRollBackTransaction(_:)) {
             guard let tabId = session.activeTabId, let report = TabSessionMonitor.shared.report(for: tabId),
                   report.open else { return false }

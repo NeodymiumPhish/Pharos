@@ -211,6 +211,9 @@ enum MainMenu {
         let insertFile = queryMenu.addItem(withTitle: String(localized: "Insert File Reference…"),
                                            action: #selector(ContentViewController.menuInsertFileReference(_:)), keyEquivalent: "")
         insertFile.image = NSImage(systemSymbolName: "doc.badge.plus", accessibilityDescription: nil)
+        let newTable = queryMenu.addItem(withTitle: String(localized: "New Table from File…"),
+                                         action: #selector(ContentViewController.menuNewTableFromFile(_:)), keyEquivalent: "")
+        newTable.image = NSImage(systemSymbolName: "tablecells.badge.ellipsis", accessibilityDescription: nil)
 
         queryMenu.addItem(.separator())
 

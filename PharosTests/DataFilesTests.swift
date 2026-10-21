@@ -35,6 +35,8 @@ func runTests() {
            == "CREATE TABLE \"main\".\"a\" AS FROM read_csv('/d/a.csv', nullstr = '\\N')", "the NULL literal for CSV")
     expect(DataFiles.createTableSQL(for: u("/d/a.parquet"), schema: "main", table: "a", nullString: "NULL")
            == "CREATE TABLE \"main\".\"a\" AS FROM read_parquet('/d/a.parquet')", "no nullstr for Parquet")
+    expect(DataFiles.createTableSQL(for: u("/d/a.csv"), schema: "main", table: "a", encoding: "latin-1")
+           == "CREATE TABLE \"main\".\"a\" AS FROM read_csv('/d/a.csv', encoding = 'latin-1')", "a CSV encoding")
     expect(DataFiles.createTableSQL(for: u("/d/a.sql"), schema: "main", table: "a") == nil, "no table from a .sql file")
     expect(DataFiles.tableName(for: u("/d/Sales 2024-Q1.csv")) == "sales_2024_q1", "a table name from the stem")
     expect(DataFiles.tableName(for: u("/d/2024.csv")) == "t_2024", "a leading digit gets a prefix")

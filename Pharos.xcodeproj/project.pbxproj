@@ -351,6 +351,7 @@
 		D6D0BF4D8C2B7029F7A6D409 /* CardStackVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB647788D503E3A7B42788F /* CardStackVC.swift */; };
 		D8B646F76DBFA6FAED2EC3C4 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D9C70AAE70474C6A9171C2 /* SettingsWindowController.swift */; };
 		D9D0084F5A297A617D89B191 /* SettingsInfoButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB90AC3C687DFE505F1B769 /* SettingsInfoButton.swift */; };
+		DA62FDE9A778D6A3B6FB94D8 /* ContentViewController+DataFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C0F5CA284EB37AF60EF47A /* ContentViewController+DataFiles.swift */; };
 		DD4B5437E848E45EA5D1F6C4 /* ResultsFindController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DEE8A90621927B4A546E936 /* ResultsFindController.swift */; };
 		E02EA8A440A656E0CFDE8093 /* SchemaDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */; };
 		E0EA67613142938E238898C7 /* ChartPalette+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30FCEFFB7D70B745C0B226 /* ChartPalette+Color.swift */; };
@@ -524,6 +525,7 @@
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
 		5757A383E8948F38AB9B6545 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
+		58C0F5CA284EB37AF60EF47A /* ContentViewController+DataFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentViewController+DataFiles.swift"; sourceTree = "<group>"; };
 		58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaPopUpButton.swift; sourceTree = "<group>"; };
 		58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlIdentifierQuoting.swift; sourceTree = "<group>"; };
 		5986E6A14FB84B36CB6A09FA /* ShortcutsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsPaneVC.swift; sourceTree = "<group>"; };
@@ -956,6 +958,7 @@
 			children = (
 				E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */,
 				580925EDF531F5722145FC92 /* ContentViewController.swift */,
+				58C0F5CA284EB37AF60EF47A /* ContentViewController+DataFiles.swift */,
 				D468B572508D6D0483A8BED2 /* ContentViewController+Sessions.swift */,
 				65BB5738BD159E9BD4771CC0 /* ContentViewController+UnsavedWork.swift */,
 				5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */,
@@ -1537,6 +1540,7 @@
 				078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */,
 				A7BA9813B484925A81903D07 /* ConnectionsSettingsPaneVC.swift in Sources */,
 				712555DCFC7E130CD10415C1 /* ContentPaneLayout.swift in Sources */,
+				DA62FDE9A778D6A3B6FB94D8 /* ContentViewController+DataFiles.swift in Sources */,
 				BCFF070A24F440AD4BE16ADB /* ContentViewController+Sessions.swift in Sources */,
 				2BEB53ACBA763C78FB91D0E4 /* ContentViewController+UnsavedWork.swift in Sources */,
 				9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */,

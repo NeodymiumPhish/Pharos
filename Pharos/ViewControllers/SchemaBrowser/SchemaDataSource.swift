@@ -12,6 +12,14 @@ protocol SchemaDataSourceDelegate: AnyObject {
     /// A CSV/TSV file was dropped on `node` (always a `.table`). The receiver
     /// opens the import sheet with the file already chosen.
     func schemaDataSourceDidDropFile(_ url: URL, onTable node: SchemaTreeNode)
+    /// D3: the schema a data file dropped at `item` (nil: the outline's
+    /// background) makes a new table in, or nil to refuse the drop.
+    func schemaDataSourceNewTableSchema(forProposedItem item: Any?) -> String?
+    /// The row to highlight for that schema; nil highlights the whole outline
+    /// (a tab pinned to one schema shows no schema rows).
+    func schemaDataSourceSchemaRow(named schema: String) -> SchemaTreeNode?
+    /// A data file was dropped to make a new table in `schema`.
+    func schemaDataSourceDidDropFile(_ url: URL, newTableIn schema: String)
     /// `node` was double-clicked. The receiver owns Settings ▸ Navigator ▸
     /// On double-click and returns `true` when it ran the chosen action.
     /// `false` — the setting is "Expand or collapse", or the row is not an
@@ -81,23 +89,51 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
         return node
     }
 
+    /// One dropped file that DuckDB reads in place (CSV, JSON, Parquet,
+    /// Excel), for New Table from File….
+    static func dataFileURL(from pasteboard: NSPasteboard) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
+              urls.count == 1, let url = urls.first, DataFiles.isDataFile(url) else { return nil }
+        return url
+    }
+
+    /// A CSV dropped ON a table imports into it (the import sheet); any other
+    /// data file, or one dropped on a schema or the background, makes a new
+    /// table (DuckDB only).
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        guard delegate?.schemaDataSourceConnectionId != nil,
-              let node = Self.acceptsDrop(item),
-              Self.importableFileURL(from: info.draggingPasteboard) != nil else { return [] }
-        // Drop ON the table, never between rows: the tree has no order to
-        // insert into.
-        outlineView.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
+        guard delegate?.schemaDataSourceConnectionId != nil else { return [] }
+        if let node = Self.acceptsDrop(item), index == NSOutlineViewDropOnItemIndex,
+           Self.importableFileURL(from: info.draggingPasteboard) != nil {
+            // Drop ON the table, never between rows: the tree has no order to
+            // insert into.
+            outlineView.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            return .copy
+        }
+        guard Self.dataFileURL(from: info.draggingPasteboard) != nil,
+              let schema = delegate?.schemaDataSourceNewTableSchema(forProposedItem: item) else {
+            // The old rule for a CSV between rows: retarget to the table.
+            if let node = Self.acceptsDrop(item), Self.importableFileURL(from: info.draggingPasteboard) != nil {
+                outlineView.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
+                return .copy
+            }
+            return []
+        }
+        outlineView.setDropItem(delegate?.schemaDataSourceSchemaRow(named: schema), dropChildIndex: NSOutlineViewDropOnItemIndex)
         return .copy
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
-        guard delegate?.schemaDataSourceConnectionId != nil,
-              let node = Self.acceptsDrop(item),
-              let url = Self.importableFileURL(from: info.draggingPasteboard) else { return false }
-        delegate?.schemaDataSourceDidDropFile(url, onTable: node)
+        guard delegate?.schemaDataSourceConnectionId != nil else { return false }
+        if let node = Self.acceptsDrop(item), let url = Self.importableFileURL(from: info.draggingPasteboard) {
+            delegate?.schemaDataSourceDidDropFile(url, onTable: node)
+            return true
+        }
+        guard let url = Self.dataFileURL(from: info.draggingPasteboard),
+              let schema = delegate?.schemaDataSourceNewTableSchema(forProposedItem: item) else { return false }
+        delegate?.schemaDataSourceDidDropFile(url, newTableIn: schema)
         return true
     }
 

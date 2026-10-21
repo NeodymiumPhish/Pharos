@@ -85,13 +85,20 @@ enum DataFiles {
     /// Table from File…. Plain CREATE, never OR REPLACE: a name clash gives
     /// DuckDB's own error instead of silently replacing a table.
     /// `nullString`: the Settings NULL literal, passed as `nullstr` to the
-    /// CSV reader when it is not empty.
-    static func createTableSQL(for url: URL, schema: String, table: String, nullString: String? = nil) -> String? {
+    /// CSV reader when it is not empty. `encoding`: DuckDB's name for a CSV
+    /// encoding other than UTF-8 ("utf-16", "latin-1").
+    static func createTableSQL(for url: URL, schema: String, table: String, nullString: String? = nil,
+                               encoding: String? = nil) -> String? {
         let kind = kind(of: url)
         guard let reader = kind.reader else { return nil }
         var arguments = literal(url)
-        if let nullString, !nullString.isEmpty, kind == .csv || kind == .tsv {
-            arguments += ", nullstr = '" + nullString.replacingOccurrences(of: "'", with: "''") + "'"
+        if kind == .csv || kind == .tsv {
+            if let nullString, !nullString.isEmpty {
+                arguments += ", nullstr = '" + nullString.replacingOccurrences(of: "'", with: "''") + "'"
+            }
+            if let encoding, !encoding.isEmpty {
+                arguments += ", encoding = '" + encoding.replacingOccurrences(of: "'", with: "''") + "'"
+            }
         }
         return "CREATE TABLE \(quoted(schema)).\(quoted(table)) AS FROM \(reader)(\(arguments))"
     }

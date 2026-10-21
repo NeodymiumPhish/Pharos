@@ -102,6 +102,18 @@ DuckDB reads CSV, TSV, JSON, newline-delimited JSON, Parquet and Excel files whe
 
 Load More and Load All read the file again for each page. For a large file you query often, make a table from it first.
 
+## Make a table from a file
+
+**Query > New Table from File…** copies a CSV, JSON, Parquet or Excel file into a new table. You can also choose **New Table from File…** on a schema row, or on empty space, in the Database Navigator, or drop the file on the Database Navigator.
+
+1. Choose the file (a dropped file needs no panel).
+2. Type the table's name. The default comes from the file name, for example `sales_2024_q1`.
+3. Pharos adds two cards and runs them:
+   - `CREATE TABLE "main"."sales_2024_q1" AS FROM read_csv('/Users/you/Data/Sales 2024-Q1.csv')`
+   - `SELECT * FROM "main"."sales_2024_q1" LIMIT 100`
+
+For a CSV file, the NULL text and the encoding in **Settings > Export & Import** apply. The first card is ordinary SQL: edit it to set reader options such as `delim` or `header`, or to make a view instead. Pharos never replaces a table: when the name is in use, DuckDB says so. A CSV dropped on an existing table still opens **Import Data…** for that table.
+
 ## What differs from PostgreSQL
 
 | | PostgreSQL | DuckDB |

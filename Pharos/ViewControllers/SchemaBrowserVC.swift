@@ -6,6 +6,9 @@ extension Notification.Name {
     static let runQueryInCurrentTab = Notification.Name("PharosRunQueryInCurrentTab")
     static let insertTextInEditor = Notification.Name("PharosInsertTextInEditor")
     static let connectionMetadataRefreshRequested = Notification.Name("PharosConnectionMetadataRefreshRequested")
+    /// New Table from File…, from the Database Navigator: userInfo "schema"
+    /// (String, optional) and "url" (URL, optional — a dropped file).
+    static let newTableFromFileRequested = Notification.Name("PharosNewTableFromFileRequested")
 }
 
 // MARK: - SchemaBrowserVC
@@ -983,6 +986,29 @@ extension SchemaBrowserVC: SchemaDataSourceDelegate {
     /// else about the import.
     func schemaDataSourceDidDropFile(_ url: URL, onTable node: SchemaTreeNode) {
         contextMenuHandler.presentImportSheet(for: node, preselectedFileURL: url)
+    }
+
+    func schemaDataSourceNewTableSchema(forProposedItem item: Any?) -> String? {
+        guard let connectionId, engine(for: connectionId) == .duckdb,
+              stateManager.status(for: connectionId) == .connected,
+              stateManager.readOnlyReasons[connectionId] == nil,
+              stateManager.connections.first(where: { $0.id == connectionId })?.readOnly != true else { return nil }
+        let schema = (item as? SchemaTreeNode)?.schemaName ?? activeSchemaFilter ?? autoExpandSchemaName
+        // Never into an attached PostgreSQL database.
+        return DuckDBAttachRules.attachedDatabase(ofSchema: schema) == nil ? schema : nil
+    }
+
+    func schemaDataSourceSchemaRow(named schema: String) -> SchemaTreeNode? {
+        guard activeSchemaFilter == nil else { return nil }
+        return schemaDataSource.rootNodes.first { node in
+            if case .schema = node.kind { return node.schemaName == schema }
+            return false
+        }
+    }
+
+    func schemaDataSourceDidDropFile(_ url: URL, newTableIn schema: String) {
+        NotificationCenter.default.post(name: .newTableFromFileRequested, object: nil,
+                                        userInfo: ["url": url, "schema": schema])
     }
 }
 
