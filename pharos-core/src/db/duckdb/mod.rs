@@ -65,9 +65,12 @@ static APP_DATA_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 ///   copy. Pharos's folder stays empty, so every build behaves the same.
 /// - `duckdb_secrets` (mode 0700): DuckDB loads every persistent secret in
 ///   its secret folder at startup, so another tool's S3 keys would be live in
-///   Pharos. Pharos also refuses `CREATE PERSISTENT SECRET`
-///   (`allow_persistent_secrets = false`), because DuckDB writes those
-///   secrets to disk in plain text.
+///   Pharos. Pharos also refuses `CREATE PERSISTENT SECRET` and `… IN
+///   <storage>` before they run (`exec::refuse_stored_secrets`), because
+///   DuckDB writes those secrets to disk in plain text. Persistent storage
+///   itself stays ON: with it off, DuckDB's postgres extension fails every
+///   `ATTACH '…' (TYPE postgres)` that names no secret ("Unknown secret
+///   storage found: 'local_file'", measured 2026-10-21).
 pub fn set_app_data_directory(app_data_dir: &Path) {
     let _ = std::fs::create_dir_all(app_data_dir.join("duckdb_extensions"));
     let secrets = app_data_dir.join("duckdb_secrets");
@@ -144,8 +147,6 @@ impl DuckDbInstance {
             .with("allow_community_extensions", "false")
             .map_err(|e| e.to_string())?
             .with("secret_directory", &secret_directory().to_string_lossy())
-            .map_err(|e| e.to_string())?
-            .with("allow_persistent_secrets", "false")
             .map_err(|e| e.to_string())?;
 
         let conn = if path == IN_MEMORY {
@@ -572,14 +573,14 @@ mod tests {
     #[test]
     fn secrets_are_never_written_to_disk() {
         let c = memory_conn();
-        let err = c
-            .execute_batch("CREATE PERSISTENT SECRET s1 (TYPE s3, KEY_ID 'k', SECRET 'never-on-disk')")
-            .unwrap_err()
-            .to_string();
-        let shown = exec::RunStop::Failed(err.clone()).message();
-        assert!(shown.starts_with(exec::PERSISTENT_SECRET_SENTENCE), "{shown}");
-        assert!(shown.ends_with(&err), "DuckDB's own text stays");
-        c.execute_batch("CREATE SECRET s2 (TYPE s3, KEY_ID 'k', SECRET 'in-memory')").unwrap();
+        for sql in [
+            "CREATE PERSISTENT SECRET s1 (TYPE s3, KEY_ID 'k', SECRET 'never-on-disk')",
+            "SELECT 1; CREATE SECRET s1 IN local_file (TYPE s3, SECRET 'never-on-disk')",
+        ] {
+            assert_eq!(exec::execute_text(&c, sql).unwrap_err(), exec::PERSISTENT_SECRET_SENTENCE, "{sql}");
+            assert_eq!(exec::query_text(&c, sql, None, 0).err().as_deref(), Some(exec::PERSISTENT_SECRET_SENTENCE));
+        }
+        exec::execute_text(&c, "CREATE SECRET s2 (TYPE s3, KEY_ID 'k', SECRET 'in-memory')").unwrap();
         let (persistent, n): (bool, i64) = c
             .query_row("SELECT bool_or(persistent), count(*) FROM duckdb_secrets()", [], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap();

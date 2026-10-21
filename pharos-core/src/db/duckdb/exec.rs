@@ -95,8 +95,18 @@ pub fn first_word(statement: &str) -> String {
 /// one's rows: the first `limit` after `offset` (all of them for None).
 ///
 /// The result describes the LAST statement, as psql shows the last result.
+/// Refuse a statement that would store a DuckDB secret on disk (see
+/// `PERSISTENT_SECRET_SENTENCE`), before any statement of the text runs.
+fn refuse_stored_secrets(stmts: &[String]) -> Result<(), String> {
+    if stmts.iter().any(|s| crate::commands::redact::creates_stored_secret(s)) {
+        return Err(PERSISTENT_SECRET_SENTENCE.to_string());
+    }
+    Ok(())
+}
+
 pub fn query_text(conn: &Connection, sql: &str, limit: Option<usize>, offset: usize) -> Result<TextRows, String> {
     let stmts = statements(sql);
+    refuse_stored_secrets(&stmts)?;
     let Some((last, before)) = stmts.split_last() else {
         return Ok(TextRows { columns: vec![], rows: vec![], has_more: false, pageable: false });
     };
@@ -216,6 +226,7 @@ fn page(columns: Vec<ColumnDef>, mut rows: Vec<serde_json::Value>, limit: Option
 /// reports a `Count` for INSERT, UPDATE and DELETE; 0 for the rest).
 pub fn execute_text(conn: &Connection, sql: &str) -> Result<u64, String> {
     let stmts = statements(sql);
+    refuse_stored_secrets(&stmts)?;
     let Some((last, before)) = stmts.split_last() else { return Ok(0) };
     for s in before {
         conn.execute_batch(s).map_err(|e| e.to_string())?;

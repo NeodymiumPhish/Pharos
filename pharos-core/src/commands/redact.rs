@@ -166,6 +166,32 @@ fn is_create_secret(toks: &[Tok], sql: &str) -> bool {
     false
 }
 
+/// Whether `statement` stores a DuckDB secret outside memory:
+/// `CREATE … PERSISTENT SECRET …` or `CREATE … SECRET [name] IN <storage>`
+/// with a storage other than `memory`. Pharos refuses both
+/// (`db::duckdb::exec`): DuckDB writes such a secret to disk in plain text.
+pub(crate) fn creates_stored_secret(statement: &str) -> bool {
+    let toks = tokens(statement);
+    let words: Vec<String> = toks
+        .iter()
+        .map_while(|t| match t {
+            Tok::Word(r) => Some(statement[r.clone()].to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+    if !is_create_secret(&toks, statement) {
+        return false;
+    }
+    let secret_at = words.iter().position(|w| w == "secret").unwrap_or(0);
+    if words[..secret_at].iter().any(|w| w == "persistent") {
+        return true;
+    }
+    match words[secret_at..].iter().position(|w| w == "in") {
+        Some(i) => words.get(secret_at + i + 1).is_some_and(|storage| storage != "memory"),
+        None => false,
+    }
+}
+
 /// Rule 3 inside one literal's content: `…password=<value>` and
 /// `scheme://user:<pw>@`.
 fn in_literal(sql: &str, content: Range<usize>) -> Vec<Range<usize>> {
@@ -308,6 +334,28 @@ mod tests {
         assert_eq!(r("SELECT 'sslpassword=x'"), "SELECT 'sslpassword=********'");
         assert_eq!(r("DO $$ BEGIN PERFORM dblink_connect('password=abc'); END $$"),
                    "DO $$ BEGIN PERFORM dblink_connect('password=********'); END $$");
+    }
+
+    #[test]
+    fn stored_secrets_are_recognised() {
+        for sql in [
+            "CREATE PERSISTENT SECRET s (TYPE s3, KEY_ID 'k', SECRET 'v')",
+            "create or replace persistent secret (type s3)",
+            "CREATE SECRET s IN local_file (TYPE s3)",
+            "CREATE SECRET IN local_file (TYPE s3)",
+        ] {
+            assert!(creates_stored_secret(sql), "{sql}");
+        }
+        for sql in [
+            "CREATE SECRET s (TYPE s3, SECRET 'v')",
+            "CREATE TEMPORARY SECRET s (TYPE s3)",
+            "CREATE SECRET s IN memory (TYPE s3)",
+            "CREATE TABLE persistent (x INT)",
+            "SELECT 'CREATE PERSISTENT SECRET'",
+            "-- CREATE PERSISTENT SECRET\nSELECT 1",
+        ] {
+            assert!(!creates_stored_secret(sql), "{sql}");
+        }
     }
 
     #[test]
