@@ -41,17 +41,18 @@ Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers and DuckDB d
 - **Saved queries** -- Organize queries into folders with drag-and-drop.
 - **Query history** -- Search and browse past queries with date grouping.
 - **Connections** -- SSL support (disable/prefer/require), color-coded server icons, and Keychain password storage.
-- **DuckDB** -- Open or create a `.duckdb` file (File ▸ New/Open DuckDB Database…, Open Recent, or from Finder), or use an in-memory database. Query cards, history, Sessions, the schema browser, DDL, Explain, charts, export (including Parquet) and CSV import all work. A file another app holds for writing opens read-only on request.
+- **DuckDB** -- Open or create a `.duckdb` file (File ▸ New/Open DuckDB Database…, Open Recent, or from Finder), or use an in-memory database. Built-in extensions: time zones and collations (`icu`), `INET`, full-text search, Excel and SQLite files, JSON, Parquet. Query cards, history, Sessions, the schema browser, DDL, Explain, charts, export (including Parquet) and CSV import all work. A file another app holds for writing opens read-only on request.
 - **SSH tunnels** -- Reach a database behind a bastion. Runs the system `ssh`, so `~/.ssh/config` aliases, `ProxyJump` and a 1Password agent key all apply. Strict host keys by default.
 - **Settings** -- A sidebar of sixteen panes covering appearance, the editor, query behaviour, the results grid, the navigators, connections, privacy, notifications and more. Every control applies at once; there is no Save button.
 
 ## Build from Source
 
-Requires macOS 26+, Xcode 26+, and a [Rust toolchain](https://rustup.rs) (1.88 or later). The first Rust build compiles DuckDB's C++ sources and takes a few minutes; later builds reuse it.
+Requires macOS 26+, Xcode 26+, a [Rust toolchain](https://rustup.rs) (1.88 or later), and CMake and Ninja (`brew install cmake ninja`). The first build compiles DuckDB and its extensions from source (`scripts/build-duckdb.sh`, which also fetches vcpkg for the Excel extension's libraries) and takes several minutes; later builds reuse it.
 
 ```
 git clone https://github.com/NeodymiumPhish/Pharos.git
 cd Pharos
+scripts/build-duckdb.sh
 cd pharos-core && cargo build --release && cd ..
 open Pharos.xcodeproj
 ```
@@ -69,3 +70,5 @@ Full documentation at **[neodymiumphish.github.io/Pharos](https://neodymiumphish
 ## License
 
 [MIT with Non-Commercial Clause](LICENSE) -- free to use, modify, and distribute, but the software and derivatives may not be sold or commercially monetized without permission.
+
+Pharos contains third-party open-source software (DuckDB, its extensions and their libraries, and the Rust crates of `pharos-core`). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists each one with its licence; the app shows the same notices in **Settings ▸ About ▸ Third-party notices**.

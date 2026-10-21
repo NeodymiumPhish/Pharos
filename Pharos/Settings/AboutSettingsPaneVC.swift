@@ -70,9 +70,14 @@ final class AboutSettingsPaneVC: SettingsFormPaneVC {
                     SettingsItem(
                         id: "duckdb",
                         title: "DuckDB",
-                        caption: String(localized: "DuckDB \(PharosCore.duckDBVersion()) and duckdb-rs, MIT License, Stichting DuckDB Foundation."),
+                        caption: String(localized: "DuckDB \(PharosCore.duckDBVersion()) with the icu, inet, fts, excel, sqlite, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation."),
+                        icon: "cylinder.split.1x2",
+                        kind: .display),
+                    SettingsItem(
+                        id: "thirdPartyNotices",
+                        title: String(localized: "Third-party notices"),
+                        caption: String(localized: "Pharos contains open-source software: DuckDB and the libraries it uses, and the Rust crates of its engine. The notices give each one's licence."),
                         icon: "doc.text",
-                        help: String(localized: "DuckDB includes third-party code under its own licences; the notices list them."),
                         kind: .action(title: String(localized: "Show Notices"), destructive: false) { [weak self] in
                             guard let url = Bundle.main.url(forResource: "Acknowledgements", withExtension: "txt") else { return }
                             self?.open(url)
