@@ -130,7 +130,13 @@ EXTENSIONS = {  # folder in _deps → (name, repository)
     "fts_extension_fc-src": ("DuckDB fts extension", "https://github.com/duckdb/duckdb-fts"),
     "excel_extension_fc-src": ("DuckDB excel extension", "https://github.com/duckdb/duckdb-excel"),
     "sqlite_scanner_extension_fc-src": ("DuckDB sqlite extension", "https://github.com/duckdb/duckdb-sqlite"),
+    "httpfs_extension_fc-src": ("DuckDB httpfs extension", "https://github.com/duckdb/duckdb-httpfs"),
+    "postgres_scanner_extension_fc-src": ("DuckDB postgres extension", "https://github.com/duckdb/duckdb-postgres"),
 }
+built = {d for d in os.listdir(deps) if d.endswith("_extension_fc-src")}
+if built != set(EXTENSIONS):
+    fail(f"extension list differs from the build: missing {sorted(built - set(EXTENSIONS))}, "
+         f"stale {sorted(set(EXTENSIONS) - built)}")
 for folder, (title, repo) in EXTENSIONS.items():
     path = os.path.join(deps, folder)
     if not os.path.isdir(path):
@@ -149,7 +155,7 @@ for port in sorted(os.listdir(ports)) if os.path.isdir(ports) else []:
         continue
     copyright = os.path.join(ports, port, "copyright")
     if os.path.isfile(copyright):
-        native.append((f"{port} (for the DuckDB excel extension)", "vcpkg port " + port, [read(copyright)]))
+        native.append((f"{port} (for DuckDB's extensions)", "vcpkg port " + port, [read(copyright)]))
 
 # ---- Rust --------------------------------------------------------------------
 

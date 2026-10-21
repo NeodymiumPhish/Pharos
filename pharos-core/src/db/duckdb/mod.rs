@@ -322,8 +322,10 @@ mod tests {
 
     /// The extensions `duckdb/extension_config.cmake` links in. Each must
     /// report `(BUILT-IN)` and work with no download (autoinstall is off).
-    const BUILT_IN: [&str; 9] =
-        ["core_functions", "parquet", "json", "icu", "autocomplete", "inet", "fts", "excel", "sqlite_scanner"];
+    const BUILT_IN: [&str; 11] = [
+        "core_functions", "parquet", "json", "icu", "autocomplete", "inet", "fts", "excel", "sqlite_scanner",
+        "httpfs", "postgres_scanner",
+    ];
 
     fn memory_conn() -> Connection {
         DuckDbInstance::open(IN_MEMORY, false, &OpenOptions::default()).unwrap().connect().unwrap()
@@ -412,6 +414,136 @@ mod tests {
         assert!(!v.starts_with("3.38."), "rusqlite must keep its own SQLite, got {v}");
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A one-file HTTP server on 127.0.0.1 for httpfs: HEAD, GET and byte
+    /// ranges, one request per connection. Returns the base URL.
+    fn serve_once_per_connection(body: &'static [u8]) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request = String::new();
+                if reader.read_line(&mut request).is_err() {
+                    continue;
+                }
+                let mut range = None;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(r) = lower.strip_prefix("range: bytes=") {
+                        let (a, b) = r.trim().split_once('-').unwrap_or(("0", ""));
+                        let a: usize = a.parse().unwrap_or(0);
+                        let b: usize = b.parse().unwrap_or(body.len() - 1).min(body.len() - 1);
+                        range = Some((a, b));
+                    }
+                }
+                let head = request.starts_with("HEAD");
+                let mut out = stream;
+                let (status, part, extra) = match range {
+                    Some((a, b)) => ("206 Partial Content", &body[a..=b], format!("Content-Range: bytes {a}-{b}/{}\r\n", body.len())),
+                    None => ("200 OK", body, String::new()),
+                };
+                let _ = write!(
+                    out,
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n{extra}Connection: close\r\n\r\n",
+                    part.len()
+                );
+                if !head {
+                    let _ = out.write_all(part);
+                }
+            }
+        });
+        url
+    }
+
+    #[test]
+    fn httpfs_reads_a_csv_over_http() {
+        let url = serve_once_per_connection(b"id,name\n1,ada\n2,grace\n3,linus\n");
+        let c = memory_conn();
+        let (n, last): (i64, String) = c
+            .query_row(
+                &format!("SELECT count(*), max(name) FROM read_csv('{url}/people.csv')"),
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((n, last.as_str()), (3, "linus"));
+    }
+
+    /// HTTPS needs OpenSSL to find CA certificates on macOS. Reads a 60-row
+    /// file from DuckDB's own repository at the pinned tag.
+    #[test]
+    #[ignore = "needs the internet (raw.githubusercontent.com)"]
+    fn live_httpfs_reads_https() {
+        let c = memory_conn();
+        let n: i64 = c
+            .query_row(
+                "SELECT count(*) FROM read_csv('https://raw.githubusercontent.com/duckdb/duckdb/v1.5.6/data/csv/real/web_page.csv')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 60);
+    }
+
+    fn live_pg_dsn() -> String {
+        let v = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
+        format!(
+            "host={} port={} dbname={} user={}",
+            v("PHAROS_TEST_PG_HOST", "127.0.0.1"),
+            v("PHAROS_TEST_PG_PORT", "5432"),
+            v("PHAROS_TEST_PG_DB", "nfinn"),
+            v("PHAROS_TEST_PG_USER", "nfinn")
+        )
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_postgres_attach_reads_and_joins() {
+        let c = memory_conn();
+        c.execute_batch(&format!("ATTACH '{}' AS pg (TYPE postgres, READ_ONLY)", live_pg_dsn())).unwrap();
+        let v: String = c.query_row("SELECT * FROM postgres_query('pg', 'SELECT version()')", [], |r| r.get(0)).unwrap();
+        assert!(v.starts_with("PostgreSQL"), "{v}");
+        // A PostgreSQL catalog table joined with a DuckDB table.
+        c.execute_batch("CREATE TABLE wanted AS SELECT 'pg_class' AS relname").unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT count(*) FROM pg.pg_catalog.pg_tables t JOIN wanted w ON t.tablename = w.relname",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    /// The form Pharos would use: the password goes into an in-memory secret
+    /// (made by Pharos from the Keychain), never into SQL the user sees or
+    /// history stores; ATTACH names only the secret.
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_postgres_attach_through_a_secret() {
+        let c = memory_conn();
+        c.execute_batch(
+            "CREATE SECRET pharos_pg (TYPE postgres, HOST '127.0.0.1', PORT 5432, DATABASE 'nfinn', USER 'nfinn', PASSWORD 'not-used-by-trust-auth')",
+        )
+        .unwrap();
+        let shown: String = c
+            .query_row("SELECT secret_string FROM duckdb_secrets() WHERE name = 'pharos_pg'", [], |r| r.get(0))
+            .unwrap();
+        assert!(!shown.contains("not-used-by-trust-auth"), "duckdb_secrets() must redact: {shown}");
+        let persistent: bool = c
+            .query_row("SELECT persistent FROM duckdb_secrets() WHERE name = 'pharos_pg'", [], |r| r.get(0))
+            .unwrap();
+        assert!(!persistent, "CREATE SECRET without PERSISTENT stays in memory");
+        c.execute_batch("ATTACH '' AS pg (TYPE postgres, SECRET pharos_pg, READ_ONLY)").unwrap();
+        let one: i32 = c.query_row("SELECT * FROM postgres_query('pg', 'SELECT 1')", [], |r| r.get(0)).unwrap();
+        assert_eq!(one, 1);
     }
 
     #[test]

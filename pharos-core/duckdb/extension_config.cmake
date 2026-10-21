@@ -40,3 +40,20 @@ duckdb_extension_load(sqlite_scanner
     GIT_TAG 5274128259f73166c1f37f01190a4601f84c5525
     SUBMODULES database-connector
 )
+
+# SPIKE (spike/duckdb-httpfs-postgres): remote files and PostgreSQL.
+
+# read_csv/read_parquet over http(s)://, s3://, gcs://, r2://. DuckDB's CI
+# applies one patch, which only skips a test, so none is applied here.
+duckdb_extension_load(httpfs
+    GIT_URL https://github.com/duckdb/duckdb-httpfs
+    GIT_TAG 4bc690dba4496c765777a0269d48fdbaff7cdc11
+)
+
+# ATTACH '<libpq connection string>' (TYPE postgres), postgres_scan. DuckDB's
+# CI builds it DONT_LINK; the spike links it.
+duckdb_extension_load(postgres_scanner
+    GIT_URL https://github.com/duckdb/duckdb-postgres
+    GIT_TAG 318dabb2474fc3789b0199301a2e661e19c1b4fc
+    SUBMODULES database-connector
+)

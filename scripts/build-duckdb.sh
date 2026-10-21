@@ -116,13 +116,27 @@ main() {
     # sqlite_scanner's manifest (at the pinned commit) lists openssl and curl, but
     # none of its sources include or link either (checked with grep, 2026-10-20).
     # Building them would cost minutes and put OpenSSL in the app for nothing.
-    python3 -I - "$MANIFEST_DIR/vcpkg.json" <<'PY'
-import json, sys
-path = sys.argv[1]
+    python3 -I - "$MANIFEST_DIR/vcpkg.json" "$VCPKG/ports" <<'PY'
+import json, os, sys
+path, ports = sys.argv[1], sys.argv[2]
 manifest = json.load(open(path))
-unused = {"openssl", "curl"}
-manifest["dependencies"] = [d for d in manifest.get("dependencies", [])
-                            if (d if isinstance(d, str) else d.get("name")) not in unused]
+unused = set()  # SPIKE: httpfs and postgres_scanner need what the manifests list
+deps, seen = [], set()
+for d in manifest.get("dependencies", []):
+    name = d if isinstance(d, str) else d.get("name")
+    if name in unused or name in seen:
+        continue
+    seen.add(name)
+    deps.append(d)
+manifest["dependencies"] = deps
+# A version override makes vcpkg read old port versions from git history,
+# which the shallow clone lacks. Drop each override that the checked-out
+# port already satisfies; stop on any other.
+for o in manifest.pop("overrides", []):
+    local = json.load(open(os.path.join(ports, o["name"], "vcpkg.json")))
+    have = local.get("version") or local.get("version-semver") or local.get("version-string")
+    if have != o["version"]:
+        sys.exit(f"build-duckdb: {o['name']} override {o['version']} but vcpkg {have}; use a vcpkg with it")
 json.dump(manifest, open(path, "w"), indent=2)
 print("build-duckdb: vcpkg dependencies:", [d if isinstance(d, str) else d["name"] for d in manifest["dependencies"]])
 PY
@@ -135,7 +149,13 @@ PY
         -DVCPKG_HOST_TRIPLET="$( [ "$(uname -m)" = arm64 ] && echo arm64-osx-pharos || echo x64-osx-pharos )" \
         -DVCPKG_OVERLAY_TRIPLETS="$TRIPLETS" \
         -DVCPKG_MANIFEST_DIR="$MANIFEST_DIR"
-    cmake --build "$BUILD/release" --config Release
+    # Only the static libraries Pharos links (step 3): not libduckdb.dylib and
+    # not the loadable .duckdb_extension files, which DuckDB builds by default.
+    local targets
+    targets="$(ninja -C "$BUILD/release" -t targets all \
+        | awk -F: '$1 ~ /\/lib[a-z0-9_]+_extension\.a$/ {print $1}' | sort -u)"
+    # shellcheck disable=SC2086
+    cmake --build "$BUILD/release" --config Release --target duckdb_static duckdb_generated_extension_loader $targets
 
     # 3. Every static library the app needs, in one folder (DuckDB's gather-libs).
     rm -rf "$OUT"
@@ -146,8 +166,12 @@ PY
     cp "$BUILD"/release/extension/*/lib*_extension.a "$OUT/lib/"
     # Not vcpkg's zlib: the app links macOS's libz (-lz), which minizip-ng uses
     # as well.
+    # Not libpq's embedded-SQL libraries (ecpg, pgtypes), which nothing calls.
     for lib in "$BUILD/release/vcpkg_installed/$TRIPLET/lib/"*.a; do
-        [ "$(basename "$lib")" = libz.a ] || cp "$lib" "$OUT/lib/"
+        case "$(basename "$lib")" in
+            libz.a|libecpg.a|libecpg_compat.a|libpgtypes.a) ;;
+            *) cp "$lib" "$OUT/lib/" ;;
+        esac
     done
     cp "$SRC/src/include/duckdb.h" "$OUT/include/"
 
