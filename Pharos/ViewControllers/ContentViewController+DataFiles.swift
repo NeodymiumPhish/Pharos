@@ -96,6 +96,39 @@ extension ContentViewController {
         runBatch([createId, previewId], inTab: tabId)
     }
 
+    // MARK: - D2: data files opened from Finder, the Dock and ⌘O
+
+    /// One card per file after the focused card, `SELECT * FROM
+    /// read_csv('<path>')` named after the file; run at once when the tab is
+    /// connected, else left for the user to run.
+    func addReadCards(for urls: [URL]) {
+        guard let tabId = session.activeTabId, let tab = session.activeTab else { return }
+        var after = tab.document.focusedCardId ?? tab.document.cards.last?.id
+        var ids: [String] = []
+        session.updateTab(id: tabId) { tab in
+            // A blank first card takes the first file instead of staying empty.
+            for url in urls {
+                let sql = DataFiles.insertion(for: [url], cardIsEmpty: true)
+                if let a = after, let card = tab.document.card(a),
+                   card.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, card.lastRun == nil, ids.isEmpty {
+                    _ = tab.document.updateSQL(cardId: a, sql)
+                    _ = tab.document.rename(cardId: a, name: url.lastPathComponent)
+                    ids.append(a)
+                    continue
+                }
+                let id = tab.document.insertCard(after: after, sql: sql, name: url.lastPathComponent)
+                ids.append(id)
+                after = id
+            }
+        }
+        guard let last = ids.last else { return }
+        editorPane.reloadCards(anchor: last)
+        editorPane.cardStack.scrollToCard(ids[0])
+        if let id = tab.connectionId, stateManager.status(for: id) == .connected {
+            runBatch(ids, inTab: tabId)
+        }
+    }
+
     // MARK: - D4: keep a DuckDB result
 
     /// The result's own exports on a DuckDB tab: every row, written by DuckDB

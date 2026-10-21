@@ -437,7 +437,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let textType = UTType.text
-        for url in urls {
+        // A data file (CSV, JSON, Parquet, Excel) is a SOURCE: DuckDB reads it
+        // in place (`openDataFiles`). Checked before the text rule, which
+        // would open a CSV as SQL text.
+        let dataFiles = urls.filter(DataFiles.isDataFile)
+        if !dataFiles.isEmpty { openDataFiles(dataFiles) }
+        for url in urls where !DataFiles.isDataFile(url) {
             // A DuckDB database file opens as a connection, not as text.
             if DuckDBFiles.isDuckDBFile(url)
                 || DuckDBFiles.record(for: url.path, in: AppStateManager.shared.connections) != nil {
@@ -576,10 +581,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.message = String(localized: "Choose a SQL file or a DuckDB database.")
+        panel.message = String(localized: "Choose a SQL file, a DuckDB database or a data file.")
         // A DuckDB database opens as a connection, through the same routing
         // as a file from Finder (⇧⌘O stays for files with other extensions).
         let base: [UTType] = [.text, .plainText, DuckDBFiles.contentType]
+            + DataFiles.dataExtensions.compactMap { UTType(filenameExtension: $0) }
         panel.allowedContentTypes = (UTType("public.sql").map { [$0] } ?? []) + base
         panel.begin { [weak self] response in
             guard response == .OK else { return }

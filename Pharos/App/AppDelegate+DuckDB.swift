@@ -82,6 +82,12 @@ extension AppDelegate {
     /// connect may create the file; any other connect refuses a missing file.
     @MainActor
     func openDuckDBFile(_ url: URL, create: Bool = false) {
+        // A data file chosen in Open DuckDB Database… is read, never saved as
+        // a database record (it would be a broken one).
+        if !create, DataFiles.isDataFile(url) {
+            openDataFiles([url])
+            return
+        }
         let manager = AppStateManager.shared
         let path = DuckDBFiles.canonicalPath(url.path)
         let record: ConnectionConfig
@@ -97,6 +103,37 @@ extension AppDelegate {
         // A new database is a new file: no tab shows it yet, whatever a tab
         // on the old file at this path holds.
         openConnectionInTab(record, bringForward: !create)
+    }
+
+    /// Data files from Finder, the Dock, ⌘O or Open DuckDB Database…: on a
+    /// DuckDB tab, one card per file after the current one, `SELECT * FROM
+    /// read_csv('<path>')`, run when the tab is connected.
+    @MainActor
+    func openDataFiles(_ urls: [URL]) {
+        if let content = keyWindowController?.splitViewController.contentVC ?? frontmostWindowController?.splitViewController.contentVC,
+           content.isDuckDBTab {
+            showMainWindow()
+            content.addReadCards(for: urls)
+            NSApp.activate()
+            return
+        }
+        openDataFilesWithoutDuckDBTab(urls)
+    }
+
+    /// No DuckDB tab to read them in: a text-like file (CSV, JSON) opens as
+    /// text as before; any other says how to read it.
+    @MainActor
+    func openDataFilesWithoutDuckDBTab(_ urls: [URL]) {
+        for url in urls {
+            if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType, type.conforms(to: .text) {
+                AppStateManager.shared.openTextFile(at: url)
+                continue
+            }
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Open a DuckDB database to read “\(DisplayEscape.escaped(url.lastPathComponent))”.")
+            alert.informativeText = String(localized: "DuckDB reads Parquet and Excel files in place. Open or create a DuckDB database (File ▸ Open DuckDB Database…), then open the file again.")
+            alert.runModal()
+        }
     }
 
     /// Put a connection in a tab and connect it.

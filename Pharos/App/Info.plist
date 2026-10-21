@@ -53,6 +53,26 @@
                 </array>
             </dict>
         </dict>
+        <!-- Parquet has no system type (macOS gives .parquet a dynamic
+             one), so Pharos imports one to list it as a data file. -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.pharos.parquet</string>
+            <key>UTTypeDescription</key>
+            <string>Apache Parquet File</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>parquet</string>
+                    <string>pq</string>
+                </array>
+            </dict>
+        </dict>
         <!-- DuckDB publishes no type identifier (macOS gives .duckdb a
              dynamic type), so Pharos imports one under its own name: an
              imported declaration yields to an owner's if one ever appears. -->
@@ -137,6 +157,24 @@
             <key>LSItemContentTypes</key>
             <array>
                 <string>com.pharos.duckdb-database</string>
+            </array>
+        </dict>
+        <!-- Data files DuckDB reads in place. Viewer + Alternate: Pharos
+             is offered in Open With, never made the default app for CSV. -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Data File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.comma-separated-values-text</string>
+                <string>public.tab-separated-values-text</string>
+                <string>public.json</string>
+                <string>org.openxmlformats.spreadsheetml.sheet</string>
+                <string>com.pharos.parquet</string>
             </array>
         </dict>
         <dict>
