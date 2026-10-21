@@ -323,17 +323,15 @@ struct ConnectionConfig: Codable, Identifiable {
     /// refuses its own write commands before they start.
     var readOnly: Bool = false
 
-    /// Keep this connection's password in the keychain.
-    ///
-    /// STORED ONLY as of this slice: nothing reads it yet. Turning it off
-    /// needs a password prompt at connect time, which is its own piece of
-    /// work; until that lands the password is remembered whatever this says.
+    /// Keep this connection's password in the keychain. Off, the password
+    /// prompt (`PasswordPromptCoordinator`) asks at connect time and keeps
+    /// the answer for this run only.
     var rememberPassword: Bool = true
 
-    /// Connect to this database when Pharos starts.
-    ///
-    /// STORED ONLY as of this slice: nothing reads it yet. It needs a launch
-    /// sequence that knows about the Touch ID gate and about tunnels.
+    /// Connect to this database when Pharos starts
+    /// (`AppStateManager.connectFlaggedConnectionsAtLaunch`, which asks
+    /// `LaunchConnectPolicy`). A DuckDB file with it on stays open when no tab
+    /// uses it (`DuckDBCloseRule`).
     var connectOnLaunch: Bool = false
 
     /// `TimeZone` for this connection's sessions. `nil` or empty falls back to

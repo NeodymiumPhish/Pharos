@@ -6,6 +6,17 @@ var failures = 0
 func expect(_ c: Bool, _ n: String) { if c { print("PASS \(n)") } else { failures += 1; print("FAIL \(n)") } }
 
 func runTests() {
+    // C3: the schema pop-up's placeholder and the DuckDB test summary.
+    expect(ConnectionFormRules.schemaPlaceholder(for: .duckdb).values == ["main"]
+           && ConnectionFormRules.schemaPlaceholder(for: .duckdb).sentinel == nil, "DuckDB shows main before a test")
+    expect(ConnectionFormRules.schemaPlaceholder(for: .postgres).sentinel == "Test connection first", "PostgreSQL asks for a test")
+    let now = Date()
+    let summary = ConnectionFormRules.duckDBFileSummary(size: 12_400_000, modified: now, now: now)
+    expect(summary.hasPrefix("DuckDB file · ") && summary.hasSuffix(" · modified today") && summary.contains("MB"),
+           "an existing file: size and modified today (\(summary))")
+    let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
+    expect(ConnectionFormRules.duckDBFileSummary(size: 1, modified: yesterday, now: now).hasSuffix("modified yesterday"),
+           "modified yesterday")
     let pg = ConnectionFormRules.visibility(for: .postgres)
     expect(pg.server && pg.authentication && pg.sshTunnel && pg.databaseName && pg.timeZone && !pg.databaseFile,
            "PostgreSQL shows the server sections and no file")

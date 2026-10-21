@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/destructive-confirmation-text-tests \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/DestructiveConfirmationText.swift \
+  Pharos/Models/Connection.swift \
   PharosTests/DestructiveConfirmationTextTests.swift \
   PharosTests/main.swift
 /tmp/destructive-confirmation-text-tests

@@ -75,7 +75,7 @@ struct ConnectionsListView: View {
                         .frame(width: 22, height: 16)
                 }
                 .disabled(model.selectedIds.isEmpty)
-                .help("Delete Connection")
+                .help(String(localized: "Delete the selected connections. A DuckDB file stays where it is."))
 
                 Spacer()
             }
@@ -1517,9 +1517,11 @@ final class ConnectionsManagerVC: NSViewController {
             defaultSchemaPopup.isEnabled = false
             defaultSchemaPopup.toolTip = "Test the connection to refresh the schema list."
         } else {
-            PopupValueMenu.populate(defaultSchemaPopup, sentinel: "Test connection first", values: [])
+            let placeholder = ConnectionFormRules.schemaPlaceholder(for: config.engine)
+            PopupValueMenu.populate(defaultSchemaPopup, sentinel: placeholder.sentinel, values: placeholder.values)
             defaultSchemaPopup.isEnabled = false
-            defaultSchemaPopup.toolTip = nil
+            defaultSchemaPopup.toolTip = config.isDuckDB
+                ? String(localized: "DuckDB's default schema. Test the connection to choose another.") : nil
         }
 
         setTestStatus("")
@@ -1600,6 +1602,13 @@ final class ConnectionsManagerVC: NSViewController {
     @objc private func engineChanged() {
         applyEngineVisibility(selectedEngine)
         syncFormIntoDraft()
+        // No list read yet: the pop-up shows the new engine's placeholder
+        // ("main" for DuckDB).
+        if let d = draft, liveOrFetchedSchemas(for: d) == nil {
+            let placeholder = ConnectionFormRules.schemaPlaceholder(for: d.engine)
+            PopupValueMenu.populate(defaultSchemaPopup, sentinel: placeholder.sentinel, values: placeholder.values)
+            defaultSchemaPopup.isEnabled = false
+        }
     }
 
     /// Show the sections the engine uses and hide the rest. A hidden section
@@ -1886,9 +1895,8 @@ final class ConnectionsManagerVC: NSViewController {
         // asking for a test rather than letting it offer the old server's
         // schemas as if they were this one's.
         if defaultSchemaPopup.isEnabled, liveOrFetchedSchemas(for: d) == nil {
-            PopupValueMenu.populate(defaultSchemaPopup,
-                                    sentinel: String(localized: "Test connection first"),
-                                    values: [])
+            let placeholder = ConnectionFormRules.schemaPlaceholder(for: d.engine)
+            PopupValueMenu.populate(defaultSchemaPopup, sentinel: placeholder.sentinel, values: placeholder.values)
             defaultSchemaPopup.isEnabled = false
             defaultSchemaPopup.toolTip = nil
         }
@@ -1989,11 +1997,24 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
-                    if result.success, d.isDuckDB, !d.isInMemoryDuckDB,
-                       !FileManager.default.fileExists(atPath: (d.database as NSString).expandingTildeInPath) {
-                        // The folder is fine and the file is not made yet.
-                        self.setTestStatus(String(localized: "The file does not exist yet. Save creates it."))
+                    let path = (d.database as NSString).expandingTildeInPath
+                    let attributes = d.isDuckDB && !d.isInMemoryDuckDB
+                        ? try? FileManager.default.attributesOfItem(atPath: path) : nil
+                    if result.success, d.isDuckDB, !d.isInMemoryDuckDB, attributes == nil {
+                        // The folder is fine and the file is not there. Not
+                        // green: nothing was opened.
+                        self.setTestStatus(self.pendingStubIds.contains(d.id)
+                            ? String(localized: "The file does not exist yet. Save creates it.")
+                            : String(localized: "No file at this path. Connect asks whether to create it."))
                         self.testStatusLabel.textColor = .secondaryLabelColor
+                    } else if result.success, let attributes,
+                              let size = (attributes[.size] as? NSNumber)?.int64Value,
+                              let modified = attributes[.modificationDate] as? Date {
+                        self.setTestStatus(ConnectionFormRules.duckDBFileSummary(size: size, modified: modified))
+                        self.testStatusLabel.textColor = .systemGreen
+                        self.testStatusLabel.toolTip = String(localized:
+                            "The size of the database file. A .wal file beside it is not counted.")
+                        self.populateDefaultSchemas(using: d)
                     } else if result.success {
                         let ms = result.latencyMs.map { " \($0)ms" } ?? ""
                         self.setTestStatus("Connected\(ms)")
@@ -2200,22 +2221,17 @@ final class ConnectionsManagerVC: NSViewController {
         guard !selected.isEmpty else { return }
 
         let alert = NSAlert()
-        if selected.count == 1 {
-            // Built by `DestructiveConfirmationText`, never interpolated here:
-            // this title gates an irreversible delete, and a bidi override in
-            // the name would let it name a different connection than the one
-            // about to go.
-            alert.messageText = DestructiveConfirmationText
-                .deleteConnectionConfirmTitle(name: selected[0].name)
-        } else {
-            alert.messageText = "Delete \(selected.count) connections?"
-        }
-        alert.informativeText = selected.count == 1
-            ? "This will remove the saved configuration and stored password."
-            : "This will remove the saved configurations and stored passwords."
+        // Built by `DestructiveConfirmationText`, never interpolated here:
+        // this title gates an irreversible delete, and a bidi override in the
+        // name would let it name a different connection than the one about to
+        // go. A DuckDB record is "Remove … from Pharos": the file stays.
+        let openInMemory = Set(selected.filter { $0.isInMemoryDuckDB && stateManager.status(for: $0.id) == .connected }.map(\.id))
+        let text = DestructiveConfirmationText.deleteConnectionsAlert(selected, openInMemory: openInMemory)
+        alert.messageText = text.title
+        alert.informativeText = text.message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: text.button)
+        alert.addButton(withTitle: String(localized: "Cancel"))
 
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in

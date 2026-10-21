@@ -98,6 +98,32 @@ func runTests() {
 
     // MARK: - The connection delete confirmation
 
+    // C3: removing a DuckDB record is "Remove … from Pharos"; the file stays.
+    let file = ConnectionConfig.duckDB(path: NSHomeDirectory() + "/Data/sales.duckdb", id: "f")
+    let mem = ConnectionConfig.duckDB(path: ":memory:", id: "m")
+    let server = ConnectionConfig(id: "p", name: "Prod", host: "h", port: 5432, database: "d", username: "u")
+    let one = DestructiveConfirmationText.deleteConnectionsAlert([file])
+    expectEqual(one.title, "Remove “sales” from Pharos?", "a DuckDB file record is removed, not deleted")
+    expectEqual(one.message, "The file ~/Data/sales.duckdb stays where it is. Saved Sessions on it lose their connection.",
+                "the text says the file stays")
+    expectEqual(one.button, "Remove", "the button says Remove")
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([mem], openInMemory: ["m"]).message,
+                "Saved Sessions on it lose their connection. Its tables are lost.",
+                "an open in-memory database says its tables are lost")
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([mem]).message,
+                "Saved Sessions on it lose their connection.", "a closed in-memory database has no tables to lose")
+    let two = DestructiveConfirmationText.deleteConnectionsAlert([file, mem])
+    expectEqual(two.title, "Remove 2 DuckDB databases from Pharos?", "two DuckDB records")
+    let mixed = DestructiveConfirmationText.deleteConnectionsAlert([server, file])
+    expectEqual(mixed.title, "Delete 2 connections?", "a mixed selection keeps Delete")
+    expectEqual(mixed.message, "This will remove the saved configurations and stored passwords. The DuckDB files stay where they are.",
+                "and says the files stay")
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([server]).title, "Delete \"Prod\"?",
+                "PostgreSQL text is unchanged")
+    let hostile = ConnectionConfig.duckDB(path: "/x/a.duckdb", name: "safe\u{202E}gpj", id: "h")
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([hostile]).title, "Remove “safe<U+202E>gpj” from Pharos?",
+                "the remove title escapes the name")
+
     // The last thing a user reads before an irreversible delete of a saved
     // connection, naming a stored name. Plain names read as themselves.
     expectEqual(DestructiveConfirmationText.deleteConnectionConfirmTitle(name: "Prod Reporting"),

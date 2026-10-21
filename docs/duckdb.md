@@ -68,6 +68,12 @@ Read-only applies to that connect only.
 
 A file written by a newer DuckDB than the one in Pharos does not open; the message says so.
 
+## Remove a file from Pharos
+
+In the Connections Manager, select the DuckDB connection and click **−**. The alert says **Remove “sales” from Pharos?**: Pharos forgets the connection, and the file stays where it is. Saved Sessions on it lose their connection. For an open in-memory database, its tables are lost.
+
+**Test Connection** on a DuckDB file shows the file size and when it was last changed, for example "DuckDB file · 12.4 MB · modified today". The size is the database file only, without a `.wal` file beside it.
+
 ## When Pharos closes a file
 
 Pharos closes a DuckDB file a few seconds after the last tab that uses it closes, or changes to another connection. The DuckDB lock then goes, so the `duckdb` command-line tool, Python and other apps can open the file. Closing the file also detaches its attached databases and drops its temporary secrets. Pharos keeps a file open when:

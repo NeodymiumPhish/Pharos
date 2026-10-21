@@ -71,6 +71,34 @@ enum ConnectionFormRules {
         return fileExists((d.database as NSString).expandingTildeInPath)
     }
 
+    /// The Default Schema pop-up before any list was read: PostgreSQL asks
+    /// for a test; DuckDB shows "main", which a record with no schema set
+    /// already uses (HIG, Pop-up buttons: a useful default selection).
+    static func schemaPlaceholder(for engine: DatabaseEngine) -> (sentinel: String?, values: [String]) {
+        switch engine {
+        case .postgres: return (String(localized: "Test connection first"), [])
+        case .duckdb: return (nil, [DatabaseEngine.duckdb.defaultSchema])
+        }
+    }
+
+    /// What Test Connection says about a DuckDB file that opened:
+    /// "DuckDB file · 12.4 MB · modified today". The size is the database
+    /// file alone; a `.wal` beside it is not counted.
+    static func duckDBFileSummary(size: Int64, modified: Date, now: Date = Date()) -> String {
+        let bytes = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        let calendar = Calendar.current
+        let when: String
+        if calendar.isDate(modified, inSameDayAs: now) {
+            when = String(localized: "modified today")
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+                  calendar.isDate(modified, inSameDayAs: yesterday) {
+            when = String(localized: "modified yesterday")
+        } else {
+            when = String(localized: "modified \(modified.formatted(date: .abbreviated, time: .omitted))")
+        }
+        return String(localized: "DuckDB file · \(bytes) · \(when)")
+    }
+
     /// The path a DuckDB record stores: `:memory:` for in-memory, else the
     /// path as typed, trimmed of outer spaces.
     static func duckDBPath(inMemory: Bool, typed: String) -> String {

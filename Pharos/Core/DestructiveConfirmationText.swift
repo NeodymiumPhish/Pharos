@@ -69,6 +69,42 @@ enum DestructiveConfirmationText {
         "Delete \"\(DisplayEscape.escapedTrimmed(name))\"?"
     }
 
+    /// The Connections Manager's delete alert: title, text and button. A
+    /// DuckDB record is only Pharos's note of a file, so removing it is
+    /// "Remove … from Pharos" and the text says the file stays; PostgreSQL
+    /// keeps "Delete" and the stored password. `openInMemory`: in-memory
+    /// records that are connected now, whose tables go with them.
+    static func deleteConnectionsAlert(_ selected: [ConnectionConfig], openInMemory: Set<String> = [])
+        -> (title: String, message: String, button: String) {
+        let ducks = selected.filter(\.isDuckDB)
+        let losesTables = ducks.contains { $0.isInMemoryDuckDB && openInMemory.contains($0.id) }
+        let tablesLost = losesTables
+            ? (ducks.count == 1 ? " " + String(localized: "Its tables are lost.")
+                                : " " + String(localized: "The tables of open in-memory databases are lost."))
+            : ""
+        if !ducks.isEmpty, ducks.count == selected.count {
+            if selected.count == 1 {
+                let d = selected[0]
+                let name = DisplayEscape.escapedTrimmed(d.name)
+                let where_ = d.isInMemoryDuckDB ? ""
+                    : String(localized: "The file \(DisplayEscape.escaped(d.locationDescription)) stays where it is.") + " "
+                return (String(localized: "Remove “\(name)” from Pharos?"),
+                        where_ + String(localized: "Saved Sessions on it lose their connection.") + tablesLost,
+                        String(localized: "Remove"))
+            }
+            return (String(localized: "Remove \(selected.count) DuckDB databases from Pharos?"),
+                    String(localized: "The files stay where they are. Saved Sessions on them lose their connection.") + tablesLost,
+                    String(localized: "Remove"))
+        }
+        let title = selected.count == 1 ? deleteConnectionConfirmTitle(name: selected[0].name)
+                                        : "Delete \(selected.count) connections?"
+        var message = selected.count == 1
+            ? "This will remove the saved configuration and stored password."
+            : "This will remove the saved configurations and stored passwords."
+        if !ducks.isEmpty { message += " " + String(localized: "The DuckDB files stay where they are.") + tablesLost }
+        return (title, message, "Delete")
+    }
+
     /// The workspace delete confirmation. Trimmed for the same reason as
     /// `deleteConnectionConfirmTitle`: workspace rename trims at save, so an
     /// edge space in a stored workspace name is old data too.
