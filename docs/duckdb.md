@@ -59,7 +59,7 @@ Set **Engine** to **DuckDB**. The form then shows a **Database File** section in
 
 ## A file another app has open
 
-DuckDB lets one app write a database file at a time, or several apps read it when every one of them opened it read-only. When another app (for example the `duckdb` command-line tool) holds the file, Pharos says which process holds it and offers **Open Read-Only**:
+DuckDB lets one app write a database file at a time, or several apps read it when every one of them opened it read-only. When another app (for example the `duckdb` command-line tool) holds the file, Pharos names the app or command that holds it, for example "duckdb (process 4512)", and offers **Open Read-Only**:
 
 - If the other app only reads the file, the read-only open succeeds.
 - If the other app is writing, no other app can open the file, even read-only. Close the file in that app, then connect again.

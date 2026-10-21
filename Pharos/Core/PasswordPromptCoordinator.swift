@@ -171,13 +171,29 @@ final class PasswordPromptCoordinator {
     /// for the case where the other app is itself only reading; when it is
     /// writing, the read-only try meets the same lock, and the user is told
     /// to close the file there instead of being asked again.
+    /// The app or command that has this process id: its localized app name
+    /// ("Python", "Terminal"), else the BSD process name ("duckdb"). Pharos
+    /// is not sandboxed, so `proc_name` can read another user process.
+    static func processName(_ pid: Int) -> String? {
+        guard let pid = Int32(exactly: pid), pid > 0 else { return nil }
+        if let name = NSRunningApplication(processIdentifier: pid)?.localizedName, !name.isEmpty {
+            return DisplayEscape.escapedTrimmed(name)
+        }
+        var buffer = [CChar](repeating: 0, count: 256)
+        guard proc_name(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        let name = String(cString: buffer)
+        return name.isEmpty ? nil : DisplayEscape.escapedTrimmed(name)
+    }
+
     private func offerReadOnly(_ config: ConnectionConfig, failure: String) {
         guard !prompting.contains(config.id) else { return }
         prompting.insert(config.id)
         let id = config.id
         let file = DisplayEscape.escapedTrimmed((config.database as NSString).lastPathComponent)
-        let holder = DuckDBOpenError.holderPID(failure).map { String(localized: "Process \(String($0))") }
-            ?? String(localized: "Another app")
+        let holder = DuckDBOpenError.holderPID(failure).map { pid in
+            Self.processName(pid).map { String(localized: "\($0) (process \(String(pid)))") }
+                ?? String(localized: "Process \(String(pid))")
+        } ?? String(localized: "Another app")
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "“\(file)” is in use by another app.")
