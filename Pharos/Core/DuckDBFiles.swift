@@ -49,4 +49,15 @@ enum DuckDBFiles {
         let target = canonicalPath(path)
         return connections.first { $0.isDuckDB && !$0.isInMemoryDuckDB && canonicalPath($0.database) == target }
     }
+
+    /// Every DuckDB record that names this file and is open now (`isOpen`:
+    /// connected or connecting). File ▸ New refuses such a file: moving it
+    /// to the Trash would leave the open tabs writing into the trashed file.
+    static func openRecords(for path: String, in connections: [ConnectionConfig],
+                            isOpen: (String) -> Bool) -> [ConnectionConfig] {
+        let target = canonicalPath(path)
+        return connections.filter {
+            $0.isDuckDB && !$0.isInMemoryDuckDB && canonicalPath($0.database) == target && isOpen($0.id)
+        }
+    }
 }

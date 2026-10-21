@@ -23,6 +23,15 @@ func runTests() {
     expect(DuckDBFiles.canonicalPath("~/x.duckdb") == NSHomeDirectory() + "/x.duckdb" ||
            DuckDBFiles.canonicalPath("~/x.duckdb").hasSuffix("/x.duckdb"), "~ is expanded")
 
+    // File ▸ New on a path Pharos has open: every record that names it counts.
+    let open: Set<String> = ["b"]
+    expect(DuckDBFiles.openRecords(for: "/tmp/sales.duckdb", in: list, isOpen: { open.contains($0) }).map(\.id) == ["b"],
+           "an open record under another spelling (not the first) is found")
+    expect(DuckDBFiles.openRecords(for: "/tmp/sales.duckdb", in: list, isOpen: { _ in false }).isEmpty,
+           "no open record: the file may be replaced")
+    expect(DuckDBFiles.openRecords(for: "/tmp/sales.duckdb", in: [pg], isOpen: { _ in true }).isEmpty,
+           "a PostgreSQL record never counts")
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

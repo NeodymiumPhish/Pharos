@@ -16,7 +16,11 @@ extension AppDelegate {
         panel.nameFieldStringValue = String(localized: "Untitled.duckdb")
         panel.prompt = String(localized: "Create")
         panel.message = String(localized: "Choose where to create the DuckDB database.")
+        // The panel holds its delegate weakly; this one lives as long as it.
+        let guardDelegate = DuckDBNewPanelDelegate()
+        panel.delegate = guardDelegate
         panel.begin { [weak self] response in
+            withExtendedLifetime(guardDelegate) {}
             guard response == .OK, let url = panel.url else { return }
             // NSSavePanel has already asked about replacing an existing file.
             // DuckDB cannot open a file that is not a database, so the old one
@@ -127,5 +131,24 @@ final class DuckDBRecentMenuDelegate: NSObject, NSMenuDelegate {
         let clear = menu.addItem(withTitle: String(localized: "Clear Menu"),
                                  action: #selector(AppDelegate.menuClearRecentDuckDB(_:)), keyEquivalent: "")
         clear.isEnabled = !urls.isEmpty
+    }
+}
+
+/// File ▸ New DuckDB Database…: refuses a place where a file Pharos has open
+/// already is, and keeps the panel open. Replacing it would move the open
+/// file to the Trash while its tabs go on writing into it.
+final class DuckDBNewPanelDelegate: NSObject, NSOpenSavePanelDelegate {
+    @MainActor
+    func panel(_ sender: Any, validate url: URL) throws {
+        let manager = AppStateManager.shared
+        let open = DuckDBFiles.openRecords(for: url.path, in: manager.connections) { id in
+            let status = manager.status(for: id)
+            return status == .connected || status == .connecting
+        }
+        guard !open.isEmpty else { return }
+        throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [
+            NSLocalizedDescriptionKey: String(localized: "“\(url.lastPathComponent)” is open in Pharos."),
+            NSLocalizedRecoverySuggestionErrorKey: String(localized: "Disconnect it, or choose a different name."),
+        ])
     }
 }
