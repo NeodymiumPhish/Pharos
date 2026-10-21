@@ -438,7 +438,7 @@ async fn paged(target: SessionTarget, sql: String, limit: Option<usize>, offset:
         if live.txn == TxnState::Failed {
             Err(RunStop::Failed(FAILED_TRANSACTION.to_string()))
         } else {
-            run_on(live, target.schema.as_deref(), &cancel, state, move |c| exec::rows_of(c, &statement, limit, offset)).await
+            run_on(live, target.schema.as_deref(), &cancel, state, move |c| exec::page_rows(c, &statement, limit, offset)).await
         }
     };
     drop(registered);

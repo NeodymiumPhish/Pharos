@@ -189,7 +189,7 @@ pub async fn fetch_rows(connection_id: String, sql: String, query_id: Option<Str
                         schema: Option<String>, state: &AppState) -> Result<QueryResult, String> {
     let start = Instant::now();
     let statement = exec::statements(&sql).pop().ok_or_else(|| "There is no statement to read.".to_string())?;
-    let rows = on_fresh(state, &connection_id, schema, query_id, move |c| exec::rows_of(c, &statement, Some(limit), offset)).await?;
+    let rows = on_fresh(state, &connection_id, schema, query_id, move |c| exec::page_rows(c, &statement, Some(limit), offset)).await?;
     let row_count = rows.rows.len();
     Ok(QueryResult {
         columns: rows.columns,

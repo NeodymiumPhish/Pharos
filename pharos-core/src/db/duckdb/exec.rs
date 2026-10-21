@@ -116,8 +116,25 @@ pub fn query_text(conn: &Connection, sql: &str, limit: Option<usize>, offset: us
     rows_of(conn, last, limit, offset)
 }
 
-/// The rows of ONE statement.
+/// What Load More and Load All say for a statement that cannot be wrapped in
+/// LIMIT/OFFSET: reading another page would run it again, writes and all.
+pub const NOT_PAGEABLE: &str = "This statement cannot be paged: running it again would repeat it.";
+
+/// The rows of ONE statement, for the card's own run: a statement DuckDB
+/// cannot wrap runs as written, once.
 pub fn rows_of(conn: &Connection, statement: &str, limit: Option<usize>, offset: usize) -> Result<TextRows, String> {
+    rows_of_inner(conn, statement, limit, offset, offset == 0)
+}
+
+/// The rows of ONE statement, for Load More and Load All: they run the
+/// statement AGAIN, so one that cannot be wrapped is refused at every offset
+/// (Load All starts at offset 0, and used to run it as written a second time).
+pub fn page_rows(conn: &Connection, statement: &str, limit: Option<usize>, offset: usize) -> Result<TextRows, String> {
+    rows_of_inner(conn, statement, limit, offset, false)
+}
+
+fn rows_of_inner(conn: &Connection, statement: &str, limit: Option<usize>, offset: usize,
+                 run_as_written_ok: bool) -> Result<TextRows, String> {
     if let Some(columns) = describe(conn, statement) {
         let mut wrapped = format!("SELECT COLUMNS(*)::VARCHAR FROM (\n{}\n) AS _pharos_q", statement);
         if let Some(limit) = limit {
@@ -144,8 +161,8 @@ pub fn rows_of(conn: &Connection, statement: &str, limit: Option<usize>, offset:
             return Ok(page(columns, out, limit, true));
         }
     }
-    if offset > 0 {
-        return Err("This statement cannot be paged: running it again would repeat it.".to_string());
+    if !run_as_written_ok {
+        return Err(NOT_PAGEABLE.to_string());
     }
     run_as_written(conn, statement, limit)
 }
@@ -536,6 +553,26 @@ mod tests {
         );
         assert!(r.pageable);
         assert!(!r.has_more);
+    }
+
+    /// Load More and Load All run the statement again. One DuckDB cannot
+    /// wrap in LIMIT/OFFSET is refused at every offset, so its writes never
+    /// run twice; the card's own run still runs it once as written.
+    #[test]
+    fn paging_never_runs_an_unwrappable_statement_again() {
+        let c = conn();
+        c.execute_batch("CREATE TABLE t(x INT)").unwrap();
+        let insert = "INSERT INTO t VALUES (1) RETURNING x";
+        let first = rows_of(&c, insert, Some(10), 0).unwrap();
+        assert_eq!(first.rows.len(), 1, "the card's run returns its row");
+        assert!(!first.pageable);
+        for offset in [0, 10] {
+            assert_eq!(page_rows(&c, insert, Some(10), offset).unwrap_err(), NOT_PAGEABLE, "offset {offset}");
+        }
+        let n: i64 = c.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "the insert ran once");
+        // A query pages as before.
+        assert_eq!(page_rows(&c, "SELECT * FROM range(5)", Some(2), 2).unwrap().rows.len(), 2);
     }
 
     #[test]

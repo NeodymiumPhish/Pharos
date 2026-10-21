@@ -1782,7 +1782,13 @@ class ContentViewController: NSViewController {
         let workspaceId = ensureWorkspace(forEditorTabId: tabId)
         let tabSchema = tab.schemaName
         let limit = Int32(stateManager.settings.query.defaultLimit)
-        let isSelectLike = Self.isSelectLikeSQL(sql)
+        // Which path a card runs on: rows, or a count of changed rows
+        // (`RunPathRule`). DuckDB judges the statement whose result shows
+        // (the last), and knows its own row-returning statements.
+        let engine = stateManager.connections.first(where: { $0.id == connectionId })?.engine ?? .postgres
+        let isSelectLike = RunPathRule.returnsRows(
+            sql: sql, engine: engine,
+            lastStatement: engine == .duckdb ? SQLSegmentParser.parse(sql).last?.sql : nil)
 
         Task {
             // One interval per run, begun before the FFI call and ended on
@@ -2126,54 +2132,6 @@ class ContentViewController: NSViewController {
         )
     }
 
-    private static func isSelectLikeSQL(_ sql: String) -> Bool {
-        let stripped = stripLeadingComments(sql)
-        let upper = stripped.uppercased()
-        return upper.hasPrefix("SELECT")
-            || upper.hasPrefix("WITH")
-            || upper.hasPrefix("EXPLAIN")
-            || upper.hasPrefix("SHOW")
-            || upper.hasPrefix("TABLE")
-            || upper.hasPrefix("VALUES")
-    }
-
-    /// Strips leading SQL comments (block and line) and whitespace.
-    private static func stripLeadingComments(_ sql: String) -> String {
-        var s = sql[sql.startIndex...]
-        while !s.isEmpty {
-            if s.first?.isWhitespace == true {
-                s = s.drop(while: { $0.isWhitespace })
-                continue
-            }
-            if s.hasPrefix("--") {
-                if let newline = s.firstIndex(of: "\n") {
-                    s = s[s.index(after: newline)...]
-                } else {
-                    return ""
-                }
-                continue
-            }
-            if s.hasPrefix("/*") {
-                var depth = 1
-                var i = s.index(s.startIndex, offsetBy: 2)
-                while i < s.endIndex && depth > 0 {
-                    if s[i] == "/" && s.index(after: i) < s.endIndex && s[s.index(after: i)] == "*" {
-                        depth += 1
-                        i = s.index(i, offsetBy: 2)
-                    } else if s[i] == "*" && s.index(after: i) < s.endIndex && s[s.index(after: i)] == "/" {
-                        depth -= 1
-                        i = s.index(i, offsetBy: 2)
-                    } else {
-                        i = s.index(after: i)
-                    }
-                }
-                s = s[i...]
-                continue
-            }
-            break
-        }
-        return String(s)
-    }
 
     /// Trim leading/trailing whitespace and collapse internal whitespace runs to
     /// a single space. Comments and string-literal contents are NOT stripped —
@@ -2602,6 +2560,9 @@ class ContentViewController: NSViewController {
                 await MainActor.run {
                     self.resultsVC.setLoadingMore(false)
                     Log.query.error("Failed to load more rows: \(error.localizedDescription, privacy: .public)")
+                    // Said where the user is looking, as a failed Load All is.
+                    Toast.show(in: self.view, message: String(localized: "Load More failed: \(error.localizedDescription)"),
+                               style: .error, duration: 4.0)
                 }
             }
         }
@@ -4347,7 +4308,11 @@ extension ContentViewController {
         session.updateTab(id: editorTabId) { $0.runningQueries.append(running) }
         if showInGrid {
             snapshotQueryId = queryId
-            resultsVC.beginLoadingAll(cap: cap)
+            // DuckDB reads the snapshot in one go and reports only at the
+            // end: a bar that sat at "Loaded 0 rows" until then said nothing
+            // true, so it spins and says "Loading…" instead.
+            let duck = stateManager.connections.first(where: { $0.id == connectionId })?.isDuckDB == true
+            resultsVC.beginLoadingAll(cap: cap, determinate: !duck)
         }
 
         // The progress callback lands on the main actor. It must not touch the

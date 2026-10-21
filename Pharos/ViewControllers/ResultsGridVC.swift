@@ -182,6 +182,8 @@ class ResultsGridVC: NSViewController {
     /// Cap of the load in flight, so `updateLoadingAll` can say when the load
     /// stopped because it reached the ceiling rather than the end of the result.
     private var loadAllCap = 0
+    /// False while a load without a running total (DuckDB) is under way.
+    private var loadAllIsDeterminate = true
     /// False while the results area is hidden: the owner's action bar then
     /// shows only the row count and the two toggles.
     var loadControlsAllowed = true {
@@ -823,8 +825,11 @@ class ResultsGridVC: NSViewController {
 
     /// A "Load All Rows" snapshot has started. `cap` is the ceiling the load
     /// stops at, and the bar's maximum.
-    func beginLoadingAll(cap: Int) {
+    /// `determinate`: the engine reports a running total (PostgreSQL's cursor
+    /// chunks); without one (DuckDB) the bar spins and says "Loading…".
+    func beginLoadingAll(cap: Int, determinate: Bool = true) {
         loadAllCap = max(cap, 1)
+        loadAllIsDeterminate = determinate
         isLoadingMore = true
         loadMoreButton.isEnabled = false
         loadAllButton.isEnabled = false
@@ -839,11 +844,19 @@ class ResultsGridVC: NSViewController {
         loadAllCancelButton.isHidden = false
         loadAllCancelButton.isEnabled = true
         loadAllProgress.toolTip = "Loads up to \(formatRowCount(loadAllCap)) rows (Settings ▸ Query ▸ Load All limit)"
-        updateLoadingAll(rows: 0)
+        loadAllProgress.isIndeterminate = !determinate
+        if determinate {
+            updateLoadingAll(rows: 0)
+        } else {
+            loadAllProgress.startAnimation(nil)
+            loadAllLabel.stringValue = String(localized: "Loading…")
+            loadAllProgress.setAccessibilityValueDescription(loadAllLabel.stringValue)
+        }
     }
 
     /// The core has finished another chunk. `rows` is the running total.
     func updateLoadingAll(rows: Int) {
+        guard loadAllIsDeterminate else { return }
         let shown = min(max(rows, 0), loadAllCap)
         loadAllProgress.doubleValue = Double(shown)
         let text = shown >= loadAllCap
@@ -859,6 +872,9 @@ class ResultsGridVC: NSViewController {
     /// either way; what the grid shows afterwards is the caller's business.
     func endLoadingAll() {
         isLoadingMore = false
+        loadAllProgress.stopAnimation(nil)
+        loadAllProgress.isIndeterminate = false
+        loadAllIsDeterminate = true
         loadMoreButton.isEnabled = true
         loadAllButton.isEnabled = true
         loadAllProgress.isHidden = true

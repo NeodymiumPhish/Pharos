@@ -121,6 +121,7 @@
 		465C57EEC45F618538AAE62A /* AdvancedSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B95AB36D3C9B29C6F5EDAA2 /* AdvancedSettingsPaneVC.swift */; };
 		467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */; };
 		46E850B27D3032C449EF538B /* PharosCore+Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBF9971CA38A5A4F27BF2677 /* PharosCore+Settings.swift */; };
+		4710A1CD7E4F50B67D13A29D /* RunPathRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866B839C2B923F06685B33E2 /* RunPathRule.swift */; };
 		478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB718C65F3D74705409121A4 /* TableDDL.swift */; };
 		47B86FA148892E5014AFBD23 /* AppInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D3955E9601CF2414F57DFA /* AppInfo.swift */; };
 		481B9857D91F7B1118557AA4 /* CardStackFinderClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F909BA1DFB449B2034C69C /* CardStackFinderClient.swift */; };
@@ -585,6 +586,7 @@
 		854ED125A54EED3B301AB9EA /* AppDelegate+DuckDB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DuckDB.swift"; sourceTree = "<group>"; };
 		855204606A3DE0C831B8947B /* SettingsEmptyRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEmptyRow.swift; sourceTree = "<group>"; };
 		85F2105483936AE6C2C9AEB8 /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
+		866B839C2B923F06685B33E2 /* RunPathRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunPathRule.swift; sourceTree = "<group>"; };
 		87AC310E071D54672B86BAFE /* InspectorOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorOwnership.swift; sourceTree = "<group>"; };
 		8870AA5A4E803E6824897E6C /* TagDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDraft.swift; sourceTree = "<group>"; };
 		8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSchema.swift; sourceTree = "<group>"; };
@@ -1146,6 +1148,7 @@
 				C93588EE0C42422561A35483 /* RowFingerprint.swift */,
 				04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */,
 				660F536C895497044AF79E8C /* RuleKey.swift */,
+				866B839C2B923F06685B33E2 /* RunPathRule.swift */,
 				F20CF73B17A249738CE23C2A /* RustScalarError.swift */,
 				CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */,
 				FD49CDC956B8E19D8B96A86C /* SchemaButtonState.swift */,
@@ -1698,6 +1701,7 @@
 				09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */,
 				440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */,
 				4DBF8F6F44E2BFEBB112BCCE /* RuleKey.swift in Sources */,
+				4710A1CD7E4F50B67D13A29D /* RunPathRule.swift in Sources */,
 				168A481957ED3B4BE106A90E /* RustScalarError.swift in Sources */,
 				B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */,
 				AE9E1AADFD64575AB3CDC9ED /* SQLDraft.swift in Sources */,
