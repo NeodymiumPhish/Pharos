@@ -80,6 +80,11 @@ pub(crate) fn history_prune_policy(state: &AppState) -> sqlite::HistoryPrunePoli
 }
 
 /// The user's statement timeout, in seconds, from the settings cache.
+/// What a run stopped by the statement timeout says, on every engine and path.
+pub(crate) fn timeout_message(seconds: u32) -> String {
+    format!("Query timed out after {} s. Change the limit in Settings ▸ Query ▸ Statement timeout.", seconds)
+}
+
 pub(crate) fn query_timeout_seconds(state: &AppState) -> u32 {
     state.settings().query.timeout_seconds
 }
@@ -91,6 +96,12 @@ async fn apply_statement_timeout(
     conn: &mut sqlx::PgConnection,
     timeout_seconds: u32,
 ) -> Result<(), sqlx::Error> {
+    // 0 = Pharos sets no limit. Sending `SET statement_timeout = 0` would
+    // also switch off the SERVER's default, so nothing is sent and the
+    // server's own default applies (owner decision 9, 2026-10-21).
+    if timeout_seconds == 0 {
+        return Ok(());
+    }
     let ms = (timeout_seconds as u64).saturating_mul(1000);
     let set_sql = format!("SET statement_timeout = {}", ms);
     (&mut *conn).execute(sqlx::raw_sql(&set_sql)).await?;

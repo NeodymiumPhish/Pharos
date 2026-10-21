@@ -65,9 +65,12 @@ pub fn split_schema(conn: &Connection, name: &str) -> Result<(String, String)> {
 
 /// Every schema, the open file's first and unqualified, then the schemas of
 /// other attached databases as `database.schema`. DuckDB's internal schemas
-/// (`pg_catalog`, `information_schema`, the `system` and `temp` catalogs)
-/// show only with "Show system schemas". `duckdb_schemas().internal` is not
-/// that test: DuckDB marks `main` itself internal.
+/// (`pg_catalog`, `information_schema`, the `system` catalog) show only with
+/// "Show system schemas". The `temp` catalog never shows: catalog reads run
+/// on a fresh connection, and temporary tables live on each tab's own, so it
+/// was always empty here (a card lists its tab's with `SHOW ALL TABLES`).
+/// `duckdb_schemas().internal` is not the system test: DuckDB marks `main`
+/// itself internal.
 pub fn schemas(conn: &Connection, include_system: bool) -> Result<Vec<SchemaInfo>> {
     let home = current_database(conn)?;
     let mut stmt = conn
@@ -84,6 +87,9 @@ pub fn schemas(conn: &Connection, include_system: bool) -> Result<Vec<SchemaInfo
     let mut out = Vec::new();
     for row in rows {
         let (db, schema, internal) = row.map_err(err)?;
+        if db == "temp" {
+            continue;
+        }
         let system = internal || schema == "information_schema" || schema == "pg_catalog";
         if system && !include_system {
             continue;
@@ -596,6 +602,9 @@ mod tests {
         assert_eq!(names, ["main", "sales", "other.main"]);
         let all: Vec<String> = schemas(&c, true).unwrap().into_iter().map(|s| s.name).collect();
         assert!(all.len() > names.len(), "{all:?}");
+        // The temp catalog is always empty on a catalog connection: never listed.
+        assert!(!all.iter().any(|n| n.starts_with("temp.") || n == "temp"), "{all:?}");
+        assert!(all.iter().any(|n| n.starts_with("system.")), "the system database still shows: {all:?}");
     }
 
     #[test]

@@ -37,9 +37,9 @@ final class NavigatorSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "showSystemSchemas",
                     title: String(localized: "Show system schemas"),
-                    caption: String(localized: "Lists pg_catalog and information_schema beside your own."),
+                    caption: String(localized: "Lists pg_catalog and information_schema, and DuckDB's system database, beside your own."),
                     icon: "gearshape.2",
-                    help: String(localized: "The storage schemas — pg_toast and the per-session pg_temp ones — stay hidden whichever way this is set: there can be thousands, and none of them holds anything to read."),
+                    help: String(localized: "The storage schemas — pg_toast and the per-session pg_temp ones — and DuckDB's temp database stay hidden whichever way this is set: temporary tables belong to one tab's connection, and none of these holds anything the navigator can read."),
                     kind: .toggle(.settings(\.navigator.showSystemSchemas))),
             ]),
 

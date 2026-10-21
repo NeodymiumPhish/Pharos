@@ -109,6 +109,10 @@ Pharos does not download extensions. macOS lets the app load only the libraries 
 
 **Settings > Connections > DuckDB** sets the worker threads and the memory limit. These settings apply the next time a database opens.
 
+## Temporary tables
+
+A `CREATE TEMP TABLE` belongs to the tab that ran it: each tab has its own connection, and other tabs cannot see it. The Database Navigator does not list temporary tables. To list a tab's temporary tables, run `SHOW ALL TABLES` in a card of that tab.
+
 ## Attach a PostgreSQL connection
 
 You can query and join the tables of a saved PostgreSQL connection from a DuckDB tab.

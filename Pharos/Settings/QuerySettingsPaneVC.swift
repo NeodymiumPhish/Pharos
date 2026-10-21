@@ -11,7 +11,9 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
     static let limitRange = 1...100_000
     /// Load All limit: at least one page, at most what memory can hold.
     static let loadAllLimitRange = 1_000...5_000_000
-    static let timeoutRange = 1...3600
+    /// 0 = Pharos sets no limit (PostgreSQL: the server's own default
+    /// applies); at most a day.
+    static let timeoutRange = 0...86_400
 
     override var sections: [SettingsSection] {
         [
@@ -44,6 +46,7 @@ final class QuerySettingsPaneVC: SettingsFormPaneVC {
                     title: String(localized: "Statement timeout"),
                     caption: String(localized: "Pharos cancels a query that runs longer than this."),
                     icon: "timer",
+                    help: String(localized: "0 turns Pharos's timeout off: a query then runs until it ends or you cancel it. On PostgreSQL the server's own statement_timeout still applies."),
                     kind: .stepper(.settings(\.query.timeoutSeconds), range: Self.timeoutRange, unit: String(localized: "seconds"))),
             ]),
 

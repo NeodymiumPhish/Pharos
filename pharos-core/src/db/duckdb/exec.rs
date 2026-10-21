@@ -428,7 +428,7 @@ impl RunStop {
     pub fn message(self) -> String {
         match self {
             RunStop::Cancelled => crate::commands::query::QUERY_CANCELLED.to_string(),
-            RunStop::TimedOut(secs) => format!("Query timed out after {} s (Settings ▸ Query ▸ Timeout).", secs),
+            RunStop::TimedOut(secs) => crate::commands::query::timeout_message(secs),
             RunStop::Failed(m) => tag_read_only(m),
         }
     }

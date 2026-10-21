@@ -912,7 +912,7 @@ fn read_error_message(e: ReadError, guard: &mut Option<LiveSession>, state: &App
     match e {
         ReadError::Stopped(Stop::Cancelled) => QUERY_CANCELLED.to_string(),
         ReadError::Stopped(Stop::TimedOut) => {
-            format!("Query timed out after {} s (Settings ▸ Query)", query_timeout_seconds(state))
+            super::query::timeout_message(query_timeout_seconds(state))
         }
         ReadError::Sql(m) => m,
         ReadError::Lost(m) => {
