@@ -7,10 +7,16 @@
     "—" : {
 
     },
+    "“%@” can’t be found." : {
+
+    },
     "“%@” has an open transaction." : {
 
     },
     "“%@” has no Sessions to export." : {
+
+    },
+    "“%@” is in use by another app." : {
 
     },
     "“%@” returned %@." : {
@@ -56,16 +62,6 @@
         }
       }
     },
-    "%@ — %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ — %2$@"
-          }
-        }
-      }
-    },
     "%@ · %@ — %@" : {
       "localizations" : {
         "en" : {
@@ -75,6 +71,12 @@
           }
         }
       }
+    },
+    "%@ has it open for writing, so it cannot be opened, even read-only. Close it in that app, then connect again." : {
+
+    },
+    "%@ holds a lock on it. If that app only reads the file, Pharos can open it read-only too. If it is writing, close the file there first." : {
+
     },
     "%@ in %@" : {
       "localizations" : {
@@ -105,6 +107,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ of %2$@ cards"
+          }
+        }
+      }
+    },
+    "%@ of %@ rows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@ rows"
           }
         }
       }
@@ -183,6 +195,16 @@
     "%lld min" : {
 
     },
+    "%lld min %lld s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld min %2$lld s"
+          }
+        }
+      }
+    },
     "%lld results" : {
 
     },
@@ -199,6 +221,9 @@
 
     },
     "%lld workspaces" : {
+
+    },
+    "%lld%%" : {
 
     },
     "%llu batches were committed as the file was read." : {
@@ -229,6 +254,9 @@
         }
       }
     },
+    "~/Data/sales.duckdb" : {
+
+    },
     "⌘↩ runs" : {
 
     },
@@ -245,6 +273,9 @@
 
     },
     "0 keeps them for as long as the maximum lifetime allows." : {
+
+    },
+    "0 lets DuckDB use every core." : {
 
     },
     "1 earlier version of %@" : {
@@ -305,6 +336,9 @@
 
     },
     "A copy also carries the TSV form, so a paste into a spreadsheet lands as a table whichever this says." : {
+
+    },
+    "A DuckDB database reads these when it opens, so they reach a database the next time you connect it." : {
 
     },
     "A faint wash behind the line holding the caret." : {
@@ -385,6 +419,9 @@
     "Accept the completion" : {
 
     },
+    "Acknowledgements" : {
+
+    },
     "Actions" : {
 
     },
@@ -446,6 +483,9 @@
 
     },
     "An sslmode=prefer connection spends three fifths of this trying TLS and the rest retrying without it." : {
+
+    },
+    "Another app" : {
 
     },
     "Appearance" : {
@@ -558,6 +598,9 @@
     "Bring All to Front" : {
 
     },
+    "Built-in extensions" : {
+
+    },
     "Cached schema metadata cleared." : {
 
     },
@@ -642,6 +685,12 @@
     "Choose a database for this tab." : {
 
     },
+    "Choose a DuckDB database file to open" : {
+
+    },
+    "Choose a DuckDB database file." : {
+
+    },
     "Choose Connection" : {
 
     },
@@ -664,6 +713,12 @@
     "Choose the private key file for this tunnel." : {
 
     },
+    "Choose where to create a new database file. It is created when you connect." : {
+
+    },
+    "Choose where to create the DuckDB database." : {
+
+    },
     "Choose where to save the exported data" : {
 
     },
@@ -683,6 +738,9 @@
 
     },
     "Clear History" : {
+
+    },
+    "Clear Menu" : {
 
     },
     "Clear Metadata Cache" : {
@@ -776,6 +834,9 @@
 
     },
     "Connect a tab to browse its schema." : {
+
+    },
+    "Connect opens the file, and creates it when it does not exist yet." : {
 
     },
     "Connect this tab to a database to draft a query." : {
@@ -935,6 +996,9 @@
     "Dark" : {
 
     },
+    "Database File" : {
+
+    },
     "Database Navigator" : {
 
     },
@@ -1067,6 +1131,12 @@
     "DROP" : {
 
     },
+    "DuckDB" : {
+
+    },
+    "DuckDB %@ with the icu, inet, fts, excel, sqlite, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation." : {
+
+    },
     "Duplicate Tab" : {
 
     },
@@ -1116,6 +1186,9 @@
 
     },
     "End" : {
+
+    },
+    "Engine" : {
 
     },
     "Engine log level" : {
@@ -1236,6 +1309,12 @@
 
     },
     "Export & Import" : {
+
+    },
+    "Export %@ as a Parquet file." : {
+
+    },
+    "Export as Parquet…" : {
 
     },
     "Export Data" : {
@@ -1478,6 +1557,9 @@
     "How many tag colours the bar at the left edge of a row may show." : {
 
     },
+    "How many threads one DuckDB database may use for a query." : {
+
+    },
     "How many unanswered probes end the connection. 0 uses the server's own value." : {
 
     },
@@ -1521,6 +1603,15 @@
 
     },
     "In the window" : {
+
+    },
+    "In-memory" : {
+
+    },
+    "In-memory database" : {
+
+    },
+    "In-memory DuckDB" : {
 
     },
     "Include a header row" : {
@@ -1589,6 +1680,9 @@
     "It stops a forgotten transaction from holding locks. 0 turns it off." : {
 
     },
+    "It was moved or deleted since you last opened it." : {
+
+    },
     "Italic" : {
 
     },
@@ -1611,6 +1705,9 @@
 
     },
     "Keepalive" : {
+
+    },
+    "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits." : {
 
     },
     "Key binding" : {
@@ -1641,6 +1738,9 @@
 
     },
     "Layout" : {
+
+    },
+    "Leave it empty for DuckDB's default, 80% of this Mac's memory." : {
 
     },
     "Leave it empty for Pharos and the version number." : {
@@ -1733,6 +1833,9 @@
     "Medium" : {
 
     },
+    "Memory limit" : {
+
+    },
     "Menu" : {
 
     },
@@ -1805,6 +1908,9 @@
     "New Connections" : {
 
     },
+    "New DuckDB Database…" : {
+
+    },
     "New Folder" : {
 
     },
@@ -1833,6 +1939,9 @@
 
     },
     "New Window" : {
+
+    },
+    "New…" : {
 
     },
     "Next Card" : {
@@ -2048,6 +2157,12 @@
     "Only when needed quotes a field that holds the delimiter, a quote or a line break — this is what Pharos has always written." : {
 
     },
+    "Open" : {
+
+    },
+    "Open an existing DuckDB database file." : {
+
+    },
     "Open as a template (no results)" : {
 
     },
@@ -2060,7 +2175,16 @@
     "Open Connection" : {
 
     },
+    "Open DuckDB Database…" : {
+
+    },
     "Open Help" : {
+
+    },
+    "Open Read-Only" : {
+
+    },
+    "Open Recent" : {
 
     },
     "Open Release Notes" : {
@@ -2115,6 +2239,9 @@
 
     },
     "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
+
+    },
+    "Opens the file read-only, so DuckDB refuses writes. Other apps that also open it read-only can read it at the same time. It takes effect the next time this connection opens." : {
 
     },
     "Opens this connection as Pharos starts, after the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
@@ -2178,6 +2305,12 @@
 
     },
     "Pharos %@ is the newest version." : {
+
+    },
+    "Pharos cancels a query that runs longer than this." : {
+
+    },
+    "Pharos contains open-source software: DuckDB and the libraries it uses, and the Rust crates of its engine. The notices give each one's licence." : {
 
     },
     "Pharos corrected: %@" : {
@@ -2255,9 +2388,6 @@
     "Post a notification" : {
 
     },
-    "PostgreSQL cancels a query that runs longer than this." : {
-
-    },
     "Pre-release" : {
 
     },
@@ -2289,6 +2419,9 @@
 
     },
     "Probes before giving up" : {
+
+    },
+    "Process %@" : {
 
     },
     "psql command" : {
@@ -2627,6 +2760,9 @@
     "running" : {
 
     },
+    "Running" : {
+
+    },
     "Running server aggregation…" : {
 
     },
@@ -2820,6 +2956,9 @@
 
     },
     "Show Notes" : {
+
+    },
+    "Show Notices" : {
 
     },
     "Show Previous Tab" : {
@@ -3119,6 +3258,9 @@
     "The model would not answer that. Try describing the query another way." : {
 
     },
+    "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk." : {
+
+    },
     "The most query cards in one editor tab that hold their results in memory." : {
 
     },
@@ -3260,6 +3402,9 @@
     "They are saved when you commit the tab's transaction." : {
 
     },
+    "Third-party notices" : {
+
+    },
     "This card is already running." : {
 
     },
@@ -3326,6 +3471,9 @@
     "Time Zone" : {
 
     },
+    "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded." : {
+
+    },
     "Title" : {
 
     },
@@ -3375,6 +3523,9 @@
 
     },
     "Untitled Session" : {
+
+    },
+    "Untitled.duckdb" : {
 
     },
     "UPDATE" : {
@@ -3519,6 +3670,9 @@
 
     },
     "Window" : {
+
+    },
+    "Worker threads" : {
 
     },
     "Workspace" : {
