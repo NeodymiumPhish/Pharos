@@ -447,6 +447,9 @@ final class AppStateManager: ObservableObject {
 
         Log.state.info("Opening \(toOpen.count, privacy: .public) connection(s) marked connect-on-launch")
 
+        // A DuckDB file that went missing since the last run shows in its tab,
+        // not as an alert at launch (HIG Alerts).
+        for candidate in toOpen { markQuietConnect(candidate.id) }
         guard LaunchConnectPolicy.needsSerialPrompts(toOpen) else {
             for candidate in toOpen { connect(id: candidate.id, in: keySession) }
             return
@@ -504,6 +507,36 @@ final class AppStateManager: ObservableObject {
         performConnect(id: id, in: keySession, readOnly: true)
     }
 
+    /// DuckDB records whose next connect may create a missing file.
+    private var pendingCreate: Set<String> = []
+    /// Connects Pharos started on its own (connect on launch, App Intents): a
+    /// missing file then shows in the tab's context row, not as an alert.
+    private var quietConnects: Set<String> = []
+
+    /// Let `id`'s next connect create its DuckDB file if it is missing: the
+    /// user asked for a new database (File ▸ New DuckDB Database…, Create
+    /// Empty Database). Every other connect refuses a missing file.
+    func allowCreateOnNextConnect(_ id: String) {
+        pendingCreate.insert(id)
+    }
+
+    /// Connect, creating a missing DuckDB file.
+    func connect(id: String, create: Bool) {
+        if create { allowCreateOnNextConnect(id) }
+        connect(id: id)
+    }
+
+    /// Mark the next connect of `id` as one Pharos started on its own.
+    func markQuietConnect(_ id: String) {
+        quietConnects.insert(id)
+    }
+
+    /// Whether the connect that just ended was one Pharos started on its own
+    /// (and forget it).
+    func takeQuietConnect(_ id: String) -> Bool {
+        quietConnects.remove(id) != nil
+    }
+
     private func performConnect(id: String, in session: WindowSession?, readOnly: Bool = false) {
         connectionStatuses[id] = .connecting
         connectionErrors.removeValue(forKey: id)
@@ -511,9 +544,13 @@ final class AppStateManager: ObservableObject {
 
         Task {
             do {
+                let create = self.pendingCreate.remove(id) != nil
                 let info = readOnly
                     ? try await PharosCore.connectReadOnly(connectionId: id)
-                    : try await PharosCore.connect(connectionId: id)
+                    : create
+                        ? try await PharosCore.connectCreate(connectionId: id)
+                        : try await PharosCore.connect(connectionId: id)
+                if info.status == .connected { self.quietConnects.remove(id) }
                 self.connectionStatuses[id] = info.status
                 // A refused connection comes back as a value, not a throw, so
                 // without this the reason was lost and the toolbar only turned

@@ -41,6 +41,18 @@ pub const LOCKED_MARKER: &str = "[PHAROS_DUCKDB_LOCKED]";
 /// DuckDB than this one.
 pub const TOO_NEW_MARKER: &str = "[PHAROS_DUCKDB_TOO_NEW]";
 
+/// The marker on a connect refused because the record's file is not there
+/// (moved, renamed, deleted, or its disk is not connected). Connect never
+/// creates a missing file on its own: an empty database in its place would
+/// look like the user's data had gone. Swift reads it to offer Locate… and
+/// Create Empty Database.
+pub const MISSING_MARKER: &str = "[PHAROS_DUCKDB_MISSING]";
+
+/// The refusal for a missing file, marked.
+pub fn missing_file_message(path: &str) -> String {
+    format!("{} There is no file at {}.", MISSING_MARKER, path)
+}
+
 /// What the user can tune for every DuckDB database (Settings ▸ Connections ▸
 /// DuckDB). Blank means DuckDB's own default.
 ///

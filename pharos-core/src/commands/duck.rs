@@ -21,7 +21,7 @@ use super::table::{
 use crate::commands::ddl::TableDdl;
 use crate::db::duckdb::catalog::{self, quote_ident};
 use crate::db::duckdb::exec::{self, run_cancellable, RunStop};
-use crate::db::duckdb::{normalized_path, DuckDbInstance, OpenOptions, IN_MEMORY};
+use crate::db::duckdb::{missing_file_message, normalized_path, DuckDbInstance, OpenOptions, IN_MEMORY};
 use crate::models::{
     AnalyzeResult, ColumnInfo, ConnectionConfig, ConnectionInfo, ConnectionStatus, ConstraintInfo, FunctionInfo,
     ImportErrorPolicy, IndexInfo, SchemaColumnInfo, SchemaDraftFacts, SchemaInfo, TableInfo, TestConnectionResult,
@@ -50,10 +50,18 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
         return Ok(info(&config, ConnectionStatus::Connected, None, None));
     }
     let read_only = config.read_only || state.take_duck_read_only_once(&config.id);
+    let create = state.take_duck_create_once(&config.id);
     let path = normalized_path(&config.database);
     if let Some(existing) = state.duck_instance_for_path(&path) {
         state.add_duck(config.id.clone(), existing);
         return Ok(info(&config, ConnectionStatus::Connected, None, Some(0)));
+    }
+    // A missing file is created only when the user asked for a new database
+    // (File ▸ New, Save of a new record, Create Empty Database). Otherwise the
+    // file was moved, renamed or deleted, or its disk is not connected, and
+    // an empty database in its place would look like lost data.
+    if path != IN_MEMORY && !create && !std::path::Path::new(&path).exists() {
+        return Ok(info(&config, ConnectionStatus::Error, Some(missing_file_message(&path)), None));
     }
     let options = OpenOptions::from_settings(&state.settings().connections);
     let start = Instant::now();
@@ -555,6 +563,7 @@ mod tests {
     async fn connect_query_and_disconnect_a_file() {
         let path = temp("conn", "duckdb");
         let state = state_with("d", &path);
+        state.request_duck_create_once("d");
         let config = state.get_config("d").unwrap();
         let info = connect(config.clone(), &state).await.unwrap();
         assert_eq!(info.status, ConnectionStatus::Connected, "{:?}", info.error);
@@ -580,6 +589,33 @@ mod tests {
         let r = execute_query("d".into(), "SELECT count(*) FROM t".into(), None, None, None, None, &state).await.unwrap();
         assert_eq!(r.rows, vec![serde_json::json!(["3"])]);
         disconnect("d", &state).await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A missing file is never created by a plain connect: the record's file
+    /// may have moved. Only a connect that asked for a new database creates
+    /// it, once.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn connect_refuses_a_missing_file_unless_asked_to_create_it() {
+        let path = temp("missing", "duckdb");
+        let state = state_with("d", &path);
+        let info = connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        assert_eq!(info.status, ConnectionStatus::Error);
+        let message = info.error.unwrap_or_default();
+        assert!(message.starts_with(crate::db::duckdb::MISSING_MARKER), "{message}");
+        assert!(message.contains(&path), "{message}");
+        assert!(!std::path::Path::new(&path).exists(), "no empty database in its place");
+
+        state.request_duck_create_once("d");
+        let created = connect(state.get_config("d").unwrap(), &state).await.unwrap();
+        assert_eq!(created.status, ConnectionStatus::Connected, "{:?}", created.error);
+        assert!(std::path::Path::new(&path).exists());
+        disconnect("d", &state).await;
+        assert!(!state.take_duck_create_once("d"), "the request is used up");
+
+        // In-memory needs no file.
+        let mem = state_with("m", IN_MEMORY);
+        assert_eq!(connect(mem.get_config("m").unwrap(), &mem).await.unwrap().status, ConnectionStatus::Connected);
         let _ = std::fs::remove_file(&path);
     }
 

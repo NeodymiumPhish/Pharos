@@ -254,6 +254,13 @@ struct EngineCapabilities: Equatable {
 enum DuckDBOpenError {
     static let lockedMarker = "[PHAROS_DUCKDB_LOCKED]"
     static let tooNewMarker = "[PHAROS_DUCKDB_TOO_NEW]"
+    /// The record's file is not there: moved, renamed, deleted, or its disk
+    /// is not connected. Connect never creates it on its own.
+    static let missingMarker = "[PHAROS_DUCKDB_MISSING]"
+
+    static func isMissing(_ message: String?) -> Bool {
+        message?.contains(missingMarker) ?? false
+    }
 
     static func isLocked(_ message: String?) -> Bool {
         message?.contains(lockedMarker) ?? false
@@ -272,10 +279,11 @@ enum DuckDBOpenError {
 
     /// The message to show: the markers are for the app, not for the user.
     static func humanised(_ message: String) -> String {
-        guard isLocked(message) || isTooNew(message) else { return message }
+        guard isLocked(message) || isTooNew(message) || isMissing(message) else { return message }
         return message
             .replacingOccurrences(of: lockedMarker, with: "")
             .replacingOccurrences(of: tooNewMarker, with: "")
+            .replacingOccurrences(of: missingMarker, with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

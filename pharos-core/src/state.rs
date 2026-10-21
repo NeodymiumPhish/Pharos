@@ -154,6 +154,10 @@ pub struct AppState {
     /// DuckDB records the user asked to open read-only for this connect only
     /// ("Open Read-Only" after a lock conflict). Taken by the next connect.
     pub duck_read_only_once: Mutex<HashSet<String>>,
+    /// DuckDB records whose NEXT connect may create a missing file: File ▸ New
+    /// DuckDB Database…, Save of a new record, and Create Empty Database.
+    /// Every other connect refuses a missing file (`duck::connect`).
+    pub duck_create_once: Mutex<HashSet<String>>,
 }
 
 /// What a refused write says. The same sentence the front end shows for the
@@ -185,6 +189,7 @@ impl AppState {
             duck_sessions: Mutex::new(HashMap::new()),
             pg_attachments: Mutex::new(Vec::new()),
             duck_read_only_once: Mutex::new(HashSet::new()),
+            duck_create_once: Mutex::new(HashSet::new()),
         }
     }
 
@@ -481,6 +486,18 @@ impl AppState {
     pub fn request_duck_read_only_once(&self, connection_id: &str) {
         let mut set = self.duck_read_only_once.lock().unwrap_or_else(|e| e.into_inner());
         set.insert(connection_id.to_string());
+    }
+
+    /// Let this record's next connect create its file if it is missing.
+    pub fn request_duck_create_once(&self, connection_id: &str) {
+        let mut set = self.duck_create_once.lock().unwrap_or_else(|e| e.into_inner());
+        set.insert(connection_id.to_string());
+    }
+
+    /// Take (and clear) the create request for this connect.
+    pub fn take_duck_create_once(&self, connection_id: &str) -> bool {
+        let mut set = self.duck_create_once.lock().unwrap_or_else(|e| e.into_inner());
+        set.remove(connection_id)
     }
 
     /// Take (and clear) the read-only request for this connect.

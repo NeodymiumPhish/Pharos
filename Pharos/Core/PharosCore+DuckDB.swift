@@ -21,6 +21,17 @@ struct DuckDBAttachment: Decodable, Equatable {
 
 extension PharosCore {
 
+    /// Connect a DuckDB record and create its file if it is missing, for this
+    /// connect only (File ▸ New, Save of a new record, Create Empty Database).
+    /// Every other connect refuses a missing file (`DuckDBOpenError.isMissing`).
+    static func connectCreate(connectionId: String) async throws -> ConnectionInfo {
+        try await withAsyncCallback { callback, context in
+            connectionId.withCString { cId in
+                pharos_connect_create(cId, callback, context)
+            }
+        }
+    }
+
     /// Attach a CONNECTED PostgreSQL connection to an open DuckDB database.
     /// The password goes into a temporary DuckDB secret, never into SQL text
     /// or history. `alias` empty = a default from the connection's name.

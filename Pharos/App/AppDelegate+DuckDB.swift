@@ -29,7 +29,9 @@ extension AppDelegate {
                     return
                 }
             }
-            self?.openDuckDBFile(url)
+            // A new database was asked for: this is the one connect that may
+            // create the file.
+            self?.openDuckDBFile(url, create: true)
         }
     }
 
@@ -52,6 +54,11 @@ extension AppDelegate {
     @objc func menuOpenRecentDuckDB(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         guard FileManager.default.fileExists(atPath: url.path) else {
+            // A record names the file: offer to find it (Locate…), as Connect does.
+            if let record = DuckDBFiles.record(for: DuckDBFiles.canonicalPath(url.path), in: AppStateManager.shared.connections) {
+                PasswordPromptCoordinator.shared.offerMissingFile(record)
+                return
+            }
             let alert = NSAlert()
             alert.messageText = String(localized: "“\(url.lastPathComponent)” can’t be found.")
             alert.informativeText = String(localized: "It was moved or deleted since you last opened it.")
@@ -67,9 +74,10 @@ extension AppDelegate {
     }
 
     /// Open a DuckDB file in a tab: the record that names it, or a new one.
-    /// A missing file is created by the connect.
+    /// `create`: the user asked for a new database (File ▸ New), so the
+    /// connect may create the file; any other connect refuses a missing file.
     @MainActor
-    func openDuckDBFile(_ url: URL) {
+    func openDuckDBFile(_ url: URL, create: Bool = false) {
         let manager = AppStateManager.shared
         let path = DuckDBFiles.canonicalPath(url.path)
         let record: ConnectionConfig
@@ -81,6 +89,7 @@ extension AppDelegate {
             record = made
         }
         NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
+        if create { manager.allowCreateOnNextConnect(record.id) }
         openConnectionInTab(record)
     }
 

@@ -73,8 +73,13 @@ final class PasswordPromptCoordinator {
         // A DuckDB record has no password and no tunnel. The one failure it
         // can answer is a file another process holds for writing.
         if config.isDuckDB {
-            if DuckDBOpenError.isLocked(state.connectionError(for: id)) {
-                offerReadOnly(config, failure: state.connectionError(for: id) ?? "")
+            let failure = state.connectionError(for: id)
+            if DuckDBOpenError.isLocked(failure) {
+                offerReadOnly(config, failure: failure ?? "")
+            } else if DuckDBOpenError.isMissing(failure) {
+                // A connect Pharos started on its own (at launch, from a
+                // Shortcut) says so in the tab's context row instead.
+                if !state.takeQuietConnect(id) { offerMissingFile(config) }
             }
             return
         }
@@ -196,6 +201,67 @@ final class PasswordPromptCoordinator {
             alert.beginSheetModal(for: window, completionHandler: finish)
         } else {
             finish(alert.runModal())
+        }
+    }
+
+    /// A DuckDB record whose file is not there. Connect never makes an empty
+    /// database in its place, which would look like the user's data had gone
+    /// (HIG File management). Locate… follows the file to where it is now;
+    /// Create Empty Database is the explicit choice of a new one.
+    func offerMissingFile(_ config: ConnectionConfig) {
+        guard !prompting.contains(config.id) else { return }
+        prompting.insert(config.id)
+        let id = config.id
+        let file = DisplayEscape.escapedTrimmed((config.database as NSString).lastPathComponent)
+        let path = DisplayEscape.escaped(ConnectionConfig.abbreviatingHome(config.database))
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "“\(file)” can’t be found.")
+        alert.informativeText = String(localized: "There is no file at \(path). It may have been moved, renamed or deleted, or its disk is not connected.")
+        alert.addButton(withTitle: String(localized: "Locate…"))
+        alert.addButton(withTitle: String(localized: "Create Empty Database"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            self?.prompting.remove(id)
+            switch response {
+            case .alertFirstButtonReturn: self?.locate(config)
+            case .alertSecondButtonReturn: AppStateManager.shared.connect(id: id, create: true)
+            default: break
+            }
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
+    }
+
+    /// Choose where a DuckDB record's file is now, store that path in the
+    /// SAME record (its tabs, Sessions and history keep pointing at it), and
+    /// connect. The name follows the file only while it is still the old
+    /// file's name.
+    func locate(_ config: ConnectionConfig) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        let old = URL(fileURLWithPath: config.database)
+        panel.directoryURL = old.deletingLastPathComponent()
+        panel.message = String(localized: "Locate “\((config.database as NSString).lastPathComponent)”")
+        panel.prompt = String(localized: "Choose")
+        let id = config.id
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let manager = AppStateManager.shared
+            guard var record = manager.connections.first(where: { $0.id == id }) else { return }
+            let oldStem = (old.lastPathComponent as NSString).deletingPathExtension
+            if record.name == oldStem {
+                record.name = (url.lastPathComponent as NSString).deletingPathExtension
+            }
+            record.database = DuckDBFiles.canonicalPath(url.path)
+            manager.saveConnection(record)
+            NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: record.database))
+            manager.connect(id: id)
         }
     }
 

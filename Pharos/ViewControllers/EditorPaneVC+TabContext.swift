@@ -21,11 +21,14 @@ extension EditorPaneVC {
             selectedId: config?.id)
 
         let status = config.map { stateManager.status(for: $0.id) }
+        let missingFile = status == .error
+            && DuckDBOpenError.isMissing(config.flatMap { stateManager.connectionError(for: $0.id) })
         let reason = status == .error
             ? config.flatMap { stateManager.connectionError(for: $0.id) }
                 .map { DisplayEscape.escaped(DuckDBOpenError.humanised(SshTunnelAuthError.humanised($0))) }
             : nil
-        tabContextBar.showState(TabContextState(connectionName: config?.name, status: status, failureReason: reason))
+        tabContextBar.showState(TabContextState(connectionName: config?.name, status: status, failureReason: reason,
+                                                missingFile: missingFile))
 
         let metadata = metadataCache.metadata(for: config?.id)
         let schemaState = SchemaButtonState(
@@ -91,6 +94,14 @@ extension EditorPaneVC {
         }
         tabContextBar.onConnect = { [weak self] in
             guard let self else { return }
+            // "File not found": the button finds the file, it does not retry.
+            if let id = self.session.tab?.connectionId,
+               let config = self.stateManager.connections.first(where: { $0.id == id }),
+               self.stateManager.status(for: id) == .error,
+               DuckDBOpenError.isMissing(self.stateManager.connectionError(for: id)) {
+                PasswordPromptCoordinator.shared.locate(config)
+                return
+            }
             self.delegate?.editorPaneDidRequestConnect(self)
         }
         tabContextBar.onManageConnections = { ConnectionsManagerWindowController.show() }

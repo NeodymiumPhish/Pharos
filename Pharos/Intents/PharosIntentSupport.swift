@@ -117,6 +117,7 @@ enum PharosIntentBridge {
         }
         if state.status(for: connectionId) == .connected { return }
         if state.status(for: connectionId) != .connecting {
+            state.markQuietConnect(connectionId)
             state.connect(id: connectionId)
         }
         let settled = await PharosIntentBridge.wait(upTo: 30) {

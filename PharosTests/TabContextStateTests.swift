@@ -36,6 +36,14 @@ private func testState() {
            "error: Try Again", "\(failed)")
     expect(failed.text == "Could not connect" && failed.toolTip == "password authentication failed",
            "error: the reason is in the tooltip")
+
+    let gone = TabContextState(connectionName: "sales", status: .error, failureReason: "There is no file at ~/sales.duckdb.",
+                               missingFile: true)
+    expect(gone == .fileNotFound(reason: "There is no file at ~/sales.duckdb."), "missing file: its own state", "\(gone)")
+    expect(gone.text == "File not found" && gone.buttonTitle == "Locate…" && gone.toolTip == "There is no file at ~/sales.duckdb.",
+           "missing file: File not found, Locate…, the path in the tooltip")
+    expect(TabContextState(connectionName: "sales", status: .connected, failureReason: nil, missingFile: true) == .connected,
+           "missing-file only matters for a failed connect")
 }
 
 private func testChipTitles() {

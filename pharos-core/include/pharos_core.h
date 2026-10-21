@@ -147,6 +147,15 @@ void pharos_connect_with_ssh_secret(const char *connection_id,
  void pharos_connect_read_only(const char *connection_id, AsyncCallback callback, void *context);
 
 /**
+ * Connect a DuckDB record and, for this connect only, create its file when
+ * it is missing: File ▸ New DuckDB Database…, Save of a new record in the
+ * Connections Manager, and the missing-file alert's Create Empty Database.
+ * Every other connect refuses a missing file (`MISSING_MARKER`). Returns
+ * `ConnectionInfo` JSON via callback, as `pharos_connect` does.
+ */
+ void pharos_connect_create(const char *connection_id, AsyncCallback callback, void *context);
+
+/**
  * The editor's DuckDB vocabulary for a connected record:
  * `{"keywords": [...], "functions": [...]}` via callback.
  */

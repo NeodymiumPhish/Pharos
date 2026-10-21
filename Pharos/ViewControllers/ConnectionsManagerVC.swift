@@ -743,7 +743,7 @@ final class ConnectionsManagerVC: NSViewController {
             button.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
         duckChooseButton.toolTip = String(localized: "Open an existing DuckDB database file.")
-        duckNewButton.toolTip = String(localized: "Choose where to create a new database file. It is created when you connect.")
+        duckNewButton.toolTip = String(localized: "Choose where to create a new database file. Save creates it.")
         duckInMemoryCheckbox.setButtonType(.switch)
         duckInMemoryCheckbox.title = String(localized: "In-memory database")
         duckInMemoryCheckbox.target = self
@@ -770,7 +770,7 @@ final class ConnectionsManagerVC: NSViewController {
         let duckSection = section(title: String(localized: "Database File"), rows: [
             row(label: String(localized: "File"), field: duckFileControls),
             row(label: "", control: duckInMemoryCheckbox),
-            noteRow(caption(String(localized: "Connect opens the file, and creates it when it does not exist yet."))),
+            noteRow(caption(String(localized: "Connect opens the file. Save creates a new file; Connect never makes an empty database in place of a file that has gone."))),
         ])
         serverSectionView = serverSection
         duckSectionView = duckSection
@@ -1902,8 +1902,33 @@ final class ConnectionsManagerVC: NSViewController {
         nameField.stringValue = d.name
         pendingStubIds.remove(d.id)
         stateManager.saveConnection(d)
+        createDuckDBFileIfNew(d)
         draftBaseline = d
         updateButtonStates()
+    }
+
+    /// A DuckDB record whose file does not exist yet (New…, or a typed path):
+    /// Save creates the file, because Connect never creates one (a missing
+    /// file may have moved). The core opens and closes it at once; the app's
+    /// connection state is untouched.
+    private func createDuckDBFileIfNew(_ d: ConnectionConfig) {
+        guard d.isDuckDB, !d.isInMemoryDuckDB,
+              !FileManager.default.fileExists(atPath: (d.database as NSString).expandingTildeInPath),
+              stateManager.status(for: d.id) != .connected else { return }
+        let id = d.id
+        Task { @MainActor [weak self] in
+            do {
+                let info = try await PharosCore.connectCreate(connectionId: id)
+                try? await PharosCore.disconnect(connectionId: id)
+                if info.status != .connected, let self {
+                    self.setTestStatus(DisplayEscape.escaped(DuckDBOpenError.humanised(info.error ?? "")))
+                    self.testStatusLabel.textColor = .systemRed
+                }
+            } catch {
+                self?.setTestStatus(DisplayEscape.escaped(error.localizedDescription))
+                self?.testStatusLabel.textColor = .systemRed
+            }
+        }
     }
 
     @objc private func revertChanges() {
@@ -1933,7 +1958,12 @@ final class ConnectionsManagerVC: NSViewController {
                     self.testSpinner.stopAnimation(nil)
                     self.testSpinner.isHidden = true
                     self.testButton.isEnabled = true
-                    if result.success {
+                    if result.success, d.isDuckDB, !d.isInMemoryDuckDB,
+                       !FileManager.default.fileExists(atPath: (d.database as NSString).expandingTildeInPath) {
+                        // The folder is fine and the file is not made yet.
+                        self.setTestStatus(String(localized: "The file does not exist yet. Save creates it."))
+                        self.testStatusLabel.textColor = .secondaryLabelColor
+                    } else if result.success {
                         let ms = result.latencyMs.map { " \($0)ms" } ?? ""
                         self.setTestStatus("Connected\(ms)")
                         self.testStatusLabel.textColor = .systemGreen

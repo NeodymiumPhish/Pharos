@@ -26,7 +26,7 @@ A DuckDB file is a **connection**. Each file you open gets a connection record, 
 
 | To | Do this |
 |---|---|
-| Create a new database file | **File > New DuckDB Database…**, choose a folder and a name. The file is created when the connection opens. |
+| Create a new database file | **File > New DuckDB Database…**, choose a folder and a name. The file is created when the connection opens. In the Connections Manager, **New…** and then **Save** creates it. |
 | Open an existing file | **File > Open DuckDB Database…** (**Cmd+Shift+O**), or double-click a `.duckdb` or `.ddb` file in Finder, or drop it on the Dock icon. |
 | Open a file again | **File > Open Recent**. The Dock's recent list shows the same files. |
 | Use an in-memory database | In the Connections Manager, set **Engine** to **DuckDB** and select **In-memory database**. |
@@ -36,6 +36,16 @@ Opening a file finds the connection that already names it, or makes a new one. T
 {: .warning }
 An in-memory database exists only while its connection is open. Its tables are lost when you disconnect or quit.
 
+## A file that has moved
+
+Pharos never makes an empty database in place of a file that is no longer where it was. When a file was moved, renamed or deleted, or its disk is not connected, **Connect** shows "“sales.duckdb” can’t be found" with three choices:
+
+- **Locate…** — choose where the file is now. Pharos stores the new place in the same connection, so its tabs, Sessions and history still belong to it.
+- **Create Empty Database** — make a new, empty database at the old place.
+- **Cancel** — change nothing.
+
+When Pharos itself connected the file (**Connect when Pharos starts**, or a Shortcut), no alert opens: the tab says **File not found**, and its **Locate…** button does the same as above.
+
 ## The Connections Manager
 
 Set **Engine** to **DuckDB**. The form then shows a **Database File** section instead of the Server, Authentication and SSH Tunnel sections:
@@ -43,7 +53,8 @@ Set **Engine** to **DuckDB**. The form then shows a **Database File** section in
 - **File** — the database file. **Choose…** picks an existing file; **New…** picks where a new one goes.
 - **In-memory database** — no file at all.
 - **Read-only** (Session) — DuckDB refuses writes, and other apps that also open the file read-only can read it at the same time.
-- **Test Connection** never creates or changes the file: it opens an existing file read-only, and passes a new file whose folder exists.
+- **Test Connection** never creates or changes the file: it opens an existing file read-only. For a new file whose folder exists it says that **Save** creates the file.
+- **Save** creates a new file. **Connect** never creates one.
 
 ## A file another app has open
 

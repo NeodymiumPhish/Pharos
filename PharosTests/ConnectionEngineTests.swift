@@ -73,6 +73,9 @@ func runTests() {
     expect(!DuckDBOpenError.humanised(locked).contains("[PHAROS"), "the marker is not shown")
     expect(DuckDBOpenError.humanised("plain") == "plain", "other messages pass through")
     expect(DuckDBOpenError.isTooNew("[PHAROS_DUCKDB_TOO_NEW] Serialization Error"), "the too-new marker is read")
+    let missing = "[PHAROS_DUCKDB_MISSING] There is no file at /x/sales.duckdb."
+    expect(DuckDBOpenError.isMissing(missing) && !DuckDBOpenError.isLocked(missing), "the missing-file marker is read")
+    expect(DuckDBOpenError.humanised(missing) == "There is no file at /x/sales.duckdb.", "the missing-file marker is not shown")
     expect(DuckDBOpenError.holderPID("no pid here") == nil, "no PID, no number")
 
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")

@@ -28,6 +28,30 @@ pub extern "C" fn pharos_connect_read_only(
     });
 }
 
+/// Connect a DuckDB record and, for this connect only, create its file when
+/// it is missing: File ▸ New DuckDB Database…, Save of a new record in the
+/// Connections Manager, and the missing-file alert's Create Empty Database.
+/// Every other connect refuses a missing file (`MISSING_MARKER`). Returns
+/// `ConnectionInfo` JSON via callback, as `pharos_connect` does.
+#[no_mangle]
+pub extern "C" fn pharos_connect_create(
+    connection_id: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let id = unsafe { c_str_to_string(connection_id) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        state.request_duck_create_once(&id);
+        match crate::commands::connect_postgres(id, state).await {
+            Ok(info) => callback_ok(callback, ctx, &serde_json::to_string(&info).unwrap_or_default()),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// The editor's DuckDB vocabulary for a connected record:
 /// `{"keywords": [...], "functions": [...]}` via callback.
 #[no_mangle]
