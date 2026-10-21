@@ -846,6 +846,7 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         add_column_if_missing(conn, table, column, decl)?;
     }
     migrate_history_search_to_card_notes(conn)?;
+    redact_existing_history(conn)?;
 
     // Migration: DuckDB. A connection names its engine; a row from before
     // the column existed is PostgreSQL. A DuckDB row keeps its file path in
@@ -869,6 +870,50 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     }
     super::saved_query_results::create_schema(conn)?;
 
+    Ok(())
+}
+
+/// Migration (once): history written before redaction existed loses its
+/// passwords and secret keys too (`commands::redact`). Only rows that may
+/// hold one are read; the update trigger keeps the search index in step.
+/// `pharos_migrations` remembers that it ran.
+fn redact_existing_history(conn: &Connection) -> SqliteResult<()> {
+    const NAME: &str = "redact_history_secrets_v1";
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS pharos_migrations (name TEXT PRIMARY KEY, ran_at TEXT NOT NULL)")?;
+    let done: bool = conn
+        .query_row("SELECT count(*) > 0 FROM pharos_migrations WHERE name = ?1", [NAME], |r| r.get(0))?;
+    if done {
+        return Ok(());
+    }
+    let like = "(lower({c}) LIKE '%password%' OR lower({c}) LIKE '%secret%' OR lower({c}) LIKE '%token%' \
+                 OR lower({c}) LIKE '%key%' OR lower({c}) LIKE '%uri%' OR {c} LIKE '%://%')";
+    let sql = format!(
+        "SELECT id, sql, raw_sql, error_message FROM query_history WHERE {} OR {} OR {}",
+        like.replace("{c}", "sql"),
+        like.replace("{c}", "raw_sql"),
+        like.replace("{c}", "error_message")
+    );
+    let rows: Vec<(String, String, Option<String>, Option<String>)> = conn
+        .prepare(&sql)?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<SqliteResult<_>>()?;
+    conn.execute_batch("SAVEPOINT redact_history")?;
+    for (id, sql, raw, err) in rows {
+        let new_sql = crate::commands::redact::redact_secrets(&sql);
+        let new_raw = crate::commands::redact::redact_opt(raw.as_deref());
+        let new_err = crate::commands::redact::redact_opt(err.as_deref());
+        let changed = matches!(new_sql, std::borrow::Cow::Owned(_))
+            || matches!(new_raw, Some(std::borrow::Cow::Owned(_)))
+            || matches!(new_err, Some(std::borrow::Cow::Owned(_)));
+        if changed {
+            conn.execute(
+                "UPDATE query_history SET sql = ?2, raw_sql = ?3, error_message = ?4 WHERE id = ?1",
+                (&id, new_sql.as_ref(), new_raw.as_deref(), new_err.as_deref()),
+            )?;
+        }
+    }
+    conn.execute("INSERT INTO pharos_migrations (name, ran_at) VALUES (?1, datetime('now'))", [NAME])?;
+    conn.execute_batch("RELEASE redact_history")?;
     Ok(())
 }
 
@@ -2227,6 +2272,11 @@ pub fn save_query_history_with_policy(
     result_row_identity_json: Option<&str>,
     policy: HistoryPrunePolicy,
 ) -> SqliteResult<()> {
+    // History never keeps a password or secret key (`commands::redact`);
+    // a server error can quote the statement, so its message too.
+    let sql = crate::commands::redact::redact_secrets(&entry.sql);
+    let error_message = crate::commands::redact::redact_opt(entry.error_message.as_deref());
+
     // Compress result data if present
     let compressed_columns = result_columns_json.and_then(|s| compress_data(s).ok());
     let compressed_rows = result_rows_json.and_then(|s| compress_data(s).ok());
@@ -2241,7 +2291,7 @@ pub fn save_query_history_with_policy(
             &entry.id,
             &entry.connection_id,
             &entry.connection_name,
-            &entry.sql,
+            sql.as_ref(),
             &entry.row_count,
             entry.execution_time_ms,
             &entry.executed_at,
@@ -2253,7 +2303,7 @@ pub fn save_query_history_with_policy(
             &entry.source,
             &compressed_identity.as_deref(),
             &entry.status,
-            &entry.error_message,
+            error_message.as_deref(),
         ),
     )?;
 
@@ -2484,7 +2534,8 @@ pub fn associate_result_to_workspace(
                                     ELSE ?11 END
           WHERE id = ?8",
         (
-            &a.workspace_id, a.result_order, a.color_index, a.raw_sql.as_deref(),
+            &a.workspace_id, a.result_order, a.color_index,
+            crate::commands::redact::redact_opt(a.raw_sql.as_deref()).as_deref(),
             a.line_start, a.line_end, a.custom_label.as_deref(), &a.history_id,
             a.card_id.as_deref(), a.card_version, a.card_notes.as_deref(),
         ),
@@ -5588,6 +5639,104 @@ mod connection_slice_column_tests {
         assert_eq!(back.ssl_root_cert_path, None);
 
         drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod history_redaction_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn entry(id: &str, sql: &str, error: Option<&str>) -> QueryHistoryEntry {
+        QueryHistoryEntry {
+            id: id.to_string(),
+            connection_id: "c".to_string(),
+            connection_name: "Local".to_string(),
+            sql: sql.to_string(),
+            row_count: None,
+            execution_time_ms: 1,
+            executed_at: chrono::Utc::now().to_rfc3339(),
+            has_results: false,
+            schema: None,
+            column_count: None,
+            table_names: None,
+            source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: error.map(str::to_string),
+        }
+    }
+
+    fn fts_hits(conn: &Connection, term: &str) -> i64 {
+        conn.query_row("SELECT count(*) FROM query_history_fts WHERE query_history_fts MATCH ?1", [term], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// A saved entry, its error, its raw editor text and the search index
+    /// hold no secret; ordinary SQL is stored unchanged.
+    #[test]
+    fn history_never_stores_a_secret() {
+        let dir = temp_db_dir("redact");
+        let conn = init_database(&dir).expect("db");
+        save_query_history_with_policy(
+            &conn,
+            &entry("h1", "ALTER ROLE ana PASSWORD 'hunter2'", Some("ERROR at ALTER ROLE ana PASSWORD 'hunter2'")),
+            None, None, None, HistoryPrunePolicy::default(),
+        )
+        .unwrap();
+        save_query_history_with_policy(&conn, &entry("h2", "SELECT 1", None), None, None, None, HistoryPrunePolicy::default()).unwrap();
+        associate_result_to_workspace(
+            &conn,
+            &crate::models::ResultAssociation {
+                history_id: "h1".into(), workspace_id: "w".into(), result_order: 0, color_index: 0,
+                raw_sql: Some("ALTER ROLE ana PASSWORD 'hunter2'".into()),
+                line_start: None, line_end: None, custom_label: None,
+                card_id: None, card_version: None, card_notes: None,
+            },
+        )
+        .unwrap();
+        let (sql, raw, err): (String, String, String) = conn
+            .query_row("SELECT sql, raw_sql, error_message FROM query_history WHERE id = 'h1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        for text in [&sql, &raw, &err] {
+            assert!(!text.contains("hunter2"), "{text}");
+            assert!(text.contains("PASSWORD '********'"), "{text}");
+        }
+        assert_eq!(fts_hits(&conn, "hunter2"), 0, "the search index has no secret");
+        assert_eq!(fts_hits(&conn, "ana"), 1, "the rest is still searchable");
+        let plain: String = conn.query_row("SELECT sql FROM query_history WHERE id = 'h2'", [], |r| r.get(0)).unwrap();
+        assert_eq!(plain, "SELECT 1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// History written before redaction is redacted once at startup, and the
+    /// search index follows.
+    #[test]
+    fn old_history_is_redacted_once() {
+        let dir = temp_db_dir("redact_migration");
+        let conn = init_database(&dir).expect("db");
+        conn.execute(
+            "INSERT INTO query_history (id, connection_id, connection_name, sql, execution_time_ms, executed_at)
+             VALUES ('old', 'c', 'Local', 'CREATE SECRET (TYPE s3, KEY_ID ''k'', SECRET ''s3cr3tkey'')', 1, ?1)",
+            [chrono::Utc::now().to_rfc3339()],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM pharos_migrations", []).unwrap();
+        assert_eq!(fts_hits(&conn, "s3cr3tkey"), 1, "the old row is indexed before the migration");
+        drop(conn);
+
+        let conn = init_database(&dir).expect("db again");
+        let sql: String = conn.query_row("SELECT sql FROM query_history WHERE id = 'old'", [], |r| r.get(0)).unwrap();
+        assert_eq!(sql, "CREATE SECRET (TYPE s3, KEY_ID 'k', SECRET '********')");
+        assert_eq!(fts_hits(&conn, "s3cr3tkey"), 0);
+        let ran: i64 = conn.query_row("SELECT count(*) FROM pharos_migrations", [], |r| r.get(0)).unwrap();
+        assert_eq!(ran, 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

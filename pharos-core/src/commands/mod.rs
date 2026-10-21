@@ -8,6 +8,7 @@ pub mod model_feedback;
 pub mod query;
 pub mod query_history;
 pub mod query_variable;
+pub mod redact;
 pub mod row_edit;
 pub mod row_identity;
 pub mod saved_query;
