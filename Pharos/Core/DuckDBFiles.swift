@@ -108,4 +108,15 @@ enum DuckDBFiles {
             return "\(name) — \(displayName(url.deletingLastPathComponent()))"
         }
     }
+
+    /// The name for a new in-memory record: "In-memory DuckDB", then
+    /// "In-memory DuckDB 2", … — never a name in use (case-folded).
+    static func uniqueInMemoryName(in connections: [ConnectionConfig]) -> String {
+        let base = String(localized: "In-memory DuckDB")
+        let taken = Set(connections.map { $0.name.trimmingCharacters(in: .whitespaces).lowercased() })
+        if !taken.contains(base.lowercased()) { return base }
+        var n = 2
+        while taken.contains("\(base) \(n)".lowercased()) { n += 1 }
+        return "\(base) \(n)"
+    }
 }

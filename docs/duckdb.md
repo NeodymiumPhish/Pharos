@@ -87,6 +87,14 @@ Pharos closes a DuckDB file a few seconds after the last tab that uses it closes
 
 **File > Disconnect** closes the file at once.
 
+## In-memory databases
+
+**File > New In-Memory DuckDB Database** makes a database that lives in memory only, in a new tab: "In-memory DuckDB", then "In-memory DuckDB 2", and so on. It is useful for a quick look at some files.
+
+Its tables are lost when it disconnects or Pharos quits. When it holds tables or views, **File > Disconnect**, **Quit** and **−** in the Connections Manager first ask: **Do you want to save the in-memory database?** with **Save…**, **Don't Save** and **Cancel**. Pharos always asks, whatever **Warn before closing unsaved tabs** says, because the tables have no other copy.
+
+**File > Save In-Memory Database…** copies the database to a new `.duckdb` file at any time, then offers to open the file in a new tab. The tabs on the in-memory database stay as they are. The copy has the tables and views with their data. It leaves out temporary tables, attached PostgreSQL databases and work that other tabs have not committed.
+
 ## Query files in place
 
 DuckDB reads CSV, TSV, JSON, newline-delimited JSON, Parquet and Excel files where they are, with no import. On a DuckDB tab:

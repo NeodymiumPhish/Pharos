@@ -48,6 +48,23 @@ extension PharosCore {
         }
     }
 
+    /// How many tables and views of its own an in-memory DuckDB database
+    /// holds: what Disconnect, Quit or Delete would lose (F7).
+    static func duckUserTableCount(connectionId: String) async throws -> UInt64 {
+        try await withAsyncCallback { callback, context in
+            connectionId.withCString { pharos_duckdb_user_table_count($0, callback, context) }
+        }
+    }
+
+    /// Save an in-memory DuckDB database to a new file (F7).
+    static func duckSaveInMemory(connectionId: String, filePath: String) async throws {
+        let _: Bool = try await withAsyncCallback { callback, context in
+            connectionId.withCString { c in
+                filePath.withCString { p in pharos_duckdb_save_in_memory(c, p, callback, context) }
+            }
+        }
+    }
+
     /// Detach a PostgreSQL connection Pharos attached.
     static func duckDetach(duckConnectionId: String, alias: String) async throws {
         let _: EmptyResult = try await withAsyncCallback { callback, context in

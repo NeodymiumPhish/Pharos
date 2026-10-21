@@ -531,6 +531,59 @@ pub async fn import_csv(connection_id: String, options: ImportCsvOptions, state:
     .map_err(exec::RunStop::message)
 }
 
+// MARK: - In-memory databases (F7)
+
+/// How many tables and views of its own an in-memory database holds: what
+/// Disconnect, Quit and Delete would lose. Temporary tables and attached
+/// databases are not counted (they are not the database's own). A short
+/// deadline: the question must not wait on a busy database.
+pub async fn user_table_count(connection_id: String, state: &AppState) -> Result<u64, String> {
+    on_fresh(state, &connection_id, None, None, 3, |c| {
+        let n: i64 = c
+            .query_row(
+                "SELECT (SELECT count(*) FROM duckdb_tables() WHERE NOT internal AND NOT temporary \
+                           AND database_name = current_database()) \
+                      + (SELECT count(*) FROM duckdb_views() WHERE NOT internal AND NOT temporary \
+                           AND database_name = current_database())",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n.max(0) as u64)
+    })
+    .await
+}
+
+/// Save an in-memory database to a NEW file: ATTACH it, COPY FROM DATABASE,
+/// DETACH. The copy has the tables, views and their data as committed; it
+/// leaves out temporary tables, attached databases and other tabs' open
+/// transactions. A file another record has open is refused (plan C9); an
+/// existing file must be moved away first (the save panel asked).
+pub async fn save_in_memory(connection_id: String, file_path: String, state: &AppState) -> Result<(), String> {
+    validate_file_path(&file_path)?;
+    let path = normalized_path(&file_path);
+    if state.duck_instance_for_path(&path).is_some() || state.duck_still_closing(&path).is_some() {
+        return Err(format!("{} is open in Pharos. Disconnect it, or choose a different name.", path));
+    }
+    if std::path::Path::new(&path).exists() {
+        return Err(format!("{} already exists.", path));
+    }
+    on_fresh(state, &connection_id, None, None, 0, move |c| {
+        let source = catalog::current_database(c)?;
+        c.execute_batch(&format!("ATTACH '{}' AS pharos_save", path.replace('\'', "''")))
+            .map_err(|e| e.to_string())?;
+        let copied = c.execute_batch(&format!("COPY FROM DATABASE {} TO pharos_save", quote_ident(&source)));
+        let detached = c.execute_batch("DETACH pharos_save");
+        copied.map_err(|e| {
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(format!("{}.wal", path));
+            e.to_string()
+        })?;
+        detached.map_err(|e| e.to_string())
+    })
+    .await
+}
+
 /// Clone a table. "With constraints" re-runs the DDL DuckDB stored for the
 /// source under the new name; the rows follow with `INSERT … SELECT`.
 pub async fn clone_table(connection_id: String, options: CloneTableOptions, state: &AppState) -> Result<CloneTableResult, String> {
@@ -858,6 +911,31 @@ mod tests {
         assert_eq!(r.rows, vec![serde_json::json!(["0"])], "nothing inserted");
         assert!(state.get_import_progress(&key).is_none() && state.get_import_progress(&format!("{key}|phase")).is_none());
         let _ = std::fs::remove_file(&csv_path);
+    }
+
+    /// F7: the count of what Disconnect would lose, and Save… copying the
+    /// tables and views (data included) but not the temporary tables.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_in_memory_database_counts_and_saves_its_own_tables() {
+        let state = state_with("m", IN_MEMORY);
+        connect(state.get_config("m").unwrap(), &state).await.unwrap();
+        assert_eq!(user_table_count("m".into(), &state).await.unwrap(), 0);
+        execute_statement("m".into(),
+            "CREATE TABLE t AS SELECT range AS n FROM range(5); CREATE VIEW v AS SELECT n * 2 AS d FROM t; \
+             CREATE TEMP TABLE scratch AS SELECT 1 AS x".into(), None, None, &state).await.unwrap();
+        assert_eq!(user_table_count("m".into(), &state).await.unwrap(), 2, "a table and a view; not the temp table");
+        let file = temp("saved", "duckdb");
+        save_in_memory("m".into(), file.clone(), &state).await.unwrap();
+        // Refused: the target exists now.
+        assert!(save_in_memory("m".into(), file.clone(), &state).await.is_err());
+        let saved = duckdb::Connection::open(&file).unwrap();
+        let n: i64 = saved.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
+        let d: i64 = saved.query_row("SELECT sum(d) FROM v", [], |r| r.get(0)).unwrap();
+        let temps: i64 = saved.query_row("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'scratch'", [], |r| r.get(0)).unwrap();
+        assert_eq!((n, d, temps), (5, 20, 0));
+        drop(saved);
+        disconnect("m", &state).await;
+        let _ = std::fs::remove_file(&file);
     }
 
     /// D7: a text export reads its query once, streamed: with a batch of 7

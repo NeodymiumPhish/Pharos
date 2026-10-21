@@ -307,6 +307,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// question. Ends in exactly one reply, like the method it continues.
     @MainActor
     private func continueTerminationAskingAboutUnsavedWork() {
+        // In-memory DuckDB databases with tables: after the open-transaction
+        // question, before the unsaved-tabs one (F7, decision 6).
+        let memory = InMemoryDatabases.connected()
+        if !memory.isEmpty {
+            InMemoryDatabases.confirmLoss(of: memory, window: keyWindowController?.window, action: .quit) { proceed in
+                guard proceed else {
+                    NSApp.reply(toApplicationShouldTerminate: false)
+                    return
+                }
+                self.continueTerminationAskingAboutUnsavedTabs()
+            }
+            return
+        }
+        continueTerminationAskingAboutUnsavedTabs()
+    }
+
+    /// After the in-memory question. Ends in exactly one reply.
+    @MainActor
+    private func continueTerminationAskingAboutUnsavedTabs() {
         let pending = windowControllers.filter {
             !$0.splitViewController.contentVC.unsavedWorkTabs.isEmpty
         }

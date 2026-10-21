@@ -4852,9 +4852,25 @@ extension ContentViewController {
             $0.connectionId == id && TabSessionMonitor.shared.hasOpenTransaction($0.id)
         }
         confirmRollingBack(open, action: .disconnect) { [weak self] proceed in
-            guard proceed else { return }
-            self?.stateManager.disconnect(id: id)
+            guard proceed, let self else { return }
+            // An in-memory database loses its tables: ask about them (F7).
+            InMemoryDatabases.confirmLoss(of: InMemoryDatabases.connected([id]), window: self.view.window,
+                                          action: .disconnect) { [weak self] go in
+                if go { self?.stateManager.disconnect(id: id) }
+            }
         }
+    }
+
+    /// The key tab's in-memory DuckDB record, connected.
+    var inMemoryRecord: ConnectionConfig? {
+        guard let id = session.activeTab?.connectionId else { return nil }
+        return InMemoryDatabases.connected([id]).first
+    }
+
+    /// File ▸ Save In-Memory Database…
+    @objc func menuSaveInMemoryDatabase(_: Any?) {
+        guard let record = inMemoryRecord else { return }
+        InMemoryDatabases.save(record, window: view.window, offerOpen: true) { _ in }
     }
 
     /// File ▸ Show in Finder: the tab's database file (not a `.sql` source).
@@ -5231,6 +5247,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
         if menuItem.action == #selector(menuShowInFinder(_:)) { return duckDBFileRecord != nil }
+        if menuItem.action == #selector(menuSaveInMemoryDatabase(_:)) { return inMemoryRecord != nil }
         if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
         if menuItem.action == #selector(menuInsertFileReference(_:)) { return isDuckDBTab }
         if menuItem.action == #selector(menuNewTableFromFile(_:)) { return canMakeTableFromFile }

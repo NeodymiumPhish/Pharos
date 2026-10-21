@@ -61,6 +61,9 @@ enum MainMenu {
         // DuckDB: a database FILE is a connection, opened or created here.
         let newDuck = fileMenu.addItem(withTitle: String(localized: "New DuckDB Database…"), action: #selector(AppDelegate.menuNewDuckDBDatabase(_:)), keyEquivalent: "")
         newDuck.image = NSImage(systemSymbolName: "cylinder.badge.plus", accessibilityDescription: nil)
+        // No ellipsis: it asks nothing (HIG, Menus).
+        let newMemory = fileMenu.addItem(withTitle: String(localized: "New In-Memory DuckDB Database"), action: #selector(AppDelegate.menuNewInMemoryDuckDB(_:)), keyEquivalent: "")
+        newMemory.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
         let openDuck = fileMenu.addItem(withTitle: String(localized: "Open DuckDB Database…"), action: #selector(AppDelegate.menuOpenDuckDBDatabase(_:)), keyEquivalent: "O")
         openDuck.keyEquivalentModifierMask = [.command, .shift]
         openDuck.image = NSImage(systemSymbolName: "cylinder", accessibilityDescription: nil)
@@ -72,6 +75,10 @@ enum MainMenu {
         // people's model of the Finder file system).
         let showInFinder = fileMenu.addItem(withTitle: String(localized: "Show in Finder"), action: #selector(ContentViewController.menuShowInFinder(_:)), keyEquivalent: "")
         showInFinder.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
+        // The key tab's in-memory database to a file. No shortcut: ⌘S is
+        // Save Session….
+        let saveMemory = fileMenu.addItem(withTitle: String(localized: "Save In-Memory Database…"), action: #selector(ContentViewController.menuSaveInMemoryDatabase(_:)), keyEquivalent: "")
+        saveMemory.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)
 
         fileMenu.addItem(.separator())
 

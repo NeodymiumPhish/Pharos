@@ -235,6 +235,7 @@
 		8FF6A2FF0386A6E08BD6272B /* QueryHistoryStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F123C9BE554B92173C63DB9 /* QueryHistoryStatus.swift */; };
 		9085B64F9C81AB9B96C72467 /* SchemaListFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */; };
 		90870F0F42E0EA54A5E6BD7B /* SettingsFooterButtonRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A240F1A70A9B7B703BA821A9 /* SettingsFooterButtonRow.swift */; };
+		910302DC4C623E0BB538039D /* InMemoryDatabases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874C10B1FEE9C3D53F383E29 /* InMemoryDatabases.swift */; };
 		910AF2988E1C6C09232B2138 /* ChartRecommender.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B93B203FA860B0DB8F9364E /* ChartRecommender.swift */; };
 		9136F4D3A5652DF9C508A828 /* TagRuleGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E70F38A299F58B8452D62DF /* TagRuleGridView.swift */; };
 		915C735DB5EE744A31495822 /* VariableListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1ACA16C38A777BDCF7104A /* VariableListView.swift */; };
@@ -594,6 +595,7 @@
 		855204606A3DE0C831B8947B /* SettingsEmptyRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEmptyRow.swift; sourceTree = "<group>"; };
 		85F2105483936AE6C2C9AEB8 /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
 		866B839C2B923F06685B33E2 /* RunPathRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunPathRule.swift; sourceTree = "<group>"; };
+		874C10B1FEE9C3D53F383E29 /* InMemoryDatabases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryDatabases.swift; sourceTree = "<group>"; };
 		87AC310E071D54672B86BAFE /* InspectorOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorOwnership.swift; sourceTree = "<group>"; };
 		8870AA5A4E803E6824897E6C /* TagDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDraft.swift; sourceTree = "<group>"; };
 		8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSchema.swift; sourceTree = "<group>"; };
@@ -1028,6 +1030,7 @@
 				817314200CBD84014D407C80 /* AppDelegate+Help.swift */,
 				83C254B3E566A636E1216FE4 /* CrashLogger.swift */,
 				9993005117CA5F91ED0A2692 /* Info.plist */,
+				874C10B1FEE9C3D53F383E29 /* InMemoryDatabases.swift */,
 				C9154BC81016709ADD201F2C /* main.swift */,
 				C061E832235866E86FB1BD81 /* MainMenu.swift */,
 			);
@@ -1602,6 +1605,7 @@
 				4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */,
 				93E7D27E5C4C044A6D52643F /* HostileTextBadge.swift in Sources */,
 				34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */,
+				910302DC4C623E0BB538039D /* InMemoryDatabases.swift in Sources */,
 				134196074C3749791E9F3A94 /* InsetScrollView.swift in Sources */,
 				C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */,
 				9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */,

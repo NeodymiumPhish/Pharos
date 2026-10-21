@@ -774,6 +774,7 @@ final class ConnectionsManagerVC: NSViewController {
         let duckSection = section(title: String(localized: "Database File"), rows: [
             row(label: String(localized: "File"), field: duckFileControls),
             row(label: "", control: duckInMemoryCheckbox),
+            noteRow(caption(String(localized: "An in-memory database's tables are lost when it disconnects or Pharos quits. Pharos asks first, and offers to save them to a file."))),
             noteRow(caption(String(localized: "Connect opens the file. Save creates a new file; Connect never makes an empty database in place of a file that has gone."))),
         ])
         serverSectionView = serverSection
@@ -2225,7 +2226,22 @@ final class ConnectionsManagerVC: NSViewController {
         // this title gates an irreversible delete, and a bidi override in the
         // name would let it name a different connection than the one about to
         // go. A DuckDB record is "Remove … from Pharos": the file stays.
-        let openInMemory = Set(selected.filter { $0.isInMemoryDuckDB && stateManager.status(for: $0.id) == .connected }.map(\.id))
+        guard let window = view.window else { return }
+        // An open in-memory database that holds tables loses them: the alert
+        // says so (one alert; F7). Counted first, with the core's short wait.
+        let open = selected.filter { $0.isInMemoryDuckDB && stateManager.status(for: $0.id) == .connected }
+        Task { @MainActor [weak self] in
+            var losing: Set<String> = []
+            for record in open {
+                let count = try? await PharosCore.duckUserTableCount(connectionId: record.id)
+                if count != 0 { losing.insert(record.id) }
+            }
+            self?.presentDeleteAlert(alert, selected: selected, openInMemory: losing, window: window)
+        }
+    }
+
+    private func presentDeleteAlert(_ alert: NSAlert, selected: [ConnectionConfig], openInMemory: Set<String>,
+                                    window: NSWindow) {
         let text = DestructiveConfirmationText.deleteConnectionsAlert(selected, openInMemory: openInMemory)
         alert.messageText = text.title
         alert.informativeText = text.message
@@ -2233,7 +2249,6 @@ final class ConnectionsManagerVC: NSViewController {
         alert.addButton(withTitle: text.button)
         alert.addButton(withTitle: String(localized: "Cancel"))
 
-        guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn, let self else { return }
             for config in selected {

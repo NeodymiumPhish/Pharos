@@ -39,6 +39,18 @@ extension AppDelegate {
         }
     }
 
+    /// File ▸ New In-Memory DuckDB Database: a NEW in-memory record each
+    /// time ("In-memory DuckDB", "In-memory DuckDB 2", …), in its own tab.
+    /// Its tables live until it disconnects; Pharos asks before they go.
+    @MainActor
+    @objc func menuNewInMemoryDuckDB(_ sender: Any?) {
+        let manager = AppStateManager.shared
+        let record = ConnectionConfig.duckDB(path: ConnectionConfig.duckDBInMemoryPath,
+                                             name: DuckDBFiles.uniqueInMemoryName(in: manager.connections))
+        manager.saveConnection(record)
+        openConnectionInTab(record)
+    }
+
     @MainActor
     @objc func menuOpenDuckDBDatabase(_ sender: Any?) {
         let panel = NSOpenPanel()

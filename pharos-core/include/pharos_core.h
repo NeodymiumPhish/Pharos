@@ -173,6 +173,25 @@ void pharos_export_parquet(const char *connection_id,
                            void *context);
 
 /**
+ * How many tables and views of its own an in-memory DuckDB database holds
+ * (F7): a JSON number via callback.
+ */
+
+void pharos_duckdb_user_table_count(const char *connection_id,
+                                    AsyncCallback callback,
+                                    void *context);
+
+/**
+ * Save an in-memory DuckDB database to a new file (F7). `true` via
+ * callback, or the error.
+ */
+
+void pharos_duckdb_save_in_memory(const char *connection_id,
+                                  const char *file_path,
+                                  AsyncCallback callback,
+                                  void *context);
+
+/**
  * Store a DuckDB cloud credential's secret key in the Keychain (Settings ▸
  * Connections ▸ DuckDB), and apply the entries to the open databases.
  * Returns false when the Keychain refused it.

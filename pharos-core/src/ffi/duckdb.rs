@@ -114,6 +114,46 @@ pub extern "C" fn pharos_export_parquet(
     });
 }
 
+/// How many tables and views of its own an in-memory DuckDB database holds
+/// (F7): a JSON number via callback.
+#[no_mangle]
+pub extern "C" fn pharos_duckdb_user_table_count(
+    connection_id: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let id = unsafe { c_str_to_string(connection_id) };
+    let ctx = context as usize;
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::duck::user_table_count(id, state).await {
+            Ok(n) => callback_ok(callback, ctx, &n.to_string()),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
+/// Save an in-memory DuckDB database to a new file (F7). `true` via
+/// callback, or the error.
+#[no_mangle]
+pub extern "C" fn pharos_duckdb_save_in_memory(
+    connection_id: *const c_char,
+    file_path: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let id = unsafe { c_str_to_string(connection_id) };
+    let path = unsafe { c_str_to_string(file_path) };
+    let ctx = context as usize;
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::duck::save_in_memory(id, path, state).await {
+            Ok(()) => callback_ok(callback, ctx, "true"),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Store a DuckDB cloud credential's secret key in the Keychain (Settings ▸
 /// Connections ▸ DuckDB), and apply the entries to the open databases.
 /// Returns false when the Keychain refused it.

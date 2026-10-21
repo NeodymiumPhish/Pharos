@@ -64,6 +64,12 @@ func runTests() {
     let titles = DuckDBFiles.recentTitles(Array(recents.dropFirst(2))) { $0.lastPathComponent }
     expect(titles == ["data.duckdb — a", "data.duckdb — b", "other.ddb"], "same names get their folder \(titles)")
 
+    // F7: in-memory names.
+    expect(DuckDBFiles.uniqueInMemoryName(in: [pg]) == "In-memory DuckDB", "the first in-memory name")
+    let m1 = ConnectionConfig.duckDB(path: ":memory:", name: "in-memory duckdb", id: "x1")
+    let m2 = ConnectionConfig.duckDB(path: ":memory:", name: "In-memory DuckDB 2", id: "x2")
+    expect(DuckDBFiles.uniqueInMemoryName(in: [m1, m2]) == "In-memory DuckDB 3", "the next free number, case-folded")
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }
