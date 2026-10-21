@@ -247,6 +247,7 @@ final class ConnectionsManagerVC: NSViewController {
     private let duckPathField = NSTextField()
     private let duckChooseButton = NSButton()
     private let duckNewButton = NSButton()
+    private let duckRevealButton = NSButton()
     private let duckInMemoryCheckbox = NSButton()
     private var serverSectionView: NSView?
     private var authSectionView: NSView?
@@ -734,7 +735,8 @@ final class ConnectionsManagerVC: NSViewController {
         duckPathField.placeholderString = String(localized: "~/Data/sales.duckdb")
         duckPathField.setAccessibilityIdentifier("connections.duckdbPath")
         for (button, title, action) in [(duckChooseButton, String(localized: "Choose…"), #selector(chooseDuckDBFile)),
-                                        (duckNewButton, String(localized: "New…"), #selector(newDuckDBFile))] {
+                                        (duckNewButton, String(localized: "New…"), #selector(newDuckDBFile)),
+                                        (duckRevealButton, String(localized: "Show in Finder"), #selector(revealDuckDBFile))] {
             button.title = title
             button.bezelStyle = .rounded
             button.target = self
@@ -744,6 +746,8 @@ final class ConnectionsManagerVC: NSViewController {
         }
         duckChooseButton.toolTip = String(localized: "Open an existing DuckDB database file.")
         duckNewButton.toolTip = String(localized: "Choose where to create a new database file. Save creates it.")
+        duckRevealButton.toolTip = String(localized: "Show the database file in the Finder.")
+        duckRevealButton.setAccessibilityIdentifier("connections.duckdbReveal")
         duckInMemoryCheckbox.setButtonType(.switch)
         duckInMemoryCheckbox.title = String(localized: "In-memory database")
         duckInMemoryCheckbox.target = self
@@ -751,7 +755,7 @@ final class ConnectionsManagerVC: NSViewController {
         duckInMemoryCheckbox.setAccessibilityIdentifier("connections.duckdbInMemory")
         duckInMemoryCheckbox.toolTip = String(localized:
             "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits.")
-        let duckFileControls = NSStackView(views: [duckPathField, duckChooseButton, duckNewButton])
+        let duckFileControls = NSStackView(views: [duckPathField, duckChooseButton, duckNewButton, duckRevealButton])
         duckFileControls.orientation = .horizontal
         duckFileControls.alignment = .centerY
         duckFileControls.distribution = .fill
@@ -1613,6 +1617,7 @@ final class ConnectionsManagerVC: NSViewController {
         duckPathField.isEnabled = !inMemory
         duckChooseButton.isEnabled = !inMemory
         duckNewButton.isEnabled = !inMemory
+        duckRevealButton.isEnabled = !inMemory && !duckPathField.stringValue.isEmpty
         readOnlyCheckbox.toolTip = ConnectionFormRules.readOnlyHelp(for: engine)
         readOnlyCheckbox.isEnabled = !(engine == .duckdb && inMemory)
     }
@@ -1620,6 +1625,21 @@ final class ConnectionsManagerVC: NSViewController {
     @objc private func duckInMemoryChanged() {
         applyEngineVisibility(selectedEngine)
         syncFormIntoDraft()
+    }
+
+    /// Show in Finder: the file, or its folder while the file does not exist
+    /// yet (a new record before Save).
+    @objc private func revealDuckDBFile() {
+        let path = (duckPathField.stringValue as NSString).expandingTildeInPath
+        guard !path.isEmpty else { return }
+        let url = URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else if FileManager.default.fileExists(atPath: url.deletingLastPathComponent().path) {
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
+        } else {
+            NSSound.beep()
+        }
     }
 
     /// Choose… an existing DuckDB file. Any file can be picked: DuckDB names
@@ -1672,7 +1692,10 @@ final class ConnectionsManagerVC: NSViewController {
 
     // MARK: - Editing
 
-    @objc private func fieldEdited() { syncFormIntoDraft() }
+    @objc private func fieldEdited() {
+        duckRevealButton.isEnabled = duckInMemoryCheckbox.state == .off && !duckPathField.stringValue.isEmpty
+        syncFormIntoDraft()
+    }
     @objc private func sslPopupChanged() {
         applySslRowVisibility()
         syncFormIntoDraft()

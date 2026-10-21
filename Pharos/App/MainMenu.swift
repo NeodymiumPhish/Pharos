@@ -68,6 +68,10 @@ enum MainMenu {
         let recentMenu = NSMenu(title: String(localized: "Open Recent"))
         recentMenu.delegate = DuckDBRecentMenuDelegate.shared
         recentItem.submenu = recentMenu
+        // The key tab's DuckDB database file (HIG, File management: respect
+        // people's model of the Finder file system).
+        let showInFinder = fileMenu.addItem(withTitle: String(localized: "Show in Finder"), action: #selector(ContentViewController.menuShowInFinder(_:)), keyEquivalent: "")
+        showInFinder.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
 
         fileMenu.addItem(.separator())
 

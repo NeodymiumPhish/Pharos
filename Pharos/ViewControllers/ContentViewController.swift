@@ -1586,6 +1586,15 @@ class ContentViewController: NSViewController {
         return status == .connected || status == .connecting
     }
 
+    /// The key tab's DuckDB database file, for File ▸ Show in Finder. Nil
+    /// for PostgreSQL and in-memory.
+    var duckDBFileRecord: ConnectionConfig? {
+        guard let id = session.activeTab?.connectionId,
+              let config = stateManager.connections.first(where: { $0.id == id }),
+              config.isDuckDB, !config.isInMemoryDuckDB, !config.database.isEmpty else { return nil }
+        return config
+    }
+
     var canRefreshMetadata: Bool {
         guard let id = session.activeTab?.connectionId else { return false }
         return stateManager.status(for: id) == .connected
@@ -4810,6 +4819,18 @@ extension ContentViewController {
         }
     }
 
+    /// File ▸ Show in Finder: the tab's database file (not a `.sql` source).
+    /// A file that is gone gets the Locate… alert.
+    @objc func menuShowInFinder(_: Any?) {
+        guard let config = duckDBFileRecord else { return }
+        let url = URL(fileURLWithPath: config.database)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            PasswordPromptCoordinator.shared.offerMissingFile(config)
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     @objc func menuRefreshMetadata(_: Any?) {
         guard let id = session.activeTab?.connectionId,
               stateManager.status(for: id) == .connected else { return }
@@ -5143,6 +5164,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuConnect(_:)) { return canConnect }
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
+        if menuItem.action == #selector(menuShowInFinder(_:)) { return duckDBFileRecord != nil }
         if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
         if menuItem.action == #selector(menuCommitTransaction(_:)) || menuItem.action == #selector(menuRollBackTransaction(_:)) {
             guard let tabId = session.activeTabId, let report = TabSessionMonitor.shared.report(for: tabId),

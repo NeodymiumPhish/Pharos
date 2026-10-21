@@ -29,6 +29,7 @@ A DuckDB file is a **connection**. Each file you open gets a connection record, 
 | Create a new database file | **File > New DuckDB Database…**, choose a folder and a name. The file is created when the connection opens. In the Connections Manager, **New…** and then **Save** creates it. |
 | Open an existing file | **File > Open DuckDB Database…** (**Cmd+Shift+O**), or double-click a `.duckdb` or `.ddb` file in Finder, or drop it on the Dock icon. |
 | Open a file again | **File > Open Recent**. The Dock's recent list shows the same files. |
+| Find the file on disk | **File > Show in Finder** shows the tab's database file. The Connections Manager has a **Show in Finder** button beside **New…**. |
 | Use an in-memory database | In the Connections Manager, set **Engine** to **DuckDB** and select **In-memory database**. |
 
 Opening a file finds the connection that already names it, or makes a new one. The file opens in the tab you are in when that tab is empty, otherwise in a new tab.
