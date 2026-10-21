@@ -138,15 +138,35 @@ final class DuckDBRecentMenuDelegate: NSObject, NSMenuDelegate {
 /// already is, and keeps the panel open. Replacing it would move the open
 /// file to the Trash while its tabs go on writing into it.
 final class DuckDBNewPanelDelegate: NSObject, NSOpenSavePanelDelegate {
+    /// Runs before NSSavePanel asks whether to replace an existing file, so
+    /// the user never agrees to a replace that Pharos then refuses.
+    @MainActor
+    func panel(_ sender: Any, userEnteredFilename filename: String, confirmed okFlag: Bool) -> String? {
+        guard okFlag, let panel = sender as? NSSavePanel, let folder = panel.directoryURL else { return filename }
+        var url = folder.appendingPathComponent(filename)
+        if url.pathExtension.isEmpty, let ext = DuckDBFiles.contentType.preferredFilenameExtension {
+            url.appendPathExtension(ext)
+        }
+        guard let error = Self.openFileError(url) else { return filename }
+        NSAlert(error: error).beginSheetModal(for: panel)
+        return nil
+    }
+
+    /// Second check, for a URL the panel reaches without a typed name.
     @MainActor
     func panel(_ sender: Any, validate url: URL) throws {
+        if let error = Self.openFileError(url) { throw error }
+    }
+
+    @MainActor
+    private static func openFileError(_ url: URL) -> NSError? {
         let manager = AppStateManager.shared
         let open = DuckDBFiles.openRecords(for: url.path, in: manager.connections) { id in
             let status = manager.status(for: id)
             return status == .connected || status == .connecting
         }
-        guard !open.isEmpty else { return }
-        throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [
+        guard !open.isEmpty else { return nil }
+        return NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [
             NSLocalizedDescriptionKey: String(localized: "“\(url.lastPathComponent)” is open in Pharos."),
             NSLocalizedRecoverySuggestionErrorKey: String(localized: "Disconnect it, or choose a different name."),
         ])
