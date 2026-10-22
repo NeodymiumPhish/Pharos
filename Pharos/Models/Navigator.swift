@@ -1,11 +1,12 @@
 import AppKit
 
-/// The four lists the sidebar can show. The raw value is the menu item's tag
+/// The five lists the sidebar can show. The raw value is the menu item's tag
 /// and the index of the segment in the toolbar's navigator group, so the
 /// order must not be rearranged without also bumping the preference key in
 /// `SidebarNavigatorPrefs` (the stored value is this raw value).
 ///
-/// Order: Sessions, Variables, Results History, Database Navigator. The
+/// Order: Sessions, Variables, Results History, Database Navigator, Files
+/// (appended last, so the stored raw values of the first four hold). The
 /// Variables navigator is the ONE app-wide list of `{{name}}` variables —
 /// see `QueryVariableStore` — not a per-tab panel.
 ///
@@ -19,6 +20,8 @@ enum Navigator: Int, CaseIterable, Sendable {
     case variables
     case history
     case schema
+    /// The DuckDB databases and data files the user opened (`FilesNavigatorVC`).
+    case files
 
     var symbolName: String {
         switch self {
@@ -26,6 +29,7 @@ enum Navigator: Int, CaseIterable, Sendable {
         case .variables: return "curlybraces"
         case .history: return "clock.arrow.circlepath"
         case .schema: return "cylinder.split.1x2"
+        case .files: return "doc.on.doc"
         }
     }
 
@@ -35,6 +39,7 @@ enum Navigator: Int, CaseIterable, Sendable {
         case .variables: return String(localized: "Variables")
         case .history: return String(localized: "Results History")
         case .schema: return String(localized: "Database Navigator")
+        case .files: return String(localized: "Files")
         }
     }
 }

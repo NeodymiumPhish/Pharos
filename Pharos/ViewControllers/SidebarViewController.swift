@@ -15,6 +15,7 @@ class SidebarViewController: NSViewController {
     private let variablesContainer = NSView()
     private let historyContainer = NSView()
     private let browserContainer = NSView()
+    private let filesContainer = NSView()
 
     // Child view controllers
     let schemaBrowser = SchemaBrowserVC()
@@ -23,6 +24,8 @@ class SidebarViewController: NSViewController {
     /// The Variables navigator. Edits go to `QueryVariableStore`; the list is
     /// seeded from it and follows its `didChange`.
     let variablesPanel = QueryVariablesPanelVC()
+    /// The Files navigator: opened DuckDB databases and data files.
+    let filesNavigator = FilesNavigatorVC()
 
     let session: WindowSession
     private let stateManager = AppStateManager.shared
@@ -87,18 +90,21 @@ class SidebarViewController: NSViewController {
         variablesContainer.translatesAutoresizingMaskIntoConstraints = false
         historyContainer.translatesAutoresizingMaskIntoConstraints = false
         browserContainer.translatesAutoresizingMaskIntoConstraints = false
+        filesContainer.translatesAutoresizingMaskIntoConstraints = false
 
         variablesContainer.isHidden = true
         historyContainer.isHidden = true
         browserContainer.isHidden = true
+        filesContainer.isHidden = true
 
         contentArea.addSubview(savedContainer)
         contentArea.addSubview(variablesContainer)
         contentArea.addSubview(historyContainer)
         contentArea.addSubview(browserContainer)
+        contentArea.addSubview(filesContainer)
 
         // Each container fills the entire content area
-        for child in [savedContainer, variablesContainer, historyContainer, browserContainer] {
+        for child in [savedContainer, variablesContainer, historyContainer, browserContainer, filesContainer] {
             NSLayoutConstraint.activate([
                 child.topAnchor.constraint(equalTo: contentArea.topAnchor),
                 child.leadingAnchor.constraint(equalTo: contentArea.leadingAnchor),
@@ -112,6 +118,7 @@ class SidebarViewController: NSViewController {
         embedChild(variablesPanel, in: variablesContainer)
         embedChild(queryHistory, in: historyContainer)
         embedChild(schemaBrowser, in: browserContainer)
+        embedChild(filesNavigator, in: filesContainer)
 
         // Layout: the lists fill the pane, the filter bar along the bottom.
         // The navigator chooser is a toolbar item now (NavigatorToolbarGroup),
@@ -276,6 +283,7 @@ class SidebarViewController: NSViewController {
         variablesContainer.isHidden = (navigator != .variables)
         historyContainer.isHidden = (navigator != .history)
         browserContainer.isHidden = (navigator != .schema)
+        filesContainer.isHidden = (navigator != .files)
 
         // Only the Query Library and the Variables list hold things the user
         // can create, and each has its own "+".
@@ -318,6 +326,7 @@ class SidebarViewController: NSViewController {
         savedQueries.clearFilter()
         queryHistory.clearFilter()
         variablesPanel.clearFilter()
+        filesNavigator.clearFilter()
 
         guard !text.isEmpty else { return }
 
@@ -326,6 +335,7 @@ class SidebarViewController: NSViewController {
         case .variables: variablesPanel.applyFilter(text)
         case .history: queryHistory.applyFilter(text)
         case .schema: schemaBrowser.applyFilter(text)
+        case .files: filesNavigator.applyFilter(text)
         }
     }
 

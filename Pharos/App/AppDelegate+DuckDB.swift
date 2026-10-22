@@ -106,6 +106,14 @@ extension AppDelegate {
     @MainActor
     @objc func menuOpenRecentDuckDB(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
+        openRecentFile(url)
+    }
+
+    /// Open a file the user opened before (Open Recent, the Files navigator):
+    /// a database in its tab, a data file as read cards; a file that is gone
+    /// offers Locate… when a record names it.
+    @MainActor
+    func openRecentFile(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             // A record names the file: offer to find it (Locate…), as Connect
             // does. No tab may show the record, so the choice then opens it

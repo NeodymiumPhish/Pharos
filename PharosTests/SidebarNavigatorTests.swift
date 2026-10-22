@@ -76,17 +76,20 @@ private func testNavigatorModel() {
     expect(Navigator.variables.rawValue, 1, "variables is raw value 1")
     expect(Navigator.history.rawValue, 2, "history is raw value 2")
     expect(Navigator.schema.rawValue, 3, "schema is raw value 3")
-    expect(Navigator.allCases.count, 4, "four navigators")
+    expect(Navigator.files.rawValue, 4, "files is raw value 4: appended, so the stored choice of the others holds")
+    expect(Navigator.allCases.count, 5, "five navigators")
 
     expect(Navigator.library.title, "Sessions", "library title")
     expect(Navigator.variables.title, "Variables", "variables title")
     expect(Navigator.history.title, "Results History", "history title")
     expect(Navigator.schema.title, "Database Navigator", "schema title")
+    expect(Navigator.files.title, "Files", "files title")
 
     expect(Navigator.library.symbolName, "rectangle.stack", "library symbol")
     expect(Navigator.variables.symbolName, "curlybraces", "variables symbol")
     expect(Navigator.history.symbolName, "clock.arrow.circlepath", "history symbol")
     expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
+    expect(Navigator.files.symbolName, "doc.on.doc", "files symbol")
 }
 
 private func testNavigatorToolbarGroup() {
@@ -105,11 +108,11 @@ private func testNavigatorToolbarGroup() {
 
     // The convenience constructor is the whole point: `selectionMode` is
     // documented to apply only to a group built by one, and it creates the
-    // subitems itself. Four of them, in Navigator order.
+    // subitems itself. Five of them, in Navigator order.
     expect(Int(group.selectionMode.rawValue),
            Int(NSToolbarItemGroup.SelectionMode.selectOne.rawValue),
            "group selects exactly one")
-    expect(group.subitems.count, 4, "four subitems")
+    expect(group.subitems.count, 5, "five subitems")
 
     for (index, navigator) in Navigator.allCases.enumerated() where index < group.subitems.count {
         let subitem = group.subitems[index]
@@ -125,8 +128,8 @@ private func testNavigatorToolbarGroup() {
     // Measured live: with `.automatic` the toolbar judges the sidebar region
     // too tight and falls back to `.collapsed`, which is a pull-down menu
     // reading "Query Library" — not a capsule. `.expanded` is what makes it a
-    // capsule, and the sidebar's minimumThickness (280) is sized to hold all
-    // four segments.
+    // capsule, and the sidebar's minimumThickness is sized to hold all five
+    // segments.
     expect(Int(group.controlRepresentation.rawValue),
            Int(NSToolbarItemGroup.ControlRepresentation.expanded.rawValue),
            "group representation is expanded")
@@ -139,7 +142,9 @@ private func testNavigatorToolbarGroup() {
                "index 1 names variables")
     expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 3) == .schema,
                "index 3 names schema")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 4) == nil,
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 4) == .files,
+               "index 4 names files")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 5) == nil,
                "an out-of-range index names no navigator")
 
     // The action reaches the target; the group is the sender.
@@ -247,7 +252,7 @@ private func testFilterBar() {
 
     // Nothing to add: the stack closes the gap so the field starts at the
     // leading inset, as it must in History and the Database Navigator.
-    for navigator in [Navigator.history, .schema] {
+    for navigator in [Navigator.history, .schema, .files] {
         bar.configureAddControl(for: navigator)
         window.contentView?.layoutSubtreeIfNeeded()
         expectTrue(bar.addButton.isHidden && variableButton.isHidden,
