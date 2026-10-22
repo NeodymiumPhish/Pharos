@@ -18,6 +18,24 @@ private func decode(_ json: String, _ name: String) -> ConnectionConfig? {
 }
 
 func runTests() {
+    // 0. `saved`: absent from an older producer means saved; the core's key
+    //    reads back; an opened DuckDB record is not saved; the form's dirty
+    //    state sees the flag; the encoder writes it.
+    if let c = decode(#"{"id":"a","name":"p","host":"h","port":5432,"database":"d","username":"u"}"#, "no saved key") {
+        expect(c.saved, "an absent saved key is saved")
+    }
+    if let c = decode(#"{"id":"b","name":"s","engine":"duckdb","database":"/x.duckdb","saved":false}"#, "saved false") {
+        expect(!c.saved, "saved:false reads back")
+        let json = (try? JSONEncoder().encode(c)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        expect(json.contains(#""saved":false"#), "and is encoded under the core's camelCase key")
+    }
+    let opened = ConnectionConfig.duckDB(path: "/tmp/x.duckdb", id: "o")
+    expect(!opened.saved, "a record made for an opened file is not saved")
+    expect(ConnectionConfig.duckDB(path: "/tmp/x.duckdb", id: "o", saved: true).saved, "the manager passes saved: true")
+    var kept = opened
+    kept.saved = true
+    expect(kept != opened, "equality sees the flag")
+
     // 1. A record from before DuckDB support has no engine key: PostgreSQL.
     if let c = decode(#"{"id":"a","name":"p","host":"h","port":5432,"database":"d","username":"u"}"#, "no engine key") {
         expect(c.engine == .postgres, "an absent engine key is PostgreSQL")

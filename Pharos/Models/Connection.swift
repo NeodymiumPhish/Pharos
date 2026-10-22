@@ -334,6 +334,13 @@ struct ConnectionConfig: Codable, Identifiable {
     /// uses it (`DuckDBCloseRule`).
     var connectOnLaunch: Bool = false
 
+    /// False for a DuckDB file or an in-memory database that was OPENED, not
+    /// saved (`ConnectionConfig.duckDB(path:)`). It stays out of the
+    /// Connections Manager and the Shortcuts list (`ConnectionVisibility`), and
+    /// Save as Connection sets it. The record still exists, because tabs,
+    /// Sessions, history and workspaces refer to its id. True for every server.
+    var saved: Bool = true
+
     /// `TimeZone` for this connection's sessions. `nil` or empty falls back to
     /// Settings ▸ Connections ▸ Default time zone, and then to the server's.
     var sessionTimeZone: String?
@@ -372,6 +379,8 @@ struct ConnectionConfig: Codable, Identifiable {
         readOnly = try c.decodeIfPresent(Bool.self, forKey: .readOnly) ?? false
         rememberPassword = try c.decodeIfPresent(Bool.self, forKey: .rememberPassword) ?? true
         connectOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .connectOnLaunch) ?? false
+        // Absent from an older producer: saved, as every record was before.
+        saved = try c.decodeIfPresent(Bool.self, forKey: .saved) ?? true
         sessionTimeZone = try c.decodeIfPresent(String.self, forKey: .sessionTimeZone)
         sslRootCertPath = try c.decodeIfPresent(String.self, forKey: .sslRootCertPath)
     }
@@ -382,7 +391,7 @@ struct ConnectionConfig: Codable, Identifiable {
          requiresAuthentication: Bool = false, sshTunnel: SshTunnelConfig? = nil,
          readOnly: Bool = false, rememberPassword: Bool = true,
          connectOnLaunch: Bool = false, sessionTimeZone: String? = nil,
-         sslRootCertPath: String? = nil, engine: DatabaseEngine = .postgres) {
+         sslRootCertPath: String? = nil, engine: DatabaseEngine = .postgres, saved: Bool = true) {
         self.id = id
         self.name = name
         self.engine = engine
@@ -400,12 +409,14 @@ struct ConnectionConfig: Codable, Identifiable {
         self.connectOnLaunch = connectOnLaunch
         self.sessionTimeZone = sessionTimeZone
         self.sslRootCertPath = sslRootCertPath
+        self.saved = saved
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, engine, host, port, database, username, password, sslMode, defaultSchema
         case requiresAuthentication, sshTunnel
         case readOnly, rememberPassword, connectOnLaunch, sessionTimeZone, sslRootCertPath
+        case saved
     }
 }
 
@@ -446,11 +457,14 @@ extension ConnectionConfig {
     }
 
     /// A new DuckDB record for a file (or `:memory:`), named after the file.
-    static func duckDB(path: String, name: String? = nil, id: String = UUID().uuidString) -> ConnectionConfig {
+    /// Not saved: an opened file is not a connection until the user chooses
+    /// Save as Connection. The Connections Manager passes `saved: true`.
+    static func duckDB(path: String, name: String? = nil, id: String = UUID().uuidString,
+                       saved: Bool = false) -> ConnectionConfig {
         let stem = (path as NSString).lastPathComponent
         let fallback = path == duckDBInMemoryPath ? String(localized: "In-memory DuckDB") : (stem as NSString).deletingPathExtension
         return ConnectionConfig(id: id, name: name ?? fallback, host: "", port: 0, database: path,
-                                username: "", engine: .duckdb)
+                                username: "", engine: .duckdb, saved: saved)
     }
 }
 
@@ -467,6 +481,7 @@ extension ConnectionConfig: Equatable {
             && a.readOnly == b.readOnly
             && a.rememberPassword == b.rememberPassword
             && a.connectOnLaunch == b.connectOnLaunch
+            && a.saved == b.saved
             && a.sessionTimeZone == b.sessionTimeZone
             && a.sslRootCertPath == b.sslRootCertPath
     }

@@ -205,6 +205,14 @@ pub struct ConnectionConfig {
     /// Connect to this database when Pharos starts.
     #[serde(default)]
     pub connect_on_launch: bool,
+    /// False for a DuckDB file or an in-memory database that was OPENED, not
+    /// saved: it stays out of the Connections Manager and the Shortcuts list,
+    /// and the user saves it with Save as Connection. The record still exists,
+    /// because tabs, Sessions, history and workspaces refer to its id. True for
+    /// every server and every record written before the flag (`yes`), and
+    /// always serialized, like `requires_authentication`.
+    #[serde(default = "yes")]
+    pub saved: bool,
     /// `TimeZone` for this connection's sessions. It overrides
     /// `ConnectionSettings::default_time_zone`; None (or empty) falls back to
     /// it, and then to the server's own.
@@ -363,6 +371,7 @@ mod ssh_tunnel_json_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,
             engine: Default::default(),

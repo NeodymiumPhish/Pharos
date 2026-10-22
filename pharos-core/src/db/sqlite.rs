@@ -852,6 +852,10 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     // the column existed is PostgreSQL. A DuckDB row keeps its file path in
     // `database` and empty host and user, so no column is relaxed.
     add_column_if_missing(conn, "connections", "engine", "TEXT NOT NULL DEFAULT 'postgres'")?;
+    // Migration: DuckDB files are opened, not saved. A record is listed in the
+    // Connections Manager only when `saved`; servers always are.
+    add_column_if_missing(conn, "connections", "saved", "INTEGER NOT NULL DEFAULT 1")?;
+    mark_duckdb_records_not_saved(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
     )?;
@@ -870,6 +874,31 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     }
     super::saved_query_results::create_schema(conn)?;
 
+    Ok(())
+}
+
+/// Once: the DuckDB records written before the `saved` flag become "not
+/// saved", so the Connections Manager lists servers only until the user saves
+/// a file with Save as Connection. A record that carries a setting only the
+/// Connections Manager can set — Connect at Launch, Read-only, a Default
+/// Schema — stays saved: the user chose it there. `pharos_migrations`
+/// remembers that it ran, so a file the user saves later is never unsaved
+/// again.
+fn mark_duckdb_records_not_saved(conn: &Connection) -> SqliteResult<()> {
+    const NAME: &str = "duckdb_records_not_saved_v1";
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS pharos_migrations (name TEXT PRIMARY KEY, ran_at TEXT NOT NULL)")?;
+    let done: bool = conn
+        .query_row("SELECT count(*) > 0 FROM pharos_migrations WHERE name = ?1", [NAME], |r| r.get(0))?;
+    if done {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE connections SET saved = 0 \
+         WHERE engine = 'duckdb' AND COALESCE(connect_on_launch, 0) = 0 AND COALESCE(read_only, 0) = 0 \
+           AND TRIM(COALESCE(default_schema, '')) = ''",
+        [],
+    )?;
+    conn.execute("INSERT INTO pharos_migrations (name, ran_at) VALUES (?1, datetime('now'))", [NAME])?;
     Ok(())
 }
 
@@ -1009,8 +1038,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, engine, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, engine, saved, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -1027,6 +1056,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             session_time_zone = excluded.session_time_zone,
             ssl_root_cert_path = excluded.ssl_root_cert_path,
             engine = excluded.engine,
+            saved = excluded.saved,
             updated_at = CURRENT_TIMESTAMP
         "#,
         rusqlite::params![
@@ -1049,6 +1079,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             config.session_time_zone.as_deref().filter(|s| !s.trim().is_empty()),
             config.ssl_root_cert_path.as_deref().filter(|s| !s.trim().is_empty()),
             config.engine.as_str(),
+            config.saved,
         ],
     )?;
     // History and workspaces keep the name the connection had when they
@@ -1093,7 +1124,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
     let mut stmt = conn.prepare(
         "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
          COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path, \
-         COALESCE(engine, 'postgres') \
+         COALESCE(engine, 'postgres'), COALESCE(saved, 1) \
          FROM connections ORDER BY sort_order, name",
     )?;
 
@@ -1116,6 +1147,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             read_only: row.get(10)?,
             remember_password: row.get(11)?,
             connect_on_launch: row.get(12)?,
+            saved: row.get(16)?,
             session_time_zone: row.get(13)?,
             ssl_root_cert_path: row.get(14)?,
             engine: crate::models::Engine::from_wire(&row.get::<_, String>(15)?),
@@ -1171,6 +1203,7 @@ mod connection_auth_flag_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,
             engine: Default::default(),
@@ -1351,6 +1384,7 @@ mod connection_ssh_tunnel_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,
             engine: Default::default(),
@@ -5568,6 +5602,7 @@ mod connection_slice_column_tests {
             read_only: true,
             remember_password: false,
             connect_on_launch: true,
+            saved: true,
             session_time_zone: Some("Asia/Tokyo".to_string()),
             ssl_root_cert_path: Some("/etc/ssl/root.crt".to_string()),
             engine: Default::default(),
@@ -5786,8 +5821,107 @@ mod history_redaction_tests {
         let sql: String = conn.query_row("SELECT sql FROM query_history WHERE id = 'old'", [], |r| r.get(0)).unwrap();
         assert_eq!(sql, "CREATE SECRET (TYPE s3, KEY_ID 'k', SECRET '********')");
         assert_eq!(fts_hits(&conn, "s3cr3tkey"), 0);
-        let ran: i64 = conn.query_row("SELECT count(*) FROM pharos_migrations", [], |r| r.get(0)).unwrap();
+        // Its own row: other one-shot migrations share the table.
+        let ran: i64 = conn
+            .query_row("SELECT count(*) FROM pharos_migrations WHERE name = 'redact_history_secrets_v1'", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(ran, 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// `connections.saved`: a DuckDB file or in-memory database that was opened,
+/// not saved, stays out of the Connections Manager. The round trip, the
+/// one-shot migration of the records written before the flag, and the wire
+/// default for an older producer.
+#[cfg(test)]
+mod connection_saved_flag_tests {
+    use super::*;
+    use crate::models::Engine;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    fn duck(id: &str) -> ConnectionConfig {
+        ConnectionConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            host: String::new(),
+            port: 0,
+            database: format!("/tmp/{id}.duckdb"),
+            username: String::new(),
+            password: String::new(),
+            ssl_mode: SslMode::Prefer,
+            default_schema: None,
+            requires_authentication: false,
+            ssh_tunnel: None,
+            read_only: false,
+            remember_password: true,
+            connect_on_launch: false,
+            saved: true,
+            session_time_zone: None,
+            ssl_root_cert_path: None,
+            engine: Engine::Duckdb,
+        }
+    }
+
+    fn saved(conn: &Connection, id: &str) -> bool {
+        load_connections(conn).expect("load").into_iter().find(|c| c.id == id).expect("present").saved
+    }
+
+    #[test]
+    fn the_flag_round_trips_through_insert_and_update() {
+        let dir = temp_db_dir("saved_round_trip");
+        let conn = init_database(&dir).expect("init_database");
+        save_connection(&conn, &ConnectionConfig { saved: false, ..duck("d1") }).expect("insert");
+        assert!(!saved(&conn, "d1"), "an opened file is stored not saved");
+        save_connection(&conn, &duck("d1")).expect("update");
+        assert!(saved(&conn, "d1"), "Save as Connection: the upsert's update branch writes the flag");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_migration_unsaves_plain_duckdb_records_once() {
+        let dir = temp_db_dir("saved_migration");
+        let conn = init_database(&dir).expect("init_database");
+        save_connection(&conn, &duck("plain")).expect("save");
+        save_connection(&conn, &ConnectionConfig { read_only: true, ..duck("ro") }).expect("save");
+        save_connection(&conn, &ConnectionConfig { connect_on_launch: true, ..duck("launch") }).expect("save");
+        save_connection(&conn, &ConnectionConfig { default_schema: Some("sales".into()), ..duck("schema") }).expect("save");
+        save_connection(&conn, &ConnectionConfig { default_schema: Some("  ".into()), ..duck("blank") }).expect("save");
+        save_connection(&conn, &ConnectionConfig {
+            engine: Engine::Postgres, host: "db".into(), port: 5432, database: "app".into(), ..duck("pg")
+        }).expect("save");
+        // As on a store from before the flag: the migration has not run yet.
+        conn.execute("DELETE FROM pharos_migrations WHERE name = 'duckdb_records_not_saved_v1'", []).expect("reset");
+
+        mark_duckdb_records_not_saved(&conn).expect("migrate");
+        assert!(!saved(&conn, "plain"), "a plain DuckDB file becomes not saved");
+        assert!(!saved(&conn, "blank"), "a blank default schema is no setting");
+        assert!(saved(&conn, "ro"), "Read-only was set in the Connections Manager: stays saved");
+        assert!(saved(&conn, "launch"), "Connect at Launch: stays saved");
+        assert!(saved(&conn, "schema"), "a Default Schema: stays saved");
+        assert!(saved(&conn, "pg"), "a server is always saved");
+
+        // Saved later by the user, it is never unsaved again.
+        save_connection(&conn, &duck("plain")).expect("save as connection");
+        mark_duckdb_records_not_saved(&conn).expect("second run");
+        drop(conn);
+        let conn = init_database(&dir).expect("reopen");
+        assert!(saved(&conn, "plain"), "the migration runs once");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_older_producer_without_the_key_means_saved() {
+        let mut json = serde_json::to_value(duck("d")).expect("encode");
+        assert_eq!(json["saved"], serde_json::Value::Bool(true), "always on the wire");
+        json.as_object_mut().unwrap().remove("saved");
+        let back: ConnectionConfig = serde_json::from_value(json).expect("decode");
+        assert!(back.saved, "absent means saved");
     }
 }
