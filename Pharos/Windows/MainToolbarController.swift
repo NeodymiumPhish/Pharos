@@ -6,6 +6,8 @@ extension NSToolbarItem.Identifier {
     static let pharosFormatSQL = NSToolbarItem.Identifier("PharosFormatSQL")
     static let pharosNewTab = NSToolbarItem.Identifier("PharosNewTab")
     static let pharosSaveQuery = NSToolbarItem.Identifier("PharosSaveQuery")
+    static let pharosTagManager = NSToolbarItem.Identifier("PharosTagManager")
+    static let pharosVariableManager = NSToolbarItem.Identifier("PharosVariableManager")
     /// The grouped navigator selector. Defined by the factory that builds it.
     static let pharosNavigator = NavigatorToolbarGroup.identifier
 }
@@ -62,6 +64,9 @@ final class MainToolbarController: NSObject {
 
     /// Installs a customizable toolbar on `window` with this object as delegate.
     func install(on window: NSWindow) {
+        // "PharosToolbar5": the Tag Manager and Variable Manager buttons joined
+        // the default set (2026-10-22), and a saved configuration never gains
+        // a new default item, so the old name would have hidden them.
         // "PharosToolbar4", not "PharosToolbar3". `autosavesConfiguration` is
         // on, and AppKit reconciles a saved configuration by DROPPING unknown
         // identifiers, never by adding new default ones — so a window that had
@@ -72,7 +77,7 @@ final class MainToolbarController: NSObject {
         // mode. The same rule made removing items free: a saved
         // "PharosRunControl", "PharosConnection" or "PharosSchema" is an
         // unknown identifier now, and is dropped.
-        let toolbar = NSToolbar(identifier: "PharosToolbar4")
+        let toolbar = NSToolbar(identifier: "PharosToolbar5")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -175,6 +180,19 @@ extension MainToolbarController: NSToolbarDelegate {
                              symbol: "square.and.arrow.down", tip: String(localized: "Save Session… (⌘S)"),
                              action: #selector(ContentViewController.menuSaveQuery(_:)))
 
+        // The two app-wide utility windows. Their actions are the application
+        // delegate's, at the end of every responder chain.
+        case .pharosTagManager:
+            return imageItem(itemIdentifier, label: String(localized: "Tags"), palette: String(localized: "Tag Manager"),
+                             symbol: "tag", tip: String(localized: "Tag Manager"),
+                             action: #selector(AppDelegate.menuShowTagManager(_:)))
+
+        case .pharosVariableManager:
+            return imageItem(itemIdentifier, label: String(localized: "Variables"),
+                             palette: String(localized: "Variable Manager"),
+                             symbol: "curlybraces", tip: String(localized: "Variable Manager"),
+                             action: #selector(AppDelegate.menuShowVariableManager(_:)))
+
         default:
             return nil
         }
@@ -201,6 +219,10 @@ extension MainToolbarController: NSToolbarDelegate {
             .pharosNavigator,
             .sidebarTrackingSeparator,
             .flexibleSpace,
+            // At the right end of the content area, before the inspector's
+            // divider (owner's placement, 2026-10-22).
+            .pharosTagManager,
+            .pharosVariableManager,
             .inspectorTrackingSeparator,
             // The separator is pinned to the inspector's divider, so a second
             // flexible space after it pushes the toggle to the window's right
@@ -224,6 +246,8 @@ extension MainToolbarController: NSToolbarDelegate {
             .pharosFormatSQL,
             .pharosNewTab,
             .pharosSaveQuery,
+            .pharosTagManager,
+            .pharosVariableManager,
             .space,
             .flexibleSpace,
             .inspectorTrackingSeparator,
