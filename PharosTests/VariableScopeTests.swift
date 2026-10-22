@@ -45,5 +45,16 @@ func runTests() {
     let old = try? JSONDecoder().decode(QueryVariable.self, from: Data(#"{"id":"\#(UUID().uuidString)","name":"x"}"#.utf8))
     expect(old?.isGlobal, true, "a variable written before scopes is global")
 
+    // What the Variable Manager offers to link to.
+    let prod = ConnectionConfig(id: "prod", name: "Prod", host: "h", port: 5432, database: "d", username: "u")
+    let openFile = ConnectionConfig.duckDB(path: "/x/sales.duckdb", id: "sales")
+    let closedFile = ConnectionConfig.duckDB(path: "/x/old.duckdb", id: "old")
+    let linkedClosed = ConnectionConfig.duckDB(path: "/x/linked.duckdb", id: "linked")
+    let targets = VariableScope.linkTargets(records: [prod, openFile, closedFile, linkedClosed],
+                                            openIds: ["sales"], linked: ["linked", "gone"])
+    expect(targets.map(\.id), ["prod", "sales", "linked", "gone"],
+           "saved connections, open files, what it is linked to; a closed not-saved file is not offered")
+    expect(targets.map(\.missing), [false, false, false, true], "a linked record that is gone is marked missing")
+
     if failures == 0 { print("\nAll variable scope tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

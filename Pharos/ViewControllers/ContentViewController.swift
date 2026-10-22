@@ -1955,8 +1955,7 @@ class ContentViewController: NSViewController {
     }
 
     /// Surface an unresolved/invalid-variable error before a query runs, and
-    /// bring the sidebar's Variables navigator forward so the user can correct
-    /// it. Variables are app-wide (`QueryVariableStore`), so the fix is made
+    /// open the Variable Manager so the user can correct it. Variables are app-wide (`QueryVariableStore`), so the fix is made
     /// there, not in the tab.
     private func presentVariableError(
         unresolved: [String],
@@ -1990,7 +1989,8 @@ class ContentViewController: NSViewController {
             style: .error,
             duration: 3.0
         )
-        (parent as? PharosSplitViewController)?.revealNavigator(.variables)
+        // The fix is made in the Variable Manager, on the first variable named.
+        VariableManagerWindowController.shared.show(variableNamed: unresolved.first)
     }
 
     /// Confirmation sheet for destructive SQL run from the editor. Same style

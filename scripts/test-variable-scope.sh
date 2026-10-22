@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/variable-scope-tests \
   Pharos/Core/VariableScope.swift \
   Pharos/Models/QueryVariable.swift \
+  Pharos/Models/Connection.swift \
   PharosTests/VariableScopeTests.swift \
   PharosTests/main.swift
 /tmp/variable-scope-tests

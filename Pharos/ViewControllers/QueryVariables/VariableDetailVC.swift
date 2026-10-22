@@ -23,6 +23,9 @@ final class VariableDetailVC: NSViewController {
     var onDelete: (() -> Void)?
     /// Back chevron or Escape.
     var onBack: (() -> Void)?
+    /// The sidebar's detail level has a Back chevron; the Variable Manager's
+    /// detail pane has no list level to go back to. Set before the view loads.
+    var showsBackButton = true
 
     private(set) var variable: QueryVariable
 
@@ -171,6 +174,7 @@ final class VariableDetailVC: NSViewController {
         deleteButton.target = self
         deleteButton.action = #selector(deleteTapped)
 
+        backButton.isHidden = !showsBackButton
         let header = NSStackView(views: [backButton, nameField, typePopup, deleteButton])
         header.orientation = .horizontal
         header.spacing = 6
@@ -502,7 +506,7 @@ final class VariableDetailVC: NSViewController {
     /// `lastRowState.duplication`, which reflects only the committed model
     /// and can still be `.shadowed` for a duplicate pair loaded from a saved
     /// query that predates this refusal rule.
-    private var isNameCollision = false
+    private(set) var isNameCollision = false
 
     /// The state `setState` was last given, cached so `updateDuplicationDisplay`
     /// can fall back to it (the `.shadowed` legacy note) once a live

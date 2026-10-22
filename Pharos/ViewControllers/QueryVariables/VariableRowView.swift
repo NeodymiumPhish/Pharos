@@ -39,6 +39,15 @@ final class VariableRowView: NSView {
     private var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
+    /// The Variable Manager's current row: a selection wash (the sidebar never
+    /// sets it).
+    var isSelectedRow = false {
+        didSet {
+            guard isSelectedRow != oldValue else { return }
+            needsDisplay = true
+            setAccessibilitySelected(isSelectedRow)
+        }
+    }
 
     private var trackingArea: NSTrackingArea?
 
@@ -47,7 +56,7 @@ final class VariableRowView: NSView {
     /// build time, so it does not follow a light/dark switch on its own —
     /// rebuilding it from the same inputs is simpler than trying to keep a
     /// second, always-dynamic copy in sync.
-    private var lastConfigured: (variable: QueryVariable, state: VariableSubstitutor.RowState?)?
+    private var lastConfigured: (variable: QueryVariable, state: VariableSubstitutor.RowState?, scope: String?)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -69,8 +78,11 @@ final class VariableRowView: NSView {
     /// effective definition of a duplicated name (`.overriding`) looks completely
     /// normal here, because it works — its "also defined above" note belongs in
     /// the detail level, where the name is edited.
-    func configure(with variable: QueryVariable, state: VariableSubstitutor.RowState?) {
-        lastConfigured = (variable, state)
+    /// `scope`: where the variable applies ("All connections", "2 connections"),
+    /// after the size caption. The Variable Manager passes it; nil leaves the
+    /// caption alone.
+    func configure(with variable: QueryVariable, state: VariableSubstitutor.RowState?, scope: String? = nil) {
+        lastConfigured = (variable, state, scope)
 
         let problem = state?.problem
         let isShadowed = state?.duplication == .shadowed
@@ -113,9 +125,10 @@ final class VariableRowView: NSView {
 
         // The size of a value that never reaches the query is not the useful
         // thing to say about it, so the caption slot carries the reason instead.
-        captionLabel.stringValue = isShadowed
+        let baseCaption = isShadowed
             ? "not used — redefined below"
             : VariableValuePreview.caption(for: variable.value)
+        captionLabel.stringValue = scope.map { "\(baseCaption) · \($0)" } ?? baseCaption
 
         if variable.value.isEmpty {
             valueLabel.stringValue = "no value"
@@ -147,7 +160,7 @@ final class VariableRowView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         guard let last = lastConfigured else { return }
-        configure(with: last.variable, state: last.state)
+        configure(with: last.variable, state: last.state, scope: last.scope)
     }
 
     // MARK: - Layout
@@ -274,6 +287,11 @@ final class VariableRowView: NSView {
     override func mouseExited(with event: NSEvent) { isHovered = false }
 
     override func draw(_ dirtyRect: NSRect) {
+        if isSelectedRow {
+            NSColor.selectedContentBackgroundColor.withAlphaComponent(0.22).setFill()
+            bounds.fill()
+            return
+        }
         guard isHovered else { return }
         NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
         bounds.fill()

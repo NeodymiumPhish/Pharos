@@ -8,6 +8,13 @@ final class VariableListView: NSView {
     var onAdd: (() -> Void)?
     var onSelect: ((UUID) -> Void)?
     var onDelete: ((UUID) -> Void)?
+    /// Where each variable applies, shown in its row's caption. The Variable
+    /// Manager sets it; the sidebar leaves it nil.
+    var scopeText: ((QueryVariable) -> String?)?
+    /// The row that is selected (the Variable Manager's detail pane shows it).
+    var selectedId: UUID? {
+        didSet { for (id, view) in rows { view.isSelectedRow = id == selectedId } }
+    }
 
     private let titleLabel = NSTextField(labelWithString: "Variables")
     private let countLabel = NSTextField(labelWithString: "")
@@ -107,7 +114,8 @@ final class VariableListView: NSView {
 
         for variable in shown {
             let row = VariableRowView(frame: .zero)
-            row.configure(with: variable, state: states[variable.id])
+            row.configure(with: variable, state: states[variable.id], scope: scopeText?(variable))
+            row.isSelectedRow = variable.id == selectedId
             let id = variable.id
             row.onClick = { [weak self] in self?.onSelect?(id) }
             row.onDelete = { [weak self] in self?.onDelete?(id) }
@@ -134,7 +142,7 @@ final class VariableListView: NSView {
         let states = VariableSubstitutor.rowStates(in: variables, referenced: referenced)
         for (id, view) in rows {
             guard let variable = variables.first(where: { $0.id == id }) else { continue }
-            view.configure(with: variable, state: states[id])
+            view.configure(with: variable, state: states[id], scope: scopeText?(variable))
         }
     }
 

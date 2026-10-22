@@ -23,6 +23,29 @@ enum VariableScope {
         return variable.connectionIds
     }
 
+    /// One connection the Variable Manager offers to link a variable to.
+    struct LinkTarget: Equatable {
+        let id: String
+        /// The record no longer exists: shown as "Missing connection" so the
+        /// link can be removed.
+        let missing: Bool
+    }
+
+    /// What the Variable Manager lists for linking: every saved connection, the
+    /// not-saved files and in-memory databases that are open now (a tab uses
+    /// them, or they are connected), and whatever the variable is already
+    /// linked to — a file that has closed since, or a record that is gone.
+    /// Records keep the user's order; the gone ones come last.
+    static func linkTargets(records: [ConnectionConfig], openIds: Set<String>, linked: [String]) -> [LinkTarget] {
+        let linkedSet = Set(linked)
+        var targets = records
+            .filter { $0.saved || openIds.contains($0.id) || linkedSet.contains($0.id) }
+            .map { LinkTarget(id: $0.id, missing: false) }
+        let known = Set(records.map(\.id))
+        targets += linked.filter { !known.contains($0) }.map { LinkTarget(id: $0, missing: true) }
+        return targets
+    }
+
     /// "{{env}} is linked to Prod and Staging, not to this tab's connection."
     /// `names` are the linked records' display names (escaped by the caller).
     static func linkedElsewhereMessage(name: String, connectionNames: [String]) -> String {
