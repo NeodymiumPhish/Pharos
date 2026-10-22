@@ -22,6 +22,7 @@
 		090455B48A4225E79D8BA427 /* SQLDraftRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACBAEA1D4528B840F78216F /* SQLDraftRanker.swift */; };
 		099B8ED24B3A5A36561A89A9 /* AboutSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF3C40C432AC99C1C526FFB /* AboutSettingsPaneVC.swift */; };
 		0A706613BBC920B3201D7FA3 /* ErrorExplanation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A68C76D450CDF75F57CAADB /* ErrorExplanation.swift */; };
+		0AD31BC20A777DAFD4DD535C /* DockMenuRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3699A3B7EE1E8188974C1077 /* DockMenuRule.swift */; };
 		0B25DA68EEA7AD800FE3EEFF /* EditorResultsSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BDFE9FF81987220FD4C89BC /* EditorResultsSplitView.swift */; };
 		0BA418AD455AB1B24F34B671 /* ColumnClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE70A95918E3523B0D017FDA /* ColumnClassifier.swift */; };
 		0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */; };
@@ -498,6 +499,7 @@
 		364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayRowPipeline.swift; sourceTree = "<group>"; };
 		3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleMatcher.swift; sourceTree = "<group>"; };
 		369938D654B2C568F8707A08 /* MarkerShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkerShape.swift; sourceTree = "<group>"; };
+		3699A3B7EE1E8188974C1077 /* DockMenuRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockMenuRule.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
 		38E4D8BB54E620DAB642CDC4 /* SQLStatementScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLStatementScope.swift; sourceTree = "<group>"; };
 		391C451B22B310E18DF7911D /* CardDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDocument.swift; sourceTree = "<group>"; };
@@ -1117,6 +1119,7 @@
 				5757A383E8948F38AB9B6545 /* Diagnostics.swift */,
 				935531ED5C0B433C3B74D1A8 /* DisplayEscape.swift */,
 				364814A5B001F4D10F8EDDB0 /* DisplayRowPipeline.swift */,
+				3699A3B7EE1E8188974C1077 /* DockMenuRule.swift */,
 				D0B9E7C1E552BBD06043E902 /* DuckDBAttachRules.swift */,
 				9F4E71413435BD2076C73B4E /* DuckDBCloseRule.swift */,
 				312D6DCAE7C41B74E819934F /* DuckDBFiles.swift */,
@@ -1563,6 +1566,7 @@
 				4A4E55EE3CFDA2FD4FAFA624 /* Diagnostics.swift in Sources */,
 				54968E08F0822DE3A8895805 /* DisplayEscape.swift in Sources */,
 				1AC6571636390DDAA41BEEDB /* DisplayRowPipeline.swift in Sources */,
+				0AD31BC20A777DAFD4DD535C /* DockMenuRule.swift in Sources */,
 				7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */,
 				291249D847122D96FABFE799 /* DrillKey.swift in Sources */,
 				1DFC0C5BA0650A2063B3ED36 /* DrillMerge.swift in Sources */,
