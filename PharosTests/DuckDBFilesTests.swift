@@ -70,6 +70,12 @@ func runTests() {
     let m2 = ConnectionConfig.duckDB(path: ":memory:", name: "In-memory DuckDB 2", id: "x2")
     expect(DuckDBFiles.uniqueInMemoryName(in: [m1, m2]) == "In-memory DuckDB 3", "the next free number, case-folded")
 
+    // F4 step 3: a replaced database goes to the Trash with its WAL.
+    let db = URL(fileURLWithPath: "/d/x.duckdb")
+    expect(DuckDBFiles.databaseFiles(at: db, fileExists: { $0 == "/d/x.duckdb.wal" }).map(\.path) == ["/d/x.duckdb", "/d/x.duckdb.wal"],
+           "the WAL goes with its database")
+    expect(DuckDBFiles.databaseFiles(at: db, fileExists: { _ in false }).map(\.path) == ["/d/x.duckdb"], "no WAL, the file alone")
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

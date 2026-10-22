@@ -27,7 +27,9 @@ extension AppDelegate {
             // goes; a NEW database was asked for.
             if FileManager.default.fileExists(atPath: url.path) {
                 do {
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    for file in DuckDBFiles.databaseFiles(at: url) {
+                        try FileManager.default.trashItem(at: file, resultingItemURL: nil)
+                    }
                 } catch {
                     NSAlert(error: error).runModal()
                     return

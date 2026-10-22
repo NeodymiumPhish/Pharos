@@ -88,7 +88,11 @@ enum InMemoryDatabases {
             // The panel asked about replacing; the old file goes to the Trash
             // (a file Pharos has open was refused by the delegate).
             if FileManager.default.fileExists(atPath: url.path) {
-                do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch {
+                do {
+                    for file in DuckDBFiles.databaseFiles(at: url) {
+                        try FileManager.default.trashItem(at: file, resultingItemURL: nil)
+                    }
+                } catch {
                     NSAlert(error: error).runModal()
                     then(false)
                     return

@@ -119,4 +119,14 @@ enum DuckDBFiles {
         while taken.contains("\(base) \(n)".lowercased()) { n += 1 }
         return "\(base) \(n)"
     }
+
+    /// The files that make up a database at this path: the file, and its
+    /// write-ahead log when there is one. Replacing a database moves both to
+    /// the Trash: DuckDB 1.5.6 does not replay a stale `.wal` into a new file
+    /// — it deletes it — so a database trashed without its WAL loses the
+    /// changes not yet checkpointed (measured 2026-10-21).
+    static func databaseFiles(at url: URL, fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [URL] {
+        let wal = URL(fileURLWithPath: url.path + ".wal")
+        return [url] + (fileExists(wal.path) ? [wal] : [])
+    }
 }
