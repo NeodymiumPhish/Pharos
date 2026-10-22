@@ -22,7 +22,20 @@
     "“%@” has no Sessions to export." : {
 
     },
+    "“%@” is in use by %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” is in use by %2$@."
+          }
+        }
+      }
+    },
     "“%@” is in use by another app." : {
+
+    },
+    "“%@” is open in Pharos." : {
 
     },
     "“%@” returned %@." : {
@@ -34,6 +47,9 @@
           }
         }
       }
+    },
+    "“%@” was written by a newer DuckDB, which this version of Pharos cannot open." : {
+
     },
     "(%@, %@)" : {
       "localizations" : {
@@ -74,6 +90,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@ — %3$@"
+          }
+        }
+      }
+    },
+    "%@ (process %@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (process %2$@)"
           }
         }
       }
@@ -284,6 +310,9 @@
     "0 lets DuckDB use every core." : {
 
     },
+    "0 turns Pharos's timeout off: a query then runs until it ends or you cancel it. On PostgreSQL the server's own statement_timeout still applies." : {
+
+    },
     "1 earlier version of %@" : {
 
     },
@@ -297,6 +326,9 @@
 
     },
     "1 row affected" : {
+
+    },
+    "1 row exported." : {
 
     },
     "1,000 only" : {
@@ -335,6 +367,9 @@
     "A banner shows while a tab has a transaction open. 0 turns the timeout off; a forgotten transaction then holds its locks until you commit, roll back or close the tab." : {
 
     },
+    "A card failed or was cancelled while it ran, so DuckDB aborted the transaction. Its changes cannot be committed. Roll back to run more cards." : {
+
+    },
     "A ceiling on the whole history, newest kept. 0 is no ceiling. Both limits apply: whichever removes an entry first wins." : {
 
     },
@@ -344,7 +379,7 @@
     "A copy also carries the TSV form, so a paste into a spreadsheet lands as a table whichever this says." : {
 
     },
-    "A DuckDB database reads these when it opens, so they reach a database the next time you connect it." : {
+    "A DuckDB database reads these when it opens. To change one that is open, run SET memory_limit = '4GB' or SET threads = 4 in a card. Each open database has its own limit, so several open databases can use more in all." : {
 
     },
     "A faint wash behind the line holding the caret." : {
@@ -398,7 +433,7 @@
     "A shorter region gets no chevron." : {
 
     },
-    "A small server allows few connections. Over the limit, a tab's cards run on the shared pool, without session state between cards. 0 = no limit." : {
+    "A small server allows few connections. Over the limit, a tab's cards run on the shared pool, without session state between cards. 0 = no limit. A DuckDB database has no limit: each tab always has its own connection." : {
 
     },
     "A tab that has never been saved is only mentioned while Restore open tabs is off." : {
@@ -425,6 +460,9 @@
     "Accept the completion" : {
 
     },
+    "Account ID" : {
+
+    },
     "Acknowledgements" : {
 
     },
@@ -434,13 +472,22 @@
     "Add" : {
 
     },
+    "Add a cloud credential" : {
+
+    },
     "Add color" : {
 
     },
     "Add Connection" : {
 
     },
+    "Add Credential" : {
+
+    },
     "Add Tag…" : {
+
+    },
+    "Adds a card that creates a table from this query. Edit its name, then run it." : {
 
     },
     "Advanced" : {
@@ -488,10 +535,19 @@
     "Always show scroll bars" : {
 
     },
+    "Amazon S3 or compatible" : {
+
+    },
+    "An in-memory database's tables are lost when it disconnects or Pharos quits. Pharos asks first, and offers to save them to a file." : {
+
+    },
     "An sslmode=prefer connection spends three fifths of this trying TLS and the rest retrying without it." : {
 
     },
     "Another app" : {
+
+    },
+    "Another app is using the file for “%@”. Click Open Read-Only above the cards, or quit that app and choose File ▸ Connect." : {
 
     },
     "Appearance" : {
@@ -628,6 +684,15 @@
     "Cancel All Queries" : {
 
     },
+    "Cancel Clone" : {
+
+    },
+    "Cancel Export" : {
+
+    },
+    "Cancel Import" : {
+
+    },
     "Cancel Query" : {
 
     },
@@ -703,6 +768,9 @@
     "Choose a connection for this tab to start." : {
 
     },
+    "Choose a CSV, JSON, Parquet or Excel file to make a table from." : {
+
+    },
     "Choose a database for this tab." : {
 
     },
@@ -712,10 +780,16 @@
     "Choose a DuckDB database file." : {
 
     },
+    "Choose a SQL file, a DuckDB database or a data file." : {
+
+    },
     "Choose Connection" : {
 
     },
     "Choose Connection…" : {
+
+    },
+    "Choose CSV, JSON, Parquet or Excel files to query in place." : {
 
     },
     "Choose the export options for %@.%@." : {
@@ -734,7 +808,7 @@
     "Choose the private key file for this tunnel." : {
 
     },
-    "Choose where to create a new database file. It is created when you connect." : {
+    "Choose where to create a new database file. Save creates it." : {
 
     },
     "Choose where to create the DuckDB database." : {
@@ -776,10 +850,16 @@
     "Cleared when you come back." : {
 
     },
+    "Cloning…" : {
+
+    },
     "Close brackets automatically" : {
 
     },
     "Close idle connections after" : {
+
+    },
+    "Close it in that app, or choose a different name." : {
 
     },
     "Close quotes automatically" : {
@@ -795,6 +875,18 @@
 
     },
     "Closing rolls them back." : {
+
+    },
+    "Cloud Credential" : {
+
+    },
+    "Cloud credentials" : {
+
+    },
+    "Cloud storage credentials" : {
+
+    },
+    "Cloudflare R2" : {
 
     },
     "Collapse All Cards" : {
@@ -857,7 +949,7 @@
     "Connect a tab to browse its schema." : {
 
     },
-    "Connect opens the file, and creates it when it does not exist yet." : {
+    "Connect opens the file. Save creates a new file; Connect never makes an empty database in place of a file that has gone." : {
 
     },
     "Connect this tab to a database to draft a query." : {
@@ -876,6 +968,9 @@
 
     },
     "Connect to a database to explain a query." : {
+
+    },
+    "Connect to a database to run a query." : {
 
     },
     "Connect when Pharos starts" : {
@@ -932,6 +1027,12 @@
     "Copy" : {
 
     },
+    "Copy “%@” to main" : {
+
+    },
+    "Copy %@ to main" : {
+
+    },
     "COPY data" : {
 
     },
@@ -939,6 +1040,9 @@
 
     },
     "Copy Generated SQL" : {
+
+    },
+    "Copy into Table…" : {
 
     },
     "Copy Plan JSON" : {
@@ -951,6 +1055,9 @@
 
     },
     "Copy the server's EXPLAIN (FORMAT JSON) output." : {
+
+    },
+    "Copy to main…" : {
 
     },
     "Copy with ⌘C" : {
@@ -975,7 +1082,7 @@
     "Could not connect" : {
 
     },
-    "Could not connect to “%@”. Choose Connect from the Connection menu in the toolbar to try again." : {
+    "Could not connect to “%@”. Click Try Again above the cards, or choose File ▸ Connect." : {
 
     },
     "Could not detach “%@”" : {
@@ -991,6 +1098,12 @@
 
     },
     "Create" : {
+
+    },
+    "Create Empty Database" : {
+
+    },
+    "Create Table" : {
 
     },
     "CSV" : {
@@ -1021,6 +1134,9 @@
 
     },
     "Dark" : {
+
+    },
+    "Data lake" : {
 
     },
     "Database File" : {
@@ -1071,7 +1187,7 @@
     "Delete Card" : {
 
     },
-    "Delete Connection" : {
+    "Delete the selected connections. A DuckDB file stays where it is." : {
 
     },
     "Delete Version" : {
@@ -1119,6 +1235,9 @@
     "Disconnect" : {
 
     },
+    "Disconnect it, or choose a different name." : {
+
+    },
     "Disconnecting rolls them back." : {
 
     },
@@ -1129,6 +1248,9 @@
 
     },
     "Do you want to save the changes you made to “%@”?" : {
+
+    },
+    "Do you want to save the in-memory database “%@”?" : {
 
     },
     "Don't Save" : {
@@ -1182,7 +1304,26 @@
     "DuckDB can then query and join its tables as name.schema.table. It stays attached while the connection stays connected." : {
 
     },
+    "DuckDB file · %@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "DuckDB file · %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "DuckDB has no savepoints. An error while a statement runs, or Cancel, fails the whole transaction. Syntax errors do not." : {
+
+    },
     "DuckDB refuses writes to the attached database. A read-only connection always attaches read-only." : {
+
+    },
+    "DuckDB runs inside Pharos and has its own settings, at the end of this pane." : {
+
+    },
+    "DuckDB's default schema. Test the connection to choose another." : {
 
     },
     "Duplicate Tab" : {
@@ -1209,6 +1350,9 @@
     "Edit the selected cell" : {
 
     },
+    "Edit…" : {
+
+    },
     "edited since run" : {
 
     },
@@ -1221,7 +1365,10 @@
     "Editor" : {
 
     },
-    "Editor tab connections per server" : {
+    "Editor tab connections per connection" : {
+
+    },
+    "Empty for AWS" : {
 
     },
     "Empty is what Pharos has always used." : {
@@ -1234,6 +1381,9 @@
 
     },
     "End" : {
+
+    },
+    "Endpoint" : {
 
     },
     "Engine" : {
@@ -1292,6 +1442,9 @@
           }
         }
       }
+    },
+    "every %@ path" : {
+
     },
     "Every 10 seconds" : {
 
@@ -1359,7 +1512,16 @@
     "Export & Import" : {
 
     },
+    "Export %@" : {
+
+    },
     "Export %@ as a Parquet file." : {
+
+    },
+    "Export All Rows as Excel…" : {
+
+    },
+    "Export All Rows as Parquet…" : {
 
     },
     "Export as Parquet…" : {
@@ -1377,6 +1539,12 @@
     "Export…" : {
 
     },
+    "Exporting: %@ rows" : {
+
+    },
+    "Exporting…" : {
+
+    },
     "failed" : {
 
     },
@@ -1390,6 +1558,9 @@
 
     },
     "File" : {
+
+    },
+    "File not found" : {
 
     },
     "Fills the name field in the Save Query sheet and the rename dialogs. You can always type your own." : {
@@ -1498,6 +1669,9 @@
 
     },
     "Go to Error" : {
+
+    },
+    "Google Cloud Storage" : {
 
     },
     "GRANT and REVOKE" : {
@@ -1647,10 +1821,16 @@
     "Import uses the same CSV format" : {
 
     },
+    "Importing: casting rows…" : {
+
+    },
     "In the editor and the results. Off follows the system's scroll-bar preference." : {
 
     },
     "In the window" : {
+
+    },
+    "In use by another app" : {
 
     },
     "In-memory" : {
@@ -1701,6 +1881,12 @@
     "Insert Draft" : {
 
     },
+    "Insert File Reference" : {
+
+    },
+    "Insert File Reference…" : {
+
+    },
     "Insert spaces for Tab" : {
 
     },
@@ -1722,6 +1908,12 @@
     "It changes nothing about the connections you already have." : {
 
     },
+    "It holds %@ tables and views, which are lost if you don't save them." : {
+
+    },
+    "It holds 1 table or view, which is lost if you don't save it." : {
+
+    },
     "It keeps a long session from drifting away from the server's current state." : {
 
     },
@@ -1738,6 +1930,12 @@
 
     },
     "Its saved results are deleted too. This action cannot be undone." : {
+
+    },
+    "Its tables and views are lost if you don't save them." : {
+
+    },
+    "Its tables are lost." : {
 
     },
     "Jump to Selection" : {
@@ -1764,6 +1962,9 @@
     "Key File" : {
 
     },
+    "Key ID" : {
+
+    },
     "Keyboard shortcut" : {
 
     },
@@ -1771,6 +1972,9 @@
 
     },
     "Keyboard Shortcuts" : {
+
+    },
+    "Keys for s3://, r2:// and gcs:// paths. Each becomes a temporary secret of every DuckDB database when it opens." : {
 
     },
     "Keyword case" : {
@@ -1786,6 +1990,9 @@
 
     },
     "Layout" : {
+
+    },
+    "Leave empty for the connection's default schema." : {
 
     },
     "Leave it empty for DuckDB's default, 80% of this Mac's memory." : {
@@ -1815,7 +2022,7 @@
     "Links" : {
 
     },
-    "Lists pg_catalog and information_schema beside your own." : {
+    "Lists pg_catalog and information_schema, and DuckDB's system database, beside your own." : {
 
     },
     "Load All limit" : {
@@ -1824,10 +2031,19 @@
     "Load all rows" : {
 
     },
+    "Load More failed: %@" : {
+
+    },
     "Loaded the first %@ rows (Settings ▸ Query ▸ Load All limit). The result is larger." : {
 
     },
     "Loading…" : {
+
+    },
+    "Locate “%@”" : {
+
+    },
+    "Locate…" : {
 
     },
     "locked" : {
@@ -1908,6 +2124,15 @@
     "minutes" : {
 
     },
+    "modified %@" : {
+
+    },
+    "modified today" : {
+
+    },
+    "modified yesterday" : {
+
+    },
     "More" : {
 
     },
@@ -1971,6 +2196,9 @@
     "Navigators" : {
 
     },
+    "Needs a newer DuckDB" : {
+
+    },
     "Never" : {
 
     },
@@ -2001,6 +2229,9 @@
     "New Folder..." : {
 
     },
+    "New In-Memory DuckDB Database" : {
+
+    },
     "New Query Card" : {
 
     },
@@ -2019,6 +2250,15 @@
     "New Tab (⌘T)" : {
 
     },
+    "New table %@" : {
+
+    },
+    "New Table from “%@”" : {
+
+    },
+    "New Table from File…" : {
+
+    },
     "New Variable" : {
 
     },
@@ -2034,6 +2274,9 @@
     "Next suggestion" : {
 
     },
+    "No cloud credentials. Public files and presigned https:// links need none." : {
+
+    },
     "No column is ever made wider than this, by fitting or by dragging." : {
 
     },
@@ -2047,6 +2290,9 @@
 
     },
     "No Failures" : {
+
+    },
+    "No file at this path. Connect asks whether to create it." : {
 
     },
     "No file selected" : {
@@ -2085,6 +2331,9 @@
     "No Schema" : {
 
     },
+    "No secret key" : {
+
+    },
     "No shortcut matches." : {
 
     },
@@ -2109,10 +2358,13 @@
     "Not connected" : {
 
     },
-    "Not connected to “%@”. Choose Connect from the Connection menu in the toolbar to run this card." : {
+    "Not connected to “%@”. Click Connect above the cards, or choose File ▸ Connect." : {
 
     },
     "Not helpful" : {
+
+    },
+    "Not Now" : {
 
     },
     "not run" : {
@@ -2292,6 +2544,9 @@
     "Open the list" : {
 
     },
+    "Open the saved file in a new tab? The tabs on the in-memory database stay as they are." : {
+
+    },
     "Open the Session and run it" : {
 
     },
@@ -2302,6 +2557,9 @@
 
     },
     "Opened a new query tab." : {
+
+    },
+    "Opened read-only because another app holds the file. Disconnect, then connect again when the other app closes it." : {
 
     },
     "Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle." : {
@@ -2328,7 +2586,7 @@
     "Opens the file read-only, so DuckDB refuses writes. Other apps that also open it read-only can read it at the same time. It takes effect the next time this connection opens." : {
 
     },
-    "Opens this connection as Pharos starts, after the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
+    "Opens this connection as Pharos starts, once the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
 
     },
     "Order objects by" : {
@@ -2356,6 +2614,9 @@
 
     },
     "Pane" : {
+
+    },
+    "Parquet" : {
 
     },
     "Partition bound" : {
@@ -2389,6 +2650,12 @@
 
     },
     "Pharos %@ is the newest version." : {
+
+    },
+    "Pharos adds a card that copies the table, with its rows, into this DuckDB database's main schema." : {
+
+    },
+    "Pharos adds a card that creates the table in “%@”, and a card that shows its first rows. Edit the first card to change how the file is read." : {
 
     },
     "Pharos cancels a query that runs longer than this." : {
@@ -2475,6 +2742,9 @@
     "Post a notification" : {
 
     },
+    "PostgreSQL" : {
+
+    },
     "Pre-release" : {
 
     },
@@ -2509,6 +2779,9 @@
 
     },
     "Process %@" : {
+
+    },
+    "Provider" : {
 
     },
     "psql command" : {
@@ -2625,6 +2898,9 @@
     "Refresh Metadata" : {
 
     },
+    "Region" : {
+
+    },
     "Regular expression" : {
 
     },
@@ -2649,6 +2925,21 @@
     "Remember the SSH secret in the keychain" : {
 
     },
+    "Remove" : {
+
+    },
+    "Remove “%@” from Pharos?" : {
+
+    },
+    "Remove %lld DuckDB databases from Pharos?" : {
+
+    },
+    "Remove Credential" : {
+
+    },
+    "Remove the selected credential and its secret key" : {
+
+    },
     "Rename" : {
 
     },
@@ -2667,7 +2958,7 @@
     "Reopen Closed Tab" : {
 
     },
-    "Reopen the editor tabs that were open when you last quit, with their results. No connection is opened." : {
+    "Reopen the editor tabs that were open when you last quit, with their results. DuckDB files that the tabs use are opened again; server connections are not." : {
 
     },
     "Replace" : {
@@ -2856,6 +3147,9 @@
     "Running server aggregation…" : {
 
     },
+    "Runs the query again. Grid filters, sort and tags do not apply." : {
+
+    },
     "Safety" : {
 
     },
@@ -2868,7 +3162,16 @@
     "Save All" : {
 
     },
+    "Save as %@" : {
+
+    },
     "Save as New" : {
+
+    },
+    "Save In-Memory Database…" : {
+
+    },
+    "Save Result as Table…" : {
 
     },
     "Save Session" : {
@@ -2880,10 +3183,22 @@
     "Save Session… (⌘S)" : {
 
     },
+    "Save…" : {
+
+    },
+    "Saved “%@”." : {
+
+    },
     "saved %@" : {
 
     },
+    "Saved in the Keychain" : {
+
+    },
     "Saved Session" : {
+
+    },
+    "Saved Sessions on it lose their connection." : {
 
     },
     "Say nothing" : {
@@ -2896,6 +3211,9 @@
 
     },
     "Schemas" : {
+
+    },
+    "Scope" : {
 
     },
     "Scroll the cards to the one these results belong to" : {
@@ -2914,6 +3232,9 @@
 
     },
     "seconds" : {
+
+    },
+    "Secret key" : {
 
     },
     "Security & Privacy" : {
@@ -3030,6 +3351,9 @@
     "Show Editor" : {
 
     },
+    "Show in Finder" : {
+
+    },
     "Show Inspector" : {
 
     },
@@ -3067,6 +3391,9 @@
 
     },
     "Show system schemas" : {
+
+    },
+    "Show the database file in the Finder." : {
 
     },
     "Show the exact UPDATE statements before anything is written." : {
@@ -3201,6 +3528,12 @@
     "Summarising the plan…" : {
 
     },
+    "Summarize" : {
+
+    },
+    "Summary of %@" : {
+
+    },
     "Syntax colours" : {
 
     },
@@ -3226,6 +3559,9 @@
 
     },
     "Table" : {
+
+    },
+    "Table name" : {
 
     },
     "Tables" : {
@@ -3270,13 +3606,22 @@
     "The chevrons that collapse a CTE, a subquery, a CASE or a BEGIN block. Turning this off opens everything that is folded." : {
 
     },
+    "The copy has the tables and views and their data. It leaves out temporary tables, attached PostgreSQL databases and work not yet committed in other tabs." : {
+
+    },
     "The Copy menu still offers every format." : {
+
+    },
+    "The database was not saved." : {
 
     },
     "The default colour for each series. A chart can override it." : {
 
     },
     "The delimiter, quote character and NULL text above apply to reading a file as well as writing one, so a file Pharos exported imports back without a second set of choices." : {
+
+    },
+    "The DuckDB files stay where they are." : {
 
     },
     "The editor toolbar button that drafts SQL from a sentence." : {
@@ -3291,6 +3636,18 @@
     "The failure is recorded on its tab whatever this says, and the tab's error badge always opens the full list." : {
 
     },
+    "The file %@ stays where it is." : {
+
+    },
+    "The file does not exist yet. Save creates it." : {
+
+    },
+    "The file for “%@” can’t be found. Click Locate… above the cards." : {
+
+    },
+    "The files stay where they are. Saved Sessions on them lose their connection." : {
+
+    },
     "The first failure" : {
 
     },
@@ -3298,6 +3655,9 @@
 
     },
     "The format the Export Data sheet opens on. You can still pick another one for any single export." : {
+
+    },
+    "The Keychain refused it. Try again, or check Keychain Access." : {
 
     },
     "The leading # column." : {
@@ -3348,7 +3708,7 @@
     "The model would not answer that. Try describing the query another way." : {
 
     },
-    "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk." : {
+    "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk: beside a database file, or for an in-memory database into the system's temporary folder." : {
 
     },
     "The most query cards in one editor tab that hold their results in memory." : {
@@ -3411,6 +3771,15 @@
     "The second failure is what Pharos has always done: the first one gets a banner instead, so the editor stays usable." : {
 
     },
+    "The secret key is kept in the Keychain. Pharos gives DuckDB the credential when a database opens, so no CREATE SECRET card is needed." : {
+
+    },
+    "The secret key was not saved." : {
+
+    },
+    "The secret keys are kept in the Keychain. A credential with no scope applies to every path of its provider." : {
+
+    },
     "The selection has no SQL in it." : {
 
     },
@@ -3429,6 +3798,12 @@
     "The server's reply carried no query plan." : {
 
     },
+    "The settings from here to DuckDB apply to PostgreSQL connections." : {
+
+    },
+    "The size of the database file. A .wal file beside it is not counted." : {
+
+    },
     "The statement at the cursor" : {
 
     },
@@ -3438,13 +3813,16 @@
     "The statement is too long to explain." : {
 
     },
-    "The storage schemas — pg_toast and the per-session pg_temp ones — stay hidden whichever way this is set: there can be thousands, and none of them holds anything to read." : {
+    "The storage schemas — pg_toast and the per-session pg_temp ones — and DuckDB's temp database stay hidden whichever way this is set: temporary tables belong to one tab's connection, and none of these holds anything the navigator can read." : {
 
     },
     "The system's default notification sound. Notification Centre can silence Pharos entirely." : {
 
     },
     "The tab's connection was reset: %@. Its settings, temporary tables and any open transaction are gone." : {
+
+    },
+    "The tables of open in-memory databases are lost." : {
 
     },
     "The TimeZone every session asks for, which is what a timestamp with time zone is shown in." : {
@@ -3480,6 +3858,9 @@
     "Theme" : {
 
     },
+    "There is no file at %@. It may have been moved, renamed or deleted, or its disk is not connected." : {
+
+    },
     "There is no query history to clear." : {
 
     },
@@ -3513,6 +3894,12 @@
     "This connection is read-only." : {
 
     },
+    "This connection is set to Read-only, so the server refuses writes. To write, turn off Read-only in the Connections Manager." : {
+
+    },
+    "This connection is set to Read-only. To write, turn off Read-only in the Connections Manager, then disconnect and connect again." : {
+
+    },
     "This draft is not a plain SELECT: it contains %@." : {
 
     },
@@ -3540,7 +3927,7 @@
     "This server cannot hold a connection for each tab. Cards run on shared connections: SET, temporary tables and transactions do not carry from card to card." : {
 
     },
-    "This tab has no database connection. Choose one from the Connection menu in the toolbar to run this card." : {
+    "This tab has no database connection. Choose one from the Connection pop-up above the cards." : {
 
     },
     "This tab's database connection" : {
@@ -3615,6 +4002,9 @@
     "unique index" : {
 
     },
+    "Untitled" : {
+
+    },
     "Untitled query" : {
 
     },
@@ -3634,6 +4024,9 @@
 
     },
     "UPPERCASE" : {
+
+    },
+    "us-east-1" : {
 
     },
     "Use a monospaced font" : {
@@ -3705,6 +4098,12 @@
     "View contents" : {
 
     },
+    "View Definition" : {
+
+    },
+    "View Definition…" : {
+
+    },
     "View Error" : {
 
     },
@@ -3772,6 +4171,9 @@
 
     },
     "Window" : {
+
+    },
+    "With no scope, this credential applies to every %@ path." : {
 
     },
     "Worker threads" : {
