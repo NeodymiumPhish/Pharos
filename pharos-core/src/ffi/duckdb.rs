@@ -193,6 +193,15 @@ pub extern "C" fn pharos_duckdb_cloud_secret_exists(id: *const c_char) -> bool {
     .unwrap_or(false)
 }
 
+/// Another process's lock on a DuckDB file, as the lock message (a JSON
+/// string), or JSON null when the file is free. Free with
+/// `pharos_free_string`.
+#[no_mangle]
+pub extern "C" fn pharos_duckdb_lock_holder(path: *const c_char) -> *mut c_char {
+    let path = unsafe { c_str_to_string(path) };
+    ffi_sync!(to_json_c_string(&crate::db::duckdb::lock_holder(&path)))
+}
+
 /// The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
 /// string. Free with `pharos_free_string`.
 #[no_mangle]

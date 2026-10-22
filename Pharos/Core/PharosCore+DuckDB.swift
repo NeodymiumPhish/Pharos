@@ -129,6 +129,13 @@ extension PharosCore {
         return result ?? nil
     }
 
+    /// Another process's lock on a DuckDB file (its lock message), or nil
+    /// when the file is free (a read-only open, closed at once).
+    static func duckDBLockHolder(path: String) -> String? {
+        let result: String?? = try? callSync { path.withCString { pharos_duckdb_lock_holder($0) } }
+        return result ?? nil
+    }
+
     /// The DuckDB library version Pharos links, e.g. "v1.5.6".
     static func duckDBVersion() -> String {
         (try? callSync { pharos_duckdb_version() }) ?? "unknown"

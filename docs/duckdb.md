@@ -57,6 +57,8 @@ Set **Engine** to **DuckDB**. The form then shows a **Database File** section in
 - **Test Connection** never creates or changes the file: it opens an existing file read-only. For a new file whose folder exists it says that **Save** creates the file.
 - **Save** creates a new file. **Connect** never creates one.
 
+**File > New DuckDB Database…** never replaces a file that is in use: when you choose the name of a file that Pharos has open, or that another app holds (for example the `duckdb` command-line tool), the panel says so and stays open. When it does replace a file, the old file and its `.wal` go to the Trash together.
+
 ## A file another app has open
 
 DuckDB lets one app write a database file at a time, or several apps read it when every one of them opened it read-only. When another app (for example the `duckdb` command-line tool) holds the file, Pharos names the app or command that holds it, for example "duckdb (process 4512)", and offers **Open Read-Only**:

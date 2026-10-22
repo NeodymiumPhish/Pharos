@@ -209,6 +209,13 @@ void pharos_duckdb_save_in_memory(const char *connection_id,
  bool pharos_duckdb_cloud_secret_exists(const char *id);
 
 /**
+ * Another process's lock on a DuckDB file, as the lock message (a JSON
+ * string), or JSON null when the file is free. Free with
+ * `pharos_free_string`.
+ */
+ char *pharos_duckdb_lock_holder(const char *path);
+
+/**
  * The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
  * string. Free with `pharos_free_string`.
  */

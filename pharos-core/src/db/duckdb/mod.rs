@@ -222,6 +222,23 @@ impl DuckDbInstance {
     }
 }
 
+/// Whether another process holds a lock on this DuckDB file: a read-only
+/// open of it, closed at once. Some(the lock message, marker included) when
+/// it is held; None when it is free, missing, or not a lock problem. File ▸
+/// New asks before it moves a file to the Trash: another app writing it
+/// would go on writing the trashed file (review F4).
+pub fn lock_holder(path: &str) -> Option<String> {
+    let path = normalized_path(path);
+    if path == IN_MEMORY || !Path::new(&path).exists() {
+        return None;
+    }
+    match DuckDbInstance::open(&path, true, &OpenOptions::default()) {
+        Ok(_) => None,
+        Err(message) if message.contains(LOCKED_MARKER) => Some(message),
+        Err(_) => None,
+    }
+}
+
 /// What a DuckDB file's header says about its format: the storage version
 /// and the DuckDB release that wrote it ("storage version 64, written by
 /// DuckDB v1.5.6"). The header: 8 bytes checksum, "DUCK", the version
@@ -358,6 +375,30 @@ mod tests {
         let (da, db_) = (dir(&a), dir(&b));
         assert!(da.contains("pharos-duckdb-spill") && Path::new(&da).is_absolute(), "{da}");
         assert_ne!(da, db_, "two in-memory databases never share a spill folder");
+    }
+
+    /// F4: another process's write lock is found by a read-only open. Needs
+    /// the `duckdb` CLI on PATH as the other process.
+    #[test]
+    #[ignore = "needs the duckdb command-line tool"]
+    fn a_file_another_process_writes_reports_its_lock() {
+        let path = temp_path("held");
+        drop(DuckDbInstance::open(&path, false, &OpenOptions::default()).unwrap());
+        assert_eq!(lock_holder(&path), None, "a free file");
+        let mut child = std::process::Command::new("duckdb")
+            .arg(&path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("duckdb on PATH");
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let held = lock_holder(&path);
+        let _ = child.kill();
+        let _ = child.wait();
+        let message = held.expect("the CLI holds a write lock");
+        assert!(message.contains(LOCKED_MARKER) && message.contains("PID"), "{message}");
+        assert_eq!(lock_holder(&path), None, "free again once the CLI quits");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

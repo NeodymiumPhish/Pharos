@@ -280,10 +280,23 @@ final class DuckDBNewPanelDelegate: NSObject, NSOpenSavePanelDelegate {
             let status = manager.status(for: id)
             return status == .connected || status == .connecting
         }
-        guard !open.isEmpty else { return nil }
+        if !open.isEmpty {
+            return NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [
+                NSLocalizedDescriptionKey: String(localized: "“\(url.lastPathComponent)” is open in Pharos."),
+                NSLocalizedRecoverySuggestionErrorKey: String(localized: "Disconnect it, or choose a different name."),
+            ])
+        }
+        // Another app holding the file would go on writing the copy in the
+        // Trash: a read-only open finds its lock first (review F4).
+        guard FileManager.default.fileExists(atPath: url.path),
+              let lock = PharosCore.duckDBLockHolder(path: url.path) else { return nil }
+        let holder = DuckDBOpenError.holderPID(lock).flatMap { pid in
+            PasswordPromptCoordinator.processName(pid).map { String(localized: "\($0) (process \(String(pid)))") }
+                ?? String(localized: "Process \(String(pid))")
+        } ?? String(localized: "Another app")
         return NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [
-            NSLocalizedDescriptionKey: String(localized: "“\(url.lastPathComponent)” is open in Pharos."),
-            NSLocalizedRecoverySuggestionErrorKey: String(localized: "Disconnect it, or choose a different name."),
+            NSLocalizedDescriptionKey: String(localized: "“\(url.lastPathComponent)” is in use by \(holder)."),
+            NSLocalizedRecoverySuggestionErrorKey: String(localized: "Close it in that app, or choose a different name."),
         ])
     }
 }
