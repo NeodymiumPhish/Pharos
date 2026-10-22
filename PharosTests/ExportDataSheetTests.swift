@@ -225,6 +225,9 @@ func runTests() {
         success: true, rowsExported: 3, charactersSubstituted: 0)) == "3 rows exported.",
                "an export that lost nothing says only the row count")
     expectTrue(ExportOutcomeText.message(for: ExportTableResult(
+        success: true, rowsExported: 1, charactersSubstituted: 0)) == "1 row exported.",
+               "one row is \"1 row exported.\"")
+    expectTrue(ExportOutcomeText.message(for: ExportTableResult(
         success: true, rowsExported: 3, charactersSubstituted: 2)).contains("2 characters"),
                "an export that replaced characters says how many")
     let skipped = ImportCsvResult(success: true, rowsImported: 4, rowsSkipped: 3,

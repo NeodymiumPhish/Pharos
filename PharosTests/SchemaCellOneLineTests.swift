@@ -162,6 +162,14 @@ func runTests() {
     expectEqual(tableCell.captionLabelForTesting.stringValue, "1.2M rows",
                 "the row itself keeps the short form")
 
+    // One row reads "1 row", in the caption and in the tooltip; 0 and 2 keep "rows".
+    for (count, caption) in [(Int64(0), "0 rows"), (1, "1 row"), (2, "2 rows")] {
+        let node = makeTableNode(name: "t\(count)", rows: count, bytes: nil)
+        node.hasRowCount = true
+        expectEqual(node.subtitle ?? "(none)", caption, "a \(count)-row table's caption")
+        expectEqual(node.tooltip ?? "(none)", caption, "a \(count)-row table's tooltip")
+    }
+
     // A table with neither figure has nothing to say in a tooltip.
     let bare = SchemaTreeCellView(identifier: NSUserInterfaceItemIdentifier("cell"))
     bare.configure(node: makeTableNode(name: "empty", rows: nil, bytes: nil))

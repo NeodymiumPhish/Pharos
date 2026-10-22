@@ -128,7 +128,7 @@ class SchemaTreeNode: NSObject {
         var parts: [String] = []
         if let rows = info.rowCountEstimate {
             let formatted = Self.decimalFormatter.string(from: NSNumber(value: rows)) ?? "\(rows)"
-            parts.append("\(formatted) rows")
+            parts.append(rows == 1 ? "1 row" : "\(formatted) rows")
         }
         if let bytes = info.totalSizeBytes {
             parts.append(Self.byteCountFormatter.string(fromByteCount: bytes))
@@ -244,7 +244,7 @@ class SchemaTreeNode: NSObject {
         } else if count >= 1_000 {
             return String(format: "%.1fK rows", Double(count) / 1_000)
         } else {
-            return "\(count) rows"
+            return count == 1 ? "1 row" : "\(count) rows"
         }
     }
 }

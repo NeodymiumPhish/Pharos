@@ -11,7 +11,9 @@ enum ExportOutcomeText {
     /// UTF-8 and UTF-16 LE carry anything, and a Latin-1 export that lost
     /// nothing is not a partial success.
     static func message(for result: ExportTableResult) -> String {
-        let rows = String(localized: "\(result.rowsExported) rows exported.")
+        let rows = result.rowsExported == 1
+            ? String(localized: "1 row exported.")
+            : String(localized: "\(result.rowsExported) rows exported.")
         guard result.charactersSubstituted > 0 else { return rows }
         let substituted = String(
             localized: "\(result.charactersSubstituted) characters the chosen encoding cannot carry were written as ?.")
