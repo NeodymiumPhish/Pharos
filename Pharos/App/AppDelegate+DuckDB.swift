@@ -124,6 +124,9 @@ extension AppDelegate {
     /// read_csv('<path>')`, run when the tab is connected.
     @MainActor
     func openDataFiles(_ urls: [URL]) {
+        // Listed in File ▸ Open Recent like a database file (review D2 step
+        // 7); choosing one reads it again the same way.
+        for url in urls { NSDocumentController.shared.noteNewRecentDocumentURL(url) }
         if let content = keyWindowController?.splitViewController.contentVC ?? frontmostWindowController?.splitViewController.contentVC,
            content.isDuckDBTab {
             showMainWindow()

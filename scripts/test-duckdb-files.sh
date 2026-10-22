@@ -8,6 +8,7 @@ trap 'rm -f "$BIN"' EXIT
 swiftc -o "$BIN" \
   Pharos/Models/Connection.swift \
   Pharos/Core/DuckDBFiles.swift \
+  Pharos/Core/DataFiles.swift \
   PharosTests/DuckDBFilesTests.swift \
   PharosTests/main.swift
 "$BIN"

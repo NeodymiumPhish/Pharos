@@ -55,6 +55,8 @@ func runTests() {
     // F6: Open Recent keeps DuckDB files (by extension or by record) and
     // tells same-named files apart by folder.
     let dbRecord = ConnectionConfig.duckDB(path: "/w/legacy.db", id: "db1")
+    expect(DuckDBFiles.recentFiles([URL(fileURLWithPath: "/w/sales.parquet"), URL(fileURLWithPath: "/w/e.csv")], in: []).count == 2,
+           "data files DuckDB read are listed too")
     let recents = [URL(fileURLWithPath: "/w/legacy.db"), URL(fileURLWithPath: "/w/notes.sql"),
                    URL(fileURLWithPath: "/a/data.duckdb"), URL(fileURLWithPath: "/b/data.duckdb"),
                    URL(fileURLWithPath: "/c/other.ddb")]

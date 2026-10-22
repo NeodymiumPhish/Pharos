@@ -89,10 +89,11 @@ enum DuckDBFiles {
     }
 
     /// The Open Recent list: the recent URLs that are DuckDB files (by
-    /// extension, or named by a file record, so a `.db` file counts).
+    /// extension, or named by a file record, so a `.db` file counts) and the
+    /// data files DuckDB read (CSV, JSON, Parquet, Excel).
     static func recentFiles(_ urls: [URL], in connections: [ConnectionConfig]) -> [URL] {
         urls.filter { url in
-            url.isFileURL && (isDuckDBFile(url) || record(for: url.path, in: connections) != nil)
+            url.isFileURL && (isDuckDBFile(url) || DataFiles.isDataFile(url) || record(for: url.path, in: connections) != nil)
         }
     }
 
