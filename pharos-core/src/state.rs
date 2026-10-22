@@ -180,6 +180,10 @@ pub struct AppState {
     /// DuckDB Database…, Save of a new record, and Create Empty Database.
     /// Every other connect refuses a missing file (`duck::connect`).
     pub duck_create_once: Mutex<HashSet<String>>,
+    /// One gate per DuckDB file path: a connect holds it from "is this file
+    /// open?" to "the instance is registered", so two connects that start
+    /// together (relaunch restore) cannot each open the file (`duck::connect`).
+    pub duck_open_gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 /// What a refused write says. The same sentence the front end shows for the
@@ -213,6 +217,7 @@ impl AppState {
             duck_read_only_once: Mutex::new(HashSet::new()),
             duck_closing: Mutex::new(HashMap::new()),
             duck_create_once: Mutex::new(HashSet::new()),
+            duck_open_gates: Mutex::new(HashMap::new()),
         }
     }
 
@@ -536,6 +541,12 @@ impl AppState {
     pub fn request_duck_read_only_once(&self, connection_id: &str) {
         let mut set = self.duck_read_only_once.lock().unwrap_or_else(|e| e.into_inner());
         set.insert(connection_id.to_string());
+    }
+
+    /// The open gate for one DuckDB file path (`duck_open_gates`).
+    pub fn duck_open_gate(&self, key: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut gates = self.duck_open_gates.lock().unwrap_or_else(|e| e.into_inner());
+        gates.entry(key.to_string()).or_default().clone()
     }
 
     /// Let this record's next connect create its file if it is missing.

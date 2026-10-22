@@ -56,6 +56,15 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
     let read_only = config.read_only || state.take_duck_read_only_once(&config.id);
     let create = state.take_duck_create_once(&config.id);
     let path = normalized_path(&config.database);
+    // From the check below until the new instance is registered, no other
+    // connect may open this file: relaunch restore starts every tab's connect
+    // at once, and two that each found the file closed would each open it.
+    // Every in-memory record is its own database, so it gates on its id.
+    let gate = state.duck_open_gate(if path == IN_MEMORY { &config.id } else { &path });
+    let _open = gate.lock().await;
+    if state.get_duck(&config.id).is_some() {
+        return Ok(info(&config, ConnectionStatus::Connected, None, None));
+    }
     if let Some(existing) = state.duck_instance_for_path(&path).or_else(|| state.duck_still_closing(&path)) {
         // One instance has ONE mode. Sharing a writable instance with a
         // Read-only record would let its editor write; sharing a read-only
@@ -759,6 +768,57 @@ mod tests {
         assert_eq!(alone.status, ConnectionStatus::Connected, "{:?}", alone.error);
         assert!(state.get_duck("r").unwrap().read_only);
         disconnect("r", &state).await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Connects that start together (relaunch restore reconnects every tab at
+    /// once) still give a file ONE instance: records that agree share it, and
+    /// a record with the other Read-only setting is refused. Found live: a
+    /// restored Read-only tab and a writable tab on one file both connected,
+    /// each with its own instance (fds 23r and 28u in one process).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connects_that_start_together_share_one_instance() {
+        let path = temp("together", "duckdb");
+        drop(::duckdb::Connection::open(&path).unwrap());
+        let state = Arc::new(state_with("w1", &path));
+        let base = state.get_config("w1").unwrap();
+        let mut configs = Vec::new();
+        for (id, read_only) in [("w1", false), ("w2", false), ("w3", false), ("r1", true)] {
+            let mut c = base.clone();
+            c.id = id.into();
+            c.read_only = read_only;
+            state.set_config(c.clone());
+            configs.push(c);
+        }
+        let tasks: Vec<_> = configs
+            .into_iter()
+            .map(|c| {
+                let state = state.clone();
+                tokio::spawn(async move { (c.id.clone(), connect(c, &state).await.unwrap()) })
+            })
+            .collect();
+        let mut connected = Vec::new();
+        for t in tasks {
+            let (id, info) = t.await.unwrap();
+            if info.status == ConnectionStatus::Connected {
+                connected.push(id);
+            } else {
+                assert_eq!(info.error.as_deref(), Some(READ_ONLY_MISMATCH), "{id}: {:?}", info.error);
+            }
+        }
+        let instances: Vec<_> = connected.iter().map(|id| state.get_duck(id).unwrap()).collect();
+        assert!(
+            instances.windows(2).all(|w| Arc::ptr_eq(&w[0], &w[1])),
+            "every connected record shares one instance: {connected:?}"
+        );
+        let writers = connected.iter().filter(|id| id.starts_with('w')).count();
+        assert!(
+            (writers == 3 && !connected.contains(&"r1".to_string())) || connected == vec!["r1".to_string()],
+            "either the three writable records or the Read-only one, never both: {connected:?}"
+        );
+        for id in ["w1", "w2", "w3", "r1"] {
+            disconnect(id, &state).await;
+        }
         let _ = std::fs::remove_file(&path);
     }
 
