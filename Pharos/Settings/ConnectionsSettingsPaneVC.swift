@@ -36,6 +36,18 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
 
     override var sections: [SettingsSection] {
         [
+            // One header for the PostgreSQL rows (N4): the time zone, the
+            // pool and the keepalive never reach a DuckDB database, which has
+            // its own section at the end.
+            SettingsSection(title: String(localized: "PostgreSQL"), items: [
+                SettingsItem(
+                    id: "postgresNote",
+                    title: String(localized: "The settings from here to DuckDB apply to PostgreSQL connections."),
+                    caption: String(localized: "DuckDB runs inside Pharos and has its own settings, at the end of this pane."),
+                    icon: "server.rack",
+                    kind: .display),
+            ]),
+
             SettingsSection(title: String(localized: "New Connections"), items: [
                 SettingsItem(
                     id: "defaultPort",
@@ -91,10 +103,10 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                                    range: 0...86400, unit: String(localized: "seconds"))),
                 SettingsItem(
                     id: "maxTabSessionsPerConnection",
-                    title: String(localized: "Editor tab connections per server"),
+                    title: String(localized: "Editor tab connections per connection"),
                     caption: String(localized: "Each editor tab that runs a query holds one connection, beside the shared pool."),
                     icon: "rectangle.connected.to.line.below",
-                    help: String(localized: "A small server allows few connections. Over the limit, a tab's cards run on the shared pool, without session state between cards. 0 = no limit."),
+                    help: String(localized: "A small server allows few connections. Over the limit, a tab's cards run on the shared pool, without session state between cards. 0 = no limit. A DuckDB database has no limit: each tab always has its own connection."),
                     kind: .stepper(.settings(\.connections.maxTabSessionsPerConnection),
                                    range: 0...100, unit: nil)),
             ]),
@@ -177,7 +189,7 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "duckdbNote",
                     title: Self.appliesLater,
-                    caption: String(localized: "A DuckDB database reads these when it opens, so they reach a database the next time you connect it."),
+                    caption: String(localized: "A DuckDB database reads these when it opens. To change one that is open, run SET memory_limit = '4GB' or SET threads = 4 in a card. Each open database has its own limit, so several open databases can use more in all."),
                     icon: "info.circle",
                     kind: .display),
                 SettingsItem(
@@ -190,7 +202,7 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "duckdbMemoryLimit",
                     title: String(localized: "Memory limit"),
-                    caption: String(localized: "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk."),
+                    caption: String(localized: "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk: beside a database file, or for an in-memory database into the system's temporary folder."),
                     icon: "memorychip",
                     help: String(localized: "Leave it empty for DuckDB's default, 80% of this Mac's memory."),
                     kind: .text(.settings(\.connections.duckdbMemoryLimit), width: 120)),

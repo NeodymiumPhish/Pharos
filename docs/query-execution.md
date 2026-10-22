@@ -64,7 +64,7 @@ Refused on a tab connection:
 
 ### Limits and shared connections
 
-**Editor tab connections per server** in [Settings > Connections](settings.md#connections-pane) sets how many tab connections one server may hold (default 8; 0 is no limit). When a server already has that many, a card runs on a shared connection, and Pharos says once that `SET`, temporary tables and transactions do not carry from card to card. A server that cannot hold a tab connection (some PostgreSQL-compatible servers) also falls back to shared connections.
+**Editor tab connections per connection** in [Settings > Connections](settings.md#connections-pane) sets how many tab connections one PostgreSQL connection may hold (default 8; 0 is no limit; a DuckDB database has no limit). When a server already has that many, a card runs on a shared connection, and Pharos says once that `SET`, temporary tables and transactions do not carry from card to card. A server that cannot hold a tab connection (some PostgreSQL-compatible servers) also falls back to shared connections.
 
 {: .warning }
 PgBouncer in **transaction pooling** mode cannot keep session state between statements, and Pharos cannot detect it. `SET`, temporary tables and transactions over several cards do not work through it. Use session pooling, or connect directly, for multi-card transactions.

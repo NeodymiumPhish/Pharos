@@ -188,7 +188,9 @@ These DuckDB extensions are built into Pharos. You do not install or load them; 
 {: .note }
 Pharos does not download extensions. macOS lets the app load only the libraries it shipped with, so an extension that is not in the list above (for example `spatial`) is not available.
 
-**Settings > Connections > DuckDB** sets the worker threads and the memory limit. These settings apply the next time a database opens.
+**Settings > Connections > DuckDB** sets the worker threads and the memory limit. A database reads these settings when it opens. To change an open database, run `SET memory_limit = '4GB'` or `SET threads = 4` in a card. Each open database has its own limit, so several open databases can use more memory in all.
+
+Work larger than the memory limit spills to disk: for a database file into `<file>.tmp` beside it, and for an in-memory database into its own folder in the system's temporary folder. DuckDB removes the folder when the database closes.
 
 ## View definitions
 

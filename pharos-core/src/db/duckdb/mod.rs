@@ -166,6 +166,16 @@ impl DuckDbInstance {
         if let Some(folder) = file_search_path(&path) {
             config = config.with("file_search_path", &folder).map_err(|e| e.to_string())?;
         }
+        // An in-memory database spills large work to DuckDB's default
+        // `.tmp`, RELATIVE to the working directory — "/" for an app, which is
+        // read-only — and every in-memory database would share it (N4). Each
+        // gets its own folder under the system's temporary directory; DuckDB
+        // removes the folder it made when the database closes. A file
+        // database keeps DuckDB's default, `<file>.tmp` beside the file.
+        if path == IN_MEMORY {
+            let spill = std::env::temp_dir().join("pharos-duckdb-spill").join(uuid::Uuid::new_v4().to_string());
+            config = config.with("temp_directory", &spill.to_string_lossy()).map_err(|e| e.to_string())?;
+        }
 
         let conn = if path == IN_MEMORY {
             Connection::open_in_memory_with_flags(config)
@@ -313,6 +323,20 @@ mod tests {
         drop(c);
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// N4: each in-memory database spills into its own folder under the
+    /// system temporary directory, never a relative ".tmp".
+    #[test]
+    fn an_in_memory_database_spills_to_its_own_temp_folder() {
+        let a = DuckDbInstance::open(IN_MEMORY, false, &OpenOptions::default()).unwrap();
+        let b = DuckDbInstance::open(IN_MEMORY, false, &OpenOptions::default()).unwrap();
+        let dir = |db: &DuckDbInstance| -> String {
+            db.connect().unwrap().query_row("SELECT current_setting('temp_directory')", [], |r| r.get(0)).unwrap()
+        };
+        let (da, db_) = (dir(&a), dir(&b));
+        assert!(da.contains("pharos-duckdb-spill") && Path::new(&da).is_absolute(), "{da}");
+        assert_ne!(da, db_, "two in-memory databases never share a spill folder");
     }
 
     #[test]
