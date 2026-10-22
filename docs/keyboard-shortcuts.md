@@ -34,6 +34,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Action | Shortcut |
 |--------|----------|
 | Manage Connections… | Cmd+Shift+N |
+| Connect | Control+Cmd+K |
 | Refresh Metadata | Cmd+Shift+R |
 | Open… (SQL file) | Cmd+O |
 | New Window | Cmd+N |

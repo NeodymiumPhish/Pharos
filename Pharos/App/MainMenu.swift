@@ -45,7 +45,11 @@ enum MainMenu {
         manageConnections.keyEquivalentModifierMask = [.command, .shift]
         manageConnections.image = NSImage(systemSymbolName: "cylinder.split.1x2", accessibilityDescription: nil)
 
-        let connectItem = fileMenu.addItem(withTitle: String(localized: "Connect"), action: #selector(ContentViewController.menuConnect(_:)), keyEquivalent: "")
+        // ⌃⌘K (C5): Connect is frequent, and Run waits for it. ⌃⌘ follows
+        // the card commands; Disconnect has no shortcut, since it can roll
+        // transactions back.
+        let connectItem = fileMenu.addItem(withTitle: String(localized: "Connect"), action: #selector(ContentViewController.menuConnect(_:)), keyEquivalent: "k")
+        connectItem.keyEquivalentModifierMask = [.control, .command]
         connectItem.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
 
         let disconnectItem = fileMenu.addItem(withTitle: String(localized: "Disconnect"), action: #selector(ContentViewController.menuDisconnect(_:)), keyEquivalent: "")
