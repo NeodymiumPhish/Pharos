@@ -1732,7 +1732,7 @@ class ContentViewController: NSViewController {
         }
         runningJobs[job.id] = (tabId, nil)
 
-        let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.variables)
+        let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: connectionId))
         if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
             presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: tabId)
             finishJob(job.id, inTab: tabId, .failed)
@@ -1964,8 +1964,22 @@ class ContentViewController: NSViewController {
         tabId: String
     ) {
         var parts: [String] = []
-        if !unresolved.isEmpty {
-            parts.append("Undefined: " + unresolved.map { "{{\($0)}}" }.joined(separator: ", "))
+        // A variable that exists but is linked to other connections says where
+        // it is defined (`VariableScope`), not "Undefined".
+        let all = QueryVariableStore.shared.variables
+        let connectionId = session.tabs.first { $0.id == tabId }?.connectionId
+        var undefined: [String] = []
+        for name in unresolved {
+            if let ids = VariableScope.linkedElsewhere(name: name, in: all, connectionId: connectionId) {
+                let names = ids.compactMap { id in stateManager.connections.first { $0.id == id } }
+                    .map { DisplayEscape.escaped($0.name) }
+                parts.append(VariableScope.linkedElsewhereMessage(name: name, connectionNames: names))
+            } else {
+                undefined.append(name)
+            }
+        }
+        if !undefined.isEmpty {
+            parts.append("Undefined: " + undefined.map { "{{\($0)}}" }.joined(separator: ", "))
         }
         for item in invalid {
             parts.append("\(item.name): \(item.reason)")
@@ -2037,7 +2051,7 @@ class ContentViewController: NSViewController {
               let card = activeTab.document.card(cardId), card.kind == .sql,
               !card.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.variables)
+        let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: connectionId))
         if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
             presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: activeTab.id)
             return
@@ -2466,7 +2480,7 @@ class ContentViewController: NSViewController {
             parts.append(result.planIsAnalyze ? String(localized: "plan, measured") : String(localized: "plan, estimated"))
         }
         if let run = card.lastRun, let tab = session.activeTab,
-           tab.document.isEdited(cardId: card.id, renderedSQL: VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.variables).sql),
+           tab.document.isEdited(cardId: card.id, renderedSQL: VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: tab.connectionId)).sql),
            result.hasPayload, !run.rawSQL.isEmpty {
             parts.append(String(localized: "from the SQL before the edit"))
         }
@@ -3329,7 +3343,7 @@ extension ContentViewController: EditorPaneDelegate {
         st.resultInMemory = held?.hasPayload == true
         st.isDisplayed = tab.document.displayedCardId == card.id
         if card.lastRun != nil, card.kind == .sql {
-            let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.variables).sql
+            let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: tab.connectionId)).sql
             st.isEdited = tab.document.isEdited(cardId: card.id, renderedSQL: rendered)
         }
         if card.lastFailureId != nil,
@@ -4684,7 +4698,8 @@ extension ContentViewController {
         guard let tab = session.activeTab else { return }
         // A script to run elsewhere: the latest version of each query, with
         // the variables substituted (in the SQL, not in the notes).
-        let text = CardText.renderedText(of: tab.document, mode: .latest, variables: QueryVariableStore.shared.variables)
+        let text = CardText.renderedText(of: tab.document, mode: .latest,
+                                         variables: QueryVariableStore.shared.available(for: tab.connectionId))
 
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType("public.sql") ?? .plainText]

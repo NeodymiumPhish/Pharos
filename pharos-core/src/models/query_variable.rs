@@ -25,6 +25,11 @@ pub struct QueryVariable {
     pub value: String,
     #[serde(rename = "type", default = "default_kind")]
     pub kind: String,
+    /// The connections the variable is linked to; empty means global (every
+    /// connection). Opaque record ids; Rust never checks them. Left out of the
+    /// JSON when empty, so a global variable's document is unchanged.
+    #[serde(rename = "connectionIds", default, skip_serializing_if = "Vec::is_empty")]
+    pub connection_ids: Vec<String>,
 }
 
 fn default_kind() -> String {

@@ -67,6 +67,8 @@ class EditorPaneVC: NSViewController {
     /// regex pass over the text, so it runs once per pause rather than once per
     /// keystroke.
     private var referencedNamesScanTimer: Timer?
+    /// The connection the cards' variables were last applied for.
+    var appliedVariableConnectionId: String?
     private let referencedNamesScanDelay: TimeInterval = 0.15
 
     weak var delegate: EditorPaneDelegate?
@@ -773,9 +775,22 @@ class EditorPaneVC: NSViewController {
         applyQueryVariables()
     }
 
-    private func applyQueryVariables() {
+    /// The variables this tab's connection can use (`VariableScope`): a
+    /// variable linked to another connection is red here, as an undefined one.
+    func applyQueryVariables() {
         let store = QueryVariableStore.shared
-        cardStack.setVariables(names: store.definedNames, completion: store.variables)
+        let connectionId = session.tab?.connectionId
+        appliedVariableConnectionId = connectionId
+        cardStack.setVariables(names: store.definedNames(for: connectionId),
+                               completion: store.available(for: connectionId))
+    }
+
+    /// Re-apply when the tab moved to another connection: called from
+    /// `refreshTabContext`, which runs on every tab change, so only a real
+    /// connection change re-colours the cards.
+    func applyQueryVariablesIfConnectionChanged() {
+        guard session.tab?.connectionId != appliedVariableConnectionId else { return }
+        applyQueryVariables()
     }
 
     /// Re-scan the editor text for `{{token}}` references and publish the

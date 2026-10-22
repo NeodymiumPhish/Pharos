@@ -13,6 +13,7 @@ extension EditorPaneVC {
         let config = connectionId.flatMap { id in connections.first { $0.id == id } }
 
         refreshConnectionMenu()
+        applyQueryVariablesIfConnectionChanged()
 
         let status = config.map { stateManager.status(for: $0.id) }
         let rawError = status == .error ? config.flatMap { stateManager.connectionError(for: $0.id) } : nil

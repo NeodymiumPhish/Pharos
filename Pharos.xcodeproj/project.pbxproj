@@ -223,6 +223,7 @@
 		85EC5B8FCC50F2491D742AA5 /* SQLSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 926D010C1B262892B7B738FE /* SQLSummary.swift */; };
 		863180CE4A3ECA87F069BD55 /* MainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A133A112CDC62FDBC82CB2 /* MainWindow.swift */; };
 		8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */; };
+		87EC2934D48F980C58B3409E /* VariableScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EB0CBF071F66B775B3788 /* VariableScope.swift */; };
 		8859849E6D15A46D85580748 /* SQLTypeName.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */; };
 		894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */; };
 		89EF93E93C0C817C39749B9C /* SettingsTilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */; };
@@ -456,6 +457,7 @@
 		16679621777BEB58D425E66E /* ChartData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartData.swift; sourceTree = "<group>"; };
 		17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagFunnel.swift; sourceTree = "<group>"; };
 		17CEEB8796DC2B8361BC29CF /* CardPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardPersistence.swift; sourceTree = "<group>"; };
+		181EB0CBF071F66B775B3788 /* VariableScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableScope.swift; sourceTree = "<group>"; };
 		19AF62FA8AF8FDA0C1116884 /* SessionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshot.swift; sourceTree = "<group>"; };
 		1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableDetailVC.swift; sourceTree = "<group>"; };
 		1B95AB36D3C9B29C6F5EDAA2 /* AdvancedSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsPaneVC.swift; sourceTree = "<group>"; };
@@ -1236,6 +1238,7 @@
 				14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
 				6FE902A585FDD51D23B51B23 /* UpdateCheckPolicy.swift */,
+				181EB0CBF071F66B775B3788 /* VariableScope.swift */,
 				B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */,
 				A51B7E42D0E3720183013836 /* VariableValuePreview.swift */,
 				1DA9A294A7A9EC938B10375E /* WindowSession.swift */,
@@ -1912,6 +1915,7 @@
 				F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */,
 				915C735DB5EE744A31495822 /* VariableListView.swift in Sources */,
 				CFB3EFEA0CF91443AA21DC63 /* VariableRowView.swift in Sources */,
+				87EC2934D48F980C58B3409E /* VariableScope.swift in Sources */,
 				CF64D96D4F059250F9C07280 /* VariableSubstitutor.swift in Sources */,
 				957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */,
 				CFB0EA3E1B5BC908735FBF2D /* VariableValueTextView.swift in Sources */,

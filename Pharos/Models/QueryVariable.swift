@@ -26,16 +26,35 @@ struct QueryVariable: Identifiable, Codable, Equatable {
     var name: String
     var value: String = ""
     var type: VariableType = .literal
+    /// The connection records the variable is linked to. Empty is global:
+    /// every connection, the default. A tab on any other connection does not
+    /// see a linked variable (`VariableScope`).
+    var connectionIds: [String] = []
 
-    init(id: UUID = UUID(), name: String, value: String = "", type: VariableType = .literal) {
+    var isGlobal: Bool { connectionIds.isEmpty }
+
+    init(id: UUID = UUID(), name: String, value: String = "", type: VariableType = .literal,
+         connectionIds: [String] = []) {
         self.id = id
         self.name = name
         self.value = value
         self.type = type
+        self.connectionIds = connectionIds
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, value, type
+        case id, name, value, type, connectionIds
+    }
+
+    // Written by hand so a global variable's document leaves the key out, as
+    // the core does: older builds never see an unknown key from a global one.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(value, forKey: .value)
+        try container.encode(type, forKey: .type)
+        if !connectionIds.isEmpty { try container.encode(connectionIds, forKey: .connectionIds) }
     }
 
     /// Decoding is written by hand for one reason: an unrecognised `type` must not
@@ -55,6 +74,8 @@ struct QueryVariable: Identifiable, Codable, Equatable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decode(String.self, forKey: .name)
         value = try container.decodeIfPresent(String.self, forKey: .value) ?? ""
+        // Absent from every variable written before scopes: global.
+        connectionIds = try container.decodeIfPresent([String].self, forKey: .connectionIds) ?? []
 
         let rawType = try container.decodeIfPresent(String.self, forKey: .type)
             ?? VariableType.literal.rawValue

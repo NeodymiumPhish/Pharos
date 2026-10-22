@@ -37,6 +37,18 @@ final class QueryVariableStore {
         Set(variables.map(\.name).filter { !$0.isEmpty })
     }
 
+    /// The variables a tab on `connectionId` can use: the global ones and
+    /// those linked to it (`VariableScope`). Every run, EXPLAIN, export and
+    /// copy resolves against this, never against the whole list.
+    func available(for connectionId: String?) -> [QueryVariable] {
+        VariableScope.available(variables, connectionId: connectionId)
+    }
+
+    /// The names a tab on `connectionId` highlights as defined.
+    func definedNames(for connectionId: String?) -> Set<String> {
+        Set(available(for: connectionId).map(\.name).filter { !$0.isEmpty })
+    }
+
     private var loaded = false
 
     /// Read the list once. Later calls cost nothing. Posts `didChange` after a

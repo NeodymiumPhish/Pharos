@@ -448,7 +448,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
 
     @objc private func contextCopySQL(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
-        let rendered = CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.variables)
+        let rendered = CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.available(for: q.connectionId))
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rendered, forType: .string)
     }
@@ -458,7 +458,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
     /// snippet someone pastes into a message, not a document.
     @objc private func contextShareSQL(_: Any?) {
         guard let node = clickedNode(), case .query(let q) = node.kind else { return }
-        let rendered = CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.variables)
+        let rendered = CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.available(for: q.connectionId))
         let row = outlineView.clickedRow
         let anchor = row >= 0 ? outlineView.rect(ofRow: row) : outlineView.visibleRect
         let picker = NSSharingServicePicker(items: [rendered])
@@ -484,7 +484,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
                 url = url.appendingPathExtension("sql")
             }
             do {
-                try SQLFileWriter.write(CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.variables), to: url)
+                try SQLFileWriter.write(CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.available(for: q.connectionId)), to: url)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't save \(url.lastPathComponent)"
@@ -546,7 +546,7 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
             seenStems.insert(stem)
 
             let target = dir.appendingPathComponent("\(stem).sql")
-            let renderedSQL = CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.variables)
+            let renderedSQL = CardText.renderedText(storedSQL: q.sql, cardsJson: q.cardsJson, variables: QueryVariableStore.shared.available(for: q.connectionId))
             planned.append(Plan(sql: renderedSQL, stem: stem, target: target, exists: fm.fileExists(atPath: target.path)))
         }
 

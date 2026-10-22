@@ -866,6 +866,9 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     // Migration: DuckDB files are opened, not saved. A record is listed in the
     // Connections Manager only when `saved`; servers always are.
     add_column_if_missing(conn, "connections", "saved", "INTEGER NOT NULL DEFAULT 1")?;
+    // Migration: a variable can be linked to connections (JSON array of
+    // record ids). NULL is global, which every older row is.
+    add_column_if_missing(conn, "query_variables", "connection_ids", "TEXT")?;
     mark_duckdb_records_not_saved(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
@@ -2126,14 +2129,18 @@ pub fn remove_recent_files(conn: &mut Connection, paths: &[String]) -> SqliteRes
 /// per-tab copies.
 pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, value, type FROM query_variables ORDER BY position ASC",
+        "SELECT id, name, value, type, connection_ids FROM query_variables ORDER BY position ASC",
     )?;
     let rows = stmt.query_map([], |row| {
+        // NULL (every variable written before scopes) and an unreadable
+        // value both read as global.
+        let ids: Option<String> = row.get(4)?;
         Ok(QueryVariable {
             id: row.get(0)?,
             name: row.get(1)?,
             value: row.get(2)?,
             kind: row.get(3)?,
+            connection_ids: ids.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
         })
     })?;
     rows.collect()
@@ -2147,13 +2154,16 @@ pub fn save_query_variables(conn: &mut Connection, variables: &[QueryVariable]) 
     tx.execute("DELETE FROM query_variables", [])?;
     for (position, variable) in variables.iter().enumerate() {
         tx.execute(
-            "INSERT INTO query_variables (id, name, value, type, position) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO query_variables (id, name, value, type, position, connection_ids) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 variable.id,
                 variable.name,
                 variable.value,
                 variable.kind,
                 position as i64,
+                // Global stays SQL NULL, as every row before scopes.
+                (!variable.connection_ids.is_empty())
+                    .then(|| serde_json::to_string(&variable.connection_ids).unwrap_or_default()),
             ],
         )?;
     }
@@ -2177,7 +2187,25 @@ mod query_variable_tests {
             name: name.to_string(),
             value: value.to_string(),
             kind: kind.to_string(),
+            connection_ids: Vec::new(),
         }
+    }
+
+    /// A linked variable keeps its connections; a global one stays NULL in
+    /// the column and keeps its JSON unchanged.
+    #[test]
+    fn connection_ids_round_trip() {
+        let mut conn = db();
+        let linked = QueryVariable { connection_ids: vec!["prod".into(), "staging".into()], ..variable("a", "env", "p", "text") };
+        save_query_variables(&mut conn, &[linked.clone(), variable("b", "limit", "5", "number")]).unwrap();
+        let loaded = load_query_variables(&conn).unwrap();
+        assert_eq!(loaded[0].connection_ids, ["prod", "staging"]);
+        assert!(loaded[1].connection_ids.is_empty(), "global");
+        let raw: Option<String> = conn
+            .query_row("SELECT connection_ids FROM query_variables WHERE id = 'b'", [], |r| r.get(0)).unwrap();
+        assert_eq!(raw, None, "a global variable is NULL in the column");
+        let json = serde_json::to_string(&linked).unwrap();
+        assert!(json.contains(r#""connectionIds":["prod","staging"]"#), "Swift's key: {json}");
     }
 
     #[test]
