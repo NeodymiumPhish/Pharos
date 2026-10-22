@@ -359,6 +359,53 @@ pub extern "C" fn pharos_validate_sql(
     });
 }
 
+/// DuckDB syntax through Format SQL (review: "no test covers DuckDB
+/// syntax"). Each query must give the same rows formatted as written.
+#[cfg(test)]
+mod duckdb_format_tests {
+    use super::*;
+
+    fn format(sql: &str) -> String {
+        let options = format_options_for(&crate::models::EditorSettings::default());
+        let (masked, tokens, prefix) = mask_variable_tokens(sql);
+        let formatted = sqlformat::format(&masked, &sqlformat::QueryParams::None, &options);
+        restore_variable_tokens(&formatted, &tokens, &prefix)
+    }
+
+    /// The rows as DuckDB's own text (the card path), one string per row.
+    fn rows(c: &::duckdb::Connection, sql: &str) -> Result<Vec<String>, String> {
+        let r = crate::db::duckdb::exec::query_text(c, sql, None, 0)?;
+        Ok(r.rows.iter().map(|row| row.to_string()).collect())
+    }
+
+    #[test]
+    fn duckdb_syntax_survives_format_sql() {
+        let c = ::duckdb::Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE t AS SELECT range AS a, range % 3 AS g, 'x' || range AS s FROM range(9)").unwrap();
+        let cases = [
+            ("lambda", "SELECT list_transform([1, 2, 3], x -> x + 1) AS l"),
+            ("struct literal", "SELECT {'a': 1, 'b': 'two'} AS s"),
+            ("FROM-first", "FROM t SELECT a WHERE a > 5"),
+            ("EXCLUDE", "SELECT * EXCLUDE (s) FROM t WHERE a < 2"),
+            ("GROUP BY ALL", "SELECT g, count(*) AS n FROM t GROUP BY ALL ORDER BY ALL"),
+            ("PIVOT", "SELECT * FROM (PIVOT t ON g USING sum(a)) ORDER BY ALL"),
+            ("list slice", "SELECT [1, 2, 3, 4][2:3] AS sl"),
+            ("double colon cast", "SELECT '42'::INTEGER + 1 AS n"),
+        ];
+        let mut broken = Vec::new();
+        for (name, sql) in cases {
+            let formatted = format(sql);
+            let before = rows(&c, sql).unwrap_or_else(|e| panic!("{name} does not run as written: {e}"));
+            match rows(&c, &formatted) {
+                Ok(after) if after == before => {}
+                Ok(after) => broken.push(format!("{name}: rows differ\n{formatted}\n{before:?} vs {after:?}")),
+                Err(e) => broken.push(format!("{name}: {e}\n{formatted}")),
+            }
+        }
+        assert!(broken.is_empty(), "Format SQL changed DuckDB queries:\n{}", broken.join("\n---\n"));
+    }
+}
+
 #[cfg(test)]
 mod variable_token_tests {
     use super::*;

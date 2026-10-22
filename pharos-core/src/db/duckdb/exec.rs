@@ -707,7 +707,7 @@ mod tests {
         let (total, distinct, last_len) = with_text_stream(&c, "SELECT range AS n FROM range(10007)", |next| {
             let mut seen = std::collections::HashSet::new();
             let mut total = 0;
-            let mut last_len = 0;
+            let mut last_len;
             loop {
                 let chunk = next(1000)?;
                 assert_eq!(chunk.columns.len(), 1);
