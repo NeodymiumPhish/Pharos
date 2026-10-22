@@ -466,10 +466,9 @@ final class VariableDetailVC: NSViewController {
     /// query that predates this refusal rule) show the collision notice the
     /// moment you drill in, rather than only after the next keystroke: at
     /// that point `nameField.stringValue` has just been set to
-    /// `variable.name`, and the panel has already supplied `otherNames`
-    /// (`QueryVariablesPanelVC.drillIn` sets it before `.view` is ever
-    /// accessed), so this is the first point where checking the two against
-    /// each other is meaningful.
+    /// `variable.name`. The host may supply `otherNames` before or after the
+    /// view loads (`VariableManagerVC.showDetail` sets it just after); its
+    /// `didSet` re-checks once the view exists, so either order is right.
     private func recomputeCollisionState() {
         let trimmed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         isNameCollision = !trimmed.isEmpty && otherNames.contains(trimmed)
@@ -479,8 +478,8 @@ final class VariableDetailVC: NSViewController {
 
     /// Sibling variables' trimmed, non-empty names (this variable's own name
     /// excluded) — supplied by the panel, since this VC cannot see its own
-    /// siblings; refreshed by the panel whenever the list changes underneath
-    /// (see `QueryVariablesPanelVC.refreshDetailState`).
+    /// siblings; refreshed by the host whenever the list changes underneath
+    /// (see `VariableManagerVC.refreshDetailState`).
     ///
     /// Recomputes the collision signal on every set — not just from
     /// `controlTextDidChange` — guarded by `isViewLoaded` because the panel
@@ -732,7 +731,7 @@ final class VariableDetailVC: NSViewController {
     /// what `commitNameIfValid`'s existing collision guard already does, so
     /// this is only a public name for calling it from outside the VC.
     ///
-    /// The caller (`QueryVariablesPanelVC.dismissDetail`) must call this
+    /// The caller (`VariableManagerVC.select`, leaving a row) must call this
     /// *before* reading `variable` for its own abandoned-row prune check:
     /// settling first means a freshly added row that was given a valid name
     /// is no longer empty, so it is correctly kept rather than pruned as

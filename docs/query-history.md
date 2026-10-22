@@ -18,7 +18,7 @@ nav_order: 14
 
 ## Overview
 
-The **Results History** panel is the third navigator of the sidebar (the clock icon of the navigator selector in the window toolbar; **View > Navigators > Results History**, **Cmd+Opt+3**). Pharos records your work as **workspaces**: one workspace per editor-tab session, capturing the tab's [query cards](query-editor.md#query-cards) and every result they produced. Reopening a workspace restores the whole session — the cards, each card's results, even chart configurations. ([Query variables](query-variables.md) are app-wide, not part of a workspace.)
+The **Results History** panel is the **History** list of the sidebar's **Library** navigator (the first icon of the navigator selector in the window toolbar, then **History** in its scope bar; **View > Navigators > Results History**). Pharos records your work as **workspaces**: one workspace per editor-tab session, capturing the tab's [query cards](query-editor.md#query-cards) and every result they produced. Reopening a workspace restores the whole session — the cards, each card's results, even chart configurations. ([Query variables](query-variables.md) are app-wide, not part of a workspace.)
 
 ## Workspaces
 

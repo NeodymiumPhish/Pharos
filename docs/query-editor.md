@@ -22,7 +22,7 @@ The query editor provides SQL editing with syntax highlighting, auto-completion,
 
 ## Editor Toolbar
 
-The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of five icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Session, a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of three icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Session, a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
 ### The context row
 
@@ -33,7 +33,7 @@ The context row says which database and schema this tab uses, and what its conne
 - the connection's state: **Connected**; **Not connected** with a **Connect** button; **Connecting…** with a spinner; or **Could not connect** with a **Try Again** button. Rest the pointer on Could not connect to see the reason;
 - the **transaction chip**, while the tab has an open or failed transaction, or after its connection was reset (see [Transactions](query-execution.md#transactions)).
 
-[Query variables](query-variables.md) are edited in the sidebar's **Variables** navigator, not in the editor.
+[Query variables](query-variables.md) are edited in the **Variable Manager** window, not in the editor.
 
 ## Query Cards
 

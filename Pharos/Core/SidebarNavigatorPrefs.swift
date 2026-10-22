@@ -1,15 +1,16 @@
 import Foundation
 
-/// Which navigator the sidebar was showing when the app last quit. App-wide,
-/// like `ResultTabsPanelPrefs.width` — a new window opens on the list the user
-/// was last reading, not always on the Query Library.
+/// Which navigator — and which Library list — the sidebar was showing when
+/// the app last quit. App-wide: a new window opens on the list the user was
+/// last reading.
 enum SidebarNavigatorPrefs {
 
-    /// "2", not the original key: the Variables navigator was inserted at raw
-    /// value 1, so a stored 1 from an earlier build (Results History) would
-    /// now read as Variables. A fresh key makes every old value absent, and an
-    /// absent value is the Library — the same first launch every user had.
-    private static let lastNavigatorKey = "SidebarLastNavigator2"
+    /// "3": the sidebar went from five navigators to three (Library, Files,
+    /// Database Navigator), so a raw value stored under "2" means something
+    /// else now. It is read once and mapped (`migrated(fromVersion2:)`).
+    private static let lastNavigatorKey = "SidebarLastNavigator3"
+    private static let previousNavigatorKey = "SidebarLastNavigator2"
+    private static let libraryScopeKey = "SidebarLibraryScope"
 
     /// Injectable so the suite can round-trip through its own suite domain
     /// instead of the user's defaults.
@@ -17,21 +18,50 @@ enum SidebarNavigatorPrefs {
 
     static var lastNavigator: Navigator {
         get {
-            // `integer(forKey:)` returns 0 for an absent key, which is
-            // `.library` — the intended default, but say so rather than lean
-            // on the coincidence. An out-of-range stored value (an older or
-            // newer build's navigator) also falls back to the Library.
+            migrateIfNeeded()
+            // An absent or out-of-range value (an older or newer build) is the
+            // Library — the same first launch every user had.
             guard let stored = defaults.object(forKey: lastNavigatorKey) as? Int,
                   let navigator = Navigator(rawValue: stored) else { return .library }
             return navigator
         }
         set { defaults.set(newValue.rawValue, forKey: lastNavigatorKey) }
     }
+
+    static var libraryScope: LibraryScope {
+        get {
+            migrateIfNeeded()
+            guard let stored = defaults.object(forKey: libraryScopeKey) as? Int,
+                  let scope = LibraryScope(rawValue: stored) else { return .sessions }
+            return scope
+        }
+        set { defaults.set(newValue.rawValue, forKey: libraryScopeKey) }
+    }
+
+    /// The five-navigator build stored 0 Sessions, 1 Variables, 2 Results
+    /// History, 3 Database Navigator, 4 Files. Variables has its own window
+    /// now, so it lands on the Library.
+    static func migrated(fromVersion2 raw: Int) -> (Navigator, LibraryScope) {
+        switch raw {
+        case 2: return (.library, .history)
+        case 3: return (.schema, .sessions)
+        case 4: return (.files, .sessions)
+        default: return (.library, .sessions)
+        }
+    }
+
+    private static func migrateIfNeeded() {
+        guard defaults.object(forKey: lastNavigatorKey) == nil,
+              let old = defaults.object(forKey: previousNavigatorKey) as? Int else { return }
+        let (navigator, scope) = migrated(fromVersion2: old)
+        defaults.set(navigator.rawValue, forKey: lastNavigatorKey)
+        defaults.set(scope.rawValue, forKey: libraryScopeKey)
+    }
 }
 
-/// The sidebar's filter state: which navigator is showing, and the filter text
-/// each one is holding. Kept out of the view controller so the "text is
-/// remembered per navigator" rule can be asserted without AppKit.
+/// The sidebar's filter state: which navigator and Library list is showing,
+/// and the filter text each LIST is holding. Kept out of the view controller
+/// so the "text is remembered per list" rule can be asserted without AppKit.
 ///
 /// A switch must not carry one list's filter into another: the schema tree and
 /// the query history match on entirely different text, and a stray filter that
@@ -39,26 +69,35 @@ enum SidebarNavigatorPrefs {
 struct NavigatorFilterState {
 
     private(set) var current: Navigator
-    private var texts: [Navigator: String] = [:]
+    private(set) var libraryScope: LibraryScope
+    private var texts: [SidebarList: String] = [:]
 
-    init(current: Navigator = .library) {
+    init(current: Navigator = .library, libraryScope: LibraryScope = .sessions) {
         self.current = current
+        self.libraryScope = libraryScope
     }
 
-    /// The text the showing navigator is filtered by.
-    var currentText: String { texts[current] ?? "" }
+    /// The list on screen.
+    var currentList: SidebarList { SidebarList(navigator: current, scope: libraryScope) }
 
-    /// Record what the user typed into the showing navigator's slot.
+    /// The text the showing list is filtered by.
+    var currentText: String { texts[currentList] ?? "" }
+
+    /// Record what the user typed into the showing list's slot.
     mutating func setText(_ text: String) {
-        texts[current] = text
+        texts[currentList] = text
     }
 
-    /// Switch navigators. The outgoing navigator keeps its text; the incoming
-    /// one's text (possibly empty) becomes `currentText`.
+    /// Switch navigators. The outgoing list keeps its text.
     mutating func select(_ navigator: Navigator) {
         current = navigator
     }
 
-    /// The text held for any navigator, showing or not.
-    func text(for navigator: Navigator) -> String { texts[navigator] ?? "" }
+    /// Switch the Library's list. The outgoing list keeps its text.
+    mutating func selectScope(_ scope: LibraryScope) {
+        libraryScope = scope
+    }
+
+    /// The text held for any list, showing or not.
+    func text(for list: SidebarList) -> String { texts[list] ?? "" }
 }

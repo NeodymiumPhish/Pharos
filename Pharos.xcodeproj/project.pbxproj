@@ -219,7 +219,6 @@
 		82639C9F3839B61AE7D03D3E /* ChartSuggestionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
 		834A89BB88BF7F87A3247D2D /* DuckDBVocabularyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 159F0CFCF13DBB5AD0BA6BDD /* DuckDBVocabularyCache.swift */; };
-		835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */; };
 		83C280A4D2F6BB5D36BA84C2 /* PharosCore+TableMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */; };
 		844F3EB4421DF96682295D09 /* FilterPopoverSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */; };
 		8562682DCB8330EC74A8F80A /* TagConditionRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7353499DAF1364777E974B1F /* TagConditionRowView.swift */; };
@@ -487,7 +486,6 @@
 		22235FED412A763052DA524B /* NavigatorSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigatorSettingsPaneVC.swift; sourceTree = "<group>"; };
 		233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariable.swift; sourceTree = "<group>"; };
 		239C9CB1AAB054FEBD876B82 /* DuckDBCloudSecretsEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckDBCloudSecretsEditor.swift; sourceTree = "<group>"; };
-		23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryVariablesPanelVC.swift; sourceTree = "<group>"; };
 		24970168104D1359837B89EF /* TaggedRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaggedRowView.swift; sourceTree = "<group>"; };
 		25813B5D29FD64A829ED1374 /* SQLDraftSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraftSchema.swift; sourceTree = "<group>"; };
 		264FF44EDD39F675DE642D7B /* ChartTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartTypes.swift; sourceTree = "<group>"; };
@@ -1388,7 +1386,6 @@
 		EE1FA3E4810487115172B109 /* QueryVariables */ = {
 			isa = PBXGroup;
 			children = (
-				23F89A05CEBC8317C18CF8CA /* QueryVariablesPanelVC.swift */,
 				698A54A54D0C66711552AFEF /* VariableConnectionsView.swift */,
 				1A34315C45831A1C22843AE5 /* VariableDetailVC.swift */,
 				3F1ACA16C38A777BDCF7104A /* VariableListView.swift */,
@@ -1759,7 +1756,6 @@
 				3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */,
 				0C1B69042C6B767CCD140E93 /* QueryVariable.swift in Sources */,
 				D490BC5B7339E95349267722 /* QueryVariableStore.swift in Sources */,
-				835F389A05CC911B304E5D76 /* QueryVariablesPanelVC.swift in Sources */,
 				7B0EBAB5C93A48B9E7BE444C /* QuickLookItemBuilder.swift in Sources */,
 				FFA904D161481B558F5926DE /* RecentFile.swift in Sources */,
 				D605A231ED70A5D46C269962 /* RecentFileStore.swift in Sources */,

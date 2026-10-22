@@ -319,6 +319,15 @@ enum MainMenu {
             item.tag = navigator.rawValue
             item.image = NSImage(systemSymbolName: navigator.symbolName, accessibilityDescription: nil)
         }
+        // The Library's two lists, reachable directly (no keys).
+        navigatorsMenu.addItem(.separator())
+        for scope in LibraryScope.allCases {
+            let item = navigatorsMenu.addItem(
+                withTitle: scope.title,
+                action: #selector(PharosSplitViewController.menuShowLibraryScope(_:)),
+                keyEquivalent: "")
+            item.tag = scope.rawValue
+        }
         navigatorsItem.submenu = navigatorsMenu
 
         let navigatorFilterItem = viewMenu.addItem(

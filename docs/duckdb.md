@@ -43,7 +43,7 @@ An in-memory database exists only while its connection is open. Its tables are l
 
 ## The Files navigator
 
-The **Files** navigator (the fifth icon of the navigator selector, **View > Navigators > Files**, **Cmd+Opt+5**) lists every DuckDB database and data file (CSV, Parquet, JSON, Excel) you opened, with no limit. **File > Open Recent** and the Dock show only the newest of them. The list has three sections:
+The **Files** navigator (the second icon of the navigator selector, **View > Navigators > Files**, **Cmd+Opt+2**) lists every DuckDB database and data file (CSV, Parquet, JSON, Excel) you opened, with no limit. **File > Open Recent** and the Dock show only the newest of them. The list has three sections:
 
 - **Open** — files a tab uses or that are connected, and open in-memory databases.
 - **Recent** — the other files you opened in the last 60 days, newest first.

@@ -10,20 +10,21 @@ class SidebarViewController: NSViewController {
     /// from the preference in `loadView`.
     private var filterState = NavigatorFilterState()
 
-    // Containers for each panel (only one visible at a time)
+    // Containers for each navigator (only one visible at a time). The
+    // Library's holds its scope bar and its two lists.
+    private let libraryContainer = NSView()
     private let savedContainer = NSView()
-    private let variablesContainer = NSView()
     private let historyContainer = NSView()
     private let browserContainer = NSView()
     private let filesContainer = NSView()
+    /// The Library's scope bar: Sessions | History.
+    let libraryScopeControl = NSSegmentedControl(
+        labels: LibraryScope.allCases.map(\.shortTitle), trackingMode: .selectOne, target: nil, action: nil)
 
     // Child view controllers
     let schemaBrowser = SchemaBrowserVC()
     let savedQueries = SavedQueriesVC()
     let queryHistory = QueryHistoryVC()
-    /// The Variables navigator. Edits go to `QueryVariableStore`; the list is
-    /// seeded from it and follows its `didChange`.
-    let variablesPanel = QueryVariablesPanelVC()
     /// The Files navigator: opened DuckDB databases and data files.
     let filesNavigator = FilesNavigatorVC()
 
@@ -70,41 +71,21 @@ class SidebarViewController: NSViewController {
         filterBar.onNewFolder = { [weak self] in
             self?.savedQueries.createNewFolder()
         }
-        filterBar.onNewVariable = { [weak self] in
-            self?.variablesPanel.addVariable()
+        // Content area holds the three navigators' containers.
+        for v in [contentArea, libraryContainer, savedContainer, historyContainer, browserContainer, filesContainer,
+                  libraryScopeControl] as [NSView] {
+            v.translatesAutoresizingMaskIntoConstraints = false
         }
-
-        // The Variables navigator: no header of its own (the navigator group
-        // names it and the filter bar's "+" adds to it), seeded from the
-        // store, every edit written straight back to it.
-        variablesPanel.showsListHeader = false
-        variablesPanel.setVariables(QueryVariableStore.shared.variables,
-                                    referenced: session.referencedVariableNames)
-        variablesPanel.onChange = { vars in
-            QueryVariableStore.shared.replace(vars)
-        }
-
-        // Content area holds all four containers
-        contentArea.translatesAutoresizingMaskIntoConstraints = false
-        savedContainer.translatesAutoresizingMaskIntoConstraints = false
-        variablesContainer.translatesAutoresizingMaskIntoConstraints = false
-        historyContainer.translatesAutoresizingMaskIntoConstraints = false
-        browserContainer.translatesAutoresizingMaskIntoConstraints = false
-        filesContainer.translatesAutoresizingMaskIntoConstraints = false
-
-        variablesContainer.isHidden = true
         historyContainer.isHidden = true
         browserContainer.isHidden = true
         filesContainer.isHidden = true
 
-        contentArea.addSubview(savedContainer)
-        contentArea.addSubview(variablesContainer)
-        contentArea.addSubview(historyContainer)
+        contentArea.addSubview(libraryContainer)
         contentArea.addSubview(browserContainer)
         contentArea.addSubview(filesContainer)
 
         // Each container fills the entire content area
-        for child in [savedContainer, variablesContainer, historyContainer, browserContainer, filesContainer] {
+        for child in [libraryContainer, browserContainer, filesContainer] {
             NSLayoutConstraint.activate([
                 child.topAnchor.constraint(equalTo: contentArea.topAnchor),
                 child.leadingAnchor.constraint(equalTo: contentArea.leadingAnchor),
@@ -113,9 +94,38 @@ class SidebarViewController: NSViewController {
             ])
         }
 
+        // The Library: its scope bar under the toolbar glass (the safe area),
+        // then Sessions or Results History below it. The lists start under the
+        // bar rather than scrolling under the glass: a bar the list scrolled
+        // under would hide the rows behind it.
+        libraryScopeControl.segmentStyle = .automatic
+        libraryScopeControl.controlSize = .small
+        libraryScopeControl.target = self
+        libraryScopeControl.action = #selector(libraryScopeChosen(_:))
+        libraryScopeControl.setAccessibilityLabel(String(localized: "Library"))
+        libraryScopeControl.setAccessibilityIdentifier("sidebar.library.scope")
+        for scope in LibraryScope.allCases {
+            libraryScopeControl.setToolTip(scope.title, forSegment: scope.rawValue)
+        }
+        libraryContainer.addSubview(libraryScopeControl)
+        libraryContainer.addSubview(savedContainer)
+        libraryContainer.addSubview(historyContainer)
+        NSLayoutConstraint.activate([
+            libraryScopeControl.topAnchor.constraint(equalTo: libraryContainer.safeAreaLayoutGuide.topAnchor, constant: 6),
+            libraryScopeControl.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor, constant: 10),
+            libraryScopeControl.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor, constant: -10),
+        ])
+        for list in [savedContainer, historyContainer] {
+            NSLayoutConstraint.activate([
+                list.topAnchor.constraint(equalTo: libraryScopeControl.bottomAnchor, constant: 6),
+                list.leadingAnchor.constraint(equalTo: libraryContainer.leadingAnchor),
+                list.trailingAnchor.constraint(equalTo: libraryContainer.trailingAnchor),
+                list.bottomAnchor.constraint(equalTo: libraryContainer.bottomAnchor),
+            ])
+        }
+
         // Embed child VCs
         embedChild(savedQueries, in: savedContainer)
-        embedChild(variablesPanel, in: variablesContainer)
         embedChild(queryHistory, in: historyContainer)
         embedChild(schemaBrowser, in: browserContainer)
         embedChild(filesNavigator, in: filesContainer)
@@ -144,7 +154,8 @@ class SidebarViewController: NSViewController {
         ])
 
         // Open on the navigator the user was last reading.
-        filterState = NavigatorFilterState(current: SidebarNavigatorPrefs.lastNavigator)
+        filterState = NavigatorFilterState(current: SidebarNavigatorPrefs.lastNavigator,
+                                           libraryScope: SidebarNavigatorPrefs.libraryScope)
         select(filterState.current)
 
         // Observe connection changes (deduplicate to avoid redundant reloads on tab switch)
@@ -183,9 +194,8 @@ class SidebarViewController: NSViewController {
             NotificationCenter.default.addObserver(
                 forName: .savedQueriesDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                // Same reason as the `QueryVariableStore.didChange` observer
-                // below: the block is `@Sendable`, so `queue: .main` does not
-                // tell the compiler this runs on the main actor.
+                // The block is `@Sendable`, so `queue: .main` does not tell
+                // the compiler this runs on the main actor; assert it.
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.savedQueries.reload()
@@ -196,44 +206,13 @@ class SidebarViewController: NSViewController {
             }
         )
 
-        // The app-wide variable list changed. The sidebar that made the change
-        // receives this too, so compare first: its panel already holds the
-        // edited array, and re-setting it would dismiss the detail level under
-        // the field being typed in. A real change (another window's edit, or
-        // the initial load) replaces the list; `setVariables` merges a pending
-        // rename here onto the incoming list — see its doc comment.
-        notificationObservers.append(
-            NotificationCenter.default.addObserver(
-                forName: QueryVariableStore.didChange, object: nil, queue: .main
-            ) { [weak self] _ in
-                // `addObserver`'s block is `@Sendable`, so the compiler cannot
-                // see that `queue: .main` already guarantees main-actor
-                // execution; asserting it is the pattern the `TagStore.didChange`
-                // observers use.
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    let stored = QueryVariableStore.shared.variables
-                    guard self.variablesPanel.variables != stored else { return }
-                    self.variablesPanel.setVariables(stored, referenced: self.session.referencedVariableNames)
-                }
-            }
-        )
-
-        // Which `{{name}}` tokens the active editor uses: marks the rows in
-        // place, no rebuild. Written by EditorPaneVC.
-        session.$referencedVariableNames
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] names in self?.variablesPanel.setReferencedNames(names) }
-            .store(in: &cancellables)
-
         // Manual refresh from connection menu
         notificationObservers.append(
             NotificationCenter.default.addObserver(
                 forName: .connectionMetadataRefreshRequested, object: nil, queue: .main
             ) { [weak self] note in
                 // `@Sendable` block again — assert the main actor `queue: .main`
-                // already guarantees, as the two observers above do.
+                // already guarantees, as the observer above does.
                 let target = note.object as? String
                 MainActor.assumeIsolated {
                     guard let self,
@@ -269,28 +248,35 @@ class SidebarViewController: NSViewController {
         filterBar.focus()
     }
 
+    /// Show the Library on one of its two lists (View ▸ Navigators ▸
+    /// Sessions / Results History, and the scope bar).
+    func showLibrary(_ scope: LibraryScope) {
+        filterState.selectScope(scope)
+        SidebarNavigatorPrefs.libraryScope = scope
+        select(.library)
+    }
+
+    @objc private func libraryScopeChosen(_ sender: NSSegmentedControl) {
+        guard let scope = LibraryScope(rawValue: sender.selectedSegment) else { return }
+        showLibrary(scope)
+    }
+
     private func select(_ navigator: Navigator) {
-        // Leaving the Variables list with its detail level showing: commit
-        // the rename now, while the user still remembers typing it. The level
-        // itself stays where it is behind the other list.
-        if filterState.current == .variables && navigator != .variables {
-            variablesPanel.settlePendingEdit()
-        }
-
         filterState.select(navigator)
+        let list = filterState.currentList
 
-        savedContainer.isHidden = (navigator != .library)
-        variablesContainer.isHidden = (navigator != .variables)
-        historyContainer.isHidden = (navigator != .history)
+        libraryContainer.isHidden = (navigator != .library)
+        savedContainer.isHidden = (list != .sessions)
+        historyContainer.isHidden = (list != .history)
         browserContainer.isHidden = (navigator != .schema)
         filesContainer.isHidden = (navigator != .files)
+        libraryScopeControl.selectedSegment = filterState.libraryScope.rawValue
 
-        // Only the Query Library and the Variables list hold things the user
-        // can create, and each has its own "+".
-        filterBar.configureAddControl(for: navigator)
+        // Only the Sessions list holds things the user can create here.
+        filterBar.configureAddControl(for: list)
 
-        // A pending debounce belongs to the navigator that is leaving; firing
-        // it now would filter the incoming list with the outgoing list's text.
+        // A pending debounce belongs to the list that is leaving; firing it
+        // now would filter the incoming list with the outgoing list's text.
         pendingFilterWorkItem?.cancel()
         let text = filterState.currentText
         filterBar.filterField.stringValue = text
@@ -325,14 +311,12 @@ class SidebarViewController: NSViewController {
         schemaBrowser.clearFilter()
         savedQueries.clearFilter()
         queryHistory.clearFilter()
-        variablesPanel.clearFilter()
         filesNavigator.clearFilter()
 
         guard !text.isEmpty else { return }
 
-        switch filterState.current {
-        case .library: savedQueries.applyFilter(text)
-        case .variables: variablesPanel.applyFilter(text)
+        switch filterState.currentList {
+        case .sessions: savedQueries.applyFilter(text)
         case .history: queryHistory.applyFilter(text)
         case .schema: schemaBrowser.applyFilter(text)
         case .files: filesNavigator.applyFilter(text)

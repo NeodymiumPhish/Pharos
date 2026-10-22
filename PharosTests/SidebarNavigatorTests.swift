@@ -73,23 +73,22 @@ private func host(_ view: NSView, width: CGFloat = 260) -> NSWindow {
 
 private func testNavigatorModel() {
     expect(Navigator.library.rawValue, 0, "library is raw value 0")
-    expect(Navigator.variables.rawValue, 1, "variables is raw value 1")
-    expect(Navigator.history.rawValue, 2, "history is raw value 2")
-    expect(Navigator.schema.rawValue, 3, "schema is raw value 3")
-    expect(Navigator.files.rawValue, 4, "files is raw value 4: appended, so the stored choice of the others holds")
-    expect(Navigator.allCases.count, 5, "five navigators")
+    expect(Navigator.files.rawValue, 1, "files is raw value 1")
+    expect(Navigator.schema.rawValue, 2, "schema is raw value 2: the Database Navigator is last")
+    expect(Navigator.allCases.count, 3, "three navigators")
 
-    expect(Navigator.library.title, "Sessions", "library title")
-    expect(Navigator.variables.title, "Variables", "variables title")
-    expect(Navigator.history.title, "Results History", "history title")
-    expect(Navigator.schema.title, "Database Navigator", "schema title")
+    expect(Navigator.library.title, "Library", "library title")
     expect(Navigator.files.title, "Files", "files title")
+    expect(Navigator.schema.title, "Database Navigator", "schema title")
 
-    expect(Navigator.library.symbolName, "rectangle.stack", "library symbol")
-    expect(Navigator.variables.symbolName, "curlybraces", "variables symbol")
-    expect(Navigator.history.symbolName, "clock.arrow.circlepath", "history symbol")
-    expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
+    expect(Navigator.library.symbolName, "books.vertical", "library symbol")
     expect(Navigator.files.symbolName, "doc.on.doc", "files symbol")
+    expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
+
+    expectTrue(LibraryScope.allCases.map(\.shortTitle) == ["Sessions", "History"], "the Library's scope bar")
+    expect(LibraryScope.history.title, "Results History", "the History list's full name")
+    expectTrue(SidebarList(navigator: .library, scope: .history) == .history, "Library + History is the History list")
+    expectTrue(SidebarList(navigator: .files, scope: .history) == .files, "the scope only matters in the Library")
 }
 
 private func testNavigatorToolbarGroup() {
@@ -108,11 +107,11 @@ private func testNavigatorToolbarGroup() {
 
     // The convenience constructor is the whole point: `selectionMode` is
     // documented to apply only to a group built by one, and it creates the
-    // subitems itself. Five of them, in Navigator order.
+    // subitems itself. Three of them, in Navigator order.
     expect(Int(group.selectionMode.rawValue),
            Int(NSToolbarItemGroup.SelectionMode.selectOne.rawValue),
            "group selects exactly one")
-    expect(group.subitems.count, 5, "five subitems")
+    expect(group.subitems.count, 3, "three subitems")
 
     for (index, navigator) in Navigator.allCases.enumerated() where index < group.subitems.count {
         let subitem = group.subitems[index]
@@ -128,7 +127,7 @@ private func testNavigatorToolbarGroup() {
     // Measured live: with `.automatic` the toolbar judges the sidebar region
     // too tight and falls back to `.collapsed`, which is a pull-down menu
     // reading "Query Library" — not a capsule. `.expanded` is what makes it a
-    // capsule, and the sidebar's minimumThickness is sized to hold all five
+    // capsule, and the sidebar's minimumThickness is sized to hold all its
     // segments.
     expect(Int(group.controlRepresentation.rawValue),
            Int(NSToolbarItemGroup.ControlRepresentation.expanded.rawValue),
@@ -138,13 +137,11 @@ private func testNavigatorToolbarGroup() {
     // toolbar draws an unlit capsule over a collapsed sidebar.
     expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: -1) == nil,
                "-1 names no navigator")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 1) == .variables,
-               "index 1 names variables")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 3) == .schema,
-               "index 3 names schema")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 4) == .files,
-               "index 4 names files")
-    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 5) == nil,
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 1) == .files,
+               "index 1 names files")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 2) == .schema,
+               "index 2 names schema")
+    expectTrue(NavigatorToolbarGroup.navigator(forSelectedIndex: 3) == nil,
                "an out-of-range index names no navigator")
 
     // The action reaches the target; the group is the sender.
@@ -207,60 +204,29 @@ private func testFilterBar() {
     }
     expect(newFolders, 1, "New Folder fires its closure")
 
-    // The Variables navigator: a plain "+" that makes a variable on click.
-    // No menu — New Variable is the only thing it can do.
-    let variableButton = bar.newVariableButton
-    expectTrue(variableButton.isHidden, "the new-variable button is hidden by default")
-    expectFalse(variableButton is NSPopUpButton, "variables: the + is not a pull-down")
-    expectTrue(variableButton.menu == nil, "variables: the + has no menu")
-    expect(variableButton.accessibilityIdentifier(), "sidebar.filter.newVariable",
-           "new-variable button identifier")
-    expect(variableButton.accessibilityLabel() ?? "nil", "New Variable", "new-variable button AX label")
-    expect(Int(variableButton.bezelStyle.rawValue), Int(NSButton.BezelStyle.accessoryBarAction.rawValue),
-           "new-variable button is an accessory bar action")
-    expectTrue(variableButton.showsBorderOnlyWhileMouseInside, "new-variable button borders only on hover")
-    // The same glyph at the same size in both navigators, and bigger than
-    // the old 12 pt one.
+    // The + glyph is bigger than the old 12 pt one.
     let libraryGlyph = bar.addButton.menu?.items.first?.image?.size ?? .zero
-    let variableGlyph = variableButton.image?.size ?? .zero
-    expectTrue(variableGlyph == libraryGlyph, "both + glyphs are the same size")
     let oldGlyph = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?
         .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: .medium))?.size ?? .zero
     expectTrue(libraryGlyph.width > oldGlyph.width && libraryGlyph.height > oldGlyph.height,
                "the + glyph is bigger than the old 12 pt one")
 
-    let libraryFieldX = bar.filterField.frame.minX
-    var newVariables = 0
-    bar.onNewVariable = { newVariables += 1 }
-    bar.configureAddControl(for: .variables)
+    bar.configureAddControl(for: .sessions)
     window.contentView?.layoutSubtreeIfNeeded()
-    expectFalse(variableButton.isHidden, "variables: the new-variable button shows")
-    expectTrue(bar.addButton.isHidden, "variables: the library pull-down hides")
-    expect(bar.filterField.frame.minX, libraryFieldX, "variables: the field does not move")
-    variableButton.performClick(nil)
-    expect(newVariables, 1, "one click makes one variable")
-    expect(newQueries, 1, "New Variable does not fire New Query")
-    expect(newFolders, 1, "New Variable does not fire New Folder")
-    expect(bar.addButton.menu?.items.count ?? 0, 3, "variables: the library menu is untouched")
-
-    // Back to the library: the pull-down returns with its two items.
-    bar.configureAddControl(for: .library)
-    expectFalse(bar.addButton.isHidden, "library again: the pull-down shows")
-    expectTrue(variableButton.isHidden, "library again: the new-variable button hides")
-    expect(bar.addButton.menu?.items[1].title ?? "nil", "New Session", "library again: first action is New Session")
-    expect(bar.addButton.menu?.items[2].title ?? "nil", "New Folder", "library again: second action is New Folder")
+    let libraryFieldX = bar.filterField.frame.minX
+    expectFalse(bar.addButton.isHidden, "Sessions: the pull-down shows")
 
     // Nothing to add: the stack closes the gap so the field starts at the
-    // leading inset, as it must in History and the Database Navigator.
-    for navigator in [Navigator.history, .schema, .files] {
-        bar.configureAddControl(for: navigator)
+    // leading inset, as it must in History, Files and the Database Navigator.
+    // (Variables are added in the Variable Manager window.)
+    for list in [SidebarList.history, .files, .schema] {
+        bar.configureAddControl(for: list)
         window.contentView?.layoutSubtreeIfNeeded()
-        expectTrue(bar.addButton.isHidden && variableButton.isHidden,
-                   "\(navigator): no + shows")
+        expectTrue(bar.addButton.isHidden, "\(list): no + shows")
         expectTrue(bar.filterField.frame.minX < libraryFieldX,
-                   "\(navigator): the field moves leading when the + goes")
+                   "\(list): the field moves leading when the + goes")
     }
-    bar.configureAddControl(for: .library)
+    bar.configureAddControl(for: .sessions)
 
     // Typing reaches the owner through the real target/action.
     var texts: [String] = []
@@ -292,61 +258,69 @@ private func testPrefs() {
     }
 
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "an absent key means the library")
+    expectTrue(SidebarNavigatorPrefs.libraryScope == .sessions, "and the Sessions list")
 
     SidebarNavigatorPrefs.lastNavigator = .schema
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .schema, "schema round-trips")
-    // "2": the Variables navigator was inserted at raw value 1, so the old
-    // key's stored values would read as the wrong list.
-    expect(suite.integer(forKey: "SidebarLastNavigator2"), 3, "stored under SidebarLastNavigator2")
-    expectTrue(suite.object(forKey: "SidebarLastNavigator") == nil, "the old key is not written")
+    // "3": the sidebar went from five navigators to three.
+    expect(suite.integer(forKey: "SidebarLastNavigator3"), 2, "stored under SidebarLastNavigator3")
+    SidebarNavigatorPrefs.libraryScope = .history
+    expectTrue(SidebarNavigatorPrefs.libraryScope == .history, "the Library's list round-trips")
 
-    SidebarNavigatorPrefs.lastNavigator = .history
-    expectTrue(SidebarNavigatorPrefs.lastNavigator == .history, "history round-trips")
-    SidebarNavigatorPrefs.lastNavigator = .variables
-    expectTrue(SidebarNavigatorPrefs.lastNavigator == .variables, "variables round-trips")
-
-    // An old build's value under the OLD key is ignored, not reinterpreted.
-    suite.removeObject(forKey: "SidebarLastNavigator2")
-    suite.set(1, forKey: "SidebarLastNavigator")
-    expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "an old-key value is ignored")
+    // The five-navigator build's value is read once and mapped.
+    for (old, navigator, scope, name) in [
+        (0, Navigator.library, LibraryScope.sessions, "Sessions"),
+        (1, .library, .sessions, "Variables (its own window now)"),
+        (2, .library, .history, "Results History"),
+        (3, .schema, .sessions, "Database Navigator"),
+        (4, .files, .sessions, "Files"),
+    ] {
+        suite.removeObject(forKey: "SidebarLastNavigator3")
+        suite.removeObject(forKey: "SidebarLibraryScope")
+        suite.set(old, forKey: "SidebarLastNavigator2")
+        expectTrue(SidebarNavigatorPrefs.lastNavigator == navigator && SidebarNavigatorPrefs.libraryScope == scope,
+                   "an old \(name) value lands on \(navigator) / \(scope)")
+    }
+    // Once migrated, the new key wins over the old one.
+    SidebarNavigatorPrefs.lastNavigator = .files
+    suite.set(3, forKey: "SidebarLastNavigator2")
+    expectTrue(SidebarNavigatorPrefs.lastNavigator == .files, "the new key wins once written")
 
     // A value from an older or newer build must not leave the sidebar showing
     // nothing.
-    suite.set(99, forKey: "SidebarLastNavigator2")
+    suite.set(99, forKey: "SidebarLastNavigator3")
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "an unknown raw value falls back")
-    suite.set(-1, forKey: "SidebarLastNavigator2")
+    suite.set(-1, forKey: "SidebarLastNavigator3")
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "a negative raw value falls back")
-    suite.set("folder", forKey: "SidebarLastNavigator2")
+    suite.set("folder", forKey: "SidebarLastNavigator3")
     expectTrue(SidebarNavigatorPrefs.lastNavigator == .library, "a non-integer value falls back")
 }
 
 private func testFilterState() {
     var state = NavigatorFilterState()
-    expectTrue(state.current == .library, "state starts on the library")
+    expectTrue(state.current == .library && state.currentList == .sessions, "state starts on Sessions")
     expect(state.currentText, "", "no text at rest")
 
     state.setText("abc")
-    expect(state.currentText, "abc", "text lands in the showing navigator's slot")
+    expect(state.currentText, "abc", "text lands in the showing list's slot")
+
+    state.selectScope(.history)
+    expectTrue(state.currentList == .history, "the scope bar switches the Library's list")
+    expect(state.currentText, "", "History has its own text")
+    state.setText("orders")
 
     state.select(.schema)
     expect(state.currentText, "", "a fresh navigator starts empty")
     state.setText("public")
-    expect(state.currentText, "public", "the schema navigator keeps its own text")
 
     state.select(.library)
-    expect(state.currentText, "abc", "the library's text comes back")
-    state.select(.schema)
-    expect(state.currentText, "public", "the schema's text comes back")
-
-    state.select(.history)
-    expect(state.currentText, "", "the history navigator was never typed in")
-    state.select(.variables)
-    expect(state.currentText, "", "the variables navigator was never typed in")
-    state.setText("ip")
-    state.select(.library)
-    expect(state.text(for: .variables), "ip", "variables text readable while hidden")
-    expect(state.text(for: .library), "abc", "library text readable while hidden")
+    expect(state.currentText, "orders", "back on the Library: the History list and its text")
+    state.selectScope(.sessions)
+    expect(state.currentText, "abc", "Sessions keeps its own text")
+    expect(state.text(for: .history), "orders", "History text readable while hidden")
     expect(state.text(for: .schema), "public", "schema text readable while hidden")
+    state.select(.files)
+    expect(state.currentText, "", "Files was never typed in")
 
     // Clearing is a real value, not an absence: it must stick.
     state.select(.library)
@@ -357,8 +331,8 @@ private func testFilterState() {
     expect(state.currentText, "", "a cleared filter survives a round trip")
 
     // Seeding from the preference.
-    let seeded = NavigatorFilterState(current: .history)
-    expectTrue(seeded.current == .history, "the state can be seeded")
+    let seeded = NavigatorFilterState(current: .library, libraryScope: .history)
+    expectTrue(seeded.currentList == .history, "the state can be seeded with the Library's list")
 }
 
 func runTests() {

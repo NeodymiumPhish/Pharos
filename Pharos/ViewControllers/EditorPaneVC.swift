@@ -33,10 +33,9 @@ protocol EditorPaneDelegate: AnyObject {
 /// The editor area: the tab bar, the header row, and the active tab's query
 /// cards (`CardStackVC`). It shows `WindowSession.activeTab`.
 ///
-/// Query variables are not here. They are app-wide (`QueryVariableStore`)
-/// and edited in the sidebar's Variables navigator; this pane only reports
-/// which `{{name}}` tokens the cards reference
-/// (`WindowSession.referencedVariableNames`) and highlights the defined names.
+/// Query variables are not here. They are app-wide (`QueryVariableStore`) and
+/// edited in the Variable Manager window; this pane highlights the names the
+/// tab's connection can use (`VariableScope`).
 class EditorPaneVC: NSViewController {
 
     /// One completion list for every card of the window.
@@ -63,13 +62,8 @@ class EditorPaneVC: NSViewController {
     /// failure in its log.
     let errorButton = ErrorBadgeButton()
 
-    /// Coalesces the `{{token}}` scan behind editor typing. The scan is a full
-    /// regex pass over the text, so it runs once per pause rather than once per
-    /// keystroke.
-    private var referencedNamesScanTimer: Timer?
     /// The connection the cards' variables were last applied for.
     var appliedVariableConnectionId: String?
-    private let referencedNamesScanDelay: TimeInterval = 0.15
 
     weak var delegate: EditorPaneDelegate?
 
@@ -315,10 +309,6 @@ class EditorPaneVC: NSViewController {
             guard let self, let tabId = self.cardStack.tabId else { return }
             self.session.updateTab(id: tabId) { $0.isDirty = true }
             self.delegate?.editorPane(self, didEditCard: id)
-            // Adding or removing a `{{token}}` changes which variables are
-            // referenced, and therefore which rows the sidebar's Variables
-            // navigator flags.
-            self.scheduleReferencedNamesScan()
         }
         cardStack.onNotesEdited = { [weak self] id in
             guard let self, let tabId = self.cardStack.tabId else { return }
@@ -445,10 +435,6 @@ class EditorPaneVC: NSViewController {
             session.activeSchema = tab.schemaName
         }
 
-        // The incoming tab's cards reference a different token set; the
-        // sidebar must not wait out the typing debounce to learn it.
-        referencedNamesScanTimer?.invalidate()
-        publishReferencedNames()
         updateCollapseAllButton()
     }
 
@@ -793,25 +779,6 @@ class EditorPaneVC: NSViewController {
         applyQueryVariables()
     }
 
-    /// Re-scan the editor text for `{{token}}` references and publish the
-    /// result on the window's session, where the sidebar's Variables navigator
-    /// reads it to decide the red warning state. Debounced.
-    private func scheduleReferencedNamesScan() {
-        referencedNamesScanTimer?.invalidate()
-        referencedNamesScanTimer = Timer.scheduledTimer(
-            withTimeInterval: referencedNamesScanDelay, repeats: false
-        ) { [weak self] _ in
-            self?.publishReferencedNames()
-        }
-    }
-
-    private func publishReferencedNames() {
-        let names = VariableSubstitutor.referencedNames(in: cardStack.allText)
-        if session.referencedVariableNames != names {
-            session.referencedVariableNames = names
-        }
-    }
-
     @objc private func formatSQLTapped() {
         formatSQL()
     }
@@ -1020,7 +987,6 @@ class EditorPaneVC: NSViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        referencedNamesScanTimer?.invalidate()
     }
 }
 

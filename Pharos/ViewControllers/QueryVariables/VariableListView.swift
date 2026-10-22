@@ -47,13 +47,12 @@ final class VariableListView: NSView {
     private var scrollTopToEdge: NSLayoutConstraint!
 
     init() {
-        // NOT `.zero`. This view is frame-managed by `QueryVariablesPanelVC`,
-        // which assigns `contentArea.bounds` in `viewDidLayout` — one pass
+        // NOT `.zero`. The host gives this view its real size a layout pass
         // AFTER `buildLayout()` activates the children's constraints. At zero
-        // the autoresizing mask contributes a REQUIRED `width == 0`, which
-        // cannot hold the header row's minimum width, so Auto Layout breaks a
-        // child constraint and logs a runtime issue. Any non-degenerate
-        // starting size removes the transient; the real frame still wins.
+        // a REQUIRED `width == 0` cannot hold the header row's minimum width,
+        // so Auto Layout breaks a child constraint and logs a runtime issue.
+        // Any non-degenerate starting size removes the transient; the real
+        // frame still wins.
         super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         buildLayout()
     }

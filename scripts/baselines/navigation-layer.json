@@ -1,6 +1,6 @@
 {
-  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.gaybJD/Pharos.app",
-  "captured_at": "2026-10-22T20:16:12+00:00",
+  "app": "/var/folders/gm/45401sdn2bb82_fwyv5033200000gn/T//pharos-baseline.uee9Cg/Pharos.app",
+  "captured_at": "2026-10-22T21:14:44+00:00",
   "tree": {
     "children": [
       {
@@ -12,20 +12,57 @@
                   {
                     "children": [
                       {
+                        "description": "Sessions",
                         "frame": {
-                          "h": 1282,
+                          "h": 20,
+                          "w": 156,
+                          "x": 2064,
+                          "y": 89
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXSegment",
+                        "value": 1
+                      },
+                      {
+                        "description": "History",
+                        "frame": {
+                          "h": 20,
+                          "w": 146,
+                          "x": 2220,
+                          "y": 89
+                        },
+                        "role": "AXRadioButton",
+                        "subrole": "AXSegment",
+                        "value": 0
+                      }
+                    ],
+                    "description": "Library",
+                    "frame": {
+                      "h": 22,
+                      "w": 302,
+                      "x": 2063,
+                      "y": 87
+                    },
+                    "identifier": "sidebar.library.scope",
+                    "role": "AXRadioGroup"
+                  },
+                  {
+                    "children": [
+                      {
+                        "frame": {
+                          "h": 1250,
                           "w": 322,
-                          "x": 3573,
-                          "y": 81
+                          "x": 2053,
+                          "y": 113
                         },
                         "role": "AXOutline"
                       }
                     ],
                     "frame": {
-                      "h": 1280,
+                      "h": 1248,
                       "w": 320,
-                      "x": 3574,
-                      "y": 82
+                      "x": 2054,
+                      "y": 114
                     },
                     "role": "AXScrollArea"
                   },
@@ -35,8 +72,8 @@
                         "frame": {
                           "h": 22,
                           "w": 157,
-                          "x": 3656,
-                          "y": 694
+                          "x": 2136,
+                          "y": 736
                         },
                         "role": "AXStaticText",
                         "value": "No Saved Sessions"
@@ -45,8 +82,8 @@
                         "frame": {
                           "h": 34,
                           "w": 290,
-                          "x": 3589,
-                          "y": 722
+                          "x": 2069,
+                          "y": 764
                         },
                         "role": "AXStaticText",
                         "value": "Save a tab with \u2318S to keep its queries and results here."
@@ -54,10 +91,10 @@
                     ],
                     "description": "No Saved Sessions. Save a tab with \u2318S to keep its queries and results here.",
                     "frame": {
-                      "h": 1332,
+                      "h": 1248,
                       "w": 320,
-                      "x": 3574,
-                      "y": 30
+                      "x": 2054,
+                      "y": 114
                     },
                     "role": "AXGroup"
                   },
@@ -66,7 +103,7 @@
                     "frame": {
                       "h": 20,
                       "w": 30,
-                      "x": 3581,
+                      "x": 2061,
                       "y": 1366
                     },
                     "identifier": "sidebar.filter.add",
@@ -80,7 +117,7 @@
                         "frame": {
                           "h": 24,
                           "w": 21,
-                          "x": 3619,
+                          "x": 2099,
                           "y": 1364
                         },
                         "role": "AXButton",
@@ -90,7 +127,7 @@
                     "frame": {
                       "h": 26,
                       "w": 266,
-                      "x": 3615,
+                      "x": 2095,
                       "y": 1363
                     },
                     "identifier": "sidebar.filter.field",
@@ -102,7 +139,7 @@
                 "frame": {
                   "h": 1360,
                   "w": 320,
-                  "x": 3574,
+                  "x": 2054,
                   "y": 30
                 },
                 "identifier": "pane.sidebar",
@@ -113,7 +150,7 @@
                 "frame": {
                   "h": 1308,
                   "w": 1,
-                  "x": 3894,
+                  "x": 2374,
                   "y": 82
                 },
                 "role": "AXSplitter",
@@ -128,7 +165,7 @@
                         "frame": {
                           "h": 26,
                           "w": 26,
-                          "x": 4290,
+                          "x": 2770,
                           "y": 87
                         },
                         "role": "AXButton",
@@ -140,7 +177,7 @@
                         "frame": {
                           "h": 26,
                           "w": 26,
-                          "x": 4318,
+                          "x": 2798,
                           "y": 87
                         },
                         "identifier": "editor.describeQuery",
@@ -152,7 +189,7 @@
                         "frame": {
                           "h": 19,
                           "w": 34,
-                          "x": 4346,
+                          "x": 2826,
                           "y": 90
                         },
                         "role": "AXMenuButton",
@@ -163,7 +200,7 @@
                         "frame": {
                           "h": 26,
                           "w": 26,
-                          "x": 4382,
+                          "x": 2862,
                           "y": 87
                         },
                         "identifier": "editor.newCard",
@@ -175,7 +212,7 @@
                         "frame": {
                           "h": 26,
                           "w": 182,
-                          "x": 3903,
+                          "x": 2383,
                           "y": 87
                         },
                         "identifier": "editor.context.connection",
@@ -186,7 +223,7 @@
                         "frame": {
                           "h": 16,
                           "w": 167,
-                          "x": 4111,
+                          "x": 2591,
                           "y": 92
                         },
                         "identifier": "editor.context.state",
@@ -198,7 +235,7 @@
                         "frame": {
                           "h": 26,
                           "w": 26,
-                          "x": 4741,
+                          "x": 3221,
                           "y": 87
                         },
                         "identifier": "editor.collapseAll",
@@ -212,7 +249,7 @@
                             "frame": {
                               "h": 20,
                               "w": 15,
-                              "x": 4577,
+                              "x": 3057,
                               "y": 90
                             },
                             "role": "AXButton",
@@ -222,7 +259,7 @@
                         "frame": {
                           "h": 22,
                           "w": 162,
-                          "x": 4573,
+                          "x": 3053,
                           "y": 89
                         },
                         "identifier": "editor.filterCards",
@@ -239,7 +276,7 @@
                                 "frame": {
                                   "h": 20,
                                   "w": 14,
-                                  "x": 3914,
+                                  "x": 2394,
                                   "y": 137
                                 },
                                 "identifier": "editor.card.1.grip",
@@ -250,7 +287,7 @@
                                 "frame": {
                                   "h": 26,
                                   "w": 36,
-                                  "x": 3933,
+                                  "x": 2413,
                                   "y": 134
                                 },
                                 "identifier": "editor.card.1.disclosure",
@@ -262,7 +299,7 @@
                                 "frame": {
                                   "h": 18,
                                   "w": 91,
-                                  "x": 3973,
+                                  "x": 2453,
                                   "y": 138
                                 },
                                 "identifier": "editor.card.1.name",
@@ -273,7 +310,7 @@
                                 "frame": {
                                   "h": 20,
                                   "w": 58,
-                                  "x": 4068,
+                                  "x": 2548,
                                   "y": 137
                                 },
                                 "role": "AXStaticText",
@@ -285,7 +322,7 @@
                                 "frame": {
                                   "h": 26,
                                   "w": 37,
-                                  "x": 4635,
+                                  "x": 3115,
                                   "y": 134
                                 },
                                 "identifier": "editor.card.1.run",
@@ -297,7 +334,7 @@
                                 "frame": {
                                   "h": 26,
                                   "w": 39,
-                                  "x": 4674,
+                                  "x": 3154,
                                   "y": 134
                                 },
                                 "identifier": "editor.card.1.notes",
@@ -310,7 +347,7 @@
                                 "frame": {
                                   "h": 26,
                                   "w": 40,
-                                  "x": 4715,
+                                  "x": 3195,
                                   "y": 134
                                 },
                                 "identifier": "editor.card.1.more",
@@ -322,7 +359,7 @@
                                 "frame": {
                                   "h": 50,
                                   "w": 42.68,
-                                  "x": 3910,
+                                  "x": 2390,
                                   "y": 165
                                 },
                                 "identifier": "editor.card.1.gutter",
@@ -334,7 +371,7 @@
                                     "frame": {
                                       "h": 50,
                                       "w": 807,
-                                      "x": 3952.68,
+                                      "x": 2432.68,
                                       "y": 165
                                     },
                                     "identifier": "editor.card.1.text",
@@ -345,7 +382,7 @@
                                 "frame": {
                                   "h": 50,
                                   "w": 807.32,
-                                  "x": 3952.68,
+                                  "x": 2432.68,
                                   "y": 165
                                 },
                                 "role": "AXScrollArea"
@@ -355,7 +392,7 @@
                                 "frame": {
                                   "h": 6,
                                   "w": 838,
-                                  "x": 3915,
+                                  "x": 2395,
                                   "y": 217
                                 },
                                 "identifier": "editor.card.1.height",
@@ -367,7 +404,7 @@
                             "frame": {
                               "h": 93,
                               "w": 856,
-                              "x": 3906,
+                              "x": 2386,
                               "y": 130
                             },
                             "identifier": "editor.card.1",
@@ -378,7 +415,7 @@
                             "frame": {
                               "h": 34,
                               "w": 858,
-                              "x": 3905,
+                              "x": 2385,
                               "y": 232
                             },
                             "identifier": "editor.cards.add",
@@ -390,7 +427,7 @@
                         "frame": {
                           "h": 749,
                           "w": 880,
-                          "x": 3894,
+                          "x": 2374,
                           "y": 118
                         },
                         "identifier": "editor.cards",
@@ -401,7 +438,7 @@
                         "frame": {
                           "h": 0,
                           "w": 880,
-                          "x": 3894,
+                          "x": 2374,
                           "y": 867
                         },
                         "role": "AXSplitter",
@@ -414,7 +451,7 @@
                             "frame": {
                               "h": 24,
                               "w": 51,
-                              "x": 3902,
+                              "x": 2382,
                               "y": 872
                             },
                             "role": "AXRadioButton",
@@ -427,7 +464,7 @@
                             "frame": {
                               "h": 24,
                               "w": 58,
-                              "x": 3953,
+                              "x": 2433,
                               "y": 872
                             },
                             "role": "AXRadioButton",
@@ -440,7 +477,7 @@
                             "frame": {
                               "h": 24,
                               "w": 51,
-                              "x": 4011,
+                              "x": 2491,
                               "y": 872
                             },
                             "role": "AXRadioButton",
@@ -451,7 +488,7 @@
                         "frame": {
                           "h": 26,
                           "w": 160,
-                          "x": 3901,
+                          "x": 2381,
                           "y": 870
                         },
                         "role": "AXRadioGroup"
@@ -461,7 +498,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 4061,
+                          "x": 2541,
                           "y": 868
                         },
                         "role": "AXButton",
@@ -472,7 +509,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 4091,
+                          "x": 2571,
                           "y": 868
                         },
                         "role": "AXButton",
@@ -483,7 +520,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 4121,
+                          "x": 2601,
                           "y": 868
                         },
                         "role": "AXButton",
@@ -493,7 +530,7 @@
                         "frame": {
                           "h": 16,
                           "w": 2,
-                          "x": 4699,
+                          "x": 3179,
                           "y": 875
                         },
                         "role": "AXStaticText",
@@ -504,7 +541,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 4707,
+                          "x": 3187,
                           "y": 868
                         },
                         "identifier": "results.toggleEditor",
@@ -516,7 +553,7 @@
                         "frame": {
                           "h": 30,
                           "w": 30,
-                          "x": 4737,
+                          "x": 3217,
                           "y": 868
                         },
                         "identifier": "results.toggleResults",
@@ -529,7 +566,7 @@
                             "frame": {
                               "h": 22,
                               "w": 92,
-                              "x": 4288,
+                              "x": 2768,
                               "y": 1130
                             },
                             "role": "AXStaticText",
@@ -539,7 +576,7 @@
                             "frame": {
                               "h": 18,
                               "w": 204,
-                              "x": 4232,
+                              "x": 2712,
                               "y": 1158
                             },
                             "role": "AXStaticText",
@@ -549,7 +586,7 @@
                             "frame": {
                               "h": 26,
                               "w": 90,
-                              "x": 4289,
+                              "x": 2769,
                               "y": 1190
                             },
                             "role": "AXButton",
@@ -560,7 +597,7 @@
                         "frame": {
                           "h": 491,
                           "w": 880,
-                          "x": 3894,
+                          "x": 2374,
                           "y": 899
                         },
                         "role": "AXGroup"
@@ -569,7 +606,7 @@
                     "frame": {
                       "h": 1308,
                       "w": 880,
-                      "x": 3894,
+                      "x": 2374,
                       "y": 82
                     },
                     "role": "AXSplitGroup"
@@ -578,7 +615,7 @@
                 "frame": {
                   "h": 1360,
                   "w": 880,
-                  "x": 3894,
+                  "x": 2374,
                   "y": 30
                 },
                 "identifier": "pane.content",
@@ -589,7 +626,7 @@
                 "frame": {
                   "h": 1308,
                   "w": 1,
-                  "x": 4774,
+                  "x": 3254,
                   "y": 82
                 },
                 "role": "AXSplitter",
@@ -599,7 +636,7 @@
             "frame": {
               "h": 1360,
               "w": 1200,
-              "x": 3574,
+              "x": 2054,
               "y": 30
             },
             "role": "AXSplitGroup"
@@ -611,11 +648,11 @@
                   {
                     "children": [
                       {
-                        "description": "Sessions",
+                        "description": "Library",
                         "frame": {
                           "h": 36,
-                          "w": 39,
-                          "x": 3670,
+                          "w": 42,
+                          "x": 2150,
                           "y": 39
                         },
                         "role": "AXRadioButton",
@@ -623,23 +660,11 @@
                         "value": 1
                       },
                       {
-                        "description": "Variables",
+                        "description": "Files",
                         "frame": {
                           "h": 36,
-                          "w": 40,
-                          "x": 3709,
-                          "y": 39
-                        },
-                        "role": "AXRadioButton",
-                        "subrole": "AXTabButton",
-                        "value": 0
-                      },
-                      {
-                        "description": "Results History",
-                        "frame": {
-                          "h": 36,
-                          "w": 39,
-                          "x": 3749,
+                          "w": 41,
+                          "x": 2192,
                           "y": 39
                         },
                         "role": "AXRadioButton",
@@ -650,20 +675,8 @@
                         "description": "Database Navigator",
                         "frame": {
                           "h": 36,
-                          "w": 40,
-                          "x": 3788,
-                          "y": 39
-                        },
-                        "role": "AXRadioButton",
-                        "subrole": "AXTabButton",
-                        "value": 0
-                      },
-                      {
-                        "description": "Files",
-                        "frame": {
-                          "h": 36,
-                          "w": 39,
-                          "x": 3828,
+                          "w": 42,
+                          "x": 2233,
                           "y": 39
                         },
                         "role": "AXRadioButton",
@@ -673,8 +686,8 @@
                     ],
                     "frame": {
                       "h": 38,
-                      "w": 197,
-                      "x": 3669,
+                      "w": 125,
+                      "x": 2149,
                       "y": 37
                     },
                     "role": "AXTabGroup"
@@ -682,8 +695,8 @@
                 ],
                 "frame": {
                   "h": 52,
-                  "w": 203,
-                  "x": 3666,
+                  "w": 131,
+                  "x": 2146,
                   "y": 30
                 },
                 "role": "AXGroup"
@@ -693,7 +706,7 @@
                 "frame": {
                   "h": 52,
                   "w": 40,
-                  "x": 4730,
+                  "x": 3210,
                   "y": 30
                 },
                 "role": "AXButton"
@@ -702,7 +715,7 @@
             "frame": {
               "h": 52,
               "w": 1200,
-              "x": 3574,
+              "x": 2054,
               "y": 30
             },
             "role": "AXToolbar"
@@ -711,7 +724,7 @@
             "frame": {
               "h": 16,
               "w": 16,
-              "x": 3592,
+              "x": 2072,
               "y": 48
             },
             "role": "AXButton",
@@ -723,7 +736,7 @@
                 "frame": {
                   "h": 14,
                   "w": 14,
-                  "x": 3639,
+                  "x": 2119,
                   "y": 49
                 },
                 "role": "AXGroup"
@@ -732,7 +745,7 @@
             "frame": {
               "h": 16,
               "w": 16,
-              "x": 3638,
+              "x": 2118,
               "y": 48
             },
             "role": "AXButton",
@@ -742,7 +755,7 @@
             "frame": {
               "h": 16,
               "w": 16,
-              "x": 3615,
+              "x": 2095,
               "y": 48
             },
             "role": "AXButton",
@@ -752,7 +765,7 @@
             "frame": {
               "h": 52,
               "w": 816,
-              "x": 3898,
+              "x": 2378,
               "y": 30
             },
             "role": "AXStaticText",
@@ -762,7 +775,7 @@
             "frame": {
               "h": 52,
               "w": 816,
-              "x": 3898,
+              "x": 2378,
               "y": 30
             },
             "role": "AXStaticText",
@@ -772,7 +785,7 @@
         "frame": {
           "h": 1360,
           "w": 1200,
-          "x": 3574,
+          "x": 2054,
           "y": 30
         },
         "identifier": "window.main.1",
@@ -789,10 +802,10 @@
       "bounds": {
         "Height": 1360,
         "Width": 1200,
-        "X": 3574,
+        "X": 2054,
         "Y": 30
       },
-      "number": 99533
+      "number": 100393
     }
   ]
 }

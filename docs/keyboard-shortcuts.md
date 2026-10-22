@@ -83,11 +83,9 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 |--------|----------|
 | Show / Hide Sidebar | Cmd+Ctrl+S |
 | Show / Hide Inspector | Cmd+Opt+I |
-| Sessions navigator | Cmd+Opt+1 |
-| Variables navigator | Cmd+Opt+2 |
-| Results History navigator | Cmd+Opt+3 |
-| Database Navigator navigator | Cmd+Opt+4 |
-| Files navigator | Cmd+Opt+5 |
+| Library navigator (Sessions and Results History) | Cmd+Opt+1 |
+| Files navigator | Cmd+Opt+2 |
+| Database Navigator | Cmd+Opt+3 |
 | Filter in Navigator | Cmd+Opt+J |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 | Show Next Tab | Cmd+Shift+] (or Ctrl+Tab) |

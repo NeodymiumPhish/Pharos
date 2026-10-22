@@ -4,10 +4,11 @@ import Foundation
 
 /// The app's one in-memory copy of the app-wide query variables.
 ///
-/// Variables are GLOBAL: every run, EXPLAIN, export and saved-query copy in
-/// every window resolves its `{{name}}` tokens against this one list, and the
-/// Variables navigator in every sidebar edits it. There is deliberately no
-/// per-tab or per-connection copy any more — a user who runs the same
+/// One app-wide list, edited in the Variable Manager window. Each variable is
+/// global (the default) or linked to some connections; every run, EXPLAIN,
+/// export and saved-query copy resolves its `{{name}}` tokens against the
+/// variables its tab's connection can use (`available(for:)`,
+/// `VariableScope`). There is no per-tab copy: a user who runs the same
 /// parameterised queries against several databases keeps the values once.
 ///
 /// `@MainActor` because every reader is a view controller and every write

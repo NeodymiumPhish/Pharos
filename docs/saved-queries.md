@@ -18,7 +18,7 @@ nav_order: 13
 
 ## Overview
 
-The **Sessions** navigator is the first navigator of the sidebar (the stack icon of the navigator selector in the window toolbar; **View > Navigators > Sessions**, **Cmd+Opt+1**). A saved Session is a whole editor tab: all of its [query cards](query-editor.md#query-cards), with their versions, **and the result of each card**. Sessions are organized into folders.
+The **Sessions** list is the first list of the sidebar's **Library** navigator (the first icon of the navigator selector in the window toolbar, then **Sessions** in its scope bar; **View > Navigators > Sessions**, or **Cmd+Opt+1** for the Library). A saved Session is a whole editor tab: all of its [query cards](query-editor.md#query-cards), with their versions, **and the result of each card**. Sessions are organized into folders.
 
 When you open a Session, its cards come back with the rows they showed when you saved it. You can also open only its queries, as a template for new work.
 

@@ -85,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsEffects.shared.start()
 
         // Read the app-wide query variables before any window exists, so each
-        // sidebar can seed its Variables navigator directly from the store. A
+        // editor highlights the right names from its first frame. A
         // failure is not fatal: the list is simply empty until the next save.
         do {
             try QueryVariableStore.shared.loadIfNeeded()

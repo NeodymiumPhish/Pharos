@@ -128,15 +128,6 @@ final class WindowSession: ObservableObject {
         }
     }
 
-    // MARK: - Query variables
-
-    /// The `{{name}}` tokens the active editor's text references, kept fresh
-    /// by `EditorPaneVC` (a debounced scan on every edit, and synchronously on
-    /// a tab switch). The sidebar's Variables navigator reads it to mark which
-    /// rows the current SQL uses — the variables themselves are app-wide
-    /// (`QueryVariableStore`), only the references are per window.
-    @Published var referencedVariableNames: Set<String> = []
-
     // MARK: - Result tabs
 
     /// Every editor tab's result tabs, keyed by editor tab id. It lived on

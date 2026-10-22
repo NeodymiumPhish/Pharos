@@ -4,13 +4,12 @@ import AppKit
 /// to the navigator that can hold them, and a filter field. Xcode puts its
 /// filter here rather than at the top, and so does this.
 ///
-/// The Sessions navigator's "+" is a pull-down `NSPopUpButton` (New Session, New
+/// The Sessions list's "+" is a pull-down `NSPopUpButton` (New Session, New
 /// Folder). Its image has to live on `menu.items[0]` — the hidden title item —
-/// or the button draws the first real item's title instead of the glyph. The
-/// Variables navigator can make only one thing, so its "+" is a plain button
-/// that makes it: a one-item menu is a click with nothing to choose.
-/// `.accessoryBarAction` plus `showsBorderOnlyWhileMouseInside` gives both the
-/// same flat treatment the navigator selector's buttons have.
+/// or the button draws the first real item's title instead of the glyph.
+/// `.accessoryBarAction` plus `showsBorderOnlyWhileMouseInside` gives it the
+/// same flat treatment the navigator selector's buttons have. (Variables are
+/// added in the Variable Manager window, which has its own "+".)
 final class SidebarFilterBar: NSView {
 
     /// Height of the bar.
@@ -22,30 +21,24 @@ final class SidebarFilterBar: NSView {
     var onNewQuery: (() -> Void)?
     /// "+" ▸ New Folder.
     var onNewFolder: (() -> Void)?
-    /// "+" in the Variables navigator (New Variable).
-    var onNewVariable: (() -> Void)?
     /// Every keystroke in the filter field (the field sends immediately; the
     /// owner debounces).
     var onTextChanged: ((String) -> Void)?
 
     // MARK: - Views
 
-    /// The Sessions navigator's "+" pull-down.
+    /// The Sessions list's "+" pull-down.
     let addButton = NSPopUpButton(frame: .zero, pullsDown: true)
-    /// The Variables navigator's "+", which makes a variable at once.
-    let newVariableButton = NSButton()
     let filterField = NSSearchField()
     /// Reserved for scope toggles. Empty and zero-width today; it exists so
     /// adding one later does not move the field.
     private let trailingSlot = NSView()
     private let stack = NSStackView()
 
-    /// Show the "+" that belongs to `navigator`. Only the Sessions navigator and
-    /// the Variables navigator can create things, so the others show none;
-    /// the stack closes the gap.
-    func configureAddControl(for navigator: Navigator) {
-        addButton.isHidden = (navigator != .library)
-        newVariableButton.isHidden = (navigator != .variables)
+    /// Show the "+" when the Sessions list is on screen: only it can create
+    /// things here, so the other lists show none; the stack closes the gap.
+    func configureAddControl(for list: SidebarList) {
+        addButton.isHidden = (list != .sessions)
     }
 
     override init(frame frameRect: NSRect) {
@@ -60,7 +53,6 @@ final class SidebarFilterBar: NSView {
 
     private func build() {
         buildAddButton()
-        buildNewVariableButton()
         buildFilterField()
 
         trailingSlot.translatesAutoresizingMaskIntoConstraints = false
@@ -72,7 +64,6 @@ final class SidebarFilterBar: NSView {
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(addButton)
-        stack.addArrangedSubview(newVariableButton)
         stack.addArrangedSubview(filterField)
         stack.addArrangedSubview(trailingSlot)
 
@@ -116,26 +107,10 @@ final class SidebarFilterBar: NSView {
         addButton.widthAnchor.constraint(equalToConstant: Self.addControlWidth).isActive = true
     }
 
-    private func buildNewVariableButton() {
-        newVariableButton.bezelStyle = .accessoryBarAction
-        newVariableButton.showsBorderOnlyWhileMouseInside = true
-        newVariableButton.imagePosition = .imageOnly
-        newVariableButton.image = Self.plusImage(accessibilityDescription: String(localized: "New Variable"))
-        newVariableButton.translatesAutoresizingMaskIntoConstraints = false
-        newVariableButton.setAccessibilityLabel(String(localized: "New Variable"))
-        newVariableButton.setAccessibilityIdentifier("sidebar.filter.newVariable")
-        newVariableButton.toolTip = String(localized: "New Variable")
-        newVariableButton.target = self
-        newVariableButton.action = #selector(newVariableChosen)
-        newVariableButton.isHidden = true
-        newVariableButton.widthAnchor.constraint(equalToConstant: Self.addControlWidth).isActive = true
-    }
-
-    /// Width of either "+" control.
+    /// Width of the "+" control.
     private static let addControlWidth: CGFloat = 28
 
-    /// The "+" glyph both add controls draw, so switching navigators does not
-    /// change its size. 14 pt: at 12 it was easy to miss.
+    /// The "+" glyph. 14 pt: at 12 it was easy to miss.
     private static func plusImage(accessibilityDescription: String) -> NSImage? {
         NSImage(systemSymbolName: "plus", accessibilityDescription: accessibilityDescription)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium))
@@ -176,7 +151,6 @@ final class SidebarFilterBar: NSView {
 
     @objc private func newQueryChosen() { onNewQuery?() }
     @objc private func newFolderChosen() { onNewFolder?() }
-    @objc private func newVariableChosen() { onNewVariable?() }
 
     @objc private func filterFieldChanged(_ sender: NSSearchField) {
         onTextChanged?(sender.stringValue)
