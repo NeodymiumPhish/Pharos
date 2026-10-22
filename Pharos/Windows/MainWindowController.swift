@@ -118,8 +118,8 @@ class MainWindowController: NSWindowController {
     /// with the window's query tab.
     private var tabPresenter: WindowTabPresenter?
 
-    /// The tab bar's + button and File ▸ New Tab (⌘T): a new query tab beside
-    /// this one, on this tab's connection and schema.
+    /// The tab bar's + button and File ▸ New Tab (⌘T): a new blank query tab
+    /// beside this one, with no connection.
     override func newWindowForTab(_ sender: Any?) {
         (NSApp.delegate as? AppDelegate)?.openTab(nil, beside: self)
     }

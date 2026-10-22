@@ -135,18 +135,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// A new query tab: a window added to `source`'s tab group, or a window of
-    /// its own when there is no source. With no `tab`, a blank one on the
-    /// source tab's connection and schema. `select: false` adds it behind the
+    /// its own when there is no source. With no `tab`, a new blank tab: no
+    /// connection, no schema, no cards of the source tab — the user chooses
+    /// its database in the context row. `select: false` adds it behind the
     /// selected tab (session restore puts a group back that way).
     @MainActor
     @discardableResult
     func openTab(_ tab: QueryTab?, beside source: MainWindowController?, select: Bool = true) -> MainWindowController {
-        var tab = tab
-        if tab == nil, let sourceTab = source?.session.tab {
-            tab = QueryTab(name: AppStateManager.shared.nextTabName(),
-                           connectionId: sourceTab.connectionId, schemaName: sourceTab.schemaName)
-        }
-        let controller = MainWindowController(tab: tab, initialConnectionId: source?.session.activeConnectionId)
+        let blank = tab == nil
+        let tab = tab ?? QueryTab(name: AppStateManager.shared.nextTabName())
+        // A tab Pharos opens with content (a file, a Session, a restored tab)
+        // brings its own connection; only that case keeps the source window's
+        // connection as the starting point before the tab is installed.
+        let controller = MainWindowController(tab: tab, initialConnectionId: blank ? nil : source?.session.activeConnectionId)
         windowControllers.append(controller)
         if let source, let sourceWindow = source.window, let window = controller.window {
             controller.splitViewController.adoptLayout(from: source.splitViewController)

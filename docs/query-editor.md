@@ -173,7 +173,7 @@ Select SQL in any app that offers macOS Services — a text editor, a browser, M
 
 ## Tab Management
 
-Every editor tab is a native macOS window tab, grouped the way Safari and Finder group theirs. The system tab bar appears when a window has two or more tabs; **View > Show Tab Bar** shows it always. Its **+** button and **File > New Tab** (**Cmd+T**) add a tab beside the current one, on the current tab's connection and schema, with the same sidebar and inspector layout.
+Every editor tab is a native macOS window tab, grouped the way Safari and Finder group theirs. The system tab bar appears when a window has two or more tabs; **View > Show Tab Bar** shows it always. Its **+** button and **File > New Tab** (**Cmd+T**) add a new, empty tab beside the current one, with the same sidebar and inspector layout. The new tab has no connection: choose its database in the tab's Connection pop-up.
 
 | Action | Shortcut |
 |--------|----------|
