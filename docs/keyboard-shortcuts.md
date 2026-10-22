@@ -87,6 +87,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Variables navigator | Cmd+Opt+2 |
 | Results History navigator | Cmd+Opt+3 |
 | Database Navigator navigator | Cmd+Opt+4 |
+| Files navigator | Cmd+Opt+5 |
 | Filter in Navigator | Cmd+Opt+J |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 | Show Next Tab | Cmd+Shift+] (or Ctrl+Tab) |

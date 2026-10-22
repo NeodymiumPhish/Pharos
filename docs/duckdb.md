@@ -24,7 +24,7 @@ A DuckDB file you open is **not** added to the Connections Manager. Pharos keeps
 
 To keep a file in the Connections Manager, choose **File > Save as Connection**, or right-click the tab's context row and choose **Save as Connection**. A saved file shows in the pop-up under **DuckDB**, and its settings (Read-only, Default Schema, Connect when Pharos starts) are in the Connections Manager. A database file you create with **New…** in the Connections Manager is saved from the start. In-memory databases follow the same rule.
 
-Files that Pharos opened before this change and that have none of those three settings are not saved. Open them again with **File > Open Recent**.
+Files that Pharos opened before this change and that have none of those three settings are not saved. They are in the [Files navigator](#the-files-navigator).
 
 ## Open or create a database
 
@@ -40,6 +40,22 @@ Opening a file finds the connection that already names it, or makes a new one. W
 
 {: .warning }
 An in-memory database exists only while its connection is open. Its tables are lost when you disconnect or quit.
+
+## The Files navigator
+
+The **Files** navigator (the fifth icon of the navigator selector, **View > Navigators > Files**, **Cmd+Opt+5**) lists every DuckDB database and data file (CSV, Parquet, JSON, Excel) you opened, with no limit. **File > Open Recent** and the Dock show only the newest of them. The list has three sections:
+
+- **Open** — files a tab uses or that are connected, and open in-memory databases.
+- **Recent** — the other files you opened in the last 60 days, newest first.
+- **Older** — files not opened in the last 60 days. The section is closed until you click its header.
+
+Each row shows the file name and its folder, then **Open**, **Saved** (saved as a connection) or **File not found**. The Filter field at the bottom of the sidebar narrows the list by name or path.
+
+- **Double-click** a database to open it in its tab, or to bring forward the tab that shows it. Double-click a data file to read it, as **File > Open Recent** does. When a database file is missing, Pharos offers **Locate…** if it still has its note of the file, and says the file can't be found otherwise.
+- **Drag** a row onto a DuckDB tab's editor to insert a reference to the file. **Drop** files from Finder on the list to open them.
+- **Right-click** for **Open**, **Open in New Tab**, **Show in Finder**, **Copy Path**, **Save as Connection** or **Remove from Connections**, and **Remove from List**.
+
+**Remove from List** removes the entry; the file stays where it is. For a database that is not saved as a connection and that no saved Session and no open tab uses, Pharos also forgets the file, after an alert that says so: its query history and Results History workspaces stay, but they open without a connection.
 
 ## A file that has moved
 

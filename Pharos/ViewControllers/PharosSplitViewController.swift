@@ -43,8 +43,11 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
         // there and the traffic lights take the first ~92pt, so 240 held
         // three. With the fourth (Variables) segment, 240 sends the whole
         // group — and the sidebar toggle — to the overflow menu (measured
-        // 2026-09-16); 280 holds all four.
-        sidebarItem.minimumThickness = 280
+        // 2026-09-16); 280 held all four. The fifth segment (Files) adds
+        // 39.5pt (each segment's width in the 2026-09 AX baseline: the group
+        // starts 96pt in and four ended at 254pt), so 320 keeps the same
+        // 26pt of slack for five.
+        sidebarItem.minimumThickness = 320
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
         // Just one step above the content's holding priority — enough to make
