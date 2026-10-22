@@ -115,6 +115,7 @@
 		4048DB404CB9E8B2FEC98C0C /* TagMatchDisclosure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2012DA5C4BDE052549A92704 /* TagMatchDisclosure.swift */; };
 		40EAB0C81916303F6FFF742A /* PasswordPromptSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C11DB65E7D78FB72B82A43 /* PasswordPromptSheet.swift */; };
 		419548440610B3FAF2841187 /* TagPredicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4DF712BE5E256C3E932817 /* TagPredicate.swift */; };
+		42592243ACB60639EEF429A2 /* TagValueImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923D7668E7CBCB3D0A427A3E /* TagValueImport.swift */; };
 		43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */; };
 		440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */; };
 		445C2450A99170B573A8C90A /* MetadataCache+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */; };
@@ -367,6 +368,7 @@
 		D5F6543AA5EB546DA88AC356 /* ColumnTypeIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */; };
 		D5FD88D1BE3008B61F9ACFF1 /* IntentResultCSV.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57FAB393D30AA7EA6F42ADA /* IntentResultCSV.swift */; };
 		D605A231ED70A5D46C269962 /* RecentFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770627A8864DE2D210669FAE /* RecentFileStore.swift */; };
+		D67D35252A9245E7CDFF26BD /* TagAddValuesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6769126383808ABBB6B34851 /* TagAddValuesSheet.swift */; };
 		D6D0BF4D8C2B7029F7A6D409 /* CardStackVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB647788D503E3A7B42788F /* CardStackVC.swift */; };
 		D8B646F76DBFA6FAED2EC3C4 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D9C70AAE70474C6A9171C2 /* SettingsWindowController.swift */; };
 		D9D0084F5A297A617D89B191 /* SettingsInfoButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB90AC3C687DFE505F1B769 /* SettingsInfoButton.swift */; };
@@ -582,6 +584,7 @@
 		660F536C895497044AF79E8C /* RuleKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleKey.swift; sourceTree = "<group>"; };
 		6617C742EBFE1DEA3B133567 /* QueryErrorBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryErrorBanner.swift; sourceTree = "<group>"; };
 		668C566F24CBB6BABBD8C4D1 /* AppDelegate+Managers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Managers.swift"; sourceTree = "<group>"; };
+		6769126383808ABBB6B34851 /* TagAddValuesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagAddValuesSheet.swift; sourceTree = "<group>"; };
 		683EA3267E0A7C98EF05E9A4 /* PharosCore+Query.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Query.swift"; sourceTree = "<group>"; };
 		698A54A54D0C66711552AFEF /* VariableConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableConnectionsView.swift; sourceTree = "<group>"; };
 		6B56739DE04EEB4C1F4850DB /* TabContextBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabContextBar.swift; sourceTree = "<group>"; };
@@ -640,6 +643,7 @@
 		8FE635091CB4D36F3459CD1B /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		90AC102665AFB681E295853B /* FilterCheckRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCheckRowView.swift; sourceTree = "<group>"; };
 		923392DA36283E6B6414BCE3 /* SettingsSectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionHeader.swift; sourceTree = "<group>"; };
+		923D7668E7CBCB3D0A427A3E /* TagValueImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagValueImport.swift; sourceTree = "<group>"; };
 		924134701A5DCF2C9E7981E0 /* ErrorExplanationPrompt+Cache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ErrorExplanationPrompt+Cache.swift"; sourceTree = "<group>"; };
 		926D010C1B262892B7B738FE /* SQLSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSummary.swift; sourceTree = "<group>"; };
 		92E74684F85A0F7FE8A63987 /* CompletionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletionResolver.swift; sourceTree = "<group>"; };
@@ -1123,6 +1127,7 @@
 				AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */,
 				819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */,
 				E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */,
+				6769126383808ABBB6B34851 /* TagAddValuesSheet.swift */,
 				54A1D48FF5294CF4C99C7DD8 /* TagManagerHostVC.swift */,
 				E6DCF7AC5AC9DD6628EBDAF3 /* TagManagerSheet.swift */,
 				A66124BB8E69DF3917474F6F /* TagManagerWindowController.swift */,
@@ -1250,6 +1255,7 @@
 				3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */,
 				478AE9084B7DAB02CD46EF65 /* TagRuleRemoving.swift */,
 				722165042DF02B1F5B535DC8 /* TagStore.swift */,
+				923D7668E7CBCB3D0A427A3E /* TagValueImport.swift */,
 				1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */,
 				14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
@@ -1895,6 +1901,7 @@
 				478EC921902A75AA87E6B34E /* TableDDL.swift in Sources */,
 				75929F01D986B10B122E9018 /* TableDDLSheet.swift in Sources */,
 				9D2681720A71CCE84786DE54 /* Tag.swift in Sources */,
+				D67D35252A9245E7CDFF26BD /* TagAddValuesSheet.swift in Sources */,
 				A32B1EC59A5BB25CA2705154 /* TagCapture.swift in Sources */,
 				F23754CC0FFF0580A1A07197 /* TagCaptureListView.swift in Sources */,
 				5E762A4EA65505BED13E97AB /* TagCommitWriting.swift in Sources */,
@@ -1921,6 +1928,7 @@
 				B10BAE7114021E9CC8BB03F5 /* TagRuleMatcher.swift in Sources */,
 				9FAE872307D0C9BFBD8D0236 /* TagRuleRemoving.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,
+				42592243ACB60639EEF429A2 /* TagValueImport.swift in Sources */,
 				2E2D04CAAE6675C81B15D999 /* TagValueNormalizer.swift in Sources */,
 				D4D24BD1BE5A3489DC84D9FE /* TaggedRowView.swift in Sources */,
 				BB242B2D9790DD4A59F37CA8 /* TagsSettingsPaneVC.swift in Sources */,

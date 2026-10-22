@@ -1078,7 +1078,28 @@ final class TagManagerSheet: NSViewController,
             removeCondition: { [weak self] in self?.removeCondition($1, fromRule: $0) },
             changedCondition: { [weak self] in self?.changedCondition($0, $1, $2) },
             invalidCondition: { [weak self] in self?.invalidCondition($0, $1, $2) },
-            changedSelection: { [weak self] in self?.changedSelection($0) })
+            changedSelection: { [weak self] in self?.changedSelection($0) },
+            // In the Tag Manager (manage) only: the grid's Add Tag… and Remove
+            // From Tag… sheets have rules of their own to work on.
+            addValues: model.mode == .manage ? { [weak self] in self?.presentAddValues() } : nil)
+    }
+
+    /// Add Values…: a sheet over this view's window; the lines it accepts
+    /// become one rule each on the selected tag (`TagValueImport`).
+    func presentAddValues() {
+        guard let index = selectedTagIndex else { return }
+        let existing = model.tags[index].rules.map(\.conditions)
+        let sheet = TagAddValuesSheet(existing: existing) { [weak self] conditions in
+            self?.addRules(conditions)
+        }
+        presentAsSheet(sheet)
+    }
+
+    /// One rule per condition on the selected tag, then one re-render.
+    func addRules(_ conditions: [TagCondition]) {
+        guard let index = selectedTagIndex, !conditions.isEmpty else { return }
+        for condition in conditions { model.addRule(toTagAt: index, conditions: [condition]) }
+        structuralChange(tagAt: index)
     }
 
     /// A condition with nothing in it yet.

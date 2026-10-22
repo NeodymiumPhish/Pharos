@@ -203,7 +203,7 @@ enum TagValueNormalizer {
     /// The grammar is PostgreSQL's own numeric output: an optional sign, digits
     /// with an optional single point, and an optional exponent. Written as a
     /// character walk rather than a regex because this runs per cell.
-    private static func isNumericText(_ text: String) -> Bool {
+    static func isNumericText(_ text: String) -> Bool {
         var chars = Substring(text)
         if chars.first == "+" || chars.first == "-" { chars = chars.dropFirst() }
 

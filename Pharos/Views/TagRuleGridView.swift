@@ -25,6 +25,9 @@ final class TagRuleGridView: NSStackView {
         /// Defaulted, so a caller that renders no checkboxes need never mention
         /// it.
         var changedSelection: (Set<String>) -> Void = { _ in }
+        /// "Add Values…": a list pasted or typed, one rule per line. Nil hides
+        /// the button (the grid's Add Tag… and Remove From Tag… sheets).
+        var addValues: (() -> Void)? = nil
     }
 
     /// The rule groups, in MODEL order.
@@ -44,6 +47,7 @@ final class TagRuleGridView: NSStackView {
     let semanticsLabel = NSTextField(labelWithString:
         "A row carries this tag when it satisfies every condition of any one rule.")
     let addRuleButton = NSButton()
+    let addValuesButton = NSButton()
 
     /// Where the add-rule control sits. A full-width row holding a button that
     /// hugs its own text, so `spanArrangedSubviewsFullWidth()` can pin EVERY
@@ -83,7 +87,17 @@ final class TagRuleGridView: NSStackView {
         footerRow.orientation = .horizontal
         footerRow.alignment = .centerY
         footerRow.spacing = 6
+        addValuesButton.title = String(localized: "Add Values…")
+        addValuesButton.bezelStyle = .rounded
+        addValuesButton.target = self
+        addValuesButton.action = #selector(addValuesTapped)
+        addValuesButton.setAccessibilityLabel(String(localized: "Add rules from a list of values"))
+        addValuesButton.toolTip = String(localized: "Paste or type values, one per line: each becomes a rule.")
+        addValuesButton.setContentHuggingPriority(.required, for: .horizontal)
+        addValuesButton.isHidden = true
+
         footerRow.addArrangedSubview(addRuleButton)
+        footerRow.addArrangedSubview(addValuesButton)
         footerRow.addArrangedSubview(TagRuleGridView.slack())
 
         orientation = .vertical
@@ -114,6 +128,7 @@ final class TagRuleGridView: NSStackView {
     func render(_ tag: EditableTag, callbacks: Callbacks,
                 selection: Set<String>? = nil) {
         self.callbacks = callbacks
+        addValuesButton.isHidden = callbacks.addValues == nil
         // `removeFromSuperview`, NOT `removeArrangedSubview`. The latter only
         // detaches a view from the ARRANGEMENT and leaves it in `subviews`,
         // where it would still draw and would still shift every later view's
@@ -149,6 +164,10 @@ final class TagRuleGridView: NSStackView {
     }
 
     // MARK: Actions
+
+    @objc private func addValuesTapped(_ sender: Any?) {
+        callbacks?.addValues?()
+    }
 
     @objc private func addRuleTapped(_ sender: Any?) {
         callbacks?.addRule()

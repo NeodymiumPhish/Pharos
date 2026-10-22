@@ -38,6 +38,8 @@ swiftc -o /tmp/tag-manager-window-tests \
   Pharos/Views/TagRuleGridView.swift \
   Pharos/Views/Toast.swift \
   Pharos/Sheets/TagManagerSheet.swift \
+  Pharos/Sheets/TagAddValuesSheet.swift \
+  Pharos/Core/TagValueImport.swift \
   Pharos/Sheets/TagManagerHostVC.swift \
   PharosTests/TagManagerWindowTests.swift \
   PharosTests/main.swift

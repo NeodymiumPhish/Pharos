@@ -82,7 +82,27 @@ private func testWindowContent() {
     expect(host.confirmClose(), false, "edits: Cancel in the question keeps it open")
     expect(asked, 1, "and the question was asked")
 
+    // Add Values…: offered in the Tag Manager, and its rules land on the tag.
+    stored = [tag("ioc", "IOCs")]
+    host.reseed(preselect: "ioc")
+    guard let manage = host.sheet else { return }
+    expect(manage.grid.addValuesButton.isHidden, false, "Add Values… shows in the Tag Manager")
+    let pasteSheet = TagAddValuesSheet(existing: []) { manage.addRules($0) }
+    _ = pasteSheet.view
+    pasteSheet.textView.string = "10.0.0.0/8\n10.0.0.1\n10.0.0.1\n"
+    pasteSheet.refresh()
+    expect(pasteSheet.addButton.title, "Add 2 Rules", "the button counts the ready lines")
+    expect(pasteSheet.summaryLabel.stringValue, "1 line(s) left out — see Status.", "and says what was left out")
+    pasteSheet.addButton.performClick(nil)
+    expect(manage.model.tags[manage.model.tags.firstIndex { $0.id == "ioc" }!].rules.count, 2,
+           "two rules added to the selected tag")
+    expect(host.hasEdits, true, "they are edits until Save")
+    let emptySheet = TagAddValuesSheet(existing: []) { _ in }
+    _ = emptySheet.view
+    expect(emptySheet.addButton.isEnabled, false, "nothing typed: Add is off")
+
     // Cancel closes the window.
+    host.askDiscard = { true }
     host.sheet?.cancelButton.performClick(nil)
     expect(closed, 1, "Cancel closes the window")
 }
