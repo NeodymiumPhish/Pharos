@@ -485,7 +485,9 @@ final class ConnectionsManagerVC: NSViewController {
             .store(in: &cancellables)
 
         // Seed initial state, then keep in sync with the global state manager.
-        listModel.connections = stateManager.connections
+        // Saved records only: an opened DuckDB file is not a connection until
+        // the user saves it (`ConnectionVisibility`).
+        listModel.connections = ConnectionVisibility.listed(stateManager.connections)
         listModel.statuses = stateManager.connectionStatuses
         updateDetailVisibility()
 
@@ -1316,7 +1318,7 @@ final class ConnectionsManagerVC: NSViewController {
         // Preserve in-flight stubs that aren't yet in the backend.
         let stubs = connections.filter { pendingStubIds.contains($0.id) }
         let preservedSelection = listModel.selectedId
-        connections = configs + stubs
+        connections = ConnectionVisibility.listed(configs) + stubs
         if let preservedSelection,
            connections.contains(where: { $0.id == preservedSelection }) {
             listModel.selectedIds = [preservedSelection]
@@ -1349,7 +1351,10 @@ final class ConnectionsManagerVC: NSViewController {
         var updated = connections
         updated.move(fromOffsets: source, toOffset: destination)
         connections = updated
-        stateManager.reorderConnections(ids: updated.map { $0.id })
+        // The list shows saved records only; the hidden ones follow them, so
+        // no two records keep the same position.
+        stateManager.reorderConnections(ids: ConnectionVisibility.reorderedIds(
+            saved: updated.map { $0.id }, all: stateManager.connections))
     }
 
     // MARK: - Selection / detail population

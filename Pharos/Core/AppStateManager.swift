@@ -178,6 +178,12 @@ final class AppStateManager: ObservableObject {
 
     // MARK: - Tab names and closed tabs (app-wide: every tab is a window)
 
+    /// The records the open tabs use, in every window. The tab pop-up's Open
+    /// Files lists the not-saved ones (`ConnectionVisibility.popUpSections`).
+    var connectionIdsInUse: Set<String> {
+        Set(sessions.flatMap(\.tabs).compactMap(\.connectionId))
+    }
+
     /// "New Tab N", the lowest N no open tab uses (`TabNaming`).
     func nextTabName() -> String {
         TabNaming.nextNewTabName(used: sessions.flatMap(\.tabs).map(\.name))
@@ -523,7 +529,9 @@ final class AppStateManager: ObservableObject {
     /// a connection that never answers leaves its own row spinning rather
     /// than holding up the window.
     func connectFlaggedConnectionsAtLaunch() {
-        let candidates = connections.map { config in
+        // Saved records only. A not-saved file cannot carry the flag (only the
+        // Connections Manager sets it), so this is belt and braces.
+        let candidates = ConnectionVisibility.listed(connections).map { config in
             LaunchConnectPolicy.Candidate(
                 id: config.id,
                 name: config.name,

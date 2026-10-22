@@ -36,10 +36,18 @@ struct ConnectionEntity: AppEntity {
             : "\(config.database) — \(config.host)"
     }
 
-    /// Every saved connection. `AppStateManager` is the one list the rest of the
-    /// app reads, so an intent shows exactly what the sidebar shows.
+    /// Every saved connection, as the Connections Manager lists them: an
+    /// opened DuckDB file that was not saved is not offered
+    /// (`ConnectionVisibility`).
     @MainActor
     static func all() -> [ConnectionEntity] {
+        ConnectionVisibility.listed(AppStateManager.shared.connections).map(ConnectionEntity.init)
+    }
+
+    /// Every record, saved or not: a Shortcut made while a file was saved
+    /// keeps resolving its id after the file is removed from Connections.
+    @MainActor
+    static func anyRecord() -> [ConnectionEntity] {
         AppStateManager.shared.connections.map(ConnectionEntity.init)
     }
 }
@@ -51,7 +59,7 @@ struct ConnectionQuery: EntityStringQuery {
 
     func entities(for identifiers: [String]) async throws -> [ConnectionEntity] {
         let wanted = Set(identifiers)
-        return await MainActor.run { ConnectionEntity.all().filter { wanted.contains($0.id) } }
+        return await MainActor.run { ConnectionEntity.anyRecord().filter { wanted.contains($0.id) } }
     }
 
     func entities(matching string: String) async throws -> [ConnectionEntity] {

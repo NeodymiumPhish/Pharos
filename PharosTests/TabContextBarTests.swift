@@ -62,6 +62,11 @@ private final class Fixture {
 private let coda = TabContextBar.ConnectionItem(id: "c1", name: "Coda", state: .connected)
 private let billing = TabContextBar.ConnectionItem(id: "c2", name: "Billing", state: .disconnected)
 
+/// One group of the pop-up, as the owner builds it.
+private func group(_ title: String, _ items: [TabContextBar.ConnectionItem]) -> TabContextBar.ConnectionSection {
+    TabContextBar.ConnectionSection(title: title, symbolName: "server.rack", items: items)
+}
+
 /// C1: a DuckDB item says where its file is, and "File not found" when the
 /// menu opens on a file that is gone.
 @MainActor
@@ -76,7 +81,8 @@ private func testFileLocations() {
     let mem = TabContextBar.ConnectionItem(id: "d3", name: "scratch", state: .connected, location: "In-memory",
                                            isDuckDB: true)
     f.bar.fileExists = { _ in false }
-    f.bar.showConnections([coda, sales, open, mem], selectedId: "d1")
+    f.bar.showConnections([group("Open Files", [mem]), group("PostgreSQL", [coda]), group("DuckDB", [sales, open])],
+                          selectedId: "d1")
     let item = popUp.itemArray.first { $0.title == "sales" }
     expect(item?.subtitle == "Not connected · ~/Data/sales.duckdb", "the subtitle is the state, then the location",
            item?.subtitle ?? "nil")
@@ -84,14 +90,14 @@ private func testFileLocations() {
     expect(popUp.itemArray.first { $0.title == "scratch" }?.subtitle == "Connected · In-memory", "in-memory says so")
     expect(popUp.itemArray.first { $0.title == "Coda" }?.subtitle == "Connected", "a server keeps the state alone")
     let headers = popUp.itemArray.filter(\.isSectionHeader).map(\.title)
-    expect(headers == ["PostgreSQL", "DuckDB"], "both engines: a header for each", "\(headers)")
+    expect(headers == ["Open Files", "PostgreSQL", "DuckDB"], "a header for each group, in the owner's order", "\(headers)")
     f.bar.markMissingFiles()
     expect(item?.subtitle == "File not found · ~/Data/sales.duckdb", "a gone file says so when the menu opens",
            item?.subtitle ?? "nil")
     expect(popUp.itemArray.first { $0.title == "open" }?.subtitle == "Connected · ~/open.duckdb",
            "an open file is never marked missing")
-    f.bar.showConnections([sales], selectedId: "d1")
-    expect(!popUp.itemArray.contains(where: \.isSectionHeader), "one engine: no headers")
+    f.bar.showConnections([group("DuckDB", [sales])], selectedId: "d1")
+    expect(popUp.itemArray.filter(\.isSectionHeader).map(\.title) == ["DuckDB"], "one group still has its header")
 
     // C2: the Read-only badge reads as plain words, with the help.
     expect(f.bar.readOnlyBadge.isHidden, "no badge by default")
@@ -108,7 +114,7 @@ private func testFileLocations() {
 private func testConnections() {
     let f = Fixture()
     let popUp = f.bar.connectionPopUp
-    f.bar.showConnections([coda, billing], selectedId: "c1")
+    f.bar.showConnections([group("PostgreSQL", [coda, billing])], selectedId: "c1")
     expect(popUp.titleOfSelectedItem == "Coda", "the button shows the tab's connection")
     expect(popUp.itemArray.contains { $0.title == "Manage Connections…" }, "Manage Connections… is the last item")
     expect(popUp.itemArray.first { $0.title == "Billing" }?.subtitle == "Not connected",
@@ -147,7 +153,7 @@ private func testConnections() {
     expect(ConnectionPopUpButton.menuOrigin(in: b, flipped: false) == NSPoint(x: 0, y: -2), "and below it when not flipped")
     expect(popUp.isFlipped, "NSPopUpButton is flipped, so the flipped origin is the one used")
 
-    f.bar.showConnections([coda, billing], selectedId: nil)
+    f.bar.showConnections([group("PostgreSQL", [coda, billing])], selectedId: nil)
     expect(popUp.titleOfSelectedItem == "Choose Connection", "no connection: the button says Choose Connection")
     expect(!popUp.itemArray.contains { $0.state == .on }, "no checkmark without a connection")
     expect(popUp.accessibilityIdentifier() == "editor.context.connection", "AX id")
@@ -236,12 +242,12 @@ private func testContextMenu() {
 private func testNoConflicts() {
     let before = SpyWindow.conflicts
     let wide = Fixture()
-    wide.bar.showConnections([coda, billing], selectedId: "c1")
+    wide.bar.showConnections([group("PostgreSQL", [coda, billing])], selectedId: "c1")
     wide.bar.showState(.failed(reason: "x"))
     wide.bar.showTransaction(.failed)
     wide.layout()
     let narrow = Fixture(width: 0)
-    narrow.bar.showConnections([coda], selectedId: "c1")
+    narrow.bar.showConnections([group("PostgreSQL", [coda])], selectedId: "c1")
     narrow.bar.showState(.connected)
     narrow.layout()
     expect(SpyWindow.conflicts == before, "no constraint conflicts, wide or at width 0",

@@ -32,6 +32,15 @@ final class TabContextBar: NSView {
         }
     }
 
+    /// One group of the connection pop-up, with its header. The owner decides
+    /// the groups (`ConnectionVisibility.popUpSections`); this view only shows
+    /// them, in the order given.
+    struct ConnectionSection: Equatable {
+        let title: String
+        let symbolName: String
+        let items: [ConnectionItem]
+    }
+
     let connectionPopUp = ConnectionPopUpButton(frame: .zero, pullsDown: false)
     let schemaButton = SchemaPopUpButton(frame: .zero, pullsDown: false)
     let stateLabel = NSTextField(labelWithString: "")
@@ -46,6 +55,9 @@ final class TabContextBar: NSView {
     private let separatorLabel = NSTextField(labelWithString: "›")
 
     var onChooseConnection: ((String) -> Void)?
+    /// As the pop-up opens, before it is shown: the owner refills it, so a file
+    /// another window opened since the last refresh is listed.
+    var onConnectionMenuWillOpen: (() -> Void)?
     var onManageConnections: (() -> Void)?
     var onConnect: (() -> Void)?
     var onSchema: ((SchemaPopUpButton) -> Void)?
@@ -77,7 +89,10 @@ final class TabContextBar: NSView {
         connectionPopUp.setAccessibilityLabel(String(localized: "Connection"))
         connectionPopUp.setAccessibilityIdentifier("editor.context.connection")
         connectionPopUp.toolTip = String(localized: "This tab's database connection")
-        connectionPopUp.onWillPresent = { [weak self] in self?.markMissingFiles() }
+        connectionPopUp.onWillPresent = { [weak self] in
+            self?.onConnectionMenuWillOpen?()
+            self?.markMissingFiles()
+        }
 
         schemaButton.addItem(withTitle: "")
         schemaButton.onActivate = { [weak self] button in self?.onSchema?(button) }
@@ -170,9 +185,11 @@ final class TabContextBar: NSView {
 
     // MARK: - Showing
 
-    /// The connections, the tab's one selected. With none selected, a
-    /// "Choose Connection" item heads the list and shows in the button.
-    func showConnections(_ items: [ConnectionItem], selectedId: String?) {
+    /// The connections in their groups, the tab's one selected. With none
+    /// selected, a "Choose Connection" item heads the list and shows in the
+    /// button. Every group has a header, even when it is the only one.
+    func showConnections(_ sections: [ConnectionSection], selectedId: String?) {
+        let items = sections.flatMap(\.items)
         selectedConnectionId = selectedId
         connectionPopUp.removeAllItems()
         let menu = connectionPopUp.menu ?? NSMenu()
@@ -185,18 +202,11 @@ final class TabContextBar: NSView {
             menu.addItem(choose)
         }
         itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        // Both engines present: a header for each, the user's order kept in
-        // each (HIG, Menus: group long lists).
-        let sections: [(String?, [ConnectionItem])]
-        let servers = items.filter { !$0.isDuckDB }, files = items.filter(\.isDuckDB)
-        if !servers.isEmpty && !files.isEmpty {
-            sections = [(String(localized: "PostgreSQL"), servers), (String(localized: "DuckDB"), files)]
-        } else {
-            sections = [(nil, items)]
-        }
-        for (header, sectionItems) in sections {
-            if let header { menu.addItem(.sectionHeader(title: header)) }
-            for item in sectionItems {
+        // A header for each group, the user's order kept in each (HIG, Menus:
+        // group long lists).
+        for section in sections {
+            menu.addItem(.sectionHeader(title: section.title))
+            for item in section.items {
                 // Its own action: `ConnectionPopUpButton` opens the menu with
                 // `NSMenu.popUp`, which does not route a choice to the button.
                 let menuItem = NSMenuItem(title: item.name, action: #selector(connectionItemChosen(_:)), keyEquivalent: "")

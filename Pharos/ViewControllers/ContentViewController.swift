@@ -1263,7 +1263,8 @@ class ContentViewController: NSViewController {
     /// would lead to: the first saved connection when there is one, and the
     /// Connections Manager when there is nothing to choose from yet.
     private func chooseConnectionForActiveTab() {
-        guard let first = stateManager.connections.first, let tabId = session.activeTabId else {
+        guard let first = ConnectionVisibility.listed(stateManager.connections).first,
+              let tabId = session.activeTabId else {
             ConnectionsManagerWindowController.show()
             return
         }

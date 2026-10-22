@@ -15,9 +15,11 @@ enum DockMenuRule {
         case none
     }
 
-    /// PostgreSQL connections and in-memory DuckDB databases.
+    /// Saved PostgreSQL connections and saved in-memory DuckDB databases. A
+    /// record that was only opened, not saved, is not offered here either
+    /// (`ConnectionConfig.saved`).
     static func content(for all: [ConnectionConfig]) -> Content {
-        let listed = all.filter { !$0.isDuckDB || $0.isInMemoryDuckDB }
+        let listed = all.filter { $0.saved && (!$0.isDuckDB || $0.isInMemoryDuckDB) }
         if !listed.isEmpty { return .connections(listed) }
         return all.isEmpty ? .none : .onlyFiles
     }

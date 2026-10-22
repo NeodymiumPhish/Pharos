@@ -12,16 +12,7 @@ extension EditorPaneVC {
         let connectionId = tab?.connectionId
         let config = connectionId.flatMap { id in connections.first { $0.id == id } }
 
-        tabContextBar.showConnections(
-            connections.map { config in
-                TabContextBar.ConnectionItem(
-                    id: config.id, name: DisplayEscape.escaped(config.name),
-                    state: TabConnectionState(connectionId: config.id, status: stateManager.status(for: config.id)),
-                    location: config.isDuckDB ? DisplayEscape.escaped(config.locationDescription) : nil,
-                    filePath: config.isDuckDB && !config.isInMemoryDuckDB ? config.database : nil,
-                    isDuckDB: config.isDuckDB)
-            },
-            selectedId: config?.id)
+        refreshConnectionMenu()
 
         let status = config.map { stateManager.status(for: $0.id) }
         let rawError = status == .error ? config.flatMap { stateManager.connectionError(for: $0.id) } : nil
@@ -45,6 +36,46 @@ extension EditorPaneVC {
 
         refreshTransactionChip()
         refreshReadOnlyBadge()
+    }
+
+    /// The connection pop-up's groups: Open Files (not-saved files a tab
+    /// uses), then the saved servers and DuckDB records
+    /// (`ConnectionVisibility`). Also run as the pop-up opens, so a file
+    /// another window opened since is listed.
+    func refreshConnectionMenu() {
+        let all = stateManager.connections
+        let sections = ConnectionVisibility.popUpSections(
+            all, inUse: stateManager.connectionIdsInUse, current: session.tab?.connectionId)
+        tabContextBar.showConnections(
+            sections.map { group in
+                TabContextBar.ConnectionSection(
+                    title: Self.title(of: group.section), symbolName: Self.symbolName(of: group.section),
+                    items: group.records.map { config in
+                        TabContextBar.ConnectionItem(
+                            id: config.id, name: DisplayEscape.escaped(config.name),
+                            state: TabConnectionState(connectionId: config.id, status: stateManager.status(for: config.id)),
+                            location: config.isDuckDB ? DisplayEscape.escaped(config.locationDescription) : nil,
+                            filePath: config.isDuckDB && !config.isInMemoryDuckDB ? config.database : nil,
+                            isDuckDB: config.isDuckDB)
+                    })
+            },
+            selectedId: session.tab?.connectionId)
+    }
+
+    static func title(of section: ConnectionVisibility.Section) -> String {
+        switch section {
+        case .openFiles: return String(localized: "Open Files")
+        case .postgres: return String(localized: "PostgreSQL")
+        case .duckdb: return String(localized: "DuckDB")
+        }
+    }
+
+    static func symbolName(of section: ConnectionVisibility.Section) -> String {
+        switch section {
+        case .openFiles: return "folder"
+        case .postgres: return "server.rack"
+        case .duckdb: return "cylinder.split.1x2"
+        }
     }
 
     /// The Read-only badge, from the mode the core opened (and, for
@@ -134,6 +165,7 @@ extension EditorPaneVC {
             self.delegate?.editorPaneDidRequestConnect(self)
         }
         tabContextBar.onManageConnections = { ConnectionsManagerWindowController.show() }
+        tabContextBar.onConnectionMenuWillOpen = { [weak self] in self?.refreshConnectionMenu() }
         tabContextBar.onSchema = { [weak self] button in self?.presentSchemaPopover(from: button) }
         tabContextBar.transactionMenu = { [weak self] in self?.transactionChipMenu() }
     }
