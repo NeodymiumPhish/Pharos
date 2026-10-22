@@ -72,9 +72,14 @@ extension AppDelegate {
     @objc func menuOpenRecentDuckDB(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         guard FileManager.default.fileExists(atPath: url.path) else {
-            // A record names the file: offer to find it (Locate…), as Connect does.
+            // A record names the file: offer to find it (Locate…), as Connect
+            // does. No tab may show the record, so the choice then opens it
+            // in its tab, as a file that is there would open.
             if let record = DuckDBFiles.record(for: DuckDBFiles.canonicalPath(url.path), in: AppStateManager.shared.connections) {
-                PasswordPromptCoordinator.shared.offerMissingFile(record)
+                PasswordPromptCoordinator.shared.offerMissingFile(record) { [weak self] record, create in
+                    if create { AppStateManager.shared.allowCreateOnNextConnect(record.id) }
+                    self?.openConnectionInTab(record, bringForward: !create)
+                }
                 return
             }
             let alert = NSAlert()

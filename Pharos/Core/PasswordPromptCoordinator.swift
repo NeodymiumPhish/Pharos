@@ -233,7 +233,12 @@ final class PasswordPromptCoordinator {
     /// database in its place, which would look like the user's data had gone
     /// (HIG File management). Locate… follows the file to where it is now;
     /// Create Empty Database is the explicit choice of a new one.
-    func offerMissingFile(_ config: ConnectionConfig) {
+    ///
+    /// `open`: what follows a choice when no tab shows the record yet (Open
+    /// Recent). It gets the record, with its new path after Locate…, and
+    /// whether the connect may create the file. Without it the record only
+    /// connects, which is right for a tab's own Connect.
+    func offerMissingFile(_ config: ConnectionConfig, open: ((ConnectionConfig, _ create: Bool) -> Void)? = nil) {
         guard !prompting.contains(config.id) else { return }
         prompting.insert(config.id)
         let id = config.id
@@ -249,8 +254,9 @@ final class PasswordPromptCoordinator {
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             self?.prompting.remove(id)
             switch response {
-            case .alertFirstButtonReturn: self?.locate(config)
-            case .alertSecondButtonReturn: AppStateManager.shared.connect(id: id, create: true)
+            case .alertFirstButtonReturn: self?.locate(config, open: open)
+            case .alertSecondButtonReturn:
+                if let open { open(config, true) } else { AppStateManager.shared.connect(id: id, create: true) }
             default: break
             }
         }
@@ -264,8 +270,8 @@ final class PasswordPromptCoordinator {
     /// Choose where a DuckDB record's file is now, store that path in the
     /// SAME record (its tabs, Sessions and history keep pointing at it), and
     /// connect. The name follows the file only while it is still the old
-    /// file's name.
-    func locate(_ config: ConnectionConfig) {
+    /// file's name. `open`: as in `offerMissingFile`.
+    func locate(_ config: ConnectionConfig, open: ((ConnectionConfig, _ create: Bool) -> Void)? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -289,7 +295,7 @@ final class PasswordPromptCoordinator {
             record.database = DuckDBFiles.canonicalPath(url.path)
             manager.saveConnection(record)
             NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: record.database))
-            manager.connect(id: id)
+            if let open { open(record, false) } else { manager.connect(id: id) }
         }
     }
 
