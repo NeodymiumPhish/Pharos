@@ -178,6 +178,17 @@
         }
       }
     },
+    "%@ on %@" : {
+      "comment" : "A server connection's place: the database, then host:port.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ on %2$@"
+          }
+        }
+      }
+    },
     "%@ rows" : {
 
     },
@@ -1852,6 +1863,9 @@
     "Importing: casting rows…" : {
 
     },
+    "In memory" : {
+      "comment" : "Where an in-memory DuckDB database is, in the connection pop-up."
+    },
     "In the editor and the results. Off follows the system's scroll-bar preference." : {
 
     },
@@ -2548,6 +2562,9 @@
     "Open DuckDB Database…" : {
 
     },
+    "Open Files" : {
+
+    },
     "Open Help" : {
 
     },
@@ -2897,7 +2914,7 @@
 
     },
     "Read-only" : {
-
+      "comment" : "A connection pop-up badge."
     },
     "Read-only connection" : {
 
@@ -2962,10 +2979,16 @@
     "Remove" : {
 
     },
+    "Remove “%@” from Connections?" : {
+
+    },
     "Remove “%@” from Pharos?" : {
 
     },
     "Remove %lld DuckDB databases from Pharos?" : {
+
+    },
+    "Remove %lld DuckDB files from Connections?" : {
 
     },
     "Remove Credential" : {
@@ -3199,6 +3222,9 @@
     "Save as %@" : {
 
     },
+    "Save as Connection" : {
+
+    },
     "Save as New" : {
 
     },
@@ -3233,6 +3259,9 @@
 
     },
     "Saved Sessions on it lose their connection." : {
+
+    },
+    "Saved Sessions on the in-memory databases lose their connection." : {
 
     },
     "Say nothing" : {
@@ -3490,6 +3519,12 @@
     "SQL WITH" : {
 
     },
+    "SSH" : {
+      "comment" : "A connection pop-up badge: the connection goes through an SSH tunnel."
+    },
+    "SSH · Read-only" : {
+      "comment" : "A connection pop-up badge."
+    },
     "SSH agent" : {
 
     },
@@ -3655,7 +3690,10 @@
     "The delimiter, quote character and NULL text above apply to reading a file as well as writing one, so a file Pharos exported imports back without a second set of choices." : {
 
     },
-    "The DuckDB files stay where they are." : {
+    "The DuckDB file stays in the Files list." : {
+
+    },
+    "The DuckDB files stay in the Files list." : {
 
     },
     "The editor toolbar button that drafts SQL from a sentence." : {
@@ -3670,7 +3708,7 @@
     "The failure is recorded on its tab whatever this says, and the tab's error badge always opens the full list." : {
 
     },
-    "The file %@ stays where it is." : {
+    "The file %@ stays where it is and in the Files list. Its tabs, Sessions and history keep working." : {
 
     },
     "The file does not exist yet. Save creates it." : {
@@ -3679,7 +3717,7 @@
     "The file for “%@” can’t be found. Click Locate… above the cards." : {
 
     },
-    "The files stay where they are. Saved Sessions on them lose their connection." : {
+    "The files stay where they are and in the Files list. Their tabs, Sessions and history keep working." : {
 
     },
     "The first failure" : {
@@ -3975,6 +4013,9 @@
     },
     "This will delete 1 Session in this folder, with its saved results." : {
 
+    },
+    "Through an SSH tunnel via %@" : {
+      "comment" : "A connection pop-up tooltip line."
     },
     "Throw the pending changes away and reload the rows." : {
 
