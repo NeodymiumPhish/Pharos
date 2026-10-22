@@ -266,11 +266,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ?? windowControllers.first
     }
 
-    /// File ▸ New Window (⌘N). A new window starts empty, with one "Query 1"
-    /// bound to the key window's connection — not a copy of its tabs.
+    /// File ▸ New Window (⌘N). A new window starts blank, like a new tab: one
+    /// empty tab with no connection — nothing from the key window.
     @MainActor
     @objc func menuNewWindow(_ sender: Any?) {
-        openMainWindow(connectionId: AppStateManager.shared.keySession?.activeConnectionId)
+        openMainWindow()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

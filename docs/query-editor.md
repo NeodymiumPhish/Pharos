@@ -198,7 +198,7 @@ Opening a saved Session, a history entry, a workspace from Results History, a `.
 
 ## Windows
 
-**File > New Window** (**Cmd+N**) opens a second main window. Each window has its own tabs, so you can put two databases side by side. A new window starts with one empty tab bound to the connection the front window was using; it does not copy that window's tabs.
+**File > New Window** (**Cmd+N**) opens a second main window. Each window has its own tabs, so you can put two databases side by side. A new window starts blank, like a new tab: one empty tab with no connection. It does not copy the front window's tabs or its connection.
 
 **Cmd+W** closes the tab, **Cmd+Shift+W** (**File > Close Window**) closes every tab of the window, asking about each. Closing a tab cancels the queries that tab started.
 
