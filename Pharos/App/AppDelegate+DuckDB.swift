@@ -1,6 +1,41 @@
 import AppKit
 import UniformTypeIdentifiers
 
+/// Runs an action once, when a connection's connect attempt ends connected;
+/// an error ends the wait with no action. It owns its observer, so the
+/// notification block captures only this main-actor object (Sendable) and the
+/// id, not a mutable token or the app delegate.
+@MainActor
+private final class WhenConnected {
+    private let connectionId: String
+    private let action: @MainActor () -> Void
+    private var observer: NSObjectProtocol?
+
+    /// The observer's block keeps the object alive until the wait ends.
+    static func run(connectionId: String, action: @escaping @MainActor () -> Void) {
+        let waiter = WhenConnected(connectionId: connectionId, action: action)
+        waiter.observer = NotificationCenter.default.addObserver(
+            forName: AppStateManager.connectionStatusDidChange, object: nil, queue: .main
+        ) { note in
+            guard (note.userInfo?["connectionId"] as? String) == connectionId else { return }
+            MainActor.assumeIsolated { waiter.statusChanged() }
+        }
+    }
+
+    private init(connectionId: String, action: @escaping @MainActor () -> Void) {
+        self.connectionId = connectionId
+        self.action = action
+    }
+
+    private func statusChanged() {
+        let status = AppStateManager.shared.status(for: connectionId)
+        guard status == .connected || status == .error else { return }
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        if status == .connected { action() }
+    }
+}
+
 // MARK: - DuckDB files
 
 /// File ▸ New DuckDB Database…, Open DuckDB Database…, Open Recent, and a
@@ -160,20 +195,8 @@ extension AppDelegate {
         let tabId = tab.id
         let ids = cards.map(\.id)
         // Run the cards when the new database is connected (once).
-        var observer: NSObjectProtocol?
-        observer = NotificationCenter.default.addObserver(
-            forName: AppStateManager.connectionStatusDidChange, object: nil, queue: .main
-        ) { [weak self] note in
-            guard (note.userInfo?["connectionId"] as? String) == record.id else { return }
-            MainActor.assumeIsolated {
-                let status = AppStateManager.shared.status(for: record.id)
-                guard status == .connected || status == .error else { return }
-                if let observer { NotificationCenter.default.removeObserver(observer) }
-                observer = nil
-                if status == .connected {
-                    self?.contentController(for: session)?.runBatch(ids, inTab: tabId)
-                }
-            }
+        WhenConnected.run(connectionId: record.id) { [weak self] in
+            self?.contentController(for: session)?.runBatch(ids, inTab: tabId)
         }
         manager.useConnection(record.id, forTabId: tabId, in: session)
         NSApp.activate()
