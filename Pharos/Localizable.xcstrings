@@ -84,12 +84,34 @@
         }
       }
     },
+    "%@ - %@" : {
+      "comment" : "A query tab's automatic name: the connection, then the schema.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ - %2$@"
+          }
+        }
+      }
+    },
     "%@ · %@ — %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · %2$@ — %3$@"
+          }
+        }
+      }
+    },
+    "%@ (%lld)" : {
+      "comment" : "A query tab's automatic name with a number, when another tab has the same name.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$lld)"
           }
         }
       }
@@ -103,6 +125,9 @@
           }
         }
       }
+    },
+    "%@ Copy" : {
+      "comment" : "The name of a duplicated tab."
     },
     "%@ has it open for writing, so it cannot be opened, even read-only. Close it in that app, then connect again." : {
 
@@ -370,6 +395,9 @@
     "A card failed or was cancelled while it ran, so DuckDB aborted the transaction. Its changes cannot be committed. Roll back to run more cards." : {
 
     },
+    "A card you have named is never touched. Tabs take the name of their connection and schema." : {
+
+    },
     "A ceiling on the whole history, newest kept. 0 is no ceiling. Both limits apply: whichever removes an entry first wins." : {
 
     },
@@ -437,9 +465,6 @@
 
     },
     "A tab that has never been saved is only mentioned while Restore open tabs is off." : {
-
-    },
-    "A tab you have named is never touched." : {
 
     },
     "A TSV export always uses a tab, whatever this says." : {
@@ -1392,6 +1417,9 @@
     "Engine log level" : {
 
     },
+    "Enter a new name for this tab. Leave it empty to name the tab after its connection and schema." : {
+
+    },
     "Enter the password for “%@”." : {
 
     },
@@ -1563,7 +1591,7 @@
     "File not found" : {
 
     },
-    "Fills the name field in the Save Query sheet and the rename dialogs. You can always type your own." : {
+    "Fills the name field in the Save Query sheet and the card rename dialog. You can always type your own." : {
 
     },
     "Filter" : {
@@ -2178,13 +2206,16 @@
     "Name and Recently updated are one flat list, with no folder rows — the folder a Session is in is unchanged, only hidden." : {
 
     },
+    "Name cards automatically" : {
+
+    },
     "Name in DuckDB" : {
 
     },
     "Name suggested by Apple Intelligence" : {
 
     },
-    "Name tabs automatically" : {
+    "Names a card that has no name from its SQL the first time it runs." : {
 
     },
     "Navigation" : {
@@ -2249,6 +2280,9 @@
     },
     "New Tab (⌘T)" : {
 
+    },
+    "New Tab %lld" : {
+      "comment" : "The name of a new query tab that has no connection yet."
     },
     "New table %@" : {
 
@@ -2946,13 +2980,13 @@
     "Rename Card" : {
 
     },
+    "Rename Tab" : {
+
+    },
     "Rename Tab…" : {
 
     },
     "Rename…" : {
-
-    },
-    "Renames a tab still called “Query 1” from its SQL the first time it runs." : {
 
     },
     "Reopen Closed Tab" : {
