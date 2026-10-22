@@ -106,6 +106,28 @@ private func testWindowContent() {
     manage.refreshSample()
     expect(manage.sampleResultLabel.stringValue, "No rule matches this value.", "and one outside every rule")
 
+    // The rule the sample matches is marked on its box, in words as well.
+    manage.sampleField.stringValue = "10.20.30.40"
+    manage.refreshSample()
+    expect(manage.grid.groups.first?.sampleMark, .match, "the matching rule is marked")
+    expect(manage.grid.groups.first?.sampleLabel.stringValue, "Matches", "and says so")
+    expect(manage.grid.groups.dropFirst().first?.sampleMark, nil, "a rule it does not match is plain")
+    manage.sampleField.stringValue = ""
+    manage.refreshSample()
+    expect(manage.grid.groups.compactMap(\.sampleMark).count, 0, "an empty sample clears every mark")
+
+    // Tab walks the rule fields: value → upper bound → remove → … → Test a value.
+    let row = manage.grid.groups.first!.conditionRows.first!
+    expect(row.valueField.nextKeyView === row.upperField, true, "Tab from a value goes to its upper bound")
+    expect(row.upperField.nextKeyView === row.removeButton, true, "then to the condition's remove button")
+    expect(manage.noteField.nextKeyView === manage.grid.groups.first!.deleteRuleButton, true,
+           "the note leads into the first rule")
+    expect(manage.grid.addValuesButton.nextKeyView === manage.sampleField, true, "Add Values… leads to Test a value")
+    expect(manage.saveButton.nextKeyView === manage.tableView, true, "and the loop closes")
+    manage.addRules([TagCondition(family: TagValueNormalizer.textFamily, kind: .exact, value: "x", display: "x")])
+    let newRow = manage.grid.groups.last!.conditionRows.first!
+    expect(newRow.valueField.nextKeyView === newRow.upperField, true, "a rule added later is in the loop too")
+
     let emptySheet = TagAddValuesSheet(existing: []) { _ in }
     _ = emptySheet.view
     expect(emptySheet.addButton.isEnabled, false, "nothing typed: Add is off")

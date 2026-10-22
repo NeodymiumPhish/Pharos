@@ -264,20 +264,21 @@ final class TagManagerSheet: NSViewController,
         // live build showed — which silently discards an explicit chain the
         // first time anything triggers it.
         view.window?.autorecalculatesKeyViewLoop = false
-        // Not a grid or a tab view, so this only wires the sidebar and the
-        // identity form — the static part of the sheet. `grid` (the rules)
-        // and `captureList` (the capture checklist) are rebuilt by `render()`
-        // on every structural edit, so a hand-written chain through their rows
-        // would go stale the moment a rule or condition is added or removed;
-        // their own tab order is left to automatic recalculation instead.
-        tableView.nextKeyView = newTagButton
-        newTagButton.nextKeyView = deleteTagButton
-        deleteTagButton.nextKeyView = nameField
-        nameField.nextKeyView = colorControl
-        colorControl.nextKeyView = noteField
-        noteField.nextKeyView = cancelButton
-        cancelButton.nextKeyView = saveButton
-        saveButton.nextKeyView = tableView
+        rebuildKeyViewLoop()
+    }
+
+    /// The whole Tab order, by hand: the sidebar, the identity form, every
+    /// rule's controls in screen order (family, operator, value, upper bound,
+    /// remove, …, Add Condition), Add Rule, Add Values…, Test a value, Cancel,
+    /// Save. Rebuilt after every render of the rules, which replaces their
+    /// views — automatic recalculation stays off (see above), so without this
+    /// Tab in a rule field went nowhere and selected the field's own text.
+    /// Controls that cannot take focus (a hidden upper bound; a pop-up without
+    /// Full Keyboard Access) are skipped by AppKit's `nextValidKeyView`.
+    func rebuildKeyViewLoop() {
+        let chain: [NSView] = [tableView, newTagButton, deleteTagButton, nameField, colorControl, noteField]
+            + grid.keyViews + [sampleField, cancelButton, saveButton]
+        for (view, next) in zip(chain, chain.dropFirst() + [chain[0]]) { view.nextKeyView = next }
     }
 
     private func buildSidebar() {
@@ -642,6 +643,7 @@ final class TagManagerSheet: NSViewController,
         let selection: Set<String>?
         if case .remove = model.mode { selection = tickedRuleIds } else { selection = nil }
         grid.render(tag, callbacks: gridCallbacks(), selection: selection)
+        rebuildKeyViewLoop()
     }
 
     /// Draw the capture checklist, and say what it is asking.
@@ -731,6 +733,17 @@ final class TagManagerSheet: NSViewController,
         let results = TagSampleTest.evaluate(sample, rules: model.tags[index].rules.map(\.conditions))
         sampleResultLabel.stringValue = TagSampleTest.summary(results, sample: sample)
         sampleResultLabel.textColor = results.contains(where: \.isMatch) ? .systemGreen : .secondaryLabelColor
+        // And on the rules themselves: a match is drawn on its rule's box.
+        if sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            grid.showSampleMarks(nil)
+        } else {
+            var marks: [Int: TagRuleGridView.SampleMark] = [:]
+            for result in results {
+                if result.isMatch { marks[result.ordinal - 1] = .match }
+                else if result.matched > 0 { marks[result.ordinal - 1] = .partial(matched: result.matched, total: result.total) }
+            }
+            grid.showSampleMarks(marks)
+        }
     }
 
     private func refreshCount() {

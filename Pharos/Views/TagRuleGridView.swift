@@ -49,6 +49,24 @@ final class TagRuleGridView: NSStackView {
     let addRuleButton = NSButton()
     let addValuesButton = NSButton()
 
+    /// What "Test a value" found for one rule.
+    enum SampleMark: Equatable {
+        /// The value satisfies every condition of the rule.
+        case match
+        /// It satisfies `matched` of the rule's `total` conditions.
+        case partial(matched: Int, total: Int)
+    }
+
+    /// Every rule group's focusable controls, then Add Rule and Add Values…,
+    /// in screen order: the sheet chains them into its Tab loop.
+    var keyViews: [NSView] { groups.flatMap(\.keyViews) + [addRuleButton, addValuesButton] }
+
+    /// Mark the rules a sample value matches; `marks` is keyed by model rule
+    /// index, and a rule with no entry is drawn plainly. Nil clears every mark.
+    func showSampleMarks(_ marks: [Int: SampleMark]?) {
+        for group in groups { group.sampleMark = marks?[group.ruleIndex] }
+    }
+
     /// Where the add-rule control sits. A full-width row holding a button that
     /// hugs its own text, so `spanArrangedSubviewsFullWidth()` can pin EVERY
     /// arranged subview without stretching the button across the grid.
@@ -229,6 +247,40 @@ final class TagRuleGroupView: NSView {
     private let selectionSlot = NSView()
     let deleteRuleButton = NSButton()
     let addConditionButton = NSButton()
+    /// "Matches" or "1 of 2 conditions" beside the title, from Test a value.
+    let sampleLabel = NSTextField(labelWithString: "")
+
+    var keyViews: [NSView] { [deleteRuleButton] + conditionRows.flatMap(\.keyViews) + [addConditionButton] }
+
+    /// Test a value's result for this rule: a green border and "Matches" for a
+    /// full match, the count for a partial one, nothing otherwise. The words
+    /// are there as well as the colour (Differentiate Without Color).
+    var sampleMark: TagRuleGridView.SampleMark? {
+        didSet {
+            guard sampleMark != oldValue else { return }
+            switch sampleMark {
+            case .match:
+                border.borderColor = .systemGreen
+                border.borderWidth = 2
+                border.fillColor = NSColor.systemGreen.withAlphaComponent(0.06)
+                sampleLabel.stringValue = String(localized: "Matches")
+                sampleLabel.textColor = .systemGreen
+            case .partial(let matched, let total):
+                border.borderColor = .separatorColor
+                border.borderWidth = 1
+                border.fillColor = .clear
+                sampleLabel.stringValue = String(localized: "\(matched) of \(total) conditions")
+                sampleLabel.textColor = .secondaryLabelColor
+            case nil:
+                border.borderColor = .separatorColor
+                border.borderWidth = 1
+                border.fillColor = .clear
+                sampleLabel.stringValue = ""
+            }
+            sampleLabel.isHidden = sampleMark == nil
+            setAccessibilityValue(sampleLabel.stringValue)
+        }
+    }
     /// Why the rows are greyed. Hidden for a rule this build understands.
     let unsupportedNotice = NSTextField(labelWithString: TagRuleGroupView.unsupportedText)
     private(set) var conditionRows: [TagConditionRowView] = []
@@ -398,6 +450,9 @@ final class TagRuleGroupView: NSView {
         // SLOT is arranged, never the box — see `buildSelectionBox`.
         header.addArrangedSubview(selectionSlot)
         header.addArrangedSubview(titleLabel)
+        sampleLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        sampleLabel.isHidden = true
+        header.addArrangedSubview(sampleLabel)
         header.addArrangedSubview(deleteRuleButton)
 
         let footer = NSStackView()

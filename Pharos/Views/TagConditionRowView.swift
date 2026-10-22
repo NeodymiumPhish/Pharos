@@ -32,6 +32,11 @@ final class TagConditionRowView: NSStackView, NSTextFieldDelegate {
     let badge = HostileTextBadge()
     let removeButton = NSButton()
 
+    /// This row's focusable controls in screen order, for the sheet's Tab
+    /// chain. The upper bound is always listed: Tab skips it while it is
+    /// hidden, so the chain need not be rebuilt when the operator changes.
+    var keyViews: [NSView] { [familyPopup, operatorPopup, valueField, upperField, removeButton] }
+
     /// The controls, on one line. Internal for the same reason the controls are:
     /// the suite measures whether a hidden `upperField` really leaves the
     /// layout, and a view walk would have to guess which stack it had found.
