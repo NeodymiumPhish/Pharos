@@ -53,6 +53,9 @@ struct Live {
     schema: Option<String>,
     txn: TxnState,
     txn_since: Option<Instant>,
+    /// A stopped run that never returned still holds this connection
+    /// (`RunStop::Abandoned`): `finish` replaces it.
+    stuck: bool,
 }
 
 impl DuckSession {
@@ -195,7 +198,8 @@ fn ensure_live(guard: &mut Option<Live>, session: &DuckSession, state: &AppState
     let conn = instance.connect()?;
     let interrupt = conn.interrupt_handle();
     let progress = conn.progress_handle();
-    *guard = Some(Live { conn: Arc::new(StdMutex::new(conn)), interrupt, progress, schema: None, txn: TxnState::Idle, txn_since: None });
+    *guard = Some(Live { conn: Arc::new(StdMutex::new(conn)), interrupt, progress, schema: None, txn: TxnState::Idle,
+                         txn_since: None, stuck: false });
     let mut r = session.report.lock().unwrap_or_else(|e| e.into_inner());
     r.generation += 1;
     // A first open is not a reset; a reopen after the connection was lost
@@ -242,6 +246,9 @@ where
     if let Some(s) = set_schema {
         live.schema = Some(s);
     }
+    if matches!(result, Err(RunStop::Abandoned(_))) {
+        live.stuck = true;
+    }
     result
 }
 
@@ -252,6 +259,23 @@ async fn finish(guard: &mut Option<Live>, session: &DuckSession, state: &AppStat
     // read-only open (the lock alert) is read-only whatever the record says.
     let read_only = state.get_duck(&session.connection_id).map(|d| d.read_only)
         .unwrap_or_else(|| state.get_config(&session.connection_id).map(|c| c.read_only).unwrap_or(false));
+    // A stopped run that never returned holds the connection: let it go (its
+    // thread ends when DuckDB returns) and open a new one at the next card.
+    // What the old connection held — temp tables, SET, an open transaction —
+    // is gone, and the tab is told so.
+    if guard.as_ref().is_some_and(|live| live.stuck) {
+        *guard = None;
+        let mut r = session.report.lock().unwrap_or_else(|e| e.into_inner());
+        r.open = false;
+        r.txn = TxnState::Idle;
+        r.txn_elapsed_seconds = None;
+        r.reset = Some(super::tab_session::SessionReset {
+            reason: "a statement did not stop when asked, so Pharos gave the tab a new connection".to_string(),
+            at: chrono::Utc::now().to_rfc3339(),
+        });
+        drop(r);
+        return session.report();
+    }
     if let Some(live) = guard.as_mut() {
         let conn = live.conn.clone();
         let probe = tokio::task::spawn_blocking(move || {
@@ -660,6 +684,47 @@ mod tests {
         }
         let r = execute_query(run("t3", "SELECT who FROM mine"), &state).await.unwrap();
         assert_eq!(r.result.rows, vec![serde_json::json!(["t3"])]);
+    }
+
+    /// A PostgreSQL ATTACH whose server accepts the connection and never
+    /// answers: DuckDB's interrupt cannot reach the libpq connect. Cancel
+    /// must still end the card within a few seconds, and the tab must get a
+    /// working connection for its next card.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancel_ends_a_hung_attach_and_the_tab_recovers() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        // Accept and hold every connection, answering nothing — for 8 s, so
+        // the abandoned thread can end and the test runtime can shut down.
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            let mut held = Vec::new();
+            while std::time::Instant::now() < until {
+                if let Ok((stream, _)) = listener.accept() { held.push(stream); }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        });
+        let state = std::sync::Arc::new(state_with_duck("d1"));
+        let s2 = state.clone();
+        let sql = format!("ATTACH 'host=127.0.0.1 port={port} dbname=x user=y' AS hung (TYPE postgres)");
+        let job = tokio::spawn(async move {
+            let mut request = run("tab", &sql);
+            request.target.query_id = Some("hung-1".into());
+            execute_statement(request, &s2).await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert!(crate::commands::cancel_query("d1".into(), "hung-1".into(), &state).await.unwrap());
+        let started = std::time::Instant::now();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(10), job).await
+            .expect("Cancel ends the card, not the libpq connect").unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+        assert_eq!(outcome.err().as_deref(), Some(crate::commands::query::QUERY_CANCELLED));
+        let report = state.duck_session("tab").unwrap().report();
+        assert!(report.reset.is_some(), "the tab is told its connection was replaced");
+        // The next card runs on a new connection.
+        let r = execute_query(run("tab", "SELECT 42 AS n"), &state).await.unwrap();
+        assert_eq!(r.result.rows, vec![serde_json::json!(["42"])]);
     }
 
     #[tokio::test(flavor = "multi_thread")]

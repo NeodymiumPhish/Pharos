@@ -485,12 +485,22 @@ pub enum RunStop {
     Cancelled,
     TimedOut(u32),
     Failed(String),
+    /// Cancelled or timed out, but DuckDB did not return within
+    /// `ABANDON_AFTER` of the interrupt (a blocking call DuckDB's interrupt
+    /// cannot reach, such as a PostgreSQL ATTACH whose server never answers).
+    /// The work is left running on its thread; its connection must not be
+    /// used again.
+    Abandoned(Box<RunStop>),
 }
+
+/// How long a stopped run may take to return before it is abandoned.
+pub const ABANDON_AFTER: Duration = Duration::from_secs(2);
 
 impl RunStop {
     /// The message the front end shows, matching the PostgreSQL path's.
     pub fn message(self) -> String {
         match self {
+            RunStop::Abandoned(inner) => inner.message(),
             RunStop::Cancelled => crate::commands::query::QUERY_CANCELLED.to_string(),
             RunStop::TimedOut(secs) => crate::commands::query::timeout_message(secs),
             RunStop::Failed(m) => tag_read_only(m),
@@ -559,11 +569,19 @@ where
         _ = cancel.cancelled() => RunStop::Cancelled,
         _ = deadline => RunStop::TimedOut(timeout_seconds),
     };
+    // Interrupt until the work returns — but not forever: a call DuckDB's
+    // interrupt cannot reach (a libpq connect inside postgres_scanner) would
+    // hold the card, and the tab's queue behind it, with no way out.
+    let given_up = tokio::time::Instant::now() + ABANDON_AFTER;
     loop {
         interrupt.interrupt();
         tokio::select! {
             joined = &mut handle => return finish(joined, Some(stop)),
             _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+        }
+        if tokio::time::Instant::now() >= given_up {
+            log::warn!("DuckDB: a stopped statement did not return; it is left running in the background");
+            return Err(RunStop::Abandoned(Box::new(stop)));
         }
     }
 }
