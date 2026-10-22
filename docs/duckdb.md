@@ -192,6 +192,12 @@ Pharos does not download extensions. macOS lets the app load only the libraries 
 
 Work larger than the memory limit spills to disk: for a database file into `<file>.tmp` beside it, and for an in-memory database into its own folder in the system's temporary folder. DuckDB removes the folder when the database closes.
 
+## Summarize a table
+
+On a DuckDB table row in the Database Navigator, choose **Summarize**. A card runs `SUMMARIZE "main"."sales"`: one row per column, with its type, smallest and largest value, the number of distinct values, the share of NULLs and the quartiles.
+
+On a table of an attached PostgreSQL database, **Copy to main…** asks for a name, then runs `CREATE TABLE "main"."<name>" AS SELECT * FROM <the table>` as a card, so the copy has the card's Cancel and progress.
+
 ## View definitions
 
 On a DuckDB view row in the Database Navigator, choose **View Definition…** (or double-click the row when **Settings > Navigator > Double-click** is set to Describe). The sheet shows the `CREATE VIEW` statement with **Copy DDL**. **Copy into Table…** makes a table with the view's rows.

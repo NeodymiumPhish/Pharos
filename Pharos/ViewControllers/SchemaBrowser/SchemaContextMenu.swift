@@ -334,6 +334,40 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         NotificationCenter.default.post(name: .newTableFromFileRequested, object: nil, userInfo: info)
     }
 
+    @objc private func contextSummarize(_: Any?) {
+        guard let node = clickedNode(), let schema = node.schemaName, let table = tableNameFromNode(node) else { return }
+        let sql = "SUMMARIZE \(quotedQualifiedName(schema: schema, table: table, splittingDatabase: true))"
+        NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
+                                        userInfo: ["sql": sql, "resultName": String(localized: "Summary of \(table)")])
+    }
+
+    /// Copy to main…: ask for the new table's name, then run CREATE TABLE
+    /// "main"."<name>" AS SELECT * FROM the attached table, as a card (the
+    /// copy reads over the network, so it gets the card's Cancel and
+    /// progress). Plain CREATE: a name in use gives DuckDB's own error.
+    @objc private func contextCopyToMain(_: Any?) {
+        guard let node = clickedNode(), let schema = node.schemaName, let table = tableNameFromNode(node),
+              let window = delegate?.contextMenuWindow() else { return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Copy “\(DisplayEscape.escaped(table))” to main")
+        alert.informativeText = String(localized: "Pharos adds a card that copies the table, with its rows, into this DuckDB database's main schema.")
+        let field = NSTextField(string: DataFiles.identifier(from: table, fallback: "copy"))
+        field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        field.setAccessibilityLabel(String(localized: "Table name"))
+        alert.accessoryView = field
+        alert.addButton(withTitle: String(localized: "Copy"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { response in
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard response == .alertFirstButtonReturn, !name.isEmpty else { return }
+            let source = quotedQualifiedName(schema: schema, table: table, splittingDatabase: true)
+            let sql = "CREATE TABLE \"main\".\(quotedSqlIdentifier(name)) AS SELECT * FROM \(source)"
+            NotificationCenter.default.post(name: .runQueryInCurrentTab, object: nil,
+                                            userInfo: ["sql": sql, "resultName": String(localized: "Copy \(table) to main")])
+        }
+    }
+
     @objc private func contextStopJob(_: Any?) {
         guard let node = clickedNode(), let schema = node.schemaName, let table = node.tableName else { return }
         delegate?.contextMenuStopJob(schema: schema, table: table)
@@ -761,6 +795,14 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
         menu.addItem(limitSubmenuItem())
 
+        // DuckDB: SUMMARIZE — a row per column with its type, min, max,
+        // distinct count, nulls and quartiles (it returns rows since Q1).
+        if isDuckDB {
+            let summarize = NSMenuItem(title: String(localized: "Summarize"), action: #selector(contextSummarize), keyEquivalent: "")
+            summarize.target = self
+            menu.addItem(summarize)
+        }
+
         let copyName = NSMenuItem(title: "Copy Table Name", action: #selector(contextCopyName), keyEquivalent: "")
         copyName.target = self
         menu.addItem(copyName)
@@ -771,6 +813,15 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
         // Data operations
         menu.addItem(.separator())
+
+        // A table of an attached database (a PostgreSQL attach): copy it into
+        // the file's own database, as a card (CREATE TABLE … AS SELECT).
+        if isDuckDB, !isReadOnly, let node = clickedNode(), let schema = node.schemaName,
+           DuckDBAttachRules.attachedDatabase(ofSchema: schema) != nil {
+            let copyIn = NSMenuItem(title: String(localized: "Copy to main\u{2026}"), action: #selector(contextCopyToMain), keyEquivalent: "")
+            copyIn.target = self
+            menu.addItem(copyIn)
+        }
 
         let viewDDL = NSMenuItem(title: "View Table DDL\u{2026}", action: #selector(contextViewTableDDL), keyEquivalent: "")
         viewDDL.target = self
