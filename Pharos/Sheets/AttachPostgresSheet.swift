@@ -158,10 +158,15 @@ final class AttachPostgresSheet: NSViewController {
         setBusy(true)
         attachTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.attachTask = nil; self.setBusy(false) }
+            defer {
+                self.stateManager.endConnectWithoutWindow(id: c.id)
+                self.attachTask = nil
+                self.setBusy(false)
+            }
             if self.stateManager.status(for: c.id) != .connected {
                 self.show(String(localized: "Connecting \(c.name)…"))
-                self.stateManager.connect(id: c.id)
+                // The DuckDB window stays on its own connection.
+                self.stateManager.connectWithoutWindow(id: c.id)
                 // Touch ID or a password sheet may come first; wait for the
                 // outcome, as long as the user keeps this sheet open.
                 while self.stateManager.status(for: c.id) != .connected {

@@ -598,6 +598,24 @@ final class AppStateManager: ObservableObject {
         connect(id: id)
     }
 
+    /// Connections that a helper connects for its own use (the Attach
+    /// PostgreSQL Connection sheet): no window follows them, so the DuckDB
+    /// window that attaches one keeps its own connection and navigator. Held
+    /// until `endConnectWithoutWindow`, so a retry after a password prompt
+    /// leaves the windows alone too.
+    private var windowlessConnects: Set<String> = []
+
+    /// Connect `id` without moving any window to it.
+    func connectWithoutWindow(id: String) {
+        windowlessConnects.insert(id)
+        connect(id: id)
+    }
+
+    /// The helper that called `connectWithoutWindow` is done with the connect.
+    func endConnectWithoutWindow(id: String) {
+        windowlessConnects.remove(id)
+    }
+
     /// Mark the next connect of `id` as one Pharos started on its own.
     func markQuietConnect(_ id: String) {
         quietConnects.insert(id)
@@ -610,6 +628,9 @@ final class AppStateManager: ObservableObject {
     }
 
     private func performConnect(id: String, in session: WindowSession?, readOnly: Bool = false) {
+        // Read now: the helper may end its windowless connect (Cancel) while
+        // this attempt is still in the core.
+        let session = windowlessConnects.contains(id) ? nil : session
         connectionStatuses[id] = .connecting
         connectionErrors.removeValue(forKey: id)
         postStatusChange(id)
