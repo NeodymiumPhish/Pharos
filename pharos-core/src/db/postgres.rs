@@ -852,9 +852,13 @@ pub(crate) fn schemas_sql(include_system: bool) -> &'static str {
            AND schema_name NOT LIKE 'pg\\_temp\\_%' \
          ORDER BY schema_name"
     } else {
+        // Every session's temporary schemas (pg_temp_N, pg_toast_temp_N)
+        // are storage, never the user's: hidden here as with the flag on.
         "SELECT schema_name, schema_owner \
          FROM information_schema.schemata \
-         WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') \
+         WHERE schema_name NOT IN ('pg_catalog', 'information_schema') \
+           AND schema_name NOT LIKE 'pg\\_toast%' \
+           AND schema_name NOT LIKE 'pg\\_temp\\_%' \
          ORDER BY schema_name"
     }
 }
@@ -3669,13 +3673,9 @@ mod schemas_sql_tests {
     use super::schemas_sql;
 
     #[test]
-    fn the_default_shape_is_the_statement_pharos_has_always_sent() {
+    fn the_default_shape_hides_the_catalogs_by_name() {
         let sql = schemas_sql(false);
-        assert!(
-            sql.contains("NOT IN ('pg_catalog', 'information_schema', 'pg_toast')"),
-            "the default must not change: {sql}"
-        );
-        assert!(!sql.contains("LIKE"), "the default shape uses no LIKE: {sql}");
+        assert!(sql.contains("NOT IN ('pg_catalog', 'information_schema')"), "{sql}");
     }
 
     #[test]
@@ -3689,20 +3689,24 @@ mod schemas_sql_tests {
 
     #[test]
     fn the_storage_schemas_are_hidden_whichever_way_the_flag_points() {
-        // Off: named in the NOT IN list. On: matched by the two LIKE patterns.
-        assert!(schemas_sql(false).contains("'pg_toast'"));
-        let on = schemas_sql(true);
-        assert!(on.contains(r"NOT LIKE 'pg\_toast%'"), "{on}");
-        assert!(on.contains(r"NOT LIKE 'pg\_temp\_%'"), "{on}");
+        // The same two LIKE patterns either way: pg_toast, pg_toast_temp_N
+        // and pg_temp_N are storage. (The flag-off list used to name only
+        // pg_toast, so every session's pg_temp_N reached the tree — the live
+        // test caught it.)
+        for sql in [schemas_sql(false), schemas_sql(true)] {
+            assert!(sql.contains(r"NOT LIKE 'pg\_toast%'"), "{sql}");
+            assert!(sql.contains(r"NOT LIKE 'pg\_temp\_%'"), "{sql}");
+        }
     }
 
     #[test]
     fn the_like_patterns_escape_their_underscores() {
         // An unescaped `_` is LIKE's single-character wildcard, so
         // `pg_temp_%` would also hide a user schema called `pgXtempY`.
-        let on = schemas_sql(true);
-        assert!(!on.contains("LIKE 'pg_toast"), "unescaped underscore: {on}");
-        assert!(!on.contains("LIKE 'pg_temp"), "unescaped underscore: {on}");
+        for on in [schemas_sql(false), schemas_sql(true)] {
+            assert!(!on.contains("LIKE 'pg_toast"), "unescaped underscore: {on}");
+            assert!(!on.contains("LIKE 'pg_temp"), "unescaped underscore: {on}");
+        }
     }
 
     #[test]
