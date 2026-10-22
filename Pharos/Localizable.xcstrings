@@ -1081,6 +1081,9 @@
     "Copy into Table…" : {
 
     },
+    "Copy Path" : {
+
+    },
     "Copy Plan JSON" : {
 
     },
@@ -1600,6 +1603,12 @@
 
     },
     "File not found" : {
+
+    },
+    "Files" : {
+
+    },
+    "Files not opened in the last 60 days" : {
 
     },
     "Fills the name field in the Save Query sheet and the card rename dialog. You can always type your own." : {
@@ -2346,6 +2355,9 @@
     "No file selected" : {
 
     },
+    "No Files" : {
+
+    },
     "No Folder" : {
 
     },
@@ -2502,6 +2514,9 @@
     "OK" : {
 
     },
+    "Older" : {
+
+    },
     "Older entries and their cached results are removed as new queries are recorded. Forever keeps everything." : {
 
     },
@@ -2544,6 +2559,9 @@
     "Open" : {
 
     },
+    "Open a DuckDB database or a data file, or drop one here." : {
+
+    },
     "Open an existing DuckDB database file." : {
 
     },
@@ -2566,6 +2584,9 @@
 
     },
     "Open Help" : {
+
+    },
+    "Open in New Tab" : {
 
     },
     "Open Read-Only" : {
@@ -2707,6 +2728,12 @@
 
     },
     "Pharos adds a card that creates the table in “%@”, and a card that shows its first rows. Edit the first card to change how the file is read." : {
+
+    },
+    "Pharos also forgets the database files that no Session or tab uses. Their query history and workspaces stay, but they open without a connection. The files stay where they are." : {
+
+    },
+    "Pharos also forgets this file. Its query history and Results History workspaces stay, but they open without a connection. The file stays where it is." : {
 
     },
     "Pharos cancels a query that runs longer than this." : {
@@ -2931,6 +2958,9 @@
     "Rebind a command" : {
 
     },
+    "Recent" : {
+
+    },
     "Recently updated" : {
 
     },
@@ -2985,13 +3015,25 @@
     "Remove “%@” from Pharos?" : {
 
     },
+    "Remove “%@” from the list?" : {
+
+    },
     "Remove %lld DuckDB databases from Pharos?" : {
 
     },
     "Remove %lld DuckDB files from Connections?" : {
 
     },
+    "Remove %lld files from the list?" : {
+
+    },
     "Remove Credential" : {
+
+    },
+    "Remove from Connections" : {
+
+    },
+    "Remove from List" : {
 
     },
     "Remove the selected credential and its secret key" : {
@@ -3244,6 +3286,9 @@
 
     },
     "Save…" : {
+
+    },
+    "Saved" : {
 
     },
     "Saved “%@”." : {
