@@ -75,22 +75,27 @@ pub fn schemas(conn: &Connection, include_system: bool) -> Result<Vec<SchemaInfo
     let home = current_database(conn)?;
     let mut stmt = conn
         .prepare(
-            "SELECT s.database_name, s.schema_name, d.internal \
+            "SELECT s.database_name, s.schema_name, d.internal, d.type \
              FROM duckdb_schemas() s JOIN duckdb_databases() d USING (database_name) \
              ORDER BY s.database_name <> current_database(), s.database_name, \
                       s.schema_name <> 'main', s.schema_name",
         )
         .map_err(err)?;
     let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?)))
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?, r.get::<_, String>(3)?))
+        })
         .map_err(err)?;
     let mut out = Vec::new();
     for row in rows {
-        let (db, schema, internal) = row.map_err(err)?;
+        let (db, schema, internal, db_type) = row.map_err(err)?;
         if db == "temp" {
             continue;
         }
-        let system = internal || schema == "information_schema" || schema == "pg_catalog";
+        // An attached PostgreSQL database also lists its TOAST and temp
+        // schemas; they are system schemas, as on a PostgreSQL connection.
+        let pg_system = db_type == "postgres" && (schema.starts_with("pg_toast") || schema.starts_with("pg_temp_"));
+        let system = internal || schema == "information_schema" || schema == "pg_catalog" || pg_system;
         if system && !include_system {
             continue;
         }
@@ -102,13 +107,16 @@ pub fn schemas(conn: &Connection, include_system: bool) -> Result<Vec<SchemaInfo
 }
 
 /// Tables and views of one schema. `estimated_size` is DuckDB's row count
-/// estimate, which it keeps exact for a table it wrote itself.
+/// estimate, which it keeps exact for a table it wrote itself. Another engine's
+/// attached database (PostgreSQL) reports 0 for every table, so its
+/// tables get no estimate and the Navigator shows no count for them.
 pub fn tables(conn: &Connection, schema: &str) -> Result<Vec<TableInfo>> {
     let (db, schema_name) = split_schema(conn, schema)?;
     let mut stmt = conn
         .prepare(
-            "SELECT table_name, 'table', estimated_size FROM duckdb_tables() \
-               WHERE database_name = ? AND schema_name = ? AND NOT internal \
+            "SELECT t.table_name, 'table', CASE WHEN d.type = 'duckdb' THEN t.estimated_size END \
+               FROM duckdb_tables() t JOIN duckdb_databases() d USING (database_name) \
+               WHERE t.database_name = ? AND t.schema_name = ? AND NOT t.internal \
              UNION ALL \
              SELECT view_name, 'view', NULL FROM duckdb_views() \
                WHERE database_name = ? AND schema_name = ? AND NOT internal \

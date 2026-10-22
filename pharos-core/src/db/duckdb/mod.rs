@@ -705,6 +705,31 @@ mod tests {
         assert_eq!(n, 1);
     }
 
+    /// The Navigator's view of an attached PostgreSQL database: no TOAST or
+    /// temp schemas unless system schemas are on, and no row estimate (the
+    /// scanner reports 0 for every table).
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_postgres_attach_navigator_lists() {
+        let c = memory_conn();
+        c.execute_batch(&format!("ATTACH '{}' AS pg (TYPE postgres)", live_pg_dsn())).unwrap();
+        c.execute_batch(
+            "DROP TABLE IF EXISTS pg.public.pharos_nav_probe; \
+             CREATE TABLE pg.public.pharos_nav_probe AS SELECT range AS id FROM range(500)",
+        )
+        .unwrap();
+        let names: Vec<String> = super::catalog::schemas(&c, false).unwrap().into_iter().map(|s| s.name).collect();
+        assert!(names.contains(&"pg.public".to_string()), "{names:?}");
+        assert!(!names.iter().any(|n| n.starts_with("pg.pg_")), "{names:?}");
+        let all: Vec<String> = super::catalog::schemas(&c, true).unwrap().into_iter().map(|s| s.name).collect();
+        assert!(all.contains(&"pg.pg_toast".to_string()), "{all:?}");
+        let tables = super::catalog::tables(&c, "pg.public").unwrap();
+        let probe = tables.iter().find(|t| t.name == "pharos_nav_probe");
+        c.execute_batch("DROP TABLE pg.public.pharos_nav_probe").unwrap();
+        assert!(probe.is_some(), "{tables:?}");
+        assert!(tables.iter().all(|t| t.row_count_estimate.is_none()), "{tables:?}");
+    }
+
     /// The form Pharos would use: the password goes into an in-memory secret
     /// (made by Pharos from the Keychain), never into SQL the user sees or
     /// history stores; ATTACH names only the secret.
