@@ -74,12 +74,13 @@ private func testFileLocations() {
     let f = Fixture()
     let popUp = f.bar.connectionPopUp
     let sales = TabContextBar.ConnectionItem(id: "d1", name: "sales", state: .disconnected,
-                                             location: "~/Data/sales.duckdb", filePath: "/Users/x/Data/sales.duckdb",
-                                             isDuckDB: true)
+                                             place: "~/Data/sales.duckdb", filePath: "/Users/x/Data/sales.duckdb",
+                                             kind: .file)
     let open = TabContextBar.ConnectionItem(id: "d2", name: "open", state: .connected,
-                                            location: "~/open.duckdb", filePath: "/Users/x/open.duckdb", isDuckDB: true)
-    let mem = TabContextBar.ConnectionItem(id: "d3", name: "scratch", state: .connected, location: "In-memory",
-                                           isDuckDB: true)
+                                            place: "~/open.duckdb", filePath: "/Users/x/open.duckdb", kind: .file,
+                                            badge: "Read-only", toolTip: "open\n/Users/x/open.duckdb")
+    let mem = TabContextBar.ConnectionItem(id: "d3", name: "scratch", state: .connected, place: "In memory",
+                                           kind: .memory)
     f.bar.fileExists = { _ in false }
     f.bar.showConnections([group("Open Files", [mem]), group("PostgreSQL", [coda]), group("DuckDB", [sales, open])],
                           selectedId: "d1")
@@ -87,17 +88,39 @@ private func testFileLocations() {
     expect(item?.subtitle == "Not connected · ~/Data/sales.duckdb", "the subtitle is the state, then the location",
            item?.subtitle ?? "nil")
     expect(item?.toolTip == "/Users/x/Data/sales.duckdb", "the tooltip is the full path")
-    expect(popUp.itemArray.first { $0.title == "scratch" }?.subtitle == "Connected · In-memory", "in-memory says so")
+    expect(popUp.itemArray.first { $0.title == "scratch" }?.subtitle == "Connected · In memory", "in-memory says so")
     expect(popUp.itemArray.first { $0.title == "Coda" }?.subtitle == "Connected", "a server keeps the state alone")
-    let headers = popUp.itemArray.filter(\.isSectionHeader).map(\.title)
+    let headers = popUp.itemArray.filter { $0.tag == TabContextBar.headerTag }
+        .compactMap { ($0.view as? ConnectionMenuHeaderView)?.title }
     expect(headers == ["Open Files", "PostgreSQL", "DuckDB"], "a header for each group, in the owner's order", "\(headers)")
+    // The approved design: header views with counts, a separator between
+    // groups, 28 pt tiles, badges, and the tooltip with the full details.
+    let headerViews = popUp.itemArray.compactMap { $0.view as? ConnectionMenuHeaderView }
+    expect(headerViews.map(\.count) == [1, 1, 2], "each header counts its group", "\(headerViews.map(\.count))")
+    expect(headerViews.allSatisfy { !($0.accessibilityLabel() ?? "").isEmpty },
+           "a header reads its title and count to VoiceOver")
+    let items = popUp.itemArray
+    let firstHeaders = items.indices.filter { items[$0].tag == TabContextBar.headerTag }
+    expect(firstHeaders.dropFirst().allSatisfy { items[$0 - 1].isSeparatorItem }, "a separator before every later header")
+    expect(popUp.itemArray.first { $0.title == "Coda" }?.image?.size == NSSize(width: 28, height: 28), "rows have a 28 pt tile")
+    let openItem = popUp.itemArray.first { $0.title == "open" }
+    expect(openItem?.badge?.stringValue == "Read-only", "the badge shows", openItem?.badge?.stringValue ?? "nil")
+    expect(openItem?.toolTip == "open\n/Users/x/open.duckdb", "the tooltip is the owner's full details")
+    expect(popUp.itemArray.first { $0.title == "sales" }?.badge == nil, "no badge when there is nothing to say")
+    let shown = (popUp.cell as? NSPopUpButtonCell)?.menuItem
+    expect((popUp.cell as? NSPopUpButtonCell)?.usesItemFromMenu == false && shown?.title == "sales"
+           && shown?.image?.size == NSSize(width: 16, height: 16),
+           "the closed button shows the name and a 16 pt tile", "\(shown?.title ?? "nil") \(String(describing: shown?.image?.size))")
+
     f.bar.markMissingFiles()
     expect(item?.subtitle == "File not found · ~/Data/sales.duckdb", "a gone file says so when the menu opens",
            item?.subtitle ?? "nil")
     expect(popUp.itemArray.first { $0.title == "open" }?.subtitle == "Connected · ~/open.duckdb",
            "an open file is never marked missing")
     f.bar.showConnections([group("DuckDB", [sales])], selectedId: "d1")
-    expect(popUp.itemArray.filter(\.isSectionHeader).map(\.title) == ["DuckDB"], "one group still has its header")
+    expect(popUp.itemArray.filter { $0.tag == TabContextBar.headerTag }.map(\.title) == ["DuckDB"],
+           "one group still has its header")
+    expect(!popUp.itemArray.prefix(2).contains(where: \.isSeparatorItem), "no separator before the first header")
 
     // C2: the Read-only badge reads as plain words, with the help.
     expect(f.bar.readOnlyBadge.isHidden, "no badge by default")

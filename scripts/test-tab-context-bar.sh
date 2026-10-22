@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-tab-context-bar-tests \
   Pharos/Views/TabContextBar.swift \
+  Pharos/Views/ConnectionMenuArt.swift \
   Pharos/Views/TabConnectionDot.swift \
   Pharos/Views/SchemaPopUpButton.swift \
   Pharos/Core/PulseClock.swift \

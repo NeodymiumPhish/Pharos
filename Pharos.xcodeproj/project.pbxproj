@@ -18,6 +18,7 @@
 		078B69875D789CDE4B89EB90 /* ConnectionsManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFC01773FA427CA0178BF5D6 /* ConnectionsManagerWindowController.swift */; };
 		07CB04FD86A4BD5C9F06C2CA /* NameSuggestionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEDB988DDDC6CAB4B587B1C6 /* NameSuggestionPolicy.swift */; };
 		07E8E2617AAC2F96CB246571 /* PharosCore+QueryVariables.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBB861C66E832DF6949FD223 /* PharosCore+QueryVariables.swift */; };
+		0901D53F1F29102F19E07292 /* ConnectionMenuText.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBC9E052DE4AFE8C44A518DF /* ConnectionMenuText.swift */; };
 		09041C7D8E1AC63E01EF8510 /* RowFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93588EE0C42422561A35483 /* RowFingerprint.swift */; };
 		090455B48A4225E79D8BA427 /* SQLDraftRanker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ACBAEA1D4528B840F78216F /* SQLDraftRanker.swift */; };
 		099B8ED24B3A5A36561A89A9 /* AboutSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF3C40C432AC99C1C526FFB /* AboutSettingsPaneVC.swift */; };
@@ -372,6 +373,7 @@
 		E3F1BC042418C32D49DFBB76 /* TabContextState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42800B6A5037735CC5FCDB62 /* TabContextState.swift */; };
 		E491BC10BA527CA04AD618BF /* FilterValueListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D164B6F155A0106462D3A9A8 /* FilterValueListView.swift */; };
 		E4DA12266E68AD108BF10535 /* ResultValueFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8414CD13DF3D760B5E9830 /* ResultValueFormatter.swift */; };
+		E6B84272A07F3A0758F5E280 /* ConnectionMenuArt.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA067168D26BB36BB7C7682D /* ConnectionMenuArt.swift */; };
 		E6F5C3DA2A93FCA86008C096 /* SaveQuerySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */; };
 		E6F80A5B6624AE350D131717 /* SavedQueryFilename.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED326E9C544D4D71C63ACFFB /* SavedQueryFilename.swift */; };
 		E949A5D1F590F48E67B8D61D /* SQLErrorLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3E3B3A56BC782FB7307A0E /* SQLErrorLocation.swift */; };
@@ -689,6 +691,7 @@
 		B990634B80D4EF5153EDA536 /* SQLLexSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLLexSnapshot.swift; sourceTree = "<group>"; };
 		B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableSubstitutor.swift; sourceTree = "<group>"; };
 		B9FA508CB2D24E5E23FA0221 /* TemporalBinResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporalBinResolver.swift; sourceTree = "<group>"; };
+		BA067168D26BB36BB7C7682D /* ConnectionMenuArt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMenuArt.swift; sourceTree = "<group>"; };
 		BA2D0C2230ED3F4B236C2B74 /* TabSessionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSessionMonitor.swift; sourceTree = "<group>"; };
 		BB3F9550C8BADD4D25C000A3 /* QueryErrorPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryErrorPresenter.swift; sourceTree = "<group>"; };
 		BB539D03746C72A07263A689 /* CardRunQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardRunQueue.swift; sourceTree = "<group>"; };
@@ -715,6 +718,7 @@
 		CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBadgeButton.swift; sourceTree = "<group>"; };
 		CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLTypeName.swift; sourceTree = "<group>"; };
 		CB62F62A3FDEC4CB1B034D32 /* PharosCore+Schema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Schema.swift"; sourceTree = "<group>"; };
+		CBC9E052DE4AFE8C44A518DF /* ConnectionMenuText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionMenuText.swift; sourceTree = "<group>"; };
 		CD157725BA52EAD6B6DCC696 /* TagManagerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerModel.swift; sourceTree = "<group>"; };
 		CD603AFB01565AD908BD0E0E /* CardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardViews.swift; sourceTree = "<group>"; };
 		CDED3E898043241B00FE18D7 /* ResizeGripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeGripView.swift; sourceTree = "<group>"; };
@@ -1119,6 +1123,7 @@
 				CFF3A10F00FA5FA702293E67 /* CIDRRange.swift */,
 				7B832E30AFF53EE26EA14F13 /* ConnectionFormRules.swift */,
 				F03757B7DDF26C88FA338E22 /* ConnectionLossClassifier.swift */,
+				CBC9E052DE4AFE8C44A518DF /* ConnectionMenuText.swift */,
 				A06AB9B131D20E30E80C1EFD /* ConnectionVisibility.swift */,
 				8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */,
 				F64ECD492568816876D0E808 /* ContentPaneLayout.swift */,
@@ -1367,6 +1372,7 @@
 			children = (
 				FA91B1CF2D53CB84B36402C3 /* AccessibilityProxyElement.swift */,
 				AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */,
+				BA067168D26BB36BB7C7682D /* ConnectionMenuArt.swift */,
 				0BDFE9FF81987220FD4C89BC /* EditorResultsSplitView.swift */,
 				DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */,
 				CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */,
@@ -1559,6 +1565,8 @@
 				A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */,
 				5998A9C5AC0C9EDBFA14BBCD /* ConnectionFormRules.swift in Sources */,
 				1EE2DA44329BF633992F09FD /* ConnectionLossClassifier.swift in Sources */,
+				E6B84272A07F3A0758F5E280 /* ConnectionMenuArt.swift in Sources */,
+				0901D53F1F29102F19E07292 /* ConnectionMenuText.swift in Sources */,
 				37032AE66A9B2B0D4E5F3E9F /* ConnectionURLParser.swift in Sources */,
 				D137D5122D355643CAEF5241 /* ConnectionVisibility.swift in Sources */,
 				A23B6C9E5E3EE23D103F4B3D /* ConnectionsManagerVC.swift in Sources */,

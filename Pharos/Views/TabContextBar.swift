@@ -16,19 +16,24 @@ final class TabContextBar: NSView {
         let id: String
         let name: String
         let state: TabConnectionState
-        /// Where a DuckDB file is, `~` for home ("~/Data/sales.duckdb"), or
-        /// "In-memory"; nil for PostgreSQL, whose name says enough.
-        var location: String? = nil
-        /// The file's full path: the item's tooltip, and the path checked for
-        /// "File not found" when the menu opens. Nil for in-memory.
+        /// Where the database is, after the state in the subtitle:
+        /// "analytics on db.internal:5432", "~/Data/sales.duckdb", "In memory"
+        /// (`ConnectionMenuText.place`). Nil shows the state alone.
+        var place: String? = nil
+        /// The file's full path: the path checked for "File not found" when
+        /// the menu opens. Nil for a server and for in-memory.
         var filePath: String? = nil
-        var isDuckDB = false
+        var kind: ConnectionTile.Kind = .server
+        /// "SSH", "Read-only", "SSH · Read-only" (`ConnectionMenuText.badge`).
+        var badge: String? = nil
+        /// Name, full place and tunnel host; nil falls back to the file path.
+        var toolTip: String? = nil
 
         /// "Connected · ~/Data/sales.duckdb". The state word stays first: it
         /// is the signal that does not depend on colour.
         func subtitle(fileMissing: Bool = false) -> String {
             let state = fileMissing ? String(localized: "File not found") : self.state.label
-            return location.map { "\(state) · \($0)" } ?? state
+            return place.map { "\(state) · \($0)" } ?? state
         }
     }
 
@@ -69,6 +74,11 @@ final class TabContextBar: NSView {
 
     private static let chooseTag = -1
     private static let manageTag = -2
+    /// A group header's item: a view, never chosen.
+    static let headerTag = -3
+    /// The row tile's size in the open menu, and in the closed button.
+    static let rowTileSize: CGFloat = 28
+    static let buttonTileSize: CGFloat = 16
     private var selectedConnectionId: String?
     private var itemsById: [String: ConnectionItem] = [:]
     /// Does a file exist? Injected so the harness needs no files.
@@ -213,20 +223,28 @@ final class TabContextBar: NSView {
         }
         itemsById = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         // A header for each group, the user's order kept in each (HIG, Menus:
-        // group long lists).
-        for section in sections {
-            menu.addItem(.sectionHeader(title: section.title))
+        // group long lists). The header is a view, with a separator before
+        // every one but the first, so mixed lists read as distinct groups.
+        for (index, section) in sections.enumerated() {
+            if index > 0 { menu.addItem(.separator()) }
+            let header = NSMenuItem(title: section.title, action: nil, keyEquivalent: "")
+            header.tag = Self.headerTag
+            header.isEnabled = false
+            header.view = ConnectionMenuHeaderView(title: section.title, symbolName: section.symbolName,
+                                                   count: section.items.count)
+            menu.addItem(header)
             for item in section.items {
                 // Its own action: `ConnectionPopUpButton` opens the menu with
                 // `NSMenu.popUp`, which does not route a choice to the button.
                 let menuItem = NSMenuItem(title: item.name, action: #selector(connectionItemChosen(_:)), keyEquivalent: "")
                 menuItem.target = self
                 menuItem.representedObject = item.id
-                menuItem.image = Self.dot(item.state)
+                menuItem.image = ConnectionTile.image(kind: item.kind, state: item.state, size: Self.rowTileSize)
                 // The state in words as well as colour (Differentiate Without
-                // Color, VoiceOver), then where a file is.
+                // Color, VoiceOver), then where the database is.
                 menuItem.subtitle = item.subtitle()
-                menuItem.toolTip = item.filePath
+                menuItem.badge = item.badge.map { NSMenuItemBadge(string: $0) }
+                menuItem.toolTip = item.toolTip ?? item.filePath
                 menu.addItem(menuItem)
             }
         }
@@ -335,6 +353,18 @@ final class TabContextBar: NSView {
         // The tab's connection carries the checkmark in the open menu.
         for item in connectionPopUp.itemArray {
             item.state = item === connectionPopUp.selectedItem && item.tag != Self.chooseTag ? .on : .off
+        }
+        // The closed button shows a small tile and the name, not the row's
+        // large tile: the cell displays its own item (`usesItemFromMenu`).
+        let shown = NSMenuItem(title: connectionPopUp.selectedItem?.title ?? "", action: nil, keyEquivalent: "")
+        if let id = selectedConnectionId, let item = itemsById[id] {
+            shown.image = ConnectionTile.image(kind: item.kind, state: item.state, size: Self.buttonTileSize)
+        } else {
+            shown.image = Self.dot(.none)
+        }
+        if let cell = connectionPopUp.cell as? NSPopUpButtonCell {
+            cell.usesItemFromMenu = false
+            cell.menuItem = shown
         }
     }
 

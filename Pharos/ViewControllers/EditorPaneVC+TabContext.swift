@@ -54,14 +54,25 @@ extension EditorPaneVC {
                         TabContextBar.ConnectionItem(
                             id: config.id, name: DisplayEscape.escaped(config.name),
                             state: TabConnectionState(connectionId: config.id, status: stateManager.status(for: config.id)),
-                            location: config.isDuckDB ? DisplayEscape.escaped(config.locationDescription) : nil,
+                            place: ConnectionMenuText.place(of: config),
                             filePath: config.isDuckDB && !config.isInMemoryDuckDB ? config.database : nil,
-                            isDuckDB: config.isDuckDB)
+                            kind: Self.tileKind(of: config),
+                            badge: ConnectionMenuText.badge(of: config,
+                                                            readOnlyNow: stateManager.readOnlyReasons[config.id] != nil),
+                            toolTip: ConnectionMenuText.toolTip(of: config))
                     })
             },
             selectedId: session.tab?.connectionId)
         tabContextBar.offersSaveAsConnection = session.tab?.connectionId
             .flatMap { id in all.first { $0.id == id } }.map { !$0.saved } ?? false
+    }
+
+    static func tileKind(of config: ConnectionConfig) -> ConnectionTile.Kind {
+        switch ConnectionMenuText.kind(of: config) {
+        case .server: return .server
+        case .file: return .file
+        case .memory: return .memory
+        }
     }
 
     static func title(of section: ConnectionVisibility.Section) -> String {
