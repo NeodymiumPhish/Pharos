@@ -392,7 +392,13 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let state = AppState::new(rusqlite::Connection::open_in_memory().unwrap());
         let mut cfg = live_pg_config("pg-live");
-        cfg.password = "sekrit-never-shown".into(); // trust auth ignores it
+        // The env file's password for a server that asks for one; trust auth
+        // (local Postgres.app) ignores the stand-in.
+        let password = std::env::var("PHAROS_TEST_PG_PASSWORD")
+            .ok()
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| "sekrit-never-shown".to_string());
+        cfg.password = password.clone();
         state.set_config(cfg.clone());
         rt.block_on(crate::commands::connection::connect_postgres(cfg.id.clone(), &state)).unwrap();
         let duck = crate::models::ConnectionConfig { id: "duck-live".into(), engine: Engine::Duckdb, database: ":memory:".into(), ..pg("duck") };
@@ -416,7 +422,7 @@ mod tests {
             }))
             .unwrap();
         assert_eq!(n, 1);
-        assert!(!secrets.contains("sekrit-never-shown"), "{secrets}");
+        assert!(!secrets.contains(&password), "the password is in DuckDB's secret listing");
         assert!(secrets.contains("password=redacted"), "{secrets}");
         assert!(secrets.ends_with(" persistent=false"), "never persistent: {secrets}");
         assert_eq!(list("duck-live", &state).unwrap().len(), 1);

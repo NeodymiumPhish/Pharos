@@ -677,6 +677,14 @@ mod tests {
 
     fn live_pg_dsn() -> String {
         let v = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
+        // A server that asks for a password (tasks/live-test.env) gets it
+        // through libpq's PGPASSWORD, never in the DSN: DuckDB puts the DSN
+        // in its connect errors, so a failed test would print it.
+        if let Ok(password) = std::env::var("PHAROS_TEST_PG_PASSWORD") {
+            if !password.is_empty() {
+                std::env::set_var("PGPASSWORD", password);
+            }
+        }
         format!(
             "host={} port={} dbname={} user={}",
             v("PHAROS_TEST_PG_HOST", "127.0.0.1"),

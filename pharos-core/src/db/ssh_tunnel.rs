@@ -1306,6 +1306,11 @@ mod ssh_tunnel_process_tests {
 ///
 ///   set -a; source tasks/live-test.env; set +a
 ///   cargo test --release live_tunnel -- --ignored --nocapture
+///
+/// The bastion seems to limit new SSH connections: on 2026-10-22 it stopped
+/// answering after about 6 in 20 s and answered again within about 30 s.
+/// This suite with `live_connect_tests` makes more than that. A refusal then reads as "did not answer". Run the tests
+/// one at a time with `--exact`, about 35 s apart, for a clean result.
 #[cfg(test)]
 mod live_tunnel_tests {
     use super::*;
@@ -1554,8 +1559,12 @@ mod live_tunnel_tests {
     fn a_database_the_bastion_cannot_reach_leaves_its_reason_in_the_tail() {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         rt.block_on(async {
-            // A port on the real database host that nothing listens on.
-            let tunnel = open(&live_tunnel(), &db_host(), 5599)
+            // A port on the bastion's own loopback that nothing listens on: it
+            // refuses at once. A closed port on the database host is not
+            // dependable here — behind a firewall (a tailnet node) the
+            // connect just times out, after the pool has given up, so the
+            // tail is still empty when it is read.
+            let tunnel = open(&live_tunnel(), "127.0.0.1", 5599)
                 .await
                 .unwrap_or_else(|e| panic!("the tunnel itself must still open: {e}"));
 
