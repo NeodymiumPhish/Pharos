@@ -154,9 +154,9 @@ final class TabContextBar: NSView {
 
     // MARK: - Context menu
 
-    /// Right-click on the row: the tab's own commands. The native tab bar's
-    /// menu cannot take them (AppKit gives no way to add to it), and they
-    /// are in File too. The items go up the responder chain by name to the
+    /// Right-click on the row: the tab's own commands, also in File (and
+    /// Rename on the tab's own right-click menu, `MainWindow`). The native tab
+    /// bar has no Duplicate. The items go up the responder chain by name to the
     /// content controller, which validates them, so this view stays free of it.
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()

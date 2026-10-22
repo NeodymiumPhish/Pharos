@@ -187,7 +187,7 @@ Every editor tab is a native macOS window tab, grouped the way Safari and Finder
 
 **Cmd+1** to **Cmd+9** show the first to ninth tab of the window's group. **Reopen Closed Tab** works across every window and remembers up to 20 closed tabs.
 
-To rename a tab, choose **File > Rename Tab…** (**Cmd+Opt+R**), or right-click the tab's context row (the connection and schema above the cards) and choose **Rename Tab…**. **File > Duplicate Tab** (also on that right-click menu) puts a copy of its cards in a new tab beside it, without their results. Double-clicking a tab does not rename it. Right-clicking a tab shows the system's own menu: **Close Tab**, **Close Other Tabs** and **Move Tab to New Window**.
+To rename a tab, right-click (or Control-click) the tab and choose **Rename Tab…**, choose **File > Rename Tab…** (**Cmd+Opt+R**), or right-click the tab's context row (the connection and schema above the cards) and choose **Rename Tab…**. Renaming a tab that is not in front brings it to the front first. The rest of the tab's right-click menu is the system's own: **Close Tab**, **Close Other Tabs**, **Move Tab to New Window** and **Show All Tabs**. **File > Duplicate Tab** (also on the context row's right-click menu) puts a copy of its cards in a new tab beside it, without their results. Double-clicking a tab does not rename it.
 
 ### Tab names
 

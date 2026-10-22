@@ -105,8 +105,9 @@ enum MainMenu {
         let reopenTab = fileMenu.addItem(withTitle: String(localized: "Reopen Closed Tab"), action: #selector(AppDelegate.menuReopenTab(_:)), keyEquivalent: "T")
         reopenTab.keyEquivalentModifierMask = [.command, .shift]
 
-        // The native tab bar has no Rename or Duplicate, and its menu cannot
-        // be extended, so both live here.
+        // The native tab bar has no Rename or Duplicate of its own. Rename is
+        // added to the tab's right-click menu by `MainWindow`; both live here
+        // too, the one place every tab can reach them.
         // ⌥⌘R: ⌘R alone reads as "run" or "reload", and ⇧⌘R is Refresh Metadata.
         let renameTab = fileMenu.addItem(withTitle: String(localized: "Rename Tab…"), action: #selector(ContentViewController.menuRenameTab(_:)), keyEquivalent: "r")
         renameTab.keyEquivalentModifierMask = [.command, .option]

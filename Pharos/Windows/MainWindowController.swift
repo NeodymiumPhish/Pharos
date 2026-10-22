@@ -41,7 +41,8 @@ class MainWindowController: NSWindowController {
         self.splitViewController = PharosSplitViewController(session: session)
 
         let defaultContentRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        let window = NSWindow(
+        // `MainWindow` adds "Rename Tab…" to the native tab bar's menu.
+        let window = MainWindow(
             contentRect: defaultContentRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
