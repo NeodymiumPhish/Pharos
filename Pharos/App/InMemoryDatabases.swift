@@ -109,7 +109,7 @@ enum InMemoryDatabases {
                     then(false)
                     return
                 }
-                NSDocumentController.shared.noteNewRecentDocumentURL(url)
+                RecentFileStore.shared.note([url])
                 if offerOpen {
                     let done = NSAlert()
                     done.messageText = String(localized: "Saved “\(DisplayEscape.escaped(url.lastPathComponent))”.")

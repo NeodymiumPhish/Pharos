@@ -294,7 +294,7 @@ final class PasswordPromptCoordinator {
             }
             record.database = DuckDBFiles.canonicalPath(url.path)
             manager.saveConnection(record)
-            NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: record.database))
+            RecentFileStore.shared.note([URL(fileURLWithPath: record.database)])
             if let open { open(record, false) } else { manager.connect(id: id) }
         }
     }

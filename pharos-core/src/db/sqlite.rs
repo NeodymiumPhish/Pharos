@@ -516,6 +516,17 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             position INTEGER NOT NULL
         );
 
+        -- The sidebar's Files navigator: every DuckDB database and data
+        -- file the user opened, with no limit (the system's recent documents
+        -- keep only the newest few). `kind` is Swift's ("duckdb" or "data"),
+        -- opaque here; `last_opened_at` is ISO 8601 UTC, so MAX() as text is
+        -- the newest. History pruning never touches this table.
+        CREATE TABLE IF NOT EXISTS recent_files (
+            path TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            last_opened_at TEXT NOT NULL
+        );
+
         -- Thumbs up / thumbs down on what the on-device model wrote. One row
         -- per press, so a user who changes their mind leaves two rows and the
         -- later one wins by `created_at`.
@@ -2075,6 +2086,40 @@ pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()
 // ---------------------------------------------------------------------------
 // Query variables (app-wide `{{name}}` list)
 // ---------------------------------------------------------------------------
+
+/// Every recent file, newest first (path breaks a tie, so the order is stable).
+pub fn load_recent_files(conn: &Connection) -> SqliteResult<Vec<crate::models::RecentFile>> {
+    let mut stmt =
+        conn.prepare("SELECT path, kind, last_opened_at FROM recent_files ORDER BY last_opened_at DESC, path")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(crate::models::RecentFile { path: row.get(0)?, kind: row.get(1)?, last_opened_at: row.get(2)? })
+    })?;
+    rows.collect()
+}
+
+/// Note files as opened, in one transaction. An existing entry keeps the
+/// newer time and takes the given kind.
+pub fn touch_recent_files(conn: &mut Connection, files: &[crate::models::RecentFile]) -> SqliteResult<()> {
+    let tx = conn.transaction()?;
+    for file in files {
+        tx.execute(
+            "INSERT INTO recent_files (path, kind, last_opened_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(path) DO UPDATE SET kind = excluded.kind,
+                 last_opened_at = MAX(recent_files.last_opened_at, excluded.last_opened_at)",
+            rusqlite::params![&file.path, &file.kind, &file.last_opened_at],
+        )?;
+    }
+    tx.commit()
+}
+
+/// Remove paths from the list, in one transaction.
+pub fn remove_recent_files(conn: &mut Connection, paths: &[String]) -> SqliteResult<()> {
+    let tx = conn.transaction()?;
+    for path in paths {
+        tx.execute("DELETE FROM recent_files WHERE path = ?1", [path])?;
+    }
+    tx.commit()
+}
 
 /// Every stored variable, in `position` order. An empty table is a valid
 /// answer — the list starts empty and there is no migration from the old
@@ -5923,5 +5968,49 @@ mod connection_saved_flag_tests {
         json.as_object_mut().unwrap().remove("saved");
         let back: ConnectionConfig = serde_json::from_value(json).expect("decode");
         assert!(back.saved, "absent means saved");
+    }
+}
+
+/// The Files navigator's store: no limit, the newer time wins, removal by path.
+#[cfg(test)]
+mod recent_files_tests {
+    use super::*;
+    use crate::models::RecentFile;
+
+    fn file(path: &str, kind: &str, at: &str) -> RecentFile {
+        RecentFile { path: path.into(), kind: kind.into(), last_opened_at: at.into() }
+    }
+
+    #[test]
+    fn touch_load_and_remove() {
+        let dir = std::env::temp_dir().join(format!("pharos_test_recent_files_{}", uuid::Uuid::new_v4()));
+        let mut conn = init_database(&dir).expect("init_database");
+        touch_recent_files(&mut conn, &[
+            file("/a/sales.duckdb", "duckdb", "2026-10-20T10:00:00Z"),
+            file("/a/q3.csv", "data", "2026-10-22T09:00:00Z"),
+            file("/a/old.parquet", "data", "2026-01-01T00:00:00Z"),
+        ]).expect("touch");
+        let paths: Vec<String> = load_recent_files(&conn).unwrap().into_iter().map(|f| f.path).collect();
+        assert_eq!(paths, ["/a/q3.csv", "/a/sales.duckdb", "/a/old.parquet"], "newest first");
+
+        // A seed with an older time does not move a file down; a newer one moves it up.
+        touch_recent_files(&mut conn, &[file("/a/q3.csv", "data", "2025-01-01T00:00:00Z")]).unwrap();
+        touch_recent_files(&mut conn, &[file("/a/old.parquet", "data", "2026-10-22T12:00:00Z")]).unwrap();
+        let back = load_recent_files(&conn).unwrap();
+        assert_eq!(back[0].path, "/a/old.parquet", "a newer open moves the file to the top");
+        assert_eq!(back.iter().find(|f| f.path == "/a/q3.csv").unwrap().last_opened_at, "2026-10-22T09:00:00Z",
+                   "an older time never replaces a newer one");
+        assert_eq!(back.len(), 3, "one entry per path");
+
+        remove_recent_files(&mut conn, &["/a/sales.duckdb".to_string(), "/not/there".to_string()]).unwrap();
+        let left: Vec<String> = load_recent_files(&conn).unwrap().into_iter().map(|f| f.path).collect();
+        assert_eq!(left, ["/a/old.parquet", "/a/q3.csv"], "removed by path; an unknown path is no error");
+
+        // No limit: 500 entries all stay.
+        let many: Vec<RecentFile> = (0..500).map(|i| file(&format!("/m/{i}.csv"), "data", "2026-10-22T00:00:00Z")).collect();
+        touch_recent_files(&mut conn, &many).unwrap();
+        assert_eq!(load_recent_files(&conn).unwrap().len(), 502);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

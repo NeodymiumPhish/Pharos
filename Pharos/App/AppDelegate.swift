@@ -92,6 +92,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             Log.state.warning("Failed to load query variables: \(error.localizedDescription, privacy: .public)")
         }
+        // The Files navigator's list; seeded once from Open Recent and the
+        // DuckDB records, so it needs the connections, which are loaded above.
+        RecentFileStore.shared.loadIfNeeded()
 
         // Read the stored tab set BEFORE the window exists: its content
         // controller asks for a tab as soon as its view loads, and that "Query 1"

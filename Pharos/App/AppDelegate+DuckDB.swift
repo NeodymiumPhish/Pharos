@@ -152,7 +152,7 @@ extension AppDelegate {
             manager.saveConnection(made)
             record = made
         }
-        NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
+        RecentFileStore.shared.note([URL(fileURLWithPath: path)])
         if create { manager.allowCreateOnNextConnect(record.id) }
         // A new database is a new file: no tab shows it yet, whatever a tab
         // on the old file at this path holds.
@@ -164,9 +164,10 @@ extension AppDelegate {
     /// read_csv('<path>')`, run when the tab is connected.
     @MainActor
     func openDataFiles(_ urls: [URL]) {
-        // Listed in File ▸ Open Recent like a database file (review D2 step
-        // 7); choosing one reads it again the same way.
-        for url in urls { NSDocumentController.shared.noteNewRecentDocumentURL(url) }
+        // Listed in File ▸ Open Recent and the Files navigator like a
+        // database file (review D2 step 7); choosing one reads it again the
+        // same way.
+        RecentFileStore.shared.note(urls)
         if let content = keyWindowController?.splitViewController.contentVC ?? frontmostWindowController?.splitViewController.contentVC,
            content.isDuckDBTab {
             showMainWindow()

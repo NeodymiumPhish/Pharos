@@ -437,11 +437,12 @@ final class AppStateManager: ObservableObject {
     }
 
     /// A DuckDB file used from anywhere (the pop-up, the Dock, a connect)
-    /// moves to the top of File ▸ Open Recent, as a document does.
+    /// moves to the top of File ▸ Open Recent and of the Files navigator, as
+    /// a document does.
     func noteRecentDuckDBFile(_ id: String) {
         guard let config = connections.first(where: { $0.id == id }), config.isDuckDB,
               !config.isInMemoryDuckDB, !config.database.isEmpty else { return }
-        NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: config.database))
+        RecentFileStore.shared.note([URL(fileURLWithPath: config.database)])
     }
 
     /// Why the last connect attempt for a connection did not succeed, keyed by

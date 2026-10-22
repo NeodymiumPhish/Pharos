@@ -462,6 +462,24 @@ char *pharos_load_query_history(const char *json);
  char *pharos_save_query_variables(const char *json);
 
 /**
+ * Every recent file, newest first. Returns a JSON array of RecentFile.
+ * Caller must free.
+ */
+ char *pharos_load_recent_files(void);
+
+/**
+ * Note files as opened. `json` is a JSON array of RecentFile. Returns NULL on
+ * success, an error C-string otherwise.
+ */
+ char *pharos_touch_recent_files(const char *json);
+
+/**
+ * Remove paths from the list. `json` is a JSON array of path strings.
+ * Returns NULL on success, an error C-string otherwise.
+ */
+ char *pharos_remove_recent_files(const char *json);
+
+/**
  * Apply pending grid cell edits in ONE transaction.
  * `json` is a JSON-encoded `RowUpdateRequest` (camelCase).
  * On success the callback receives a JSON `RowUpdateResult`.
