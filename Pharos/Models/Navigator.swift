@@ -22,7 +22,8 @@ enum Navigator: Int, CaseIterable, Sendable {
 
     var symbolName: String {
         switch self {
-        case .library: return "books.vertical"
+        // One plain outline (owner: "books.vertical" read as dense).
+        case .library: return "archivebox"
         case .files: return "doc.on.doc"
         case .schema: return "cylinder.split.1x2"
         }

@@ -81,7 +81,7 @@ private func testNavigatorModel() {
     expect(Navigator.files.title, "Files", "files title")
     expect(Navigator.schema.title, "Database Navigator", "schema title")
 
-    expect(Navigator.library.symbolName, "books.vertical", "library symbol")
+    expect(Navigator.library.symbolName, "archivebox", "library symbol")
     expect(Navigator.files.symbolName, "doc.on.doc", "files symbol")
     expect(Navigator.schema.symbolName, "cylinder.split.1x2", "schema symbol")
 

@@ -107,7 +107,7 @@ final class VariableManagerVC: NSViewController {
             split.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             left.widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
             left.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
-            detailArea.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+            detailArea.widthAnchor.constraint(greaterThanOrEqualToConstant: 621),
             emptyState.topAnchor.constraint(equalTo: detailArea.topAnchor),
             emptyState.leadingAnchor.constraint(equalTo: detailArea.leadingAnchor),
             emptyState.trailingAnchor.constraint(equalTo: detailArea.trailingAnchor),
@@ -149,24 +149,29 @@ final class VariableManagerVC: NSViewController {
         selectedId = id
         listView.selectedId = id
 
-        let hairline = NSBox()
-        hairline.boxType = .separator
-        let column = NSStackView(views: [detail.view, hairline, connectionsView])
-        column.orientation = .vertical
-        column.spacing = 0
-        column.distribution = .fill
-        column.translatesAutoresizingMaskIntoConstraints = false
+        // The value on the left, its connections on the right of a vertical
+        // divider (owner, 2026-10-22): both get the pane's full height, so a
+        // long value and a long connection list each have room.
+        let divider = NSBox()
+        divider.boxType = .separator
+        let row = NSStackView(views: [detail.view, divider, connectionsView])
+        row.orientation = .horizontal
+        row.spacing = 0
+        row.alignment = .top
+        row.distribution = .fill
+        row.translatesAutoresizingMaskIntoConstraints = false
         emptyState.isHidden = true
-        detailArea.addSubview(column)
+        detailArea.addSubview(row)
         NSLayoutConstraint.activate([
-            column.topAnchor.constraint(equalTo: detailArea.topAnchor),
-            column.leadingAnchor.constraint(equalTo: detailArea.leadingAnchor),
-            column.trailingAnchor.constraint(equalTo: detailArea.trailingAnchor),
-            column.bottomAnchor.constraint(equalTo: detailArea.bottomAnchor),
-            detail.view.widthAnchor.constraint(equalTo: column.widthAnchor),
-            connectionsView.widthAnchor.constraint(equalTo: column.widthAnchor),
-            hairline.widthAnchor.constraint(equalTo: column.widthAnchor),
-            connectionsView.heightAnchor.constraint(equalToConstant: 220),
+            row.topAnchor.constraint(equalTo: detailArea.topAnchor),
+            row.leadingAnchor.constraint(equalTo: detailArea.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: detailArea.trailingAnchor),
+            row.bottomAnchor.constraint(equalTo: detailArea.bottomAnchor),
+            detail.view.heightAnchor.constraint(equalTo: row.heightAnchor),
+            divider.heightAnchor.constraint(equalTo: row.heightAnchor),
+            connectionsView.heightAnchor.constraint(equalTo: row.heightAnchor),
+            connectionsView.widthAnchor.constraint(equalToConstant: 300),
+            detail.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 320),
         ])
         refreshDetailState()
         connectionsView.show(choices: choicesProvider(variable), linked: variable.connectionIds)

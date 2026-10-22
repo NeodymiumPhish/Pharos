@@ -18,13 +18,13 @@ final class VariableManagerWindowController: NSWindowController, NSWindowDelegat
     private init() {
         let window = UtilityWindow(autosaveName: "PharosVariableManagerWindow",
                                    title: String(localized: "Variable Manager"),
-                                   defaultSize: NSSize(width: 860, height: 560),
-                                   minimumSize: NSSize(width: 660, height: 420))
+                                   defaultSize: NSSize(width: 1020, height: 560),
+                                   minimumSize: NSSize(width: 880, height: 420))
         super.init(window: window)
         window.contentViewController = managerVC
         // After the content controller, which resizes the window to its
         // fitting size; a remembered frame still wins.
-        window.setContentSize(NSSize(width: 860, height: 560))
+        window.setContentSize(NSSize(width: 1020, height: 560))
         window.center()
         window.setFrameUsingName("PharosVariableManagerWindow")
         window.delegate = self

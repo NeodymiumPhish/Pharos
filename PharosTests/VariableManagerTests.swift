@@ -13,7 +13,7 @@ private func expect<T: Equatable>(_ actual: T, _ expected: T, _ name: String) {
 
 @MainActor
 private final class Host {
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 860, height: 560), styleMask: [.borderless],
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1020, height: 560), styleMask: [.borderless],
                           backing: .buffered, defer: false)
     let vc = VariableManagerVC()
     var written: [[QueryVariable]] = []
@@ -68,6 +68,15 @@ private func testManager() {
     host.vc.connectionsView.chooseAll()
     expect(host.last.first { $0.id == env.id }?.connectionIds, [], "All connections clears the links")
     expect(host.vc.connectionsView.isGlobalChosen, true, "and the radio says so")
+
+    // The value and its connections sit side by side, divided vertically.
+    host.layout()
+    if let detailView = host.vc.detailVC?.view {
+        let detailFrame = detailView.convert(detailView.bounds, to: nil)
+        let connections = host.vc.connectionsView.convert(host.vc.connectionsView.bounds, to: nil)
+        expect(connections.minX >= detailFrame.maxX, true, "Connections is to the right of the value")
+        expect(abs(connections.height - detailFrame.height) < 1, true, "and as tall as it")
+    }
 
     // Another row re-reads its own links.
     host.vc.select(limit.id)
