@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-card-run-availability-tests \
   Pharos/Models/Connection.swift \
   Pharos/Core/Cards/CardRunAvailability.swift \
+  Pharos/Core/TabContextState.swift \
   PharosTests/CardRunAvailabilityTests.swift \
   PharosTests/main.swift
 /tmp/pharos-card-run-availability-tests

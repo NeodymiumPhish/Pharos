@@ -13,7 +13,9 @@ private func expect(_ condition: Bool, _ name: String, _ detail: @autoclosure ()
 }
 
 func runTests() {
-    let r = CardRunAvailability.reason
+    let r = { (id: String?, name: String?, status: ConnectionStatus?) in
+        CardRunAvailability.reason(connectionId: id, connectionName: name, status: status)
+    }
 
     expect(r("c1", "Prod", .connected) == nil, "connected: Run is available")
 
@@ -38,6 +40,28 @@ func runTests() {
 
     let failed = r("c1", "Prod", .error)
     expect(failed?.contains("Could not connect to “Prod”") == true, "error: says the connection failed", "got \(String(describing: failed))")
+
+    // A DuckDB failure the context row has its own button for: the help
+    // names THAT button, the one TabContextState shows for the same error.
+    let kinds: [(String, String, Bool, Bool, Bool)] = [
+        ("missing", "x \(DuckDBOpenError.missingMarker)", true, false, false),
+        ("locked", "x \(DuckDBOpenError.lockedMarker)", false, true, false),
+        ("plain", "connection refused", false, false, false),
+    ]
+    for (label, error, missing, locked, tooNew) in kinds {
+        let help = CardRunAvailability.reason(connectionId: "c1", connectionName: "Sales", status: .error, error: error) ?? ""
+        let state = TabContextState(connectionName: "Sales", status: .error, failureReason: nil,
+                                    missingFile: missing, inUse: locked, tooNew: tooNew)
+        let button = state.buttonTitle ?? "<none>"
+        expect(help.contains(button), "\(label): the help names the context row's \(button) button", "got \(help)")
+    }
+    let lost = CardRunAvailability.reason(connectionId: "c1", connectionName: "Sales", status: .error,
+                                          error: "x \(DuckDBOpenError.missingMarker)") ?? ""
+    expect(!lost.contains("Try Again"), "missing file: no Try Again, which the row does not show", "got \(lost)")
+    let newer = CardRunAvailability.reason(connectionId: "c1", connectionName: "Sales", status: .error,
+                                           error: "x \(DuckDBOpenError.tooNewMarker)") ?? ""
+    expect(newer.contains("newer DuckDB") && !newer.contains("Click"),
+           "too new: says why, and names no button (the row has none)", "got \(newer)")
 
     if failures == 0 { print("\nAll card run availability tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

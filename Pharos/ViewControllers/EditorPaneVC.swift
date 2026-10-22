@@ -351,7 +351,8 @@ class EditorPaneVC: NSViewController {
             return CardRunAvailability.reason(
                 connectionId: connectionId,
                 connectionName: connectionId.flatMap { id in self.stateManager.connections.first(where: { $0.id == id })?.name },
-                status: connectionId.map { self.stateManager.status(for: $0) })
+                status: connectionId.map { self.stateManager.status(for: $0) },
+                error: connectionId.flatMap { self.stateManager.connectionError(for: $0) })
         }
         cardStack.validationSchema = { [weak self] in self?.session.activeTab?.schemaName }
     }
