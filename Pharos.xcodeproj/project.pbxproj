@@ -36,6 +36,7 @@
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
 		131D6EEE108B0D2C3C469E7F /* TagCopyScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */; };
 		134196074C3749791E9F3A94 /* InsetScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14B40F475E3FEB12C3F9B9F /* InsetScrollView.swift */; };
+		13D2B66CAB53EE7B2E09073F /* TagManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66124BB8E69DF3917474F6F /* TagManagerWindowController.swift */; };
 		1573220283AD141ECC613ECC /* CardResultsHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC5F35274F4C9F5CA72C60A6 /* CardResultsHeaderView.swift */; };
 		15939E7F7072822A6D182047 /* PharosIntentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAA36AB1C1E1F0734DD5C1F /* PharosIntentSupport.swift */; };
 		15D6D610A07AD42CADC005BA /* SecuritySettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003B95C484C25F932A8DEAB /* SecuritySettingsPaneVC.swift */; };
@@ -290,6 +291,7 @@
 		A39310894FD5EFC371680D4A /* QueryPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F97502732CB469B07431E71 /* QueryPlan.swift */; };
 		A46A3B90BA65BDA041A0E874 /* DuckDBCloudSecretsEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239C9CB1AAB054FEBD876B82 /* DuckDBCloudSecretsEditor.swift */; };
 		A4767EB1AFE98E52F39580C2 /* ResultsGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E4709A0232A4CD58E80882 /* ResultsGridMetrics.swift */; };
+		A4ED9C992D80DAB39B6D93FD /* TagManagerHostVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54A1D48FF5294CF4C99C7DD8 /* TagManagerHostVC.swift */; };
 		A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 566DBA916CEA13E04ED593DB /* ChartPalette.swift */; };
 		A756B0221308FD68F1517648 /* DeviceOwnerGateRecency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */; };
 		A7BA9813B484925A81903D07 /* ConnectionsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D253EDAEB54B969B765C149C /* ConnectionsSettingsPaneVC.swift */; };
@@ -547,6 +549,7 @@
 		51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MetadataCache+Shared.swift"; sourceTree = "<group>"; };
 		52ABB089F3FD1D50DE31A88B /* FindMatchDecoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindMatchDecoration.swift; sourceTree = "<group>"; };
 		52C356BFC2A8AA57C701C7D7 /* UtilityWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UtilityWindow.swift; sourceTree = "<group>"; };
+		54A1D48FF5294CF4C99C7DD8 /* TagManagerHostVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerHostVC.swift; sourceTree = "<group>"; };
 		55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordPromptCoordinator.swift; sourceTree = "<group>"; };
 		565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PartitionDisplay.swift; sourceTree = "<group>"; };
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
@@ -672,6 +675,7 @@
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
 		A51B7E42D0E3720183013836 /* VariableValuePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValuePreview.swift; sourceTree = "<group>"; };
 		A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestructiveSQLScanner.swift; sourceTree = "<group>"; };
+		A66124BB8E69DF3917474F6F /* TagManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerWindowController.swift; sourceTree = "<group>"; };
 		A6D3955E9601CF2414F57DFA /* AppInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppInfo.swift; sourceTree = "<group>"; };
 		A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLCompletionProvider.swift; sourceTree = "<group>"; };
 		A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLThemeCatalog.swift; sourceTree = "<group>"; };
@@ -1119,7 +1123,9 @@
 				AFA9754561F03FFF1CAB4CB9 /* SaveQuerySheet.swift */,
 				819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */,
 				E714354BDC3D28AD84F3168F /* TableDDLSheet.swift */,
+				54A1D48FF5294CF4C99C7DD8 /* TagManagerHostVC.swift */,
 				E6DCF7AC5AC9DD6628EBDAF3 /* TagManagerSheet.swift */,
+				A66124BB8E69DF3917474F6F /* TagManagerWindowController.swift */,
 			);
 			path = Sheets;
 			sourceTree = "<group>";
@@ -1903,8 +1909,10 @@
 				694A0DA60C72BE7BC271173E /* TagGlob.swift in Sources */,
 				8C84EF40E4447DEAF3262BEE /* TagInspectorModel.swift in Sources */,
 				96C02805986F1C25170AB28A /* TagManagerCommitting.swift in Sources */,
+				A4ED9C992D80DAB39B6D93FD /* TagManagerHostVC.swift in Sources */,
 				65F348FC51CDFF4E92D5E98D /* TagManagerModel.swift in Sources */,
 				B2EA38316B8353EF9079F372 /* TagManagerSheet.swift in Sources */,
+				13D2B66CAB53EE7B2E09073F /* TagManagerWindowController.swift in Sources */,
 				4048DB404CB9E8B2FEC98C0C /* TagMatchDisclosure.swift in Sources */,
 				B985D2BE67959CCEF1533BFA /* TagPalette.swift in Sources */,
 				419548440610B3FAF2841187 /* TagPredicate.swift in Sources */,

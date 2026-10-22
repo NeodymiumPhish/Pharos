@@ -1346,29 +1346,18 @@ class ResultsGridVC: NSViewController {
 
     /// "Manage Tags…": rename, recolour, note, delete. `preselect` lands the
     /// sheet on a specific tag (the Inspector's per-tag Edit button).
+    /// Open the Tag Manager window (on `preselect` when given), with this
+    /// grid's loaded rows behind its live match count. A window, not a sheet:
+    /// it opens with no tags, and stays open after a save.
     func presentTagManageSheet(preselect: String?) {
-        guard view.window != nil, !TagStore.shared.tags.isEmpty else {
-            NSSound.beep()
-            return
-        }
-        let model = TagManagerModel(tags: TagStore.shared.tags, mode: .manage)
-        let sheet = TagManagerSheet(model: model, committer: TagStore.shared,
-                                    columns: columns,
-                                    loadedRows: rows.map { row in row.map { $0.stringValue } })
-        presentAsSheet(sheet)
-        // There is no public "select this tag" entry point on the sheet — only
-        // a sidebar table an analyst clicks. `viewDidLoad`, which `presentAsSheet`
-        // has already run by the time it returns, has selected the first visible
-        // tag; honouring `preselect` means moving that same real selection and
-        // telling the same real delegate, exactly as the sheet's own suite drives
-        // it and exactly as a click would.
-        guard let preselect,
-              let modelIndex = sheet.model.tags.firstIndex(where: { $0.id == preselect }),
-              let row = sheet.model.visibleTagIndices.firstIndex(of: modelIndex)
-        else { return }
-        sheet.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        sheet.tableView.delegate?.tableViewSelectionDidChange?(
-            Notification(name: NSTableView.selectionDidChangeNotification, object: sheet.tableView))
+        let inputs = tagManagerInputs()
+        TagManagerWindowController.shared.show(preselect: preselect, columns: inputs.columns,
+                                               loadedRows: inputs.loadedRows)
+    }
+
+    /// The results the Tag Manager's live count runs over.
+    func tagManagerInputs() -> (columns: [ColumnDef], loadedRows: [[String?]]) {
+        (columns, rows.map { row in row.map { $0.stringValue } })
     }
 
     /// "Remove From Tag…": open the Tag Manager in `.remove` on the rules the

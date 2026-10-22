@@ -434,6 +434,7 @@ enum MainMenu {
         windowMenu.addItem(withTitle: String(localized: "Zoom"), action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowMenu.addItem(.separator())
         // The two app-wide utility windows. No default keys (owner, 2026-10-22).
+        windowMenu.addItem(withTitle: String(localized: "Tag Manager"), action: #selector(AppDelegate.menuShowTagManager(_:)), keyEquivalent: "")
         windowMenu.addItem(withTitle: String(localized: "Variable Manager"), action: #selector(AppDelegate.menuShowVariableManager(_:)), keyEquivalent: "")
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: String(localized: "Bring All to Front"), action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")

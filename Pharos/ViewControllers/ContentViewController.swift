@@ -5057,6 +5057,12 @@ extension ContentViewController {
         resultsVC.presentTagSheet(sender)
     }
 
+    /// The front tab's loaded results, for the Tag Manager's live count when
+    /// it is opened from the toolbar or the Window menu.
+    func tagManagerInputs() -> (columns: [ColumnDef], loadedRows: [[String?]]) {
+        resultsVC.isViewLoaded ? resultsVC.tagManagerInputs() : ([], [])
+    }
+
     @objc func menuManageTags(_ sender: Any?) {
         resultsVC.presentTagManageSheet(preselect: nil)
     }
@@ -5322,11 +5328,9 @@ extension ContentViewController: NSMenuItemValidation {
             return !targets.isEmpty
         }
         if menuItem.action == #selector(menuManageTags(_:)) {
-            // BOTH conditions `presentTagManageSheet` enforces, not just the
-            // store one: a sheet needs a window to hang from, so testing the
-            // tag list alone would enable the item into a beep.
-            return resultsVC.isViewLoaded && resultsVC.view.window != nil
-                && !TagStore.shared.tags.isEmpty
+            // Always: the Tag Manager is a window, and it opens with no tags
+            // to make the first one.
+            return true
         }
         if menuItem.action == #selector(menuIncreaseEditorFont(_:)) {
             return editorPane.editorFontSize < FontSizeStepper.range.upperBound

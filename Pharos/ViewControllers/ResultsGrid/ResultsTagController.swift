@@ -122,8 +122,8 @@ final class ResultsTagController: NSObject, NSMenuDelegate {
             remove.isEnabled = removable
         }
         if let manage = menu.item(withTag: Self.manageTags) {
-            // Needs a tag to manage, not a row: enabled off-selection too.
-            manage.isEnabled = !TagStore.shared.tags.isEmpty
+            // Always: the Tag Manager window opens with no tags too.
+            manage.isEnabled = true
         }
     }
 

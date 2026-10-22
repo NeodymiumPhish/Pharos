@@ -114,6 +114,10 @@ final class TagManagerSheet: NSViewController,
     /// close?" unobservable to the sheet's own harness — and that is exactly the
     /// question a failing save turns on.
     var onClose: (() -> Void)?
+    /// Told after a save was written, just before `onClose`: the Tag Manager
+    /// window stays open after a save (and builds a fresh sheet from the
+    /// store), but closes on Cancel.
+    var onSaved: (() -> Void)?
 
     // MARK: Controls
     //
@@ -140,7 +144,7 @@ final class TagManagerSheet: NSViewController,
     let cancelButton = NSButton()
     /// Why Save is unavailable, or what a save will do that cannot be undone.
     let statusLabel = NSTextField(labelWithString: "")
-    let emptyLabel = NSTextField(labelWithString: "No tags yet. Add one to start.")
+    let emptyLabel = NSTextField(labelWithString: "")
     /// What the sheet is FOR, which is the one thing that differs between the
     /// three entries.
     let titleLabel = NSTextField(labelWithString: "Tags")
@@ -597,8 +601,8 @@ final class TagManagerSheet: NSViewController,
         gridScroll.isHidden = !hasTag
         emptyLabel.isHidden = hasTag
         emptyLabel.stringValue = model.tags.isEmpty || model.visibleTagIndices.isEmpty
-            ? "No tags yet. Add one to start."
-            : "Select a tag to edit it."
+            ? String(localized: "No tags yet. A tag marks the rows whose values match its rules — an address, a CIDR range, a number, a date. Click New Tag to make one.")
+            : String(localized: "Select a tag to edit it.")
     }
 
     /// Rebuild every rule and condition row from the model.
@@ -1234,6 +1238,7 @@ final class TagManagerSheet: NSViewController,
             presentFailure(error)
             return
         }
+        onSaved?()
         closeSheet()
     }
 
