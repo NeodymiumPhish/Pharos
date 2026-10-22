@@ -71,6 +71,17 @@
         }
       }
     },
+    "{{%@}} is linked to %@, not to this tab's connection." : {
+      "comment" : "Run error: the variable exists but is linked to other connections.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "{{%1$@}} is linked to %2$@, not to this tab's connection."
+          }
+        }
+      }
+    },
     "%@" : {
 
     },
@@ -221,6 +232,9 @@
     "%@+ rows" : {
 
     },
+    "%lld connection(s)" : {
+      "comment" : "How many connections a variable is linked to."
+    },
     "%lld connections" : {
 
     },
@@ -259,6 +273,9 @@
           }
         }
       }
+    },
+    "%lld line(s) left out — see Status." : {
+
     },
     "%lld min" : {
 
@@ -508,6 +525,12 @@
     "Add" : {
 
     },
+    "Add %lld Rules" : {
+
+    },
+    "Add 1 Rule" : {
+
+    },
     "Add a cloud credential" : {
 
     },
@@ -520,7 +543,16 @@
     "Add Credential" : {
 
     },
+    "Add rules from a list of values" : {
+
+    },
     "Add Tag…" : {
+
+    },
+    "Add Values" : {
+
+    },
+    "Add Values…" : {
 
     },
     "Adds a card that creates a table from this query. Edit its name, then run it." : {
@@ -541,6 +573,9 @@
     "All" : {
 
     },
+    "All connections" : {
+
+    },
     "All Schemas" : {
 
     },
@@ -551,6 +586,9 @@
 
     },
     "Allow editing cells in the grid" : {
+
+    },
+    "Already in this tag" : {
 
     },
     "Also copy as rich text" : {
@@ -1048,6 +1086,9 @@
     "Connections per database" : {
 
     },
+    "connections that no longer exist" : {
+
+    },
     "Connections, saved queries, history and tags stay." : {
 
     },
@@ -1269,6 +1310,9 @@
 
     },
     "Discard %@?" : {
+
+    },
+    "Discard your changes to tags?" : {
 
     },
     "Disconnect" : {
@@ -1497,10 +1541,16 @@
     "Every action but Expand runs exactly what the row's context menu runs." : {
 
     },
+    "Every line becomes a rule." : {
+
+    },
     "Every minute" : {
 
     },
     "Every preference goes back to its default, and Pharos forgets where its windows and panels were left. Your connections, saved queries, history and tags are not touched." : {
+
+    },
+    "Every tab can use this variable." : {
 
     },
     "Every version of this query takes the name. Leave the field empty for no name." : {
@@ -2058,6 +2108,9 @@
     "Legend" : {
 
     },
+    "Library" : {
+
+    },
     "Library & History" : {
 
     },
@@ -2142,6 +2195,12 @@
     "Match what I type" : {
 
     },
+    "Matches %@." : {
+      "comment" : "Tag sample test: the rules the value matches."
+    },
+    "Matches as" : {
+
+    },
     "Maximum characters per cell" : {
 
     },
@@ -2173,6 +2232,9 @@
 
     },
     "minutes" : {
+
+    },
+    "Missing connection" : {
 
     },
     "modified %@" : {
@@ -2295,6 +2357,9 @@
     "New Query Tab" : {
 
     },
+    "New rule" : {
+
+    },
     "New Session" : {
 
     },
@@ -2314,9 +2379,6 @@
 
     },
     "New Table from File…" : {
-
-    },
-    "New Variable" : {
 
     },
     "New Window" : {
@@ -2385,6 +2447,9 @@
     "No Rows" : {
 
     },
+    "No rule matches this value." : {
+
+    },
     "No Saved Sessions" : {
 
     },
@@ -2400,6 +2465,15 @@
     "No table matches that description. Name a table or column, or choose the schema that holds the data." : {
 
     },
+    "No tags yet. A tag marks the rows whose values match its rules — an address, a CIDR range, a number, a date. Click New Tag to make one." : {
+
+    },
+    "No values yet." : {
+
+    },
+    "No Variable Selected" : {
+
+    },
     "Node" : {
 
     },
@@ -2410,6 +2484,12 @@
 
     },
     "Normal (2 seconds)" : {
+
+    },
+    "Not a valid address or range." : {
+
+    },
+    "Not a value this type can match." : {
 
     },
     "Not checked yet." : {
@@ -2548,6 +2628,12 @@
 
     },
     "Only queries that returned a result." : {
+
+    },
+    "Only tabs on the ticked connections can use this variable." : {
+
+    },
+    "Only these connections" : {
 
     },
     "Only when needed" : {
@@ -2715,6 +2801,12 @@
     "Paste" : {
 
     },
+    "Paste or type one value per line: addresses, CIDR ranges, numbers, dates, UUIDs or text. A value with * or ? matches as a pattern. Each line becomes a rule." : {
+
+    },
+    "Paste or type values, one per line: each becomes a rule." : {
+
+    },
     "Pending changes" : {
 
     },
@@ -2833,6 +2925,9 @@
 
     },
     "Press Tab to take it, Esc to leave it. The paste itself is never changed on its own." : {
+
+    },
+    "Preview" : {
 
     },
     "Previous Card" : {
@@ -3060,6 +3155,9 @@
     "Reopen the editor tabs that were open when you last quit, with their results. DuckDB files that the tabs use are opened again; server connections are not." : {
 
     },
+    "Repeated above" : {
+
+    },
     "Replace" : {
 
     },
@@ -3197,6 +3295,20 @@
     },
     "Rows returned per query page. Load More fetches the next page." : {
 
+    },
+    "rule %lld" : {
+
+    },
+    "Rule %lld: %lld of %lld conditions." : {
+      "comment" : "Tag sample test: a rule the value only partly satisfies.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Rule %1$lld: %2$lld of %3$lld conditions."
+          }
+        }
+      }
     },
     "Run" : {
 
@@ -3349,6 +3461,12 @@
 
     },
     "Select a CSV file to import into %@" : {
+
+    },
+    "Select a tag to edit it." : {
+
+    },
+    "Select a variable, or click + to add one." : {
 
     },
     "Select All" : {
@@ -3612,6 +3730,9 @@
     "Statements to apply" : {
 
     },
+    "Status" : {
+
+    },
     "Stop and undo everything" : {
 
     },
@@ -3684,7 +3805,16 @@
     "Tables joined by INHERITS read as a partitioned table." : {
 
     },
+    "Tag Manager" : {
+
+    },
     "Tags" : {
+
+    },
+    "Test a value" : {
+
+    },
+    "Test a value — an address, a number, text…" : {
 
     },
     "Test connection first" : {
@@ -3717,7 +3847,13 @@
     "The changes were not applied." : {
 
     },
+    "The changes you made in the Tag Manager have not been saved." : {
+
+    },
     "The chevrons that collapse a CTE, a subquery, a CASE or a BEGIN block. Turning this off opens everything that is folded." : {
+
+    },
+    "The connection was removed. Untick it to remove the link." : {
 
     },
     "The copy has the tables and views and their data. It leaves out temporary tables, attached PostgreSQL databases and work not yet committed in other tabs." : {
@@ -4065,6 +4201,9 @@
     "Throw the pending changes away and reload the rows." : {
 
     },
+    "Tick at least one connection. Until then the variable stays global." : {
+
+    },
     "Time" : {
 
     },
@@ -4195,6 +4334,12 @@
 
     },
     "Values" : {
+
+    },
+    "Values, one per line" : {
+
+    },
+    "Variable Manager" : {
 
     },
     "Variables" : {
