@@ -290,6 +290,16 @@
         }
       }
     },
+    "%lld of %lld conditions" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld conditions"
+          }
+        }
+      }
+    },
     "%lld results" : {
 
     },
@@ -2193,6 +2203,9 @@
 
     },
     "Match what I type" : {
+
+    },
+    "Matches" : {
 
     },
     "Matches %@." : {
