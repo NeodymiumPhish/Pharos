@@ -180,13 +180,28 @@ Every editor tab is a native macOS window tab, grouped the way Safari and Finder
 | New Tab | Cmd+T |
 | Close Tab | Cmd+W |
 | Reopen Closed Tab | Cmd+Shift+T |
+| Rename Tab… | Cmd+Opt+R |
 | Switch to Tab 1–9 | Cmd+1 through Cmd+9 |
 | Show Next Tab / Show Previous Tab | Cmd+Shift+] / Cmd+Shift+[ (or Ctrl+Tab / Ctrl+Shift+Tab) |
 | Show All Tabs | Cmd+Shift+\ |
 
 **Cmd+1** to **Cmd+9** show the first to ninth tab of the window's group. **Reopen Closed Tab** works across every window and remembers up to 20 closed tabs.
 
-To rename a tab, choose **File > Rename Tab…**; **File > Duplicate Tab** puts a copy of its cards in a new tab beside it, without their results. Double-clicking a tab does not rename it. Right-clicking a tab shows the system's own menu: **Close Tab**, **Close Other Tabs** and **Move Tab to New Window**.
+To rename a tab, choose **File > Rename Tab…** (**Cmd+Opt+R**), or right-click the tab's context row (the connection and schema above the cards) and choose **Rename Tab…**. **File > Duplicate Tab** (also on that right-click menu) puts a copy of its cards in a new tab beside it, without their results. Double-clicking a tab does not rename it. Right-clicking a tab shows the system's own menu: **Close Tab**, **Close Other Tabs** and **Move Tab to New Window**.
+
+### Tab names
+
+A new tab is called **New Tab 1**, **New Tab 2** and so on, with the lowest number no open tab uses. When the tab gets a connection, its name becomes the connection's name and the schema, for example **Prod - public**, and it follows the tab from then on: pick another schema or another connection and the name changes with it. A connection without a schema shows its name alone. Rename a connection in the Connections Manager and its tabs take the new name.
+
+When two tabs are on the same connection and schema, the second is **Prod - public (2)**, the third **Prod - public (3)**, with the lowest number free. A tab keeps its number until its connection or schema changes, so a name never changes while you type.
+
+A name you give the tab is kept: it no longer follows the connection or schema, and it comes back when Pharos reopens. To go back to the automatic name, rename the tab and leave the name empty. These tabs keep their names the same way:
+
+- A tab saved as a [Session](saved-queries.md) takes the Session's name. Reopening the Session gives the tab that name, and renaming the Session in the Sessions navigator renames its open tab.
+- A tab opened from a `.sql` file is named after the file.
+- A workspace you renamed in [Results History](query-history.md) reopens with that name.
+
+A tab opened from a Session template, a history entry, a DuckDB file or **Duplicate Tab** (of a tab with an automatic name) gets an automatic name. Apple Intelligence does not name tabs; it can [name query cards](apple-intelligence.md#suggest-a-name).
 
 Each tab keeps its own cards, connection, and results, and gets its own [database connection](query-execution.md#one-connection-per-editor-tab); [query variables](query-variables.md) are shared by every tab.
 
@@ -194,7 +209,7 @@ The window title is the tab's name. Under it, the subtitle reads "connection · 
 
 ### Where opened items go
 
-Opening a saved Session, a history entry, a workspace from Results History, a `.sql` file, **Run in Pharos** text, a Shortcuts action or a Dock menu item puts it in the current tab when that tab is untouched. Untouched means blank, never typed in, with no file, saved Session or workspace, and nothing running. Otherwise it opens in a new tab beside the current one. A saved Session or workspace that is already open in any window is brought to the front instead.
+Opening a saved Session, a history entry, a workspace from Results History, a `.sql` file, **Run in Pharos** text, a Shortcuts action or a Dock menu item puts it in the current tab when that tab is untouched. Untouched means blank, never typed in, never renamed, with no file, saved Session or workspace, and nothing running. Otherwise it opens in a new tab beside the current one. A saved Session or workspace that is already open in any window is brought to the front instead.
 
 ## Windows
 

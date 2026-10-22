@@ -41,6 +41,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | New Tab | Cmd+T |
 | Close Tab | Cmd+W |
 | Reopen Closed Tab | Cmd+Shift+T |
+| Rename Tab… | Cmd+Opt+R |
 | Save Session… | Cmd+S |
 | Export Query as SQL File… | Cmd+Opt+S |
 | Close Window (every tab of the window) | Cmd+Shift+W |

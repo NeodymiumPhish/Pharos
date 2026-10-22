@@ -15,6 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/window-session-tests \
   Pharos/Core/WindowSession.swift \
+  Pharos/Core/TabNaming.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Core/CountedNounText.swift \
   Pharos/Models/QueryHistoryStatus.swift \

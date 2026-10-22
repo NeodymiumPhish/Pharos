@@ -133,6 +133,11 @@ pub struct WorkspaceDetail {
     pub results: Vec<WorkspaceResultMeta>,
     #[serde(default)]
     pub cards_json: Option<String>,
+    /// True when `name` is one the user gave the workspace (a rename in
+    /// Results History), not the connection name. The reopened tab keeps a
+    /// custom name; otherwise it is named after its database and schema.
+    #[serde(default)]
+    pub name_is_custom: bool,
 }
 
 #[cfg(test)]

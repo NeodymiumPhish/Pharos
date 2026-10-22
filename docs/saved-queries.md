@@ -32,7 +32,7 @@ Before you save anything, the panel shows **No Saved Sessions** — "Save a tab 
 
 ## Saving a Session
 
-- Press **Cmd+S** (**File > Save Session…**). If the tab is already linked to a Session, the Session is updated in place. If the tab is backed by a `.sql` file, the file is written instead. Otherwise a save sheet asks for a **Name** and a **Folder** ("No Folder", an existing folder, or "New Folder…").
+- Press **Cmd+S** (**File > Save Session…**). If the tab is already linked to a Session, the Session is updated in place. If the tab is backed by a `.sql` file, the file is written instead. Otherwise a save sheet asks for a **Name** and a **Folder** ("No Folder", an existing folder, or "New Folder…"). The tab then takes the Session's name, and keeps it (see [Tab names](query-editor.md#tab-names)).
 - **Save As…** in the editor toolbar's Save dropdown always opens the save sheet and makes a new Session from the current tab.
 - A save keeps every card of the tab, including locked [earlier versions](query-editor.md#versions).
 - A save keeps each card's current result: **every row the results grid holds**, including the rows that **Load More Rows** and **Load All Rows** added. It also keeps the chart and the grid/chart view of each result, the tab's connection and its schema.

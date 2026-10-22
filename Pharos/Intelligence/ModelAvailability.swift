@@ -208,9 +208,10 @@ extension ModelAvailability {
         case describeQuery
         /// The explanation block on the query-error sheet.
         case explainErrors
-        /// A suggested name in the Save Query sheet and the rename dialogs.
+        /// A suggested name in the Save Query sheet and the card rename dialog.
         case suggestSavedQueryNames
-        /// Naming an unnamed editor tab from its SQL on its first run.
+        /// Naming an unnamed query card from its SQL on its first run. The
+        /// stored key keeps its old name: it once named editor tabs too.
         case nameTabsAutomatically
         /// The plan summary above an EXPLAIN result.
         case summarisePlans

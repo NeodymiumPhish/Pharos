@@ -217,6 +217,22 @@ private func testChip() {
 }
 
 @MainActor
+private func testContextMenu() {
+    let f = Fixture()
+    f.layout()
+    let event = NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                   windowNumber: f.window.windowNumber, context: nil, eventNumber: 0,
+                                   clickCount: 1, pressure: 1)!
+    let menu = f.bar.menu(for: event)
+    let titles = menu?.items.map(\.title) ?? []
+    expect(titles == ["Rename Tab…", "Duplicate Tab"], "a right-click offers Rename Tab… and Duplicate Tab", "\(titles)")
+    expect(menu?.items.first?.action == NSSelectorFromString("menuRenameTab:") && menu?.items.first?.target == nil,
+           "Rename goes up the responder chain to menuRenameTab:")
+    // The content controller must still answer to these names; the shell
+    // script checks ContentViewController.swift for each.
+}
+
+@MainActor
 private func testNoConflicts() {
     let before = SpyWindow.conflicts
     let wide = Fixture()
@@ -240,6 +256,7 @@ func runTests() {
         testStates()
         testSchema()
         testChip()
+        testContextMenu()
         testNoConflicts()
     }
     if failures == 0 { print("\nAll tab context bar tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }

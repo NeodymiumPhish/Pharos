@@ -32,9 +32,9 @@ class ContentViewController: NSViewController {
     /// The query-plan outline, hosted over the same region as the grid while
     /// the displayed card's results show its plan (`CardResult.showsPlan`).
     private let planHost = PlanViewVC()
-    /// Editor tabs whose name has already been put to the model. One ask per
-    /// tab, whatever the answer was — a tab that ran ten queries must not open
-    /// ten sessions, and a refusal is not worth retrying on the next run.
+    /// Cards (by lineage) whose name has already been put to the model. One
+    /// ask per card, whatever the answer was — a card that ran ten times must
+    /// not open ten sessions, and a refusal is not worth retrying.
     private var nameSuggestionAsked: Set<String> = []
     /// The chart's current staged selection (Task C commits it on button press).
     private var stagedChartKeys: [DrillKey] = []
@@ -1423,14 +1423,16 @@ class ContentViewController: NSViewController {
 
     // MARK: - Rename Tab
 
+    /// A name typed here locks the tab's name: it no longer follows the
+    /// connection and schema. An empty name gives the automatic name back.
     private func renameTab(id: String) {
         guard let tab = session.tabs.first(where: { $0.id == id }) else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Rename Tab"
-        alert.informativeText = "Enter a new name for this tab:"
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "Rename Tab")
+        alert.informativeText = String(localized: "Enter a new name for this tab. Leave it empty to name the tab after its connection and schema.")
+        alert.addButton(withTitle: String(localized: "Rename"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
 
         let textField = AuthoredLabelTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         textField.stringValue = AuthoredLabelSanitizer.sanitized(tab.name)
@@ -1440,16 +1442,25 @@ class ContentViewController: NSViewController {
         // Focus the field and select its text so the user can type a new name immediately.
         alert.window.initialFirstResponder = textField
         alert.beginSheetModal(for: window) { [weak self] response in
-            if response == .alertFirstButtonReturn {
-                let newName = textField.stringValue.trimmingCharacters(in: .whitespaces)
-                if !newName.isEmpty {
-                    self?.session.updateTab(id: id) { $0.name = newName }
+            guard response == .alertFirstButtonReturn, let self,
+                  let current = self.session.tabs.first(where: { $0.id == id }) else { return }
+            let newName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if newName.isEmpty {
+                // Automatic again. With a connection, `updateTab` writes
+                // "{connection} - {schema}"; without one, a "New Tab N".
+                let placeholder = current.connectionId == nil ? self.stateManager.nextTabName() : current.name
+                self.session.updateTab(id: id) {
+                    $0.nameIsCustom = false
+                    $0.name = placeholder
+                }
+            } else if newName != current.name || current.nameIsCustom {
+                self.session.updateTab(id: id) {
+                    $0.name = newName
+                    $0.nameIsCustom = true
                 }
             }
+            // Rename with the automatic name unchanged: it stays automatic.
         }
-        // Started after the sheet is up, so the dialog appears at once with the
-        // name it has always shown.
-        suggestName(into: textField, of: alert, sql: tab.document.cards.map(\.sql).joined(separator: ";\n"), kind: .editorTab)
     }
 
     // MARK: - Suggested names
@@ -1457,7 +1468,7 @@ class ContentViewController: NSViewController {
     /// Fill a rename dialog's field with a suggested name, if the user has not
     /// started typing by the time it arrives.
     ///
-    /// The two rename dialogs are `NSAlert`s, and an alert's accessory view is
+    /// The card rename dialog is an `NSAlert`, and an alert's accessory view is
     /// live while the sheet is up — they are opened with `beginSheetModal`, so
     /// the main run loop is not blocked and the continuation below is
     /// delivered. `runModal` would starve it.
@@ -1497,47 +1508,9 @@ class ContentViewController: NSViewController {
         }
     }
 
-    /// Give an editor tab a name from its SQL the first time it runs anything.
-    ///
-    /// Only a tab still carrying its generated "Query <n>" is touched, and it is
-    /// checked twice — once here and once when the answer lands — so a name the
-    /// user typed while the model was thinking always wins. A tab restored from
-    /// a session arrives with the name it was saved under, which is not
-    /// "Query <n>" once it has been suggested, so restoring never re-names.
-    private func suggestEditorTabNameIfAutomatic(forEditorTab tabId: String, sql: String) {
-        guard ModelAvailability.shared.isAvailable(for: .nameTabsAutomatically) else { return }
-        guard let tab = session.tabs.first(where: { $0.id == tabId }),
-              !AppStateManager.isCustomTabName(tab.name),
-              !nameSuggestionAsked.contains(tabId) else { return }
-        guard !sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-        // Asked once per tab, even if the answer never comes: a tab whose
-        // second query lands while the first suggestion is in flight must not
-        // open a second session for the same name.
-        nameSuggestionAsked.insert(tabId)
-
-        Task { [weak self] in
-            do {
-                let suggestion = try await NameSuggester().suggest(
-                    sql: sql, existingFolders: [], kind: .editorTab)
-                guard let self, !suggestion.title.isEmpty else { return }
-                guard let current = self.session.tabs.first(where: { $0.id == tabId }),
-                      !AppStateManager.isCustomTabName(current.name) else { return }
-                self.session.updateTab(id: tabId) {
-                    $0.name = suggestion.title
-                    // Still an automatic name, so the session records it as
-                    // one: the user has not named this tab, the model has.
-                    $0.nameIsSuggested = true
-                }
-            } catch {
-                Log.intelligence.error(
-                    "Tab name suggestion failed: \(error.localizedDescription, privacy: .public)")
-            }
-        }
-    }
-
-    /// Give a card a name from its SQL the first time it runs, as tabs get
-    /// one. Only a card with no name is touched, checked again when the answer
+    /// Give a card a name from its SQL the first time it runs. A tab's name
+    /// is never the model's: it is "{connection} - {schema}" or the user's own
+    /// (`TabNaming`). Only a card with no name is touched, checked again when the answer
     /// lands, so a name the user typed meanwhile always wins. The name goes to
     /// every version of the card.
     private func suggestCardNameIfAutomatic(cardId: String, inTab tabId: String, sql: String) {
@@ -1963,8 +1936,7 @@ class ContentViewController: NSViewController {
         owned.historyResultId = result.historyResultId
 
         // Every successful run arrives here — foreground and background — so
-        // this is the one place a tab's first run can be seen.
-        suggestEditorTabNameIfAutomatic(forEditorTab: tabId, sql: result.sql)
+        // this is the one place a card's first run can be seen.
         suggestCardNameIfAutomatic(cardId: ownerId, inTab: tabId, sql: result.rawSQL)
 
         if let wsId = workspaceId, let hid = result.historyResultId {
@@ -3445,9 +3417,16 @@ extension ContentViewController {
     }
 
     /// A new tab for an opened item, on this tab's connection and schema.
-    private func newTab(name: String, document: CardDocument) -> QueryTab {
-        QueryTab(name: name, connectionId: session.tab?.connectionId, schemaName: session.tab?.schemaName,
-                 document: document)
+    ///
+    /// `customName` is a name the item brings and the tab keeps (a Session's,
+    /// a file's, a renamed history item's). Without one the name is automatic:
+    /// "{connection} - {schema}" once the tab is installed, or the next
+    /// "New Tab N" when it has no connection.
+    private func newTab(customName: String? = nil, document: CardDocument) -> QueryTab {
+        var tab = QueryTab(name: customName ?? stateManager.nextTabName(), connectionId: session.tab?.connectionId,
+                           schemaName: session.tab?.schemaName, document: document)
+        tab.nameIsCustom = customName != nil
+        return tab
     }
 
     /// Put `tab` where an opened item goes, and return the content controller
@@ -3481,8 +3460,9 @@ extension ContentViewController {
         switch mode {
         case .template:
             // A new document from the Session's cards: no runs, no results,
-            // and not bound to the Session, so ⌘S asks for a name.
-            var tab = newTab(name: query.name, document: stored.forReuse())
+            // and not bound to the Session, so ⌘S asks for a name. Not the
+            // Session's name either: the tab is a new one, named automatically.
+            var tab = newTab(document: stored.forReuse())
             applySessionConnection(of: query, to: &tab)
             _ = open(tab, from: notification)
 
@@ -3495,7 +3475,8 @@ extension ContentViewController {
             // without its saved ones. A Session saved before Sessions had
             // results has run records and nothing behind them: no runs.
             let withResults = query.hasSavedResults && !run && wantsResults
-            var tab = newTab(name: query.name, document: withResults ? stored.forRestore() : stored.forReuse())
+            // The Session's name, locked: the user chose it when saving.
+            var tab = newTab(customName: query.name, document: withResults ? stored.forRestore() : stored.forReuse())
             applySessionConnection(of: query, to: &tab)
             tab.savedQueryId = query.id
             // The tab goes in now, because a Shortcut looks for it at once;
@@ -3527,16 +3508,16 @@ extension ContentViewController {
         guard ownsBroadcast(notification) else { return }
         guard let entry = notification.userInfo?["entry"] as? QueryHistoryEntry else { return }
 
-        // One card holding the entry's SQL, named for its tables.
+        // One card holding the entry's SQL, named for its tables. The tab's
+        // name is automatic.
         var card = QueryCard(name: entry.tableNames, sql: entry.sql)
-        let tabName = entry.tableNames ?? "History"
 
         // A failed entry has no result to restore. Its SQL is now in the card,
         // which is the useful thing: read the message in the navigator, fix
         // the statement, run it again.
         guard entry.isSucceeded,
               let resultData = try? PharosCore.getQueryHistoryResult(id: entry.id) else {
-            _ = open(newTab(name: tabName, document: CardDocument(cards: [card])), from: notification)
+            _ = open(newTab(document: CardDocument(cards: [card])), from: notification)
             return
         }
         let result = QueryResult.fromHistory(
@@ -3561,7 +3542,7 @@ extension ContentViewController {
         cr.historyResultId = entry.id
         cr.hasBeenViewed = true
 
-        let tab = newTab(name: tabName, document: doc)
+        let tab = newTab(document: doc)
         guard let target = open(tab, from: notification) else { return }
         // The target already shows the tab — delivery is synchronous. Seed its
         // store entry and apply it, so the grid and the history banner show now.
@@ -3623,7 +3604,9 @@ extension ContentViewController {
                 let focus = focusResultId.flatMap { fid in results.first(where: { $0.historyResultId == fid }) } ?? results.last
                 document.displayedCardId = focus?.id
 
-                var tab = self.newTab(name: detail.name, document: document)
+                // A name the user gave the workspace stays; otherwise the
+                // tab is named after its database and schema.
+                var tab = self.newTab(customName: detail.nameIsCustom ? detail.name : nil, document: document)
                 tab.workspaceId = detail.id
                 tab.connectionId = detail.connectionId
                 guard let target = self.open(tab, from: notification) else { return }
@@ -4756,6 +4739,10 @@ extension ContentViewController {
             }
             self.session.updateTab(id: tab.id) {
                 $0.savedQueryId = savedQuery.id
+                // The tab is the Session now, and takes its name, locked, as
+                // a saved document's window takes the file's name.
+                $0.name = savedQuery.name
+                $0.nameIsCustom = true
             }
             // The sheet stored the cards. The results, the connection and the
             // clean state come with the Session write.
@@ -4959,8 +4946,14 @@ extension ContentViewController {
         guard let tab = session.tab,
               let delegate = NSApp.delegate as? AppDelegate,
               let controller = view.window?.windowController as? MainWindowController else { return }
-        let copy = QueryTab(name: "\(tab.name) Copy", connectionId: tab.connectionId, schemaName: tab.schemaName,
+        // A custom name gets " Copy"; an automatic one stays automatic, so
+        // the copy is "{connection} - {schema} (2)" (or the next "New Tab N").
+        let name = tab.nameIsCustom
+            ? String(localized: "\(tab.name) Copy", comment: "The name of a duplicated tab.")
+            : (tab.connectionId == nil ? stateManager.nextTabName() : tab.name)
+        var copy = QueryTab(name: name, connectionId: tab.connectionId, schemaName: tab.schemaName,
                             document: tab.document.forReuse())
+        copy.nameIsCustom = tab.nameIsCustom
         delegate.openTab(copy, beside: controller)
     }
 
@@ -5131,7 +5124,8 @@ extension ContentViewController {
             return
         }
 
-        // Tab title: drop `.sql` for cleanliness; keep other extensions visible.
+        // Tab title, locked like a document's: drop `.sql` for cleanliness;
+        // keep other extensions visible.
         let name: String
         if url.pathExtension.lowercased() == "sql" {
             name = url.deletingPathExtension().lastPathComponent
@@ -5139,7 +5133,7 @@ extension ContentViewController {
             name = url.lastPathComponent
         }
 
-        var tab = newTab(name: name, document: CardText.document(fromFile: text))
+        var tab = newTab(customName: name, document: CardText.document(fromFile: text))
         tab.sourceURL = url
         (NSApp.delegate as? AppDelegate)?.openItem(tab)
     }

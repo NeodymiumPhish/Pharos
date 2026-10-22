@@ -45,9 +45,9 @@ private func testPromptCarriesTheSQL() {
 
 private func testPromptWithoutFoldersSaysSo() {
     let prompt = NameSuggestionPolicy.prompt(
-        sql: shortSQL, tables: nil, folders: [], kind: .editorTab)
+        sql: shortSQL, tables: nil, folders: [], kind: .queryCard)
     expect(prompt.contains("Folders: none"), "an empty folder list is stated, not omitted")
-    expect(prompt.contains("editor tab"), "the prompt says which list the name is for")
+    expect(prompt.contains("query card"), "the prompt says which list the name is for")
 }
 
 private func testPromptCapsTheSQL() {

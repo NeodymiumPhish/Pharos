@@ -93,4 +93,7 @@ struct WorkspaceDetail: Codable {
     let results: [WorkspaceResultMeta]
     /// The tab's cards; nil on a workspace saved before cards existed.
     var cardsJson: String? = nil
+    /// True when `name` is one the user gave it in Results History. The
+    /// reopened tab keeps it; otherwise the tab is named automatically.
+    var nameIsCustom: Bool = false
 }

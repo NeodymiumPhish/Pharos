@@ -288,8 +288,8 @@ one. Nothing here sends anything anywhere.
 | Explain query errors | On/Off | On | The explanation block on the [query-error sheet](query-errors.md). Off leaves the error's own text, which is unchanged. |
 | Summarise query plans | On/Off | On | The generated sentence above an `EXPLAIN` result. The plan tree itself is not generated and is always shown. |
 | Suggest charts | On/Off | On | Whether **Suggest chart** asks the model. Off, the button stays and applies the chart Pharos recommends for these columns from the column shapes alone. |
-| Suggest names | On/Off | On | Fills the name field in the **Save Session** sheet and in the two rename dialogs with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
-| Name tabs automatically | On/Off | On | Renames an editor tab still called "Query 1" from its SQL the first time it runs, and gives a query card with no name a suggested name at its first run. A tab or card you have named yourself is never touched. |
+| Suggest names | On/Off | On | Fills the name field in the **Save Session** sheet and in a query card's rename dialog with a suggestion. The field opens with the name it always had and the suggestion only replaces it if it arrives before you type. |
+| Name cards automatically | On/Off | On | Gives a query card with no name a suggested name at its first run. A card you have named yourself is never touched. Tabs are not named by the model: they take their connection's name and schema (see [Tab names](query-editor.md#tab-names)). |
 
 ### Feedback
 

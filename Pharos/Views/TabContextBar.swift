@@ -152,6 +152,22 @@ final class TabContextBar: NSView {
         ])
     }
 
+    // MARK: - Context menu
+
+    /// Right-click on the row: the tab's own commands. The native tab bar's
+    /// menu cannot take them (AppKit gives no way to add to it), and they
+    /// are in File too. The items go up the responder chain by name to the
+    /// content controller, which validates them, so this view stays free of it.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        menu.addItem(withTitle: String(localized: "Rename Tab…"), action: Self.renameTabAction, keyEquivalent: "")
+        menu.addItem(withTitle: String(localized: "Duplicate Tab"), action: Self.duplicateTabAction, keyEquivalent: "")
+        return menu
+    }
+
+    static let renameTabAction = NSSelectorFromString("menuRenameTab:")
+    static let duplicateTabAction = NSSelectorFromString("menuDuplicateTab:")
+
     // MARK: - Showing
 
     /// The connections, the tab's one selected. With none selected, a

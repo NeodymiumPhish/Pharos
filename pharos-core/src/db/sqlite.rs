@@ -2766,9 +2766,13 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
             let name: Option<String> = row.get(1)?;
             let name_is_custom: i64 = row.get(2)?;
             let connection_name: String = row.get(4)?;
+            // Custom only when the custom name is there to show: the same rule
+            // `resolve_workspace_name` applies.
+            let custom = name_is_custom != 0 && name.as_deref().is_some_and(|n| !n.is_empty());
             Ok((
                 row.get::<_, String>(0)?,
                 resolve_workspace_name(name.as_deref(), name_is_custom != 0, &connection_name, 1),
+                custom,
                 row.get::<_, String>(3)?,
                 connection_name,
                 row.get::<_, String>(5)?,
@@ -2779,7 +2783,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         },
     );
 
-    let (wid, resolved_name, connection_id, connection_name, editor_text, variables_json, cursor_position, cards_json) =
+    let (wid, resolved_name, name_is_custom, connection_id, connection_name, editor_text, variables_json, cursor_position, cards_json) =
         match head {
             Ok(v) => v,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
@@ -2831,6 +2835,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         cursor_position,
         results,
         cards_json,
+        name_is_custom,
     }))
 }
 
@@ -3497,6 +3502,7 @@ mod workspace_roundtrip_tests {
         assert_eq!(detail.variables_json, ws.variables_json);
         assert_eq!(detail.cursor_position, Some(5));
         assert_eq!(detail.results.len(), 2);
+        assert!(!detail.name_is_custom, "an unrenamed workspace's name is not custom");
 
         let r0 = &detail.results[0];
         assert_eq!(r0.id, "h1");
@@ -3521,6 +3527,9 @@ mod workspace_roundtrip_tests {
         let summaries2 = load_workspaces(&conn, None, 50, 0).expect("load_workspaces after rename");
         let summary2 = summaries2.iter().find(|s| s.id == "ws1").expect("ws1 present after rename");
         assert_eq!(summary2.name, "My WS");
+        let renamed = load_workspace(&conn, "ws1").expect("load after rename").expect("ws1 exists");
+        assert_eq!(renamed.name, "My WS");
+        assert!(renamed.name_is_custom, "a renamed workspace reopens with its name locked");
 
         // 7. delete_workspace: cascades to child query_history rows.
         assert!(delete_workspace(&conn, "ws1").expect("delete_workspace"));

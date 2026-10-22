@@ -44,11 +44,17 @@ struct RunningQuery: Identifiable, Equatable {
 struct QueryTab: Identifiable {
     let id: String
     var name: String
-    /// True when `name` came from the on-device model at the tab's first run,
-    /// rather than from the user. Such a name is still an AUTOMATIC name — the
-    /// user has not chosen it — so the session records it as one even though it
-    /// no longer reads as "Query <n>".
-    var nameIsSuggested: Bool = false
+    /// True when the user chose `name`: a rename, a Session's name, a file's
+    /// name. False while the name is automatic ("New Tab N", then
+    /// "{connection} - {schema}"), which `WindowSession` keeps in step with the
+    /// tab's connection and schema. Stored as `SessionTab.nameIsCustom`.
+    var nameIsCustom: Bool = false
+    /// The "{connection} - {schema}" the automatic name was last made from,
+    /// before any " (2)". The name is renumbered only when this changes, so a
+    /// tab keeps its number while the user types. Nil for a custom name and
+    /// for a tab not yet named from a connection. Not stored: a restored tab
+    /// is numbered again as it is put back.
+    var automaticNameBase: String?
     var connectionId: String?
     var schemaName: String?
     /// The tab's query cards. Every keystroke lands here: session restore,
@@ -72,7 +78,7 @@ struct QueryTab: Identifiable {
     /// executed results associate to this workspace and appear as one history item.
     var workspaceId: String?
 
-    init(id: String = UUID().uuidString, name: String = "Query 1", connectionId: String? = nil,
+    init(id: String = UUID().uuidString, name: String = "New Tab 1", connectionId: String? = nil,
          schemaName: String? = nil, document: CardDocument = CardDocument()) {
         self.id = id
         self.name = name
@@ -84,10 +90,11 @@ struct QueryTab: Identifiable {
 
 extension QueryTab {
     /// An untouched blank tab: no SQL, no file, no saved query or workspace,
-    /// nothing running, nothing unsaved. An item the user opens replaces it
-    /// instead of opening beside it, the way a browser fills an empty tab.
+    /// nothing running, nothing unsaved, no name the user gave it. An item the
+    /// user opens replaces it instead of opening beside it, the way a browser
+    /// fills an empty tab.
     var isPristine: Bool {
-        !isDirty && runningQueries.isEmpty && sourceURL == nil && savedQueryId == nil && workspaceId == nil
+        !isDirty && !nameIsCustom && runningQueries.isEmpty && sourceURL == nil && savedQueryId == nil && workspaceId == nil
             && document.cards.allSatisfy { $0.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.lastRun == nil }
     }
 }

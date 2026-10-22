@@ -127,7 +127,13 @@ final class AppStateManager: ObservableObject {
             self?.isRestoringSession ?? false
         }
         session.hooks.nextTabName = { [weak self] in
-            self?.nextTabName() ?? "Query 1"
+            self?.nextTabName() ?? TabNaming.newTabName(1)
+        }
+        session.hooks.automaticTabName = { [weak self] connectionId, schema in
+            self?.automaticTabName(connectionId: connectionId, schema: schema)
+        }
+        session.hooks.tabNamesInOtherWindows = { [weak self, weak session] in
+            Set((self?.sessions ?? []).filter { $0 !== session }.flatMap(\.tabs).map(\.name))
         }
         sessions.append(session)
         return session
@@ -172,14 +178,23 @@ final class AppStateManager: ObservableObject {
 
     // MARK: - Tab names and closed tabs (app-wide: every tab is a window)
 
-    /// "Query N", one past the highest N any open tab uses.
+    /// "New Tab N", the lowest N no open tab uses (`TabNaming`).
     func nextTabName() -> String {
-        let generated = try? Regex<(Substring, Substring)>("^Query ([0-9]+)$")
-        let used = sessions.flatMap(\.tabs).compactMap { tab -> Int? in
-            guard let generated, let match = tab.name.wholeMatch(of: generated) else { return nil }
-            return Int(match.output.1)
-        }
-        return "Query \((used.max() ?? 0) + 1)"
+        TabNaming.nextNewTabName(used: sessions.flatMap(\.tabs).map(\.name))
+    }
+
+    /// A Session was renamed in the Sessions navigator: every open tab bound
+    /// to it, in every window, takes the new name (`WindowSession
+    /// .renameTabs(boundToSavedQuery:to:)`).
+    func savedQueryWasRenamed(id: String, to name: String) {
+        for session in sessions { session.renameTabs(boundToSavedQuery: id, to: name) }
+    }
+
+    /// "{connection} - {schema}" for a tab on `connectionId`, before any
+    /// number, or nil when that record no longer exists.
+    func automaticTabName(connectionId: String, schema: String?) -> String? {
+        guard let config = connections.first(where: { $0.id == connectionId }) else { return nil }
+        return TabNaming.automaticName(connection: config.name, database: config.database, schema: schema)
     }
 
     /// Tabs closed this run, newest last, for File ▸ Reopen Closed Tab.
@@ -197,7 +212,7 @@ final class AppStateManager: ObservableObject {
         let isSession = tab.savedQueryId != nil
         var reopened = QueryTab(name: tab.name, connectionId: tab.connectionId, schemaName: tab.schemaName,
                                 document: isSession ? tab.document.forRestore() : tab.document.forReuse())
-        reopened.nameIsSuggested = tab.nameIsSuggested
+        reopened.nameIsCustom = tab.nameIsCustom
         reopened.sourceURL = tab.sourceURL
         reopened.savedQueryId = tab.savedQueryId
         let controller = delegate.openTab(reopened, beside: delegate.frontmostWindowController)
@@ -264,6 +279,9 @@ final class AppStateManager: ObservableObject {
     func loadConnections() {
         do {
             connections = try PharosCore.loadConnections()
+            // A record may have been renamed: tabs named after it take the
+            // new name.
+            for session in sessions { session.refreshAutomaticNames() }
             // Initialize all as disconnected
             for config in connections {
                 if connectionStatuses[config.id] == nil {
@@ -831,22 +849,10 @@ final class AppStateManager: ObservableObject {
     private var sessionDirty = false
     private var sessionAutosaveTimer: Timer?
     /// True from `prepareSessionRestore()` until the restore finishes. It gates
-    /// `ensureTab()` (no stray "Query 1") and `snapshotSession()` (a half-built
+    /// `ensureTab()` (no stray "New Tab 1") and `snapshotSession()` (a half-built
     /// tab set must never overwrite the stored one).
     private(set) var isRestoringSession = false
     private var pendingSession: Session?
-
-    /// A name the user authored, as opposed to the generated "Query <n>".
-    ///
-    /// A name the on-device model suggested is NOT covered here — it does not
-    /// read as "Query <n>", so this answers true for it. `QueryTab
-    /// .nameIsSuggested` is what tells the two apart, and `snapshotSession`
-    /// consults both.
-    static func isCustomTabName(_ name: String) -> Bool {
-        let generated = try? Regex("^Query [0-9]+$")
-        guard let generated else { return true }
-        return name.wholeMatch(of: generated) == nil
-    }
 
     /// Write every open tab group — its frame, its tabs in tab-bar order and
     /// its selected tab — to the store. Called from the autosave timer and from
@@ -872,7 +878,7 @@ final class AppStateManager: ObservableObject {
                     tabIndex: idx,
                     workspaceId: tab.workspaceId,
                     name: tab.name,
-                    nameIsCustom: !tab.nameIsSuggested && Self.isCustomTabName(tab.name),
+                    nameIsCustom: tab.nameIsCustom,
                     connectionId: tab.connectionId,
                     schemaName: tab.schemaName,
                     sql: stored.text,
@@ -1060,6 +1066,11 @@ final class AppStateManager: ObservableObject {
             // The workspace row does not store the schema, the file or the
             // saved query, so those come from the session.
             session.updateTab(id: tab.id) {
+                // A custom name is the session row's, not the workspace's: it
+                // is the one the tab had when the app quit. An automatic name
+                // stays as the restore numbered it.
+                if saved.nameIsCustom { $0.name = saved.name }
+                $0.nameIsCustom = saved.nameIsCustom
                 $0.schemaName = saved.schemaName
                 $0.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }
                 $0.savedQueryId = saved.savedQueryId
@@ -1078,6 +1089,10 @@ final class AppStateManager: ObservableObject {
         // server connection is never opened by a restore.
         var tab = QueryTab(name: saved.name, connectionId: saved.connectionId, schemaName: saved.schemaName,
                            document: CardPersistence.decode(json: saved.cardsJson, text: saved.sql))
+        // A row written before automatic names recorded "Query N" and the
+        // model's suggestions as not custom, so those tabs take an automatic
+        // name now and a name the user typed stays.
+        tab.nameIsCustom = saved.nameIsCustom
         tab.sourceURL = saved.sourcePath.map { URL(fileURLWithPath: $0) }
         tab.savedQueryId = saved.savedQueryId
         return tab

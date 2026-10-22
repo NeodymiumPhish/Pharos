@@ -209,6 +209,7 @@
 		7DB7C60CF312CF9E8EBC7140 /* CompletionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92E74684F85A0F7FE8A63987 /* CompletionResolver.swift */; };
 		7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C0E80717841FF454B8D378 /* DrillCoverage.swift */; };
 		806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */; };
+		8091E2CF161C133F4981B982 /* TabNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FE870093E0771497391C67 /* TabNaming.swift */; };
 		8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */; };
 		82639C9F3839B61AE7D03D3E /* ChartSuggestionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
@@ -743,6 +744,7 @@
 		E0E5D48E1CE429915CDFF074 /* CardStackLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardStackLayout.swift; sourceTree = "<group>"; };
 		E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerVC.swift; sourceTree = "<group>"; };
 		E128075E277D62671E85189F /* SettingsAboutHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAboutHeader.swift; sourceTree = "<group>"; };
+		E1FE870093E0771497391C67 /* TabNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabNaming.swift; sourceTree = "<group>"; };
 		E2286D19137325E548E4A8E9 /* SQLDraftFixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraftFixer.swift; sourceTree = "<group>"; };
 		E2D980BDF7D79B8243A59CF1 /* CardResultEviction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardResultEviction.swift; sourceTree = "<group>"; };
 		E397BE99DB86FEB206E33A74 /* NotificationsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsPaneVC.swift; sourceTree = "<group>"; };
@@ -1179,6 +1181,7 @@
 				144977E62BAFD4ABF3417C45 /* SshSecretPrompt.swift */,
 				3D5DB63650337BBCAD1A3FCF /* SshTunnelForm.swift */,
 				42800B6A5037735CC5FCDB62 /* TabContextState.swift */,
+				E1FE870093E0771497391C67 /* TabNaming.swift */,
 				5AE8AC43A18243F43B85F32A /* TabSessionBannerModel.swift */,
 				BA2D0C2230ED3F4B236C2B74 /* TabSessionMonitor.swift */,
 				34B18675CC8E31A7FF367C89 /* TagCapture.swift */,
@@ -1824,6 +1827,7 @@
 				24113D5E99BF049825C4BA86 /* TabConnectionDot.swift in Sources */,
 				2FC992A0A3C5DE670CA34E46 /* TabContextBar.swift in Sources */,
 				E3F1BC042418C32D49DFBB76 /* TabContextState.swift in Sources */,
+				8091E2CF161C133F4981B982 /* TabNaming.swift in Sources */,
 				FEB1A7F3D295EDB9BD7DFD12 /* TabSession.swift in Sources */,
 				CE77AEEFABE4427935B492C2 /* TabSessionBannerModel.swift in Sources */,
 				64FED1B9DA7DDF1EBAB4E72B /* TabSessionMonitor.swift in Sources */,

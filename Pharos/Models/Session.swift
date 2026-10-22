@@ -16,7 +16,9 @@ struct SessionTab: Codable, Equatable {
     /// are the fallback for a workspace that no longer exists.
     var workspaceId: String?
     var name: String
-    /// False when `name` is the generated "Query <n>".
+    /// `QueryTab.nameIsCustom`: true when the user chose `name`, false for an
+    /// automatic name. Rows written before automatic names hold false for
+    /// "Query <n>" and for a model-suggested name.
     var nameIsCustom: Bool
     var connectionId: String?
     var schemaName: String?

@@ -107,7 +107,9 @@ enum MainMenu {
 
         // The native tab bar has no Rename or Duplicate, and its menu cannot
         // be extended, so both live here.
-        fileMenu.addItem(withTitle: String(localized: "Rename Tab…"), action: #selector(ContentViewController.menuRenameTab(_:)), keyEquivalent: "")
+        // ⌥⌘R: ⌘R alone reads as "run" or "reload", and ⇧⌘R is Refresh Metadata.
+        let renameTab = fileMenu.addItem(withTitle: String(localized: "Rename Tab…"), action: #selector(ContentViewController.menuRenameTab(_:)), keyEquivalent: "r")
+        renameTab.keyEquivalentModifierMask = [.command, .option]
         fileMenu.addItem(withTitle: String(localized: "Duplicate Tab"), action: #selector(ContentViewController.menuDuplicateTab(_:)), keyEquivalent: "")
 
         fileMenu.addItem(.separator())

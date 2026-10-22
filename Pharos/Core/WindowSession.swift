@@ -21,11 +21,19 @@ struct WindowSessionHooks {
     var markDirty: () -> Void = {}
     /// The window's active connection changed. Tags are global and load lazily.
     var activeConnectionDidChange: () -> Void = {}
-    /// The name for a new tab: "Query N", counted across every window, since
+    /// The name for a new tab: "New Tab N", counted across every window, since
     /// every tab is its own window.
-    var nextTabName: () -> String = { "Query 1" }
+    var nextTabName: () -> String = { "New Tab 1" }
+    /// The automatic name of a tab on this connection and schema, before any
+    /// number: "{connection} - {schema}". Nil when the connection record is
+    /// gone, and the tab then keeps the name it has.
+    var automaticTabName: (_ connectionId: String, _ schema: String?) -> String? = { _, _ in nil }
+    /// The tab names of every OTHER window (each window holds one tab): a
+    /// name already in use there gets a number (`TabNaming.numbered`). This
+    /// window's own tab never counts — `install` replaces it.
+    var tabNamesInOtherWindows: () -> Set<String> = { [] }
     /// True while a stored session is being put back, when `ensureTab()` must
-    /// not make a stray "Query 1".
+    /// not make a stray "New Tab 1".
     var isRestoringSession: () -> Bool = { false }
 }
 
@@ -163,9 +171,57 @@ final class WindowSession: ObservableObject {
 
     var activeTab: QueryTab? { tab }
 
+    /// Change the tab. A tab with an automatic name takes the name of its
+    /// connection and schema as they are after the change, so every path that
+    /// moves a tab to another connection or schema renames it.
     func updateTab(id: String, _ updater: (inout QueryTab) -> Void) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-        updater(&tabs[idx])
+        // Read BEFORE the access below: Swift's exclusivity check traps any
+        // read of `tabs` while `tabs[idx]` is being changed in place, and a
+        // hook must be free to read it.
+        let taken = hooks.tabNamesInOtherWindows()
+        // In place, through one inout access: `tabs` fires its `didSet` once,
+        // and the cards are not copied (a keystroke comes through here).
+        func change(_ tab: inout QueryTab) {
+            updater(&tab)
+            applyAutomaticName(to: &tab, taken: taken)
+        }
+        change(&tabs[idx])
+    }
+
+    /// Give every tab with an automatic name the one its connection gives it
+    /// now: a connection record that was renamed. `updateTab` does the work;
+    /// a tab whose base did not change keeps its name and number.
+    func refreshAutomaticNames() {
+        for tab in tabs where !tab.nameIsCustom { updateTab(id: tab.id) { _ in } }
+    }
+
+    /// A Session was renamed: this window's tab, when it is that Session,
+    /// takes the new name, locked. The Session's name wins, also over a name
+    /// the user gave the tab after saving it — the tab IS the Session.
+    func renameTabs(boundToSavedQuery savedQueryId: String, to name: String) {
+        for tab in tabs where tab.savedQueryId == savedQueryId && (tab.name != name || !tab.nameIsCustom) {
+            updateTab(id: tab.id) {
+                $0.name = name
+                $0.nameIsCustom = true
+            }
+        }
+    }
+
+    /// "{connection} - {schema}", numbered when `taken` has it, for a tab the
+    /// user has not named and that has a connection. Renamed only when that
+    /// base changes. A tab with no connection keeps its "New Tab N"; a custom
+    /// name forgets its base, so going back to automatic names it again.
+    private func applyAutomaticName(to tab: inout QueryTab, taken: Set<String>) {
+        guard !tab.nameIsCustom else {
+            tab.automaticNameBase = nil
+            return
+        }
+        guard let connectionId = tab.connectionId,
+              let base = hooks.automaticTabName(connectionId, tab.schemaName),
+              base != tab.automaticNameBase else { return }
+        tab.automaticNameBase = base
+        tab.name = TabNaming.numbered(base, taken: taken)
     }
 
     /// Make the window's tab, if it has none. It takes the window's connection
@@ -173,7 +229,7 @@ final class WindowSession: ObservableObject {
     ///
     /// While a saved session is being put back this is a no-op: the content
     /// controller calls it as soon as its view loads, which is before the
-    /// restored tab is installed, and an empty "Query 1" made here would be
+    /// restored tab is installed, and an empty "New Tab 1" made here would be
     /// thrown away a moment later.
     func ensureTab() {
         guard !hooks.isRestoringSession(), !awaitsTab, tabs.isEmpty else { return }
@@ -190,6 +246,8 @@ final class WindowSession: ObservableObject {
     /// connection and schema follow it.
     func install(_ tab: QueryTab) {
         awaitsTab = false
+        var tab = tab
+        applyAutomaticName(to: &tab, taken: hooks.tabNamesInOtherWindows())
         tabs = [tab]
         activeTabId = tab.id
         syncActiveConnectionAndSchema()

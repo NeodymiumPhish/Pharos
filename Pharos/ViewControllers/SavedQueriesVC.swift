@@ -634,7 +634,9 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         case .query(let q):
             do {
                 let update = UpdateSavedQuery(id: q.id, name: newName, folder: q.folder, sql: q.sql, variables: nil)
-                _ = try PharosCore.updateSavedQuery(update)
+                let renamed = try PharosCore.updateSavedQuery(update)
+                // An open tab of this Session carries its name: it follows.
+                AppStateManager.shared.savedQueryWasRenamed(id: renamed.id, to: renamed.name)
                 reload()
                 NotificationCoalescer.post(.savedQueriesDidChange)
             } catch {

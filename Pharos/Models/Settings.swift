@@ -649,10 +649,11 @@ struct IntelligenceSettings: Codable, Equatable {
     var describeQuery: Bool = true
     /// The explanation block on the query-error sheet.
     var explainErrors: Bool = true
-    /// A suggested name in the Save Query sheet and the two rename dialogs.
+    /// A suggested name in the Save Query sheet and the card rename dialog.
     var suggestSavedQueryNames: Bool = true
-    /// Renaming an unnamed editor tab from its SQL the first time it runs.
-    /// On, because that is what the tab did before this switch existed.
+    /// Naming an unnamed query card from its SQL the first time it runs.
+    /// The key keeps its old name (it once named editor tabs too, which now
+    /// take "{connection} - {schema}"), so stored settings keep their value.
     var nameTabsAutomatically: Bool = true
     /// The plan summary above an EXPLAIN result.
     var summarisePlans: Bool = true

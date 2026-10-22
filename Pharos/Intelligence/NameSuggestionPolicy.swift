@@ -2,21 +2,19 @@ import Foundation
 
 /// Which list the suggested name will appear in.
 ///
-/// The three places differ only in the sentence that opens the prompt: a saved
+/// The two places differ only in the sentence that opens the prompt: a saved
 /// query lives in a library beside other people's names, a query card is one
-/// statement among the cards of a tab, an editor tab is the whole document. The model writes a
-/// better name when it is told which.
+/// statement among the cards of a tab. The model writes a better name when it
+/// is told which. (Editor tabs are not named by the model: see `TabNaming`.)
 enum NameSuggestionKind {
     case savedQuery
     case queryCard
-    case editorTab
 
     /// The first line of the prompt. Plain English, no SQL.
     var promptLine: String {
         switch self {
         case .savedQuery: return "Name a saved query for a library of saved queries."
         case .queryCard: return "Name one query card: a single statement among several in an editor tab."
-        case .editorTab: return "Name an editor tab that holds this query."
         }
     }
 }

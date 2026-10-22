@@ -77,7 +77,7 @@ private func testEveryFeatureDefaultsToTodaysBehaviour() {
     expect(defaults.explainErrors, "explainErrors default")
     expect(defaults.suggestSavedQueryNames, "suggestSavedQueryNames default")
     expect(defaults.nameTabsAutomatically,
-           "nameTabsAutomatically default — a tab IS renamed on its first run today")
+           "nameTabsAutomatically default — a card IS named on its first run today")
     expect(defaults.summarisePlans, "summarisePlans default")
     expect(defaults.suggestCharts, "suggestCharts default")
     expect(defaults.allowDraftingWriteStatements,

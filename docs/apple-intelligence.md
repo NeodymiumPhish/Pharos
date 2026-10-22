@@ -116,21 +116,20 @@ anywhere; the answer is written on this Mac and is gone when the sheet closes.
 
 ### Suggest a name
 
-Names a query tab, a [query card](query-editor.md#query-cards) or a saved Session
-from the SQL it holds, so a tab reads as *Recent orders by region* rather than
-*Query 4*. Schema only; you can edit the
-suggestion before it is used.
+Names a [query card](query-editor.md#query-cards) or a saved Session from the
+SQL it holds, so a card reads as *Recent orders by region*. Schema only; you can
+edit the suggestion before it is used. Query tabs are not named by the model:
+they take their connection's name and schema (see
+[Tab names](query-editor.md#tab-names)).
 
-**Where it is.** There is no button. A name is suggested in five places, and
+**Where it is.** There is no button. A name is suggested in three places, and
 each of them shows you its usual text first — nothing waits for the model:
 
 | Where | What happens |
 |---|---|
-| A tab's **first successful run** | A tab still called *Query 4* is renamed from the statement it just ran. A tab you have named yourself is never touched. |
 | A card's **first run** | A card with no name gets a suggested name. A name you type always wins. |
 | **Save Session…** (⌘S) | The name field fills with a suggestion, selected, so your first keystroke replaces it. If your folders match, the folder is picked too. |
 | **Rename…** on a query card | The dialog opens with the name it has; the suggestion arrives and replaces it, selected. |
-| **File > Rename Tab…** | The same. |
 
 Anything you have typed wins. A suggestion that arrives after you start typing
 is discarded, and the field says where the text came from — hover it for
@@ -148,10 +147,6 @@ name you type does, so a suggestion cannot carry an invisible or
 direction-reversing character into your library. A folder the model invented is
 dropped; only one you already have is selected. An empty answer changes
 nothing.
-
-A suggested tab name still counts as an automatic name, not one you chose — so
-a later rename of yours is never fighting it. Names are restored with the tab
-when Pharos reopens.
 
 There is no thumbs up or thumbs down on a suggested name. You read and edit it
 in a field you are about to press Save or Rename on, which is a better answer
