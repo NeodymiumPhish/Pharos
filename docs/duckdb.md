@@ -76,7 +76,7 @@ When Pharos connects on its own (at launch, or from a Shortcut), it shows no ale
 
 In the Connections Manager, select the DuckDB connection and click **−**. The alert says **Remove “sales” from Pharos?**: Pharos forgets the connection, and the file stays where it is. Saved Sessions on it lose their connection. For an open in-memory database, its tables are lost.
 
-**Test Connection** on a DuckDB file shows the file size and when it was last changed, for example "DuckDB file · 12.4 MB · modified today". The size is the database file only, without a `.wal` file beside it.
+**Test Connection** on a DuckDB file shows the file size, when it was last changed and its storage format, for example "DuckDB file · 12.4 MB · modified today · storage version 64, written by DuckDB v1.5.6". The size is the database file only, without a `.wal` file beside it.
 
 ## When Pharos closes a file
 

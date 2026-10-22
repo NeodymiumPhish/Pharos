@@ -108,6 +108,7 @@ pub async fn disconnect(connection_id: &str, state: &AppState) {
 /// open already, in which case that instance answers.
 pub async fn test(config: ConnectionConfig, state: Option<&AppState>) -> Result<TestConnectionResult, String> {
     let path = normalized_path(&config.database);
+    let header_path = path.clone();
     let start = Instant::now();
     let shared = state.and_then(|s| s.duck_instance_for_path(&path));
     let options = state.map(|s| OpenOptions::from_settings(&s.settings().connections)).unwrap_or_default();
@@ -131,8 +132,13 @@ pub async fn test(config: ConnectionConfig, state: Option<&AppState>) -> Result<
     .await
     .map_err(|e| e.to_string())?;
     Ok(match outcome {
-        Ok(()) => TestConnectionResult { success: true, latency_ms: Some(start.elapsed().as_millis() as u64), error: None },
-        Err(e) => TestConnectionResult { success: false, latency_ms: None, error: Some(e) },
+        Ok(()) => TestConnectionResult {
+            success: true,
+            latency_ms: Some(start.elapsed().as_millis() as u64),
+            error: None,
+            storage: if header_path == IN_MEMORY { None } else { crate::db::duckdb::file_storage(&header_path) },
+        },
+        Err(e) => TestConnectionResult { success: false, latency_ms: None, error: Some(e), storage: None },
     })
 }
 

@@ -501,9 +501,12 @@ struct TestConnectionResult: Codable {
     let success: Bool
     let latencyMs: UInt64?
     let error: String?
+    /// DuckDB: "storage version 64, written by DuckDB v1.5.6", from the file's
+    /// header; nil for PostgreSQL, in-memory and a file not made yet.
+    var storage: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case success, error
+        case success, error, storage
         case latencyMs = "latency_ms"
     }
 }

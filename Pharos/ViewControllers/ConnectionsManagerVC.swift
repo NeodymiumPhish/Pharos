@@ -2011,7 +2011,8 @@ final class ConnectionsManagerVC: NSViewController {
                     } else if result.success, let attributes,
                               let size = (attributes[.size] as? NSNumber)?.int64Value,
                               let modified = attributes[.modificationDate] as? Date {
-                        self.setTestStatus(ConnectionFormRules.duckDBFileSummary(size: size, modified: modified))
+                        self.setTestStatus(ConnectionFormRules.duckDBFileSummary(size: size, modified: modified,
+                                                                                 storage: result.storage))
                         self.testStatusLabel.textColor = .systemGreen
                         self.testStatusLabel.toolTip = String(localized:
                             "The size of the database file. A .wal file beside it is not counted.")

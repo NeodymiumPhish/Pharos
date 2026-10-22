@@ -14,6 +14,8 @@ func runTests() {
     let summary = ConnectionFormRules.duckDBFileSummary(size: 12_400_000, modified: now, now: now)
     expect(summary.hasPrefix("DuckDB file · ") && summary.hasSuffix(" · modified today") && summary.contains("MB"),
            "an existing file: size and modified today (\(summary))")
+    expect(ConnectionFormRules.duckDBFileSummary(size: 1, modified: now, storage: "storage version 64, written by DuckDB v1.5.6", now: now)
+            .hasSuffix(" · modified today · storage version 64, written by DuckDB v1.5.6"), "the storage version follows")
     let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
     expect(ConnectionFormRules.duckDBFileSummary(size: 1, modified: yesterday, now: now).hasSuffix("modified yesterday"),
            "modified yesterday")

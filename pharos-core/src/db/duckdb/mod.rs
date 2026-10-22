@@ -222,6 +222,27 @@ impl DuckDbInstance {
     }
 }
 
+/// What a DuckDB file's header says about its format: the storage version
+/// and the DuckDB release that wrote it ("storage version 64, written by
+/// DuckDB v1.5.6"). The header: 8 bytes checksum, "DUCK", the version
+/// number (u64, little-endian), four u64 flags, then the writer's version
+/// text (32 bytes). None when the file is not a DuckDB file.
+pub fn file_storage(path: &str) -> Option<String> {
+    use std::io::Read;
+    let mut header = [0u8; 84];
+    std::fs::File::open(path).ok()?.read_exact(&mut header).ok()?;
+    if &header[8..12] != b"DUCK" {
+        return None;
+    }
+    let version = u64::from_le_bytes(header[12..20].try_into().ok()?);
+    let writer: String = header[52..84].iter().take_while(|b| **b != 0).map(|b| *b as char).collect();
+    Some(if writer.is_empty() {
+        format!("storage version {}", version)
+    } else {
+        format!("storage version {}, written by DuckDB {}", version, writer)
+    })
+}
+
 /// The folder relative reads of a file database start in: the file's own
 /// folder. None for in-memory, and for a folder whose path has a comma —
 /// DuckDB splits `file_search_path` at commas, so it would name two wrong
@@ -337,6 +358,18 @@ mod tests {
         let (da, db_) = (dir(&a), dir(&b));
         assert!(da.contains("pharos-duckdb-spill") && Path::new(&da).is_absolute(), "{da}");
         assert_ne!(da, db_, "two in-memory databases never share a spill folder");
+    }
+
+    #[test]
+    fn the_header_gives_the_storage_version_and_the_writer() {
+        let path = temp_path("header");
+        drop(DuckDbInstance::open(&path, false, &OpenOptions::default()).unwrap());
+        let storage = file_storage(&path).unwrap();
+        assert!(storage.starts_with("storage version ") && storage.contains(&format!("DuckDB {}", duckdb_version())),
+                "{storage}");
+        std::fs::write(&path, b"not a database at all, just some text").unwrap();
+        assert_eq!(file_storage(&path), None);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

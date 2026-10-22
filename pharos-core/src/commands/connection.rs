@@ -559,6 +559,7 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionR
                         success: false,
                         latency_ms: None,
                         error: Some(sanitize_error(&e.user_message())),
+                        storage: None,
                     })
                 }
             }
@@ -575,12 +576,14 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<TestConnectionR
                 success: true,
                 latency_ms: Some(latency),
                 error: None,
+                storage: None,
             })
         }
         Err(e) => Ok(TestConnectionResult {
             success: false,
             latency_ms: None,
             error: Some(pool_failure_message(&config, tunnel, &e).await),
+            storage: None,
         }),
     }
 }

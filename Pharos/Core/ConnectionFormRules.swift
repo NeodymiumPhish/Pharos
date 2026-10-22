@@ -84,7 +84,7 @@ enum ConnectionFormRules {
     /// What Test Connection says about a DuckDB file that opened:
     /// "DuckDB file · 12.4 MB · modified today". The size is the database
     /// file alone; a `.wal` beside it is not counted.
-    static func duckDBFileSummary(size: Int64, modified: Date, now: Date = Date()) -> String {
+    static func duckDBFileSummary(size: Int64, modified: Date, storage: String? = nil, now: Date = Date()) -> String {
         let bytes = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
         let calendar = Calendar.current
         let when: String
@@ -96,7 +96,9 @@ enum ConnectionFormRules {
         } else {
             when = String(localized: "modified \(modified.formatted(date: .abbreviated, time: .omitted))")
         }
-        return String(localized: "DuckDB file · \(bytes) · \(when)")
+        let summary = String(localized: "DuckDB file · \(bytes) · \(when)")
+        guard let storage, !storage.isEmpty else { return summary }
+        return summary + " · " + storage
     }
 
     /// The path a DuckDB record stores: `:memory:` for in-memory, else the

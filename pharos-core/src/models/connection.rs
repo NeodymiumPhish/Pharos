@@ -259,6 +259,11 @@ pub struct TestConnectionResult {
     pub success: bool,
     pub latency_ms: Option<u64>,
     pub error: Option<String>,
+    /// DuckDB: the file's storage format and the DuckDB that wrote it, from
+    /// its header ("storage version 64, written by DuckDB v1.5.6"). None for
+    /// PostgreSQL, in-memory and a file that does not exist yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
 }
 
 /// The SSH tunnel's shape on the wire.
