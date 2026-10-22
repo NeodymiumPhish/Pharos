@@ -20,7 +20,11 @@ nav_order: 20
 
 Pharos opens [DuckDB](https://duckdb.org) database files as well as PostgreSQL servers. DuckDB 1.5.6 is built into the app: there is nothing else to install, and the database runs inside Pharos.
 
-A DuckDB file is a **connection**. Each file you open gets a connection record, named after the file, in the Connections Manager. When another connection already has that name, Pharos adds the folder name, for example "data (Reports)". Query cards, tabs, query history, Sessions, workspaces, variables and tags work the same way as for a PostgreSQL connection.
+A DuckDB file you open is **not** added to the Connections Manager. Pharos keeps a note of it, named after the file, so its tabs, query history, Sessions and workspaces stay linked to it, and it shows in the tab's Connection pop-up under **Open Files** while a tab uses it. When another file already has that name, Pharos adds the folder name, for example "data (Reports)". Query cards, tabs, query history, Sessions, workspaces, variables and tags work the same way as for a PostgreSQL connection.
+
+To keep a file in the Connections Manager, choose **File > Save as Connection**, or right-click the tab's context row and choose **Save as Connection**. A saved file shows in the pop-up under **DuckDB**, and its settings (Read-only, Default Schema, Connect when Pharos starts) are in the Connections Manager. A database file you create with **New…** in the Connections Manager is saved from the start. In-memory databases follow the same rule.
+
+Files that Pharos opened before this change and that have none of those three settings are not saved. Open them again with **File > Open Recent**.
 
 ## Open or create a database
 
@@ -76,7 +80,11 @@ When Pharos connects on its own (at launch, or from a Shortcut), it shows no ale
 
 ## Remove a file from Pharos
 
-In the Connections Manager, select the DuckDB connection and click **−**. The alert says **Remove “sales” from Pharos?**: Pharos forgets the connection, and the file stays where it is. Saved Sessions on it lose their connection. For an open in-memory database, its tables are lost.
+In the Connections Manager, select the DuckDB file and click **−**. The alert says **Remove “sales” from Connections?**: the file leaves the Connections Manager and is not saved any more. The file stays where it is, and its tabs, Sessions, history and workspaces keep working, because Pharos keeps its note of the file.
+
+An in-memory database is removed from Pharos: the alert says **Remove “In-memory DuckDB” from Pharos?**, Saved Sessions on it lose their connection, and for an open one its tables are lost.
+
+A saved Session whose connection is gone opens with no connection (**Choose Connection**). It never runs on the connection of the tab you opened it from.
 
 **Test Connection** on a DuckDB file shows the file size, when it was last changed and its storage format, for example "DuckDB file · 12.4 MB · modified today · storage version 64, written by DuckDB v1.5.6". The size is the database file only, without a `.wal` file beside it.
 

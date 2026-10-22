@@ -206,7 +206,13 @@ A link Pharos cannot read shows an alert with the link in it, and changes nothin
 
 ## Connecting and Disconnecting
 
-Each tab's [context row](query-editor.md#the-context-row), at the start of the editor's header row, holds the **Connection** pop-up button. It lists every saved connection with its state, and shows the tab's connection. Its last item is **Manage Connections…**, which opens the Connections Manager.
+Each tab's [context row](query-editor.md#the-context-row), at the start of the editor's header row, holds the **Connection** pop-up button. It shows the tab's connection, with a small tile for its kind (server, DuckDB file, in-memory database) and its state. The list has up to three groups, each with a header and a count:
+
+- **Open Files** — DuckDB files and in-memory databases a tab uses that are not saved as connections (see [DuckDB](duckdb.md#overview)).
+- **PostgreSQL** — your saved servers.
+- **DuckDB** — your saved DuckDB files and in-memory databases.
+
+Each row shows the state, then where the database is: "analytics on db.internal:5432", "~/Data/sales.duckdb" (a long path is cut in the middle), or "In memory". A badge says **SSH** for a connection through an SSH tunnel and **Read-only** for a read-only one. Rest the pointer on a row for the full path or the tunnel's host. Its last item is **Manage Connections…**, which opens the Connections Manager.
 
 - Choosing a connection that is not connected connects it at once.
 - If the tab has an open transaction, choosing another connection asks first: **Roll Back and Switch** or **Cancel**.
