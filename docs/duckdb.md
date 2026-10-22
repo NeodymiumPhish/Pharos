@@ -161,7 +161,7 @@ These run the query again on the tab's own connection, so its temporary tables a
 | Editing result cells | Yes | No |
 | Explain | PostgreSQL's plan | DuckDB's plan, with row counts and timings but no costs |
 | Partitions, automatic ANALYZE | Yes | No (DuckDB keeps row counts itself) |
-| Export | CSV, TSV, JSON, JSON Lines, SQL, Markdown, XLSX | The same, and **Export as Parquet…** in the schema browser |
+| Export | CSV, TSV, JSON, JSON Lines, SQL, Markdown, XLSX | The same, and Parquet: **Export as Parquet…** in the schema browser, or **Parquet** in the **Export Data…** sheet with the columns you choose |
 
 Cells show DuckDB's own text for every type, including lists (`[1, 2]`), structs (`{'a': 1}`) and maps.
 

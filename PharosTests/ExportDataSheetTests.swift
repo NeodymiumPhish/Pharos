@@ -101,7 +101,24 @@ private func allCheckboxes(in view: NSView) -> [NSButton] {
     return found
 }
 
+/// D11: Parquet only where the connection can write it, and it turns off
+/// the choices it has no use for.
+func testParquet() {
+    let plain = ExportDataSheet(schema: "main", table: "t", columns: columns(2), settings: DataExportSettings(), onExport: { _ in })
+    _ = plain.view
+    expectTrue(!plain.formatTitlesForTesting.contains("Parquet"), "no Parquet without a Parquet writer")
+    let duck = ExportDataSheet(schema: "main", table: "t", columns: columns(2), settings: DataExportSettings(),
+                               onExportParquet: { _ in }, onExport: { _ in })
+    _ = duck.view
+    expectTrue(duck.formatTitlesForTesting.last == "Parquet", "Parquet is offered last, after a separator")
+    expectTrue(duck.headersEnabledForTesting && duck.nullPopupEnabledForTesting, "headers and NULL text start enabled")
+    duck.selectParquetForTesting()
+    expectTrue(duck.isParquetSelected && !duck.headersEnabledForTesting && !duck.nullPopupEnabledForTesting,
+               "Parquet turns off the header and NULL choices")
+}
+
 func runTests() {
+    testParquet()
     let sheet = ExportDataSheet(schema: "public", table: "users",
                                 columns: columns(4),
                                 settings: DataExportSettings(), onExport: { _ in })

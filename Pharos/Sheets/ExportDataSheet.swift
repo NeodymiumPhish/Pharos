@@ -1,8 +1,21 @@
 import AppKit
 import UniformTypeIdentifiers
 
+/// A Parquet export chosen in the sheet (DuckDB, D11). Its own type, so
+/// `ExportFormat` and `DataExportSettings.rememberIfAsked` never hold it.
+struct ParquetExportRequest: Equatable {
+    let schema: String
+    let table: String
+    /// The chosen columns, in the table's order.
+    let columns: [String]
+    let filePath: String
+}
+
 /// Sheet for exporting table data with format, column, and header options.
 class ExportDataSheet: NSViewController {
+
+    /// The Parquet item's `representedObject`.
+    private static let parquetItem = "parquet"
 
     private let formatPopup = NSPopUpButton()
     private let includeHeadersCheckbox = NSButton(checkboxWithTitle: String(localized: "Include headers"), target: nil, action: nil)
@@ -24,16 +37,26 @@ class ExportDataSheet: NSViewController {
     /// caller supplies the real settings; nothing here defaults them.
     private let settings: DataExportSettings
     private var onExport: ((ExportTableOptions) -> Void)?
+    /// Set when the connection can write Parquet (DuckDB): the format pop-up
+    /// offers it after a separator.
+    private var onExportParquet: ((ParquetExportRequest) -> Void)?
 
     init(schema: String, table: String, columns: [ColumnInfo],
          settings: DataExportSettings,
+         onExportParquet: ((ParquetExportRequest) -> Void)? = nil,
          onExport: @escaping (ExportTableOptions) -> Void) {
         self.schema = schema
         self.table = table
         self.columns = columns
         self.settings = settings
         self.onExport = onExport
+        self.onExportParquet = onExportParquet
         super.init(nibName: nil, bundle: nil)
+    }
+
+    /// Whether the selected format is Parquet.
+    var isParquetSelected: Bool {
+        (formatPopup.selectedItem?.representedObject as? String) == Self.parquetItem
     }
 
     required init?(coder: NSCoder) {
@@ -69,6 +92,13 @@ class ExportDataSheet: NSViewController {
                 formatPopup.select(formatPopup.lastItem)
             }
         }
+        if onExportParquet != nil {
+            formatPopup.menu?.addItem(.separator())
+            formatPopup.addItem(withTitle: String(localized: "Parquet"))
+            formatPopup.lastItem?.representedObject = Self.parquetItem
+        }
+        formatPopup.target = self
+        formatPopup.action = #selector(formatChanged)
 
         // Include headers
         includeHeadersCheckbox.state = settings.includeHeaderRow ? .on : .off
@@ -273,9 +303,14 @@ class ExportDataSheet: NSViewController {
         dismiss(nil)
     }
 
-    @objc private func doExport() {
-        guard let format = formatPopup.selectedItem?.representedObject as? ExportFormat else { return }
+    /// Parquet has typed columns and real NULLs: no header choice and no
+    /// NULL text.
+    @objc func formatChanged() {
+        includeHeadersCheckbox.isEnabled = !isParquetSelected
+        nullDisplayPopup.isEnabled = !isParquetSelected
+    }
 
+    @objc private func doExport() {
         let selectedColumns = columnCheckboxes
             .filter { $0.checkbox.state == .on }
             .map { $0.name }
@@ -284,6 +319,12 @@ class ExportDataSheet: NSViewController {
             NSSound.beep()
             return
         }
+
+        if isParquetSelected {
+            exportParquet(columns: selectedColumns)
+            return
+        }
+        guard let format = formatPopup.selectedItem?.representedObject as? ExportFormat else { return }
 
         // The NULL text drives both: the dialect for CSV/TSV, and the older
         // `nullAsEmpty` flag, which is still what Markdown and XLSX read.
@@ -347,4 +388,34 @@ class ExportDataSheet: NSViewController {
             self.onExport?(options)
         }
     }
+
+    private func exportParquet(columns selected: [String]) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(SavedQueryFilename.sanitize(table)).parquet"
+        panel.message = String(localized: "Choose where to save the exported data")
+        if let type = UTType(filenameExtension: "parquet") { panel.allowedContentTypes = [type] }
+        dismiss(nil)
+        let make: (URL) -> ParquetExportRequest = { [schema, table] url in
+            ParquetExportRequest(schema: schema, table: table, columns: selected, filePath: url.path)
+        }
+        guard let window = NSApp.mainWindow else {
+            if panel.runModal() == .OK, let url = panel.url { onExportParquet?(make(url)) }
+            return
+        }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.onExportParquet?(make(url))
+        }
+    }
+
+    /// For the harness: choose the Parquet item, as a click would.
+    func selectParquetForTesting() {
+        if let item = formatPopup.itemArray.first(where: { ($0.representedObject as? String) == Self.parquetItem }) {
+            formatPopup.select(item)
+            formatChanged()
+        }
+    }
+    var formatTitlesForTesting: [String] { formatPopup.itemArray.filter { !$0.isSeparatorItem }.map(\.title) }
+    var headersEnabledForTesting: Bool { includeHeadersCheckbox.isEnabled }
+    var nullPopupEnabledForTesting: Bool { nullDisplayPopup.isEnabled }
 }

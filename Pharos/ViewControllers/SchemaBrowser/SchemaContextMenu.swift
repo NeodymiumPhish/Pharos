@@ -365,21 +365,26 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         panel.message = String(localized: "Export \(tableName) as a Parquet file.")
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
-            let queryId = UUID().uuidString
-            self?.delegate?.contextMenuDidStartImport(connectionId: connectionId, schema: schemaName, table: tableName,
-                                                      kind: .exportingWhole, queryId: queryId)
-            Task { @MainActor in
-                defer {
-                    self?.delegate?.contextMenuDidEndImport(connectionId: connectionId, schema: schemaName, table: tableName)
-                }
-                do {
-                    let result = try await PharosCore.exportParquet(connectionId: connectionId, sql: sql,
-                                                                     schema: nil, filePath: url.path, queryId: queryId)
-                    self?.showInfoAlert(title: "Export Successful", message: ExportOutcomeText.message(for: result))
-                } catch {
-                    if self?.delegate?.contextMenuTakeStopped(queryId) == true { return }
-                    self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
-                }
+            self?.runParquetExport(connectionId: connectionId, schema: schemaName, table: tableName, sql: sql, path: url.path)
+        }
+    }
+
+    /// A Parquet export, shown on the table's row with a stop button (D9).
+    private func runParquetExport(connectionId: String, schema: String, table: String, sql: String, path: String) {
+        let queryId = UUID().uuidString
+        delegate?.contextMenuDidStartImport(connectionId: connectionId, schema: schema, table: table,
+                                            kind: .exportingWhole, queryId: queryId)
+        Task { @MainActor [weak self] in
+            defer {
+                self?.delegate?.contextMenuDidEndImport(connectionId: connectionId, schema: schema, table: table)
+            }
+            do {
+                let result = try await PharosCore.exportParquet(connectionId: connectionId, sql: sql,
+                                                                 schema: nil, filePath: path, queryId: queryId)
+                self?.showInfoAlert(title: "Export Successful", message: ExportOutcomeText.message(for: result))
+            } catch {
+                if self?.delegate?.contextMenuTakeStopped(queryId) == true { return }
+                self?.showErrorAlert(title: "Export Failed", message: error.localizedDescription)
             }
         }
     }
@@ -398,8 +403,17 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
             do {
                 let columns = try await PharosCore.getColumns(connectionId: connectionId, schema: schemaName, table: tableName)
                 await MainActor.run { [weak self] in
+                    // DuckDB: Parquet in the same sheet (D11), with the
+                    // chosen columns in the table's order.
+                    let parquet: ((ParquetExportRequest) -> Void)? = self?.isDuckDB == true ? { [weak self] request in
+                        let list = request.columns.map(quotedSqlIdentifier).joined(separator: ", ")
+                        let sql = "SELECT \(list) FROM \(quotedQualifiedName(schema: request.schema, table: request.table, splittingDatabase: true))"
+                        self?.runParquetExport(connectionId: connectionId, schema: request.schema, table: request.table,
+                                               sql: sql, path: request.filePath)
+                    } : nil
                     let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns,
-                                                settings: AppStateManager.shared.settings.dataExport) { [weak self] options in
+                                                settings: AppStateManager.shared.settings.dataExport,
+                                                onExportParquet: parquet) { [weak self] options in
                         DataExportSettings.rememberIfAsked(options)
                         // The row shows "Exporting: n rows" and a stop button
                         // (both engines: PostgreSQL stops between batches).

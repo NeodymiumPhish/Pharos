@@ -299,8 +299,23 @@ struct ExportTableIntent: AppIntent {
             // The same sheet, built the same way, as the schema browser's
             // "Export Data…" — format, columns and destination are the user's to
             // choose. An intent must not write a file on its own behalf.
+            let isDuckDB = AppStateManager.shared.connections.first { $0.id == connectionId }?.isDuckDB ?? false
+            let parquet: ((ParquetExportRequest) -> Void)? = isDuckDB ? { request in
+                let list = request.columns.map(quotedSqlIdentifier).joined(separator: ", ")
+                let sql = "SELECT \(list) FROM \(quotedQualifiedName(schema: request.schema, table: request.table, splittingDatabase: true))"
+                Task {
+                    do {
+                        let result = try await PharosCore.exportParquet(connectionId: connectionId, sql: sql,
+                                                                         schema: nil, filePath: request.filePath)
+                        Log.ui.info("Intent Parquet export wrote \(result.rowsExported) rows")
+                    } catch {
+                        Log.ui.error("Intent Parquet export failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            } : nil
             let sheet = ExportDataSheet(schema: schemaName, table: tableName, columns: columns,
-                                        settings: AppStateManager.shared.settings.dataExport) { options in
+                                        settings: AppStateManager.shared.settings.dataExport,
+                                        onExportParquet: parquet) { options in
                 DataExportSettings.rememberIfAsked(options)
                 Task {
                     do {
