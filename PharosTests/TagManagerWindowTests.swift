@@ -97,6 +97,15 @@ private func testWindowContent() {
     expect(manage.model.tags[manage.model.tags.firstIndex { $0.id == "ioc" }!].rules.count, 2,
            "two rules added to the selected tag")
     expect(host.hasEdits, true, "they are edits until Save")
+    // Test a value: the sample is checked against the tag's rules, edits included.
+    expect(manage.sampleField.superview?.isHidden, false, "Test a value shows in the Tag Manager")
+    manage.sampleField.stringValue = "10.20.30.40"
+    manage.refreshSample()
+    expect(manage.sampleResultLabel.stringValue, "Matches rule 1.", "an address inside the pasted range")
+    manage.sampleField.stringValue = "192.168.1.1"
+    manage.refreshSample()
+    expect(manage.sampleResultLabel.stringValue, "No rule matches this value.", "and one outside every rule")
+
     let emptySheet = TagAddValuesSheet(existing: []) { _ in }
     _ = emptySheet.view
     expect(emptySheet.addButton.isEnabled, false, "nothing typed: Add is off")

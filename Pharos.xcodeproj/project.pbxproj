@@ -146,6 +146,7 @@
 		4C7E553E5E47C3132C5D59A9 /* ChartsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */; };
 		4C8E251BE4AB6F08307B8F32 /* WindowTabPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC1C0351D90429040B7D046 /* WindowTabPresenter.swift */; };
 		4D52C28558DF343CAE3E0599 /* SettingsFormPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CE51A8F7670566FF89A8DAA /* SettingsFormPaneVC.swift */; };
+		4D60F6F16FCBF6B183CF8231 /* TagSampleTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3BC598353E0F57A4149DB68 /* TagSampleTest.swift */; };
 		4D90F8707E017504E6C2E8AB /* ChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6B56879294F48E8251CB80 /* ChartView.swift */; };
 		4DBF8F6F44E2BFEBB112BCCE /* RuleKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660F536C895497044AF79E8C /* RuleKey.swift */; };
 		4EC4260ADB7C2B74CC81C9CF /* SchemaDataSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F866D1BE3519B8EC1B37837 /* SchemaDataSource.swift */; };
@@ -734,6 +735,7 @@
 		C37D2F0491A80DB1124E442A /* PendingEditsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingEditsBar.swift; sourceTree = "<group>"; };
 		C3A133A112CDC62FDBC82CB2 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
 		C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
+		C3BC598353E0F57A4149DB68 /* TagSampleTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagSampleTest.swift; sourceTree = "<group>"; };
 		C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSelectionValidity.swift; sourceTree = "<group>"; };
 		C76ECA80D0A628845C307266 /* MainToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainToolbarController.swift; sourceTree = "<group>"; };
 		C87F939622E046E11116B21C /* ResultsGridColumnState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridColumnState.swift; sourceTree = "<group>"; };
@@ -1254,6 +1256,7 @@
 				B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */,
 				3694CF60397346F25CC045D3 /* TagRuleMatcher.swift */,
 				478AE9084B7DAB02CD46EF65 /* TagRuleRemoving.swift */,
+				C3BC598353E0F57A4149DB68 /* TagSampleTest.swift */,
 				722165042DF02B1F5B535DC8 /* TagStore.swift */,
 				923D7668E7CBCB3D0A427A3E /* TagValueImport.swift */,
 				1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */,
@@ -1927,6 +1930,7 @@
 				9136F4D3A5652DF9C508A828 /* TagRuleGridView.swift in Sources */,
 				B10BAE7114021E9CC8BB03F5 /* TagRuleMatcher.swift in Sources */,
 				9FAE872307D0C9BFBD8D0236 /* TagRuleRemoving.swift in Sources */,
+				4D60F6F16FCBF6B183CF8231 /* TagSampleTest.swift in Sources */,
 				4638DF84C0E8038C8E487BB4 /* TagStore.swift in Sources */,
 				42592243ACB60639EEF429A2 /* TagValueImport.swift in Sources */,
 				2E2D04CAAE6675C81B15D999 /* TagValueNormalizer.swift in Sources */,

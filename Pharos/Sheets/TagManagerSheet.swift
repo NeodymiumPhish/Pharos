@@ -153,6 +153,12 @@ final class TagManagerSheet: NSViewController,
     let countLabel = NSTextField(labelWithString: "")
     /// "This tag is broad." Never blocks — see `refreshCount`.
     let warningLabel = NSTextField(labelWithString: "")
+    /// "Test a value" (the Tag Manager only): a typed sample checked against
+    /// the selected tag's rules (`TagSampleTest`), so a tag can be tried
+    /// before any results exist.
+    let sampleField = NSSearchField()
+    let sampleResultLabel = NSTextField(labelWithString: "")
+    private let sampleRow = NSStackView()
 
     /// The identity form and the rules, hidden together when no tag is
     /// selected. An `NSStackView` detaches a hidden arranged subview, so an
@@ -457,7 +463,23 @@ final class TagManagerSheet: NSViewController,
         // The checklist sits ABOVE the rules, because it is what the analyst
         // came here to decide: in `.add` the rules below are the tag's existing
         // ones, and the new rule is being built up here.
-        let column = NSStackView(views: [emptyLabel, identityStack, captureBox, gridScroll])
+        sampleField.placeholderString = String(localized: "Test a value — an address, a number, text…")
+        sampleField.sendsSearchStringImmediately = true
+        sampleField.target = self
+        sampleField.action = #selector(sampleChanged(_:))
+        sampleField.setAccessibilityLabel(String(localized: "Test a value"))
+        sampleField.setAccessibilityIdentifier("tags.sample.field")
+        sampleField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        sampleResultLabel.textColor = .secondaryLabelColor
+        sampleResultLabel.lineBreakMode = .byTruncatingTail
+        sampleResultLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        sampleRow.orientation = .horizontal
+        sampleRow.spacing = 8
+        sampleRow.addArrangedSubview(sampleField)
+        sampleRow.addArrangedSubview(sampleResultLabel)
+        sampleRow.isHidden = true
+
+        let column = NSStackView(views: [emptyLabel, identityStack, captureBox, gridScroll, sampleRow])
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 12
@@ -598,6 +620,7 @@ final class TagManagerSheet: NSViewController,
         colorControl.isEnabled = hasTag
         deleteTagButton.isEnabled = hasTag
         identityStack.isHidden = !hasTag
+        sampleRow.isHidden = !(hasTag && model.mode == .manage)
         gridScroll.isHidden = !hasTag
         emptyLabel.isHidden = hasTag
         emptyLabel.stringValue = model.tags.isEmpty || model.visibleTagIndices.isEmpty
@@ -698,7 +721,20 @@ final class TagManagerSheet: NSViewController,
     // which is a wrong number attached to the wrong tag: worse than a slow one.
 
     /// Count the selected tag against the loaded rows, and say so.
+    @objc private func sampleChanged(_ sender: Any?) { refreshSample() }
+
+    /// The sample's result against the selected tag's rules as they are now,
+    /// edits included.
+    func refreshSample() {
+        guard let index = selectedTagIndex else { sampleResultLabel.stringValue = ""; return }
+        let sample = sampleField.stringValue
+        let results = TagSampleTest.evaluate(sample, rules: model.tags[index].rules.map(\.conditions))
+        sampleResultLabel.stringValue = TagSampleTest.summary(results, sample: sample)
+        sampleResultLabel.textColor = results.contains(where: \.isMatch) ? .systemGreen : .secondaryLabelColor
+    }
+
     private func refreshCount() {
+        refreshSample()
         // Bumped even on the paths that return early, so a count already in
         // flight is invalidated by a switch to a tag that has nothing to count.
         countGeneration += 1
