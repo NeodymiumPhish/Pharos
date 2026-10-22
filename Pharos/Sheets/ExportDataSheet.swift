@@ -374,18 +374,24 @@ class ExportDataSheet: NSViewController {
             return
         }
 
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard let self, response == .OK, let url = panel.url else { return }
+        // The values, not the sheet: the sheet was dismissed above, and with
+        // nothing else holding it a `[weak self]` here was nil by the time the
+        // panel answered — so Save exported nothing (found in the D9 live
+        // check; the same code was on main).
+        let (schema, table, onExport) = (self.schema, self.table, self.onExport)
+        let includeHeaders = includeHeadersCheckbox.state == .on
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
             let options = ExportTableOptions(
-                schemaName: self.schema, tableName: self.table,
+                schemaName: schema, tableName: table,
                 columns: selectedColumns,
-                includeHeaders: self.includeHeadersCheckbox.state == .on,
+                includeHeaders: includeHeaders,
                 nullAsEmpty: nullAsEmpty,
                 filePath: url.path,
                 format: format,
                 csv: dialect
             )
-            self.onExport?(options)
+            onExport?(options)
         }
     }
 
@@ -402,9 +408,10 @@ class ExportDataSheet: NSViewController {
             if panel.runModal() == .OK, let url = panel.url { onExportParquet?(make(url)) }
             return
         }
-        panel.beginSheetModal(for: window) { [weak self] response in
+        let onExportParquet = self.onExportParquet
+        panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
-            self?.onExportParquet?(make(url))
+            onExportParquet?(make(url))
         }
     }
 
