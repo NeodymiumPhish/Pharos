@@ -81,25 +81,32 @@ final class VariableRowView: NSView {
         // 0.55, so multiplying it by 0.55 would make the braces *more* opaque
         // than the name they're meant to recede behind. `.systemIndigo` and
         // `.systemRed` are opaque, so deriving from them is fine.
-        let nameTint: NSColor
-        let braceColor: NSColor
-        if !named {
-            nameTint = .tertiaryLabelColor
-            braceColor = .quaternaryLabelColor
-        } else if problem != nil {
-            nameTint = .systemRed
-            braceColor = .systemRed.withAlphaComponent(0.55)
-        } else if isShadowed {
-            // Inert, not broken — drained of the indigo that means "this token
-            // is live in your SQL".
-            nameTint = .tertiaryLabelColor
-            braceColor = .quaternaryLabelColor
-        } else {
-            nameTint = .systemIndigo
-            braceColor = .systemIndigo.withAlphaComponent(0.55)
+        // `withAlphaComponent` resolves the dynamic colour NOW, so the colours
+        // are chosen and resolved for THIS row's appearance, not whatever is
+        // current: a row configured while the app was Dark but the row itself
+        // Aqua kept the dark brace colour (the harness failed whenever the
+        // Mac was in Dark).
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let nameTint: NSColor
+            let braceColor: NSColor
+            if !named {
+                nameTint = .tertiaryLabelColor
+                braceColor = .quaternaryLabelColor
+            } else if problem != nil {
+                nameTint = .systemRed
+                braceColor = .systemRed.withAlphaComponent(0.55)
+            } else if isShadowed {
+                // Inert, not broken — drained of the indigo that means "this
+                // token is live in your SQL".
+                nameTint = .tertiaryLabelColor
+                braceColor = .quaternaryLabelColor
+            } else {
+                nameTint = .systemIndigo
+                braceColor = .systemIndigo.withAlphaComponent(0.55)
+            }
+            nameLabel.attributedStringValue = Self.tokenString(
+                name: named ? variable.name : "name", tint: nameTint, braceColor: braceColor)
         }
-        nameLabel.attributedStringValue = Self.tokenString(
-            name: named ? variable.name : "name", tint: nameTint, braceColor: braceColor)
 
         typeLabel.stringValue = variable.type.displayName
         typeLabel.textColor = isShadowed ? .tertiaryLabelColor : .secondaryLabelColor

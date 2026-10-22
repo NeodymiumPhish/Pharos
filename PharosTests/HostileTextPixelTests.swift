@@ -127,8 +127,14 @@ private func render(
     context.cgContext.translateBy(x: 0, y: height)
     context.cgContext.scaleBy(x: 1, y: -1)
 
+    // The bitmap is white, so the pill's dynamic colours must resolve for the
+    // LIGHT appearance whatever the Mac is set to: in Dark they resolved
+    // light-on-white and the label measured as no ink (the harness then
+    // failed on main and on every branch after dark).
     let glyphRange = layoutManager.glyphRange(for: container)
-    layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+    NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+        layoutManager.drawGlyphs(forGlyphRange: glyphRange, at: .zero)
+    }
 
     NSGraphicsContext.restoreGraphicsState()
 
