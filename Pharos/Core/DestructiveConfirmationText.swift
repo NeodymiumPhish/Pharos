@@ -69,39 +69,54 @@ enum DestructiveConfirmationText {
         "Delete \"\(DisplayEscape.escapedTrimmed(name))\"?"
     }
 
-    /// The Connections Manager's delete alert: title, text and button. A
-    /// DuckDB record is only Pharos's note of a file, so removing it is
-    /// "Remove … from Pharos" and the text says the file stays; PostgreSQL
-    /// keeps "Delete" and the stored password. `openInMemory`: in-memory
-    /// records that are connected now, whose tables go with them.
+    /// The Connections Manager's "−" alert: title, text and button.
+    ///
+    /// A DuckDB FILE record is not deleted: it leaves the Connections Manager
+    /// (`ConnectionConfig.saved` = false) and stays in the Files list, so its
+    /// tabs, Sessions and history keep their link. An in-memory record is
+    /// removed from Pharos, and `openInMemory` names the connected ones, whose
+    /// tables go with them. PostgreSQL keeps "Delete" and the stored password.
     static func deleteConnectionsAlert(_ selected: [ConnectionConfig], openInMemory: Set<String> = [])
         -> (title: String, message: String, button: String) {
-        let ducks = selected.filter(\.isDuckDB)
-        let losesTables = ducks.contains { $0.isInMemoryDuckDB && openInMemory.contains($0.id) }
+        let files = selected.filter { $0.isDuckDB && !$0.isInMemoryDuckDB }
+        let others = selected.filter { !($0.isDuckDB && !$0.isInMemoryDuckDB) }
+        if others.isEmpty {
+            if files.count == 1 {
+                let d = files[0]
+                return (String(localized: "Remove “\(DisplayEscape.escapedTrimmed(d.name))” from Connections?"),
+                        String(localized: "The file \(DisplayEscape.escaped(d.locationDescription)) stays where it is and in the Files list. Its tabs, Sessions and history keep working."),
+                        String(localized: "Remove"))
+            }
+            return (String(localized: "Remove \(files.count) DuckDB files from Connections?"),
+                    String(localized: "The files stay where they are and in the Files list. Their tabs, Sessions and history keep working."),
+                    String(localized: "Remove"))
+        }
+        let filesNote = files.isEmpty ? ""
+            : " " + (files.count == 1 ? String(localized: "The DuckDB file stays in the Files list.")
+                                      : String(localized: "The DuckDB files stay in the Files list."))
+        let memories = others.filter(\.isInMemoryDuckDB)
+        let losesTables = memories.contains { openInMemory.contains($0.id) }
         let tablesLost = losesTables
-            ? (ducks.count == 1 ? " " + String(localized: "Its tables are lost.")
-                                : " " + String(localized: "The tables of open in-memory databases are lost."))
+            ? (memories.count == 1 ? " " + String(localized: "Its tables are lost.")
+                                   : " " + String(localized: "The tables of open in-memory databases are lost."))
             : ""
-        if !ducks.isEmpty, ducks.count == selected.count {
+        if memories.count == others.count {
             if selected.count == 1 {
-                let d = selected[0]
-                let name = DisplayEscape.escapedTrimmed(d.name)
-                let where_ = d.isInMemoryDuckDB ? ""
-                    : String(localized: "The file \(DisplayEscape.escaped(d.locationDescription)) stays where it is.") + " "
-                return (String(localized: "Remove “\(name)” from Pharos?"),
-                        where_ + String(localized: "Saved Sessions on it lose their connection.") + tablesLost,
+                return (String(localized: "Remove “\(DisplayEscape.escapedTrimmed(memories[0].name))” from Pharos?"),
+                        String(localized: "Saved Sessions on it lose their connection.") + tablesLost,
                         String(localized: "Remove"))
             }
             return (String(localized: "Remove \(selected.count) DuckDB databases from Pharos?"),
-                    String(localized: "The files stay where they are. Saved Sessions on them lose their connection.") + tablesLost,
+                    String(localized: "Saved Sessions on the in-memory databases lose their connection.") + tablesLost + filesNote,
                     String(localized: "Remove"))
         }
         let title = selected.count == 1 ? deleteConnectionConfirmTitle(name: selected[0].name)
                                         : "Delete \(selected.count) connections?"
-        var message = selected.count == 1
+        let servers = others.count - memories.count
+        var message = servers == 1
             ? "This will remove the saved configuration and stored password."
             : "This will remove the saved configurations and stored passwords."
-        if !ducks.isEmpty { message += " " + String(localized: "The DuckDB files stay where they are.") + tablesLost }
+        message += tablesLost + filesNote
         return (title, message, "Delete")
     }
 

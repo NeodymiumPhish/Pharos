@@ -54,7 +54,7 @@ A Session tab is marked as edited when its results change: a run, **Load More Ro
 
 Double-click a Session to **restore** it: its cards, and the result each card had when you saved it. It opens in the current tab when that tab is untouched, otherwise in a new tab beside it (see [Where opened items go](query-editor.md#where-opened-items-go)). If the Session is already open in a tab of any window, Pharos brings that tab to the front instead of making a duplicate.
 
-The tab uses the Session's saved connection and schema when that connection still exists. Pharos does not connect for you. The saved rows show without a connection. **Load More Rows** and running a query need the connection.
+The tab uses the Session's saved connection and schema when that connection still exists. When it does not, the tab opens with no connection (**Choose Connection**), never on the connection of the tab you opened it from. Pharos does not connect for you. The saved rows show without a connection. **Load More Rows** and running a query need the connection.
 
 To open only the queries, right-click the Session and choose **Open as Template (No Results)**. The cards open with no runs and no results, in a new tab that is not linked to the Session: **Cmd+S** asks for a name, so the original Session stays as it was.
 

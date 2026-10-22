@@ -55,6 +55,9 @@ final class TabContextBar: NSView {
     private let separatorLabel = NSTextField(labelWithString: "›")
 
     var onChooseConnection: ((String) -> Void)?
+    /// The tab's file was opened and not saved: the right-click menu offers
+    /// Save as Connection. Set by the owner.
+    var offersSaveAsConnection = false
     /// As the pop-up opens, before it is shown: the owner refills it, so a file
     /// another window opened since the last refresh is listed.
     var onConnectionMenuWillOpen: (() -> Void)?
@@ -177,11 +180,18 @@ final class TabContextBar: NSView {
         let menu = NSMenu()
         menu.addItem(withTitle: String(localized: "Rename Tab…"), action: Self.renameTabAction, keyEquivalent: "")
         menu.addItem(withTitle: String(localized: "Duplicate Tab"), action: Self.duplicateTabAction, keyEquivalent: "")
+        // Only where it applies (HIG, Context menus: leave out what does not
+        // apply); the File menu dims it instead.
+        if offersSaveAsConnection {
+            menu.addItem(.separator())
+            menu.addItem(withTitle: String(localized: "Save as Connection"), action: Self.saveAsConnectionAction, keyEquivalent: "")
+        }
         return menu
     }
 
     static let renameTabAction = NSSelectorFromString("menuRenameTab:")
     static let duplicateTabAction = NSSelectorFromString("menuDuplicateTab:")
+    static let saveAsConnectionAction = NSSelectorFromString("menuSaveAsConnection:")
 
     // MARK: - Showing
 

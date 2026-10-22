@@ -55,6 +55,10 @@ enum MainMenu {
         let disconnectItem = fileMenu.addItem(withTitle: String(localized: "Disconnect"), action: #selector(ContentViewController.menuDisconnect(_:)), keyEquivalent: "")
         disconnectItem.image = NSImage(systemSymbolName: "bolt.slash", accessibilityDescription: nil)
 
+        // An opened DuckDB file or in-memory database is not in the
+        // Connections Manager until it is saved.
+        fileMenu.addItem(withTitle: String(localized: "Save as Connection"), action: #selector(ContentViewController.menuSaveAsConnection(_:)), keyEquivalent: "")
+
         let refreshMetadata = fileMenu.addItem(withTitle: String(localized: "Refresh Metadata"), action: #selector(ContentViewController.menuRefreshMetadata(_:)), keyEquivalent: "r")
         refreshMetadata.keyEquivalentModifierMask = [.command, .shift]
         refreshMetadata.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)

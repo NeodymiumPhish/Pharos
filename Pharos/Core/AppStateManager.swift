@@ -320,6 +320,17 @@ final class AppStateManager: ObservableObject {
         }
     }
 
+    /// Save as Connection (`true`): an opened DuckDB file or in-memory
+    /// database joins the Connections Manager. Remove from Connections
+    /// (`false`): it leaves it, and the record stays, so its tabs, Sessions
+    /// and history keep their link (`ConnectionVisibility`). The password is
+    /// not sent, and an empty one leaves the Keychain alone.
+    func setSaved(_ saved: Bool, id: String) {
+        guard var record = connections.first(where: { $0.id == id }), record.saved != saved else { return }
+        record.saved = saved
+        saveConnection(record)
+    }
+
     func deleteConnection(id: String) {
         do {
             try PharosCore.deleteConnection(id: id)

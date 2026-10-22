@@ -60,6 +60,8 @@ extension EditorPaneVC {
                     })
             },
             selectedId: session.tab?.connectionId)
+        tabContextBar.offersSaveAsConnection = session.tab?.connectionId
+            .flatMap { id in all.first { $0.id == id } }.map { !$0.saved } ?? false
     }
 
     static func title(of section: ConnectionVisibility.Section) -> String {

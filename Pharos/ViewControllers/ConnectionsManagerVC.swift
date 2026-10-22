@@ -2231,7 +2231,8 @@ final class ConnectionsManagerVC: NSViewController {
         // Built by `DestructiveConfirmationText`, never interpolated here:
         // this title gates an irreversible delete, and a bidi override in the
         // name would let it name a different connection than the one about to
-        // go. A DuckDB record is "Remove … from Pharos": the file stays.
+        // go. A DuckDB file is "Remove … from Connections": it is not
+        // deleted, only no longer saved.
         guard let window = view.window else { return }
         // An open in-memory database that holds tables loses them: the alert
         // says so (one alert; F7). Counted first, with the core's short wait.
@@ -2261,6 +2262,10 @@ final class ConnectionsManagerVC: NSViewController {
                 if self.pendingStubIds.contains(config.id) {
                     self.pendingStubIds.remove(config.id)
                     self.connections.removeAll { $0.id == config.id }
+                } else if config.isDuckDB && !config.isInMemoryDuckDB {
+                    // Remove from Connections: the record stays, not saved, so
+                    // the file's tabs, Sessions and history keep their link.
+                    self.stateManager.setSaved(false, id: config.id)
                 } else {
                     self.stateManager.deleteConnection(id: config.id)
                 }

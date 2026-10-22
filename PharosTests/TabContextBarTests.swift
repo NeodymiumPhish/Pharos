@@ -232,6 +232,13 @@ private func testContextMenu() {
     let menu = f.bar.menu(for: event)
     let titles = menu?.items.map(\.title) ?? []
     expect(titles == ["Rename Tab…", "Duplicate Tab"], "a right-click offers Rename Tab… and Duplicate Tab", "\(titles)")
+    f.bar.offersSaveAsConnection = true
+    let withSave = f.bar.menu(for: event)?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+    expect(withSave == ["Rename Tab…", "Duplicate Tab", "—", "Save as Connection"],
+           "an opened file's tab also offers Save as Connection", "\(withSave)")
+    expect(f.bar.menu(for: event)?.items.last?.action == NSSelectorFromString("menuSaveAsConnection:"),
+           "by name, to the content controller")
+    f.bar.offersSaveAsConnection = false
     expect(menu?.items.first?.action == NSSelectorFromString("menuRenameTab:") && menu?.items.first?.target == nil,
            "Rename goes up the responder chain to menuRenameTab:")
     // The content controller must still answer to these names; the shell

@@ -98,30 +98,39 @@ func runTests() {
 
     // MARK: - The connection delete confirmation
 
-    // C3: removing a DuckDB record is "Remove … from Pharos"; the file stays.
-    let file = ConnectionConfig.duckDB(path: NSHomeDirectory() + "/Data/sales.duckdb", id: "f")
-    let mem = ConnectionConfig.duckDB(path: ":memory:", id: "m")
+    // A DuckDB FILE leaves the Connections Manager (not saved) and stays in
+    // the Files list; an in-memory record is removed from Pharos.
+    let file = ConnectionConfig.duckDB(path: NSHomeDirectory() + "/Data/sales.duckdb", id: "f", saved: true)
+    let file2 = ConnectionConfig.duckDB(path: "/x/q3.duckdb", id: "f2", saved: true)
+    let mem = ConnectionConfig.duckDB(path: ":memory:", id: "m", saved: true)
     let server = ConnectionConfig(id: "p", name: "Prod", host: "h", port: 5432, database: "d", username: "u")
     let one = DestructiveConfirmationText.deleteConnectionsAlert([file])
-    expectEqual(one.title, "Remove “sales” from Pharos?", "a DuckDB file record is removed, not deleted")
-    expectEqual(one.message, "The file ~/Data/sales.duckdb stays where it is. Saved Sessions on it lose their connection.",
-                "the text says the file stays")
+    expectEqual(one.title, "Remove “sales” from Connections?", "a DuckDB file leaves Connections, it is not deleted")
+    expectEqual(one.message,
+                "The file ~/Data/sales.duckdb stays where it is and in the Files list. Its tabs, Sessions and history keep working.",
+                "the text says the file, its tabs, Sessions and history stay")
     expectEqual(one.button, "Remove", "the button says Remove")
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([file, file2]).title,
+                "Remove 2 DuckDB files from Connections?", "two files")
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([mem]).title, "Remove “In-memory DuckDB” from Pharos?",
+                "an in-memory database is removed from Pharos")
     expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([mem], openInMemory: ["m"]).message,
                 "Saved Sessions on it lose their connection. Its tables are lost.",
                 "an open in-memory database says its tables are lost")
     expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([mem]).message,
                 "Saved Sessions on it lose their connection.", "a closed in-memory database has no tables to lose")
     let two = DestructiveConfirmationText.deleteConnectionsAlert([file, mem])
-    expectEqual(two.title, "Remove 2 DuckDB databases from Pharos?", "two DuckDB records")
+    expectEqual(two.title, "Remove 2 DuckDB databases from Pharos?", "a file and an in-memory database")
+    expectEqual(two.message, "Saved Sessions on the in-memory databases lose their connection. The DuckDB file stays in the Files list.",
+                "the in-memory one loses its Sessions' connection; the file stays listed")
     let mixed = DestructiveConfirmationText.deleteConnectionsAlert([server, file])
     expectEqual(mixed.title, "Delete 2 connections?", "a mixed selection keeps Delete")
-    expectEqual(mixed.message, "This will remove the saved configurations and stored passwords. The DuckDB files stay where they are.",
-                "and says the files stay")
+    expectEqual(mixed.message, "This will remove the saved configuration and stored password. The DuckDB file stays in the Files list.",
+                "the server goes, the file stays listed")
     expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([server]).title, "Delete \"Prod\"?",
                 "PostgreSQL text is unchanged")
     let hostile = ConnectionConfig.duckDB(path: "/x/a.duckdb", name: "safe\u{202E}gpj", id: "h")
-    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([hostile]).title, "Remove “safe<U+202E>gpj” from Pharos?",
+    expectEqual(DestructiveConfirmationText.deleteConnectionsAlert([hostile]).title, "Remove “safe<U+202E>gpj” from Connections?",
                 "the remove title escapes the name")
 
     // The last thing a user reads before an irreversible delete of a saved

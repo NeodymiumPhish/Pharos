@@ -122,6 +122,7 @@ class PharosSplitViewController: NSSplitViewController, NSMenuItemValidation {
     @objc func menuDisconnect(_ sender: Any?) { contentVC.menuDisconnect(sender) }
     @objc func menuRefreshMetadata(_ sender: Any?) { contentVC.menuRefreshMetadata(sender) }
     @objc func menuShowInFinder(_ sender: Any?) { contentVC.menuShowInFinder(sender) }
+    @objc func menuSaveAsConnection(_ sender: Any?) { contentVC.menuSaveAsConnection(sender) }
     @objc func menuSaveInMemoryDatabase(_ sender: Any?) { contentVC.menuSaveInMemoryDatabase(sender) }
     @objc func menuFormatSQL(_ sender: Any?) { contentVC.menuFormatSQL(sender) }
     @objc func menuRenameTab(_ sender: Any?) { contentVC.menuRenameTab(sender) }

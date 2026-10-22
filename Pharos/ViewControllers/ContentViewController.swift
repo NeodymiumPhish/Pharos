@@ -3489,11 +3489,14 @@ extension ContentViewController {
     }
 
     /// The Session's own connection and schema, when that connection still
-    /// exists; otherwise the tab keeps the current tab's. Nothing connects.
+    /// exists; otherwise NO connection, never the current tab's
+    /// (`SessionConnectionRule`). Nothing connects.
     private func applySessionConnection(of query: SavedQuery, to tab: inout QueryTab) {
-        guard let id = query.connectionId, stateManager.connections.contains(where: { $0.id == id }) else { return }
-        tab.connectionId = id
-        tab.schemaName = query.schemaName
+        let ids = Set(stateManager.connections.map(\.id))
+        let resolved = SessionConnectionRule.resolve(connectionId: query.connectionId, schemaName: query.schemaName,
+                                                     exists: ids.contains)
+        tab.connectionId = resolved.connectionId
+        tab.schemaName = resolved.schemaName
     }
 
     /// Run every card of a saved query's tab, top to bottom.
@@ -4941,6 +4944,20 @@ extension ContentViewController {
         renameTab(id: tabId)
     }
 
+    /// The tab's record, when it was opened and not saved: what File ▸ Save as
+    /// Connection saves.
+    var notSavedRecord: ConnectionConfig? {
+        guard let id = session.tab?.connectionId else { return nil }
+        return stateManager.connections.first { $0.id == id && !$0.saved }
+    }
+
+    /// File ▸ Save as Connection: the tab's opened DuckDB file (or in-memory
+    /// database) joins the Connections Manager.
+    @objc func menuSaveAsConnection(_: Any?) {
+        guard let record = notSavedRecord else { return }
+        stateManager.setSaved(true, id: record.id)
+    }
+
     /// File ▸ Duplicate Tab: a copy beside this tab, with fresh card ids —
     /// results are filed by card, and the copy has none.
     @objc func menuDuplicateTab(_: Any?) {
@@ -5245,6 +5262,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuDisconnect(_:)) { return canDisconnect }
         if menuItem.action == #selector(menuRefreshMetadata(_:)) { return canRefreshMetadata }
         if menuItem.action == #selector(menuShowInFinder(_:)) { return duckDBFileRecord != nil }
+        if menuItem.action == #selector(menuSaveAsConnection(_:)) { return notSavedRecord != nil }
         if menuItem.action == #selector(menuSaveInMemoryDatabase(_:)) { return inMemoryRecord != nil }
         if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
         if menuItem.action == #selector(menuInsertFileReference(_:)) { return isDuckDBTab }
