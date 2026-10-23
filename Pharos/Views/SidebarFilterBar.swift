@@ -24,6 +24,14 @@ final class SidebarFilterBar: NSView {
     /// Every keystroke in the filter field (the field sends immediately; the
     /// owner debounces).
     var onTextChanged: ((String) -> Void)?
+    /// A choice from the funnel's menu (`setFilterOptions`), by index.
+    var onFilterOptionChosen: ((Int) -> Void)?
+
+    /// One choice in the funnel's menu, with what it promises on hover.
+    struct FilterOption: Equatable {
+        let title: String
+        let tooltip: String
+    }
 
     // MARK: - Views
 
@@ -34,6 +42,63 @@ final class SidebarFilterBar: NSView {
     /// adding one later does not move the field.
     private let trailingSlot = NSView()
     private let stack = NSStackView()
+
+    private(set) var filterOptions: [FilterOption] = []
+    private(set) var selectedFilterOption = 0
+
+    /// A menu on the field's funnel button — the History list's All /
+    /// Succeeded / Failed — under `heading`; nil or empty removes it. The
+    /// first option is the default: any other one fills and tints the funnel
+    /// and names itself in the placeholder, so a narrowed list never looks
+    /// like a whole one.
+    func setFilterOptions(_ options: [FilterOption]?, selected: Int = 0, heading: String = "") {
+        filterOptions = options ?? []
+        selectedFilterOption = filterOptions.indices.contains(selected) ? selected : 0
+        let cell = filterField.cell as? NSSearchFieldCell
+        guard !filterOptions.isEmpty else {
+            cell?.searchMenuTemplate = nil
+            applyFunnel(active: false, name: nil)
+            return
+        }
+        let menu = NSMenu()
+        if !heading.isEmpty { menu.addItem(.sectionHeader(title: heading)) }
+        for (index, option) in filterOptions.enumerated() {
+            let item = NSMenuItem(title: option.title, action: #selector(filterOptionChosen(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = index
+            item.toolTip = option.tooltip
+            item.state = index == selectedFilterOption ? .on : .off
+            menu.addItem(item)
+        }
+        cell?.searchMenuTemplate = menu
+        applyFunnel(active: selectedFilterOption != 0, name: filterOptions[selectedFilterOption].title)
+    }
+
+    @objc private func filterOptionChosen(_ sender: NSMenuItem) {
+        guard filterOptions.indices.contains(sender.tag) else { return }
+        setFilterOptions(filterOptions, selected: sender.tag, heading: currentHeading)
+        onFilterOptionChosen?(sender.tag)
+    }
+
+    private var currentHeading: String {
+        (filterField.cell as? NSSearchFieldCell)?.searchMenuTemplate?.items.first(where: \.isSectionHeader)?.title ?? ""
+    }
+
+    private func applyFunnel(active: Bool, name: String?) {
+        let symbol = active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease"
+        var image = NSImage(systemSymbolName: symbol, accessibilityDescription: String(localized: "Filter"))
+        if active {
+            image = image?.withSymbolConfiguration(.init(paletteColors: [.controlAccentColor]))
+        }
+        let cell = filterField.cell as? NSSearchFieldCell
+        cell?.searchButtonCell?.image = image
+        filterField.placeholderString = active && name != nil
+            ? String(localized: "Filter (\(name!))", comment: "The sidebar filter's placeholder while a status is chosen.")
+            : String(localized: "Filter")
+        cell?.searchButtonCell?.setAccessibilityLabel(active && name != nil
+            ? String(localized: "Filter options, showing \(name!)")
+            : String(localized: "Filter options"))
+    }
 
     /// Show the "+" when the Sessions list is on screen: only it can create
     /// things here, so the other lists show none; the stack closes the gap.

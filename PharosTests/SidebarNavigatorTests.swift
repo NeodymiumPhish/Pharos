@@ -228,6 +228,40 @@ private func testFilterBar() {
     }
     bar.configureAddControl(for: .sessions)
 
+    // The funnel's options menu (the History list's All / Succeeded / Failed).
+    func menu() -> NSMenu? { (bar.filterField.cell as? NSSearchFieldCell)?.searchMenuTemplate }
+    func titles(_ m: NSMenu?) -> [String] {
+        guard let m else { return [] }
+        return m.items.filter { !$0.isSectionHeader }.map { $0.title }
+    }
+    func checked(_ m: NSMenu?) -> String {
+        guard let m else { return "nil" }
+        return m.items.first(where: { $0.state == NSControl.StateValue.on })?.title ?? "nil"
+    }
+    expectTrue(menu() == nil, "no options menu by default")
+    var chosen: [Int] = []
+    bar.onFilterOptionChosen = { chosen.append($0) }
+    let options: [SidebarFilterBar.FilterOption] = [
+        SidebarFilterBar.FilterOption(title: "All", tooltip: "a"),
+        SidebarFilterBar.FilterOption(title: "Succeeded", tooltip: "s"),
+        SidebarFilterBar.FilterOption(title: "Failed", tooltip: "f"),
+    ]
+    bar.setFilterOptions(options, selected: 0, heading: "Show")
+    expectTrue(titles(menu()) == ["All", "Succeeded", "Failed"], "the funnel offers the options")
+    expect(menu()?.items.first?.title ?? "nil", "Show", "under a heading")
+    expect(checked(menu()), "All", "All is checked by default")
+    expect(bar.filterField.placeholderString ?? "nil", "Filter", "the default reads as a plain filter")
+    if let failed = menu()?.items.first(where: { $0.title == "Failed" }) {
+        _ = failed.target?.perform(failed.action, with: failed)
+    }
+    expectTrue(chosen == [2], "choosing Failed tells the owner")
+    expectTrue(bar.selectedFilterOption == 2, "and the bar remembers it")
+    expect(checked(menu()), "Failed", "the menu now checks Failed")
+    expect(bar.filterField.placeholderString ?? "nil", "Filter (Failed)", "the placeholder names a narrowed list")
+    bar.setFilterOptions(nil)
+    expectTrue(menu() == nil, "nil removes the menu")
+    expect(bar.filterField.placeholderString ?? "nil", "Filter", "and the placeholder")
+
     // Typing reaches the owner through the real target/action.
     var texts: [String] = []
     bar.onTextChanged = { texts.append($0) }

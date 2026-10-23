@@ -31,12 +31,24 @@ enum QueryHistoryStatusScope: String, Codable, CaseIterable {
     case succeeded
     case failed
 
-    /// The scope control's segment title.
+    /// The filter menu's item title.
     var displayLabel: String {
         switch self {
         case .all: return String(localized: "All")
         case .succeeded: return String(localized: "Succeeded")
         case .failed: return String(localized: "Failed")
+        }
+    }
+
+    /// What each choice promises, on hover.
+    var tooltip: String {
+        switch self {
+        case .all:
+            return String(localized: "Every workspace and every earlier query.")
+        case .succeeded:
+            return String(localized: "Only queries that returned a result.")
+        case .failed:
+            return String(localized: "Only queries that failed or were cancelled, newest first, whatever workspace they belong to.")
         }
     }
 }

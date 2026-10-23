@@ -162,19 +162,12 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private let splitView = NSSplitView()
     private let emptyState = EmptyStateView()
 
-    /// All / Succeeded / Failed. Failures are recorded now (Settings ▸ Library
-    /// & History ▸ Record failed queries), so the list has to be able to leave
-    /// them out — and, more usefully, to show nothing else.
-    private let scopeControl = NSSegmentedControl(
-        labels: QueryHistoryStatusScope.allCases.map(\.displayLabel),
-        trackingMode: .selectOne,
-        target: nil,
-        action: nil
-    )
-
-    /// Which rows the list is showing. `.all` is what it showed before the
-    /// control existed.
-    private var statusScope: QueryHistoryStatusScope = .all
+    /// Which rows the list is showing: All, Succeeded or Failed. Failures are
+    /// recorded (Settings ▸ Library & History ▸ Record failed queries), so the
+    /// list has to be able to leave them out — and, more usefully, to show
+    /// nothing else. Chosen from the sidebar filter field's menu
+    /// (`setStatusScope`); `.all` by default.
+    private(set) var statusScope: QueryHistoryStatusScope = .all
 
     private var rows: [HistoryRow] = []
     private var workspaces: [WorkspaceSummary] = []
@@ -300,40 +293,14 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
         emptyState.translatesAutoresizingMaskIntoConstraints = false
 
-        scopeControl.translatesAutoresizingMaskIntoConstraints = false
-        // The same two lines the editor tab bar and the Grid/Chart toggle use,
-        // so all three share one idiom: a neutral lit segment, not an
-        // accent-filled one that reads as a call to action.
-        scopeControl.segmentStyle = .capsule
-        scopeControl.selectedSegmentBezelColor = .controlColor
-        scopeControl.controlSize = .small
-        scopeControl.selectedSegment = 0
-        scopeControl.target = self
-        scopeControl.action = #selector(scopeChanged(_:))
-        scopeControl.setAccessibilityLabel(String(localized: "Show"))
-        for (index, scope) in QueryHistoryStatusScope.allCases.enumerated() {
-            scopeControl.setWidth(0, forSegment: index) // width from the label
-            scopeControl.setToolTip(Self.scopeTooltip(scope), forSegment: index)
-        }
-
-        container.addSubview(scopeControl)
         container.addSubview(splitView)
         container.addSubview(emptyState)
 
         NSLayoutConstraint.activate([
-            // The SAFE-AREA top, not the view's top, the way the Variables
-            // navigator pins its content area. This view runs up under the
-            // toolbar glass, and only an NSScrollView insets itself for that
-            // automatically: pinned to the plain top, the scope control drew
-            // behind the titlebar and the traffic lights. Everything below it
-            // hangs off this control, so the lists move down with it.
-            scopeControl.topAnchor.constraint(
-                equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 6
-            ),
-            scopeControl.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            scopeControl.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -8),
-
-            splitView.topAnchor.constraint(equalTo: scopeControl.bottomAnchor, constant: 6),
+            // The SAFE-AREA top: the list sits below the Library's scope bar,
+            // and in any host that runs it up under the toolbar glass the rows
+            // must not start behind the titlebar.
+            splitView.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             splitView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -404,22 +371,8 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
 
     // MARK: - Scope
 
-    /// What each segment promises, on hover.
-    private static func scopeTooltip(_ scope: QueryHistoryStatusScope) -> String {
-        switch scope {
-        case .all:
-            return String(localized: "Every workspace and every earlier query.")
-        case .succeeded:
-            return String(localized: "Only queries that returned a result.")
-        case .failed:
-            return String(localized: "Only queries that failed or were cancelled, newest first, whatever workspace they belong to.")
-        }
-    }
-
-    @objc private func scopeChanged(_ sender: NSSegmentedControl) {
-        let index = sender.selectedSegment
-        guard index >= 0, index < QueryHistoryStatusScope.allCases.count else { return }
-        let scope = QueryHistoryStatusScope.allCases[index]
+    /// Show All, Succeeded or Failed (the sidebar filter field's menu).
+    func setStatusScope(_ scope: QueryHistoryStatusScope) {
         guard scope != statusScope else { return }
         statusScope = scope
         // Failures do not belong to the workspace list, so the preview pane's

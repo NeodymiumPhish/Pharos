@@ -65,6 +65,11 @@ class SidebarViewController: NSViewController {
         filterBar.onTextChanged = { [weak self] text in
             self?.filterTextChanged(text)
         }
+        // The History list's All / Succeeded / Failed, from the funnel's menu.
+        filterBar.onFilterOptionChosen = { [weak self] index in
+            guard let self, QueryHistoryStatusScope.allCases.indices.contains(index) else { return }
+            self.queryHistory.setStatusScope(QueryHistoryStatusScope.allCases[index])
+        }
         filterBar.onNewQuery = { [weak self] in
             self?.savedQueries.createNewQuery()
         }
@@ -98,8 +103,12 @@ class SidebarViewController: NSViewController {
         // then Sessions or Results History below it. The lists start under the
         // bar rather than scrolling under the glass: a bar the list scrolled
         // under would hide the rows behind it.
+        // Large: on macOS 26 a large segmented control is a capsule with the
+        // current selection treatment (measured: small and regular still draw
+        // the old rounded rectangle). Equal segments, across the sidebar.
         libraryScopeControl.segmentStyle = .automatic
-        libraryScopeControl.controlSize = .small
+        libraryScopeControl.controlSize = .large
+        libraryScopeControl.segmentDistribution = .fillEqually
         libraryScopeControl.target = self
         libraryScopeControl.action = #selector(libraryScopeChosen(_:))
         libraryScopeControl.setAccessibilityLabel(String(localized: "Library"))
@@ -272,8 +281,17 @@ class SidebarViewController: NSViewController {
         filesContainer.isHidden = (navigator != .files)
         libraryScopeControl.selectedSegment = filterState.libraryScope.rawValue
 
-        // Only the Sessions list holds things the user can create here.
+        // Only the Sessions list holds things the user can create here, and
+        // only the History list has status options on the funnel.
         filterBar.configureAddControl(for: list)
+        if list == .history {
+            filterBar.setFilterOptions(
+                QueryHistoryStatusScope.allCases.map { .init(title: $0.displayLabel, tooltip: $0.tooltip) },
+                selected: QueryHistoryStatusScope.allCases.firstIndex(of: queryHistory.statusScope) ?? 0,
+                heading: String(localized: "Show"))
+        } else {
+            filterBar.setFilterOptions(nil)
+        }
 
         // A pending debounce belongs to the list that is leaving; firing it
         // now would filter the incoming list with the outgoing list's text.
