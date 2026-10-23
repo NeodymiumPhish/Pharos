@@ -1677,10 +1677,19 @@
     "Filter" : {
 
     },
+    "Filter (%@)" : {
+      "comment" : "The sidebar filter's placeholder while a status is chosen."
+    },
     "Filter Cards" : {
 
     },
     "Filter in Navigator" : {
+
+    },
+    "Filter options" : {
+
+    },
+    "Filter options, showing %@" : {
 
     },
     "Filter Results…" : {
