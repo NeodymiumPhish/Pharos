@@ -815,6 +815,25 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// The engine's own messages, not literals: an engine upgrade that changes
+    /// the position format or the prefixes fails here, not in the editor.
+    #[test]
+    fn the_engine_reports_positions_the_way_error_line_column_reads_them() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let err = |sql: &str| conn.prepare(sql).map(|_| ()).unwrap_err().to_string();
+
+        // FORM is read as a column alias, so the error is at `t`.
+        let one = err("SELECT 1 FORM t");
+        assert!(one.starts_with("Parser Error: "), "{one}");
+        assert_eq!(error_line_column(&one), Some((1, 15)), "{one}");
+        let two = err("SELECT 1\nFROM range(3) WHERE WHERE");
+        assert_eq!(error_line_column(&two).map(|p| p.0), Some(2), "{two}");
+        assert_eq!(validation_failure("SELECT 1 FORM t", &one).error.unwrap().position, Some(15));
+
+        let missing = err("SELECT * FROM no_such_table");
+        assert!(missing.starts_with("Catalog Error: "), "{missing}");
+    }
+
     #[test]
     fn line_and_column_come_from_the_caret() {
         let msg = "Parser Error: syntax error at or near \"FORM\"\n\nLINE 1: SELECT 1 FORM t\n                 ^";
