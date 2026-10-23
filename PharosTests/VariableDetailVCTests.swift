@@ -554,15 +554,20 @@ private func testGutterMetricsWidths() {
     // 6pt gap are gone: the segment colour is a band behind the numbers now,
     // so it needs no column of its own.
     expectClose(
-        sql.desiredWidth, 3 * digit + 20,
+        sql.desiredWidth, ceil(3 * digit + 20),
         "the SQL editor's gutter is its digits plus 20pt of padding")
     // 2-digit floor, 4pt leading, 5pt trailing, no bar column.
     expectClose(
-        compact.desiredWidth, 2 * digit + 4 + 5,
+        compact.desiredWidth, ceil(2 * digit + 4 + 5),
         "the compact gutter is only its digits plus 9pt of padding")
     // The margin used to be 25pt. It is smaller now only because the SQL
     // gutter itself lost the 10pt bar column — the compact gutter is
     // unchanged, and still reclaims its own digit and padding difference.
+    // Whole points: a fractional gutter made the editor's text a fraction
+    // wider than its clip, which AppKit shows as an empty horizontal scroller.
+    expectTrue(
+        sql.desiredWidth == sql.desiredWidth.rounded() && compact.desiredWidth == compact.desiredWidth.rounded(),
+        "both gutters are a whole number of points wide (\(sql.desiredWidth), \(compact.desiredWidth))")
     expectTrue(
         compact.desiredWidth < sql.desiredWidth - 15,
         "the compact gutter reclaims over 15pt from the SQL editor's "

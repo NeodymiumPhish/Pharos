@@ -214,8 +214,18 @@ class SQLEditorController: NSViewController {
         scrollView.frame = NSRect(x: gutterWidth, y: 0, width: bounds.width - gutterWidth, height: bounds.height)
         // No-wrap mode keeps the text view at least as large as the clip.
         if textView.textContainer?.widthTracksTextView == false {
-            textView.minSize = scrollView.contentSize
+            textView.minSize = Self.noWrapMinimumSize(clip: scrollView.contentSize)
         }
+    }
+
+    /// The no-wrap text view's minimum size: the clip, rounded DOWN to whole
+    /// points. `contentSize` keeps any fraction of the scroll view's width,
+    /// but the clip itself sits on whole pixels; a text view a fraction wider
+    /// than its clip is an overflow, and AppKit then shows a horizontal
+    /// scroller with nothing to scroll to (an empty grey track under a card's
+    /// last line, with legacy scroll bars).
+    static func noWrapMinimumSize(clip: NSSize) -> NSSize {
+        NSSize(width: floor(clip.width), height: clip.height)
     }
 
     // MARK: - Public API
@@ -474,7 +484,7 @@ class SQLEditorController: NSViewController {
             textView.textContainer?.widthTracksTextView = false
             textView.textContainer?.size.width = CGFloat.greatestFiniteMagnitude
             textView.isHorizontallyResizable = true
-            textView.minSize = scrollView.contentSize
+            textView.minSize = Self.noWrapMinimumSize(clip: scrollView.contentSize)
             scrollView.hasHorizontalScroller = true
         }
 

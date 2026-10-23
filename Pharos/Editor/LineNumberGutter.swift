@@ -416,8 +416,16 @@ class LineNumberGutter: NSView {
         guard digits != lastDigitCount else { return }
         lastDigitCount = digits
 
-        let newWidth = metrics.leadingPadding + CGFloat(digits) * cachedDigitWidth
-            + metrics.numberTrailingPadding
+        // Whole points. The digit width is a fraction (42.68 pt for three
+        // digits), which made the editor's scroll view a fractional width: its
+        // clip view is placed on whole pixels while the text view's minimum
+        // width (the scroll view's `contentSize`) kept the fraction, so the
+        // text was a fraction of a point wider than the clip. That is an
+        // overflow to AppKit — the clip scrolled sideways by 0.32 pt and a
+        // legacy (or hovered) horizontal scroller showed an empty grey track
+        // under the last line of a card.
+        let newWidth = ceil(metrics.leadingPadding + CGFloat(digits) * cachedDigitWidth
+            + metrics.numberTrailingPadding)
         if abs(desiredWidth - newWidth) > 1 {
             desiredWidth = newWidth
             onWidthChange?()
