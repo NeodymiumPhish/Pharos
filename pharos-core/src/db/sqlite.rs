@@ -9,7 +9,12 @@ pub(crate) fn compress_data(data: &str) -> Result<Vec<u8>, String> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use std::io::Write;
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    // Level 3, not fast (1): on the live store's 886 history blobs (487.6 MB
+    // of JSON, miniz_oxide) it wrote 72.8 MB where level 1 wrote 94.4 MB, at
+    // twice the time (the largest blob, 9 MB, 70 ms) — and every caller runs
+    // it outside the store lock. Level 6 saved only 4 MB more at twice that
+    // again. Measured 2026-10-23; reading is no slower at any level.
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::new(3));
     encoder.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
     encoder.finish().map_err(|e| e.to_string())
 }
@@ -153,6 +158,12 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
 
     let conn = Connection::open(&db_path)?;
 
+    // Before anything writes the file: on a new file this alone turns
+    // incremental auto-vacuum on. On an older file it only records the wish,
+    // and `convert_to_incremental_vacuum` below does the conversion.
+    conn.execute_batch("PRAGMA auto_vacuum = INCREMENTAL;")?;
+    let auto_vacuum: i64 = conn.query_row("PRAGMA auto_vacuum", [], |r| r.get(0))?;
+
     // Enable WAL mode for better concurrent read/write performance
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
@@ -162,7 +173,65 @@ pub fn init_database(app_data_dir: &Path) -> SqliteResult<Connection> {
 
     create_schema(&conn)?;
 
+    if auto_vacuum != AUTO_VACUUM_INCREMENTAL {
+        // Not fatal: the store works as before, and the next launch tries again.
+        if let Err(e) = convert_to_incremental_vacuum(&conn) {
+            log::warn!("Could not turn on incremental vacuum for the store: {}", e);
+        }
+    }
+    if let Err(e) = reclaim_free_pages(&conn) {
+        log::warn!("Could not give the store's free pages back: {}", e);
+    }
+
     Ok(conn)
+}
+
+/// `PRAGMA auto_vacuum`'s value for INCREMENTAL.
+const AUTO_VACUUM_INCREMENTAL: i64 = 2;
+
+/// Convert a store made before incremental auto-vacuum (mode 0, which never
+/// gives a deleted page back to the disk: the live store was 47% free pages,
+/// 112 MB of 241 MB, on 2026-10-23). Needs the `PRAGMA auto_vacuum =
+/// INCREMENTAL` that `init_database` issues on this connection first.
+///
+/// Once per store: a full VACUUM (1.4 s for that store) rewrites the file in
+/// the new mode. VACUUM may renumber the rowids of a table with no INTEGER
+/// PRIMARY KEY, and both FTS indexes are keyed by the rowid of exactly such a
+/// table, so they are rebuilt from their content tables (0.4 s) rather than
+/// trusted. The WAL, which the VACUUM fills with a copy of the whole file, is
+/// truncated last.
+fn convert_to_incremental_vacuum(conn: &Connection) -> SqliteResult<()> {
+    conn.execute_batch(
+        "VACUUM;
+         INSERT INTO query_history_fts(query_history_fts) VALUES('rebuild');
+         INSERT INTO workspaces_fts(workspaces_fts) VALUES('rebuild');",
+    )?;
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+    Ok(())
+}
+
+/// Give the store's free pages back to the disk, and return how many there
+/// were. Cheap when there are none; otherwise its cost follows the pages
+/// moved (0.6 s for 55 MB). A no-op on a store that is not in incremental
+/// mode yet.
+///
+/// Called at launch and after Clear History. Not after the automatic prune:
+/// that runs on the query path, the pages it frees are reused by the next
+/// inserts, and the next launch returns the rest.
+pub(crate) fn reclaim_free_pages(conn: &Connection) -> SqliteResult<i64> {
+    let free: i64 = conn.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+    if free == 0 {
+        return Ok(0);
+    }
+    // One page per step: the statement must be run to the end.
+    let mut statement = conn.prepare("PRAGMA incremental_vacuum")?;
+    let mut rows = statement.query([])?;
+    while rows.next()?.is_some() {}
+    drop(rows);
+    drop(statement);
+    // The file only gets shorter when the WAL is checkpointed.
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+    Ok(free)
 }
 
 /// Create every table and run every migration. Split out of `init_database` so
@@ -2461,32 +2530,42 @@ pub fn save_query_history_with_policy(
     Ok(())
 }
 
+/// A history row's result blobs, compressed. Made BEFORE the store lock is
+/// taken: the gzip is the part whose cost grows with the result, and every
+/// other store call waits on that lock.
+pub struct HistoryResultBlobs {
+    columns: Option<Vec<u8>>,
+    rows: Option<Vec<u8>>,
+    row_identity: Option<Vec<u8>>,
+}
+
+impl HistoryResultBlobs {
+    pub fn compress(result_columns_json: &str, result_rows_json: &str, result_row_identity_json: Option<&str>) -> Self {
+        HistoryResultBlobs {
+            columns: compress_data(result_columns_json).ok(),
+            rows: compress_data(result_rows_json).ok(),
+            row_identity: result_row_identity_json.and_then(|s| compress_data(s).ok()),
+        }
+    }
+}
+
 /// Attach the cached result blobs to a history row that was inserted without
-/// them. Compresses here, so the caller can run this off the query's critical
-/// path: `execute_query` inserts the row first — Swift attaches the new id to
-/// a workspace the moment it has it, so the row must exist by then — and hands
-/// the gzip and this write to a blocking task.
+/// them, so the caller can run this off the query's critical path:
+/// `execute_query` inserts the row first — Swift attaches the new id to a
+/// workspace the moment it has it, so the row must exist by then — and hands
+/// the gzip (`HistoryResultBlobs::compress`) and this write to a blocking task.
 ///
 /// Returns how many rows changed. Zero is not an error: the row may have been
 /// pruned between the insert and this write, and a blob for a row that is gone
 /// has nowhere to go.
-pub fn attach_query_history_result(
-    conn: &Connection,
-    entry_id: &str,
-    result_columns_json: &str,
-    result_rows_json: &str,
-    result_row_identity_json: Option<&str>,
-) -> SqliteResult<usize> {
-    let compressed_columns = compress_data(result_columns_json).ok();
-    let compressed_rows = compress_data(result_rows_json).ok();
-    let compressed_identity = result_row_identity_json.and_then(|s| compress_data(s).ok());
+pub fn attach_query_history_result(conn: &Connection, entry_id: &str, blobs: &HistoryResultBlobs) -> SqliteResult<usize> {
     conn.execute(
         "UPDATE query_history SET result_columns = ?2, result_rows = ?3, result_row_identity = ?4 WHERE id = ?1",
         (
             entry_id,
-            &compressed_columns.as_deref(),
-            &compressed_rows.as_deref(),
-            &compressed_identity.as_deref(),
+            &blobs.columns.as_deref(),
+            &blobs.rows.as_deref(),
+            &blobs.row_identity.as_deref(),
         ),
     )
 }
@@ -2537,6 +2616,11 @@ pub fn clear_query_history(conn: &Connection, scope: ClearHistoryScope) -> Sqlit
              (SELECT DISTINCT workspace_id FROM query_history WHERE workspace_id IS NOT NULL)",
         [],
     )?;
+
+    // The user cleared history to get the space back: give it to the disk now.
+    if let Err(e) = reclaim_free_pages(conn) {
+        log::warn!("Could not give the store's free pages back: {}", e);
+    }
 
     Ok(deleted)
 }
@@ -3712,7 +3796,7 @@ mod workspace_roundtrip_tests {
         let columns = r#"[{"name":"id","data_type":"int4"}]"#;
         let rows = r#"[["42"],["43"]]"#;
         let identity = r#"{"table_key":"oid:1"}"#;
-        let changed = attach_query_history_result(&conn, "h1", columns, rows, Some(identity))
+        let changed = attach_query_history_result(&conn, "h1", &HistoryResultBlobs::compress(columns, rows, Some(identity)))
             .expect("attach");
         assert_eq!(changed, 1);
 
@@ -3730,7 +3814,8 @@ mod workspace_roundtrip_tests {
         assert_eq!(&raw[..2], &[0x1f, 0x8b], "rows blob is gzip");
 
         // A row that was pruned before the task ran: nothing to attach to, not an error.
-        let orphan = attach_query_history_result(&conn, "gone", columns, rows, None).expect("attach to a missing row");
+        let orphan = attach_query_history_result(&conn, "gone", &HistoryResultBlobs::compress(columns, rows, None))
+            .expect("attach to a missing row");
         assert_eq!(orphan, 0);
 
         drop(conn);
@@ -6040,5 +6125,171 @@ mod recent_files_tests {
         assert_eq!(load_recent_files(&conn).unwrap().len(), 502);
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod store_vacuum_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("pharos_test_{}_{}", tag, uuid::Uuid::new_v4()))
+    }
+
+    const FOREVER: HistoryPrunePolicy = HistoryPrunePolicy { retention_days: 0, max_entries: 0 };
+
+    fn entry(id: &str, sql: &str) -> QueryHistoryEntry {
+        QueryHistoryEntry {
+            id: id.to_string(),
+            connection_id: "c1".to_string(),
+            connection_name: "prod".to_string(),
+            sql: sql.to_string(),
+            row_count: Some(1),
+            execution_time_ms: 1,
+            executed_at: chrono::Utc::now().to_rfc3339(),
+            has_results: false,
+            schema: None,
+            column_count: None,
+            table_names: None,
+            source: None,
+            status: crate::models::HISTORY_STATUS_OK.to_string(),
+            error_message: None,
+        }
+    }
+
+    /// JSON that gzip cannot shrink much, so a blob takes real pages.
+    fn noisy_rows(seed: u64, bytes: usize) -> String {
+        let mut x = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let mut s = String::with_capacity(bytes + 16);
+        s.push_str("[[\"");
+        while s.len() < bytes {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            s.push_str(&format!("{:016x}", x));
+        }
+        s.push_str("\"]]");
+        s
+    }
+
+    fn pragma(conn: &Connection, name: &str) -> i64 {
+        conn.query_row(&format!("PRAGMA {}", name), [], |r| r.get(0)).unwrap()
+    }
+
+    fn search(conn: &Connection, text: &str) -> Vec<String> {
+        load_query_history(conn, None, Some(text), 50, 0, false, crate::models::HistoryStatusScope::All)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.id)
+            .collect()
+    }
+
+    #[test]
+    fn a_new_store_is_in_incremental_mode_from_the_start() {
+        let dir = temp_db_dir("vacuum_new");
+        let conn = init_database(&dir).expect("init_database");
+        assert_eq!(pragma(&conn, "auto_vacuum"), AUTO_VACUUM_INCREMENTAL);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A store made before this change (auto_vacuum 0, free pages, rowid gaps)
+    /// opens in incremental mode with every row, its rowid and its search hit.
+    #[test]
+    fn an_older_store_is_converted_once_and_keeps_its_rows_and_search() {
+        let dir = temp_db_dir("vacuum_convert");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pharos.db");
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+            create_schema(&old).unwrap();
+            assert_eq!(pragma(&old, "auto_vacuum"), 0, "the old default");
+            for i in 0..40 {
+                let e = entry(&format!("h{}", i), &format!("SELECT marker_{} FROM t", i));
+                save_query_history_with_policy(&old, &e, Some("[]"), Some(&noisy_rows(i, 64 * 1024)), None, FOREVER)
+                    .unwrap();
+            }
+            // Gaps in the rowids, and free pages.
+            old.execute("DELETE FROM query_history WHERE CAST(substr(id, 2) AS INTEGER) % 3 = 0", []).unwrap();
+            assert!(pragma(&old, "freelist_count") > 0);
+        }
+        let before: Vec<(i64, String)> = {
+            let c = Connection::open(&path).unwrap();
+            let mut st = c.prepare("SELECT rowid, id FROM query_history ORDER BY rowid").unwrap();
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+            rows
+        };
+        let size_before = std::fs::metadata(&path).unwrap().len();
+
+        let conn = init_database(&dir).expect("init_database converts");
+        assert_eq!(pragma(&conn, "auto_vacuum"), AUTO_VACUUM_INCREMENTAL);
+        assert_eq!(pragma(&conn, "freelist_count"), 0);
+        let after: Vec<(i64, String)> = {
+            let mut st = conn.prepare("SELECT rowid, id FROM query_history ORDER BY rowid").unwrap();
+            let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+            rows
+        };
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after.iter().map(|r| &r.1).collect::<Vec<_>>(), before.iter().map(|r| &r.1).collect::<Vec<_>>());
+        conn.execute("INSERT INTO query_history_fts(query_history_fts, rank) VALUES('integrity-check', 1)", [])
+            .expect("history search index matches its rows");
+        conn.execute("INSERT INTO workspaces_fts(workspaces_fts, rank) VALUES('integrity-check', 1)", [])
+            .expect("workspace search index matches its rows");
+        assert_eq!(search(&conn, "marker_7"), vec!["h7".to_string()]);
+        assert!(search(&conn, "marker_6").is_empty(), "a deleted row stays deleted");
+        assert!(std::fs::metadata(&path).unwrap().len() < size_before, "the free pages went back to the disk");
+
+        // Once only: a second launch has nothing to convert.
+        drop(conn);
+        let again = init_database(&dir).expect("second launch");
+        assert_eq!(pragma(&again, "auto_vacuum"), AUTO_VACUUM_INCREMENTAL);
+        drop(again);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clear_history_gives_the_space_back_to_the_disk() {
+        let dir = temp_db_dir("vacuum_clear");
+        let conn = init_database(&dir).expect("init_database");
+        let path = dir.join("pharos.db");
+        for i in 0..30 {
+            let e = entry(&format!("h{}", i), "SELECT 1");
+            save_query_history_with_policy(&conn, &e, Some("[]"), Some(&noisy_rows(i, 128 * 1024)), None, FOREVER)
+                .unwrap();
+        }
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+        let full = std::fs::metadata(&path).unwrap().len();
+        assert!(full > 2 * 1024 * 1024, "the blobs take real space ({} bytes)", full);
+
+        assert_eq!(clear_query_history(&conn, ClearHistoryScope::All).unwrap(), 30);
+        assert_eq!(pragma(&conn, "freelist_count"), 0);
+        let cleared = std::fs::metadata(&path).unwrap().len();
+        assert!(cleared < full / 4, "{} bytes after clear, {} before", cleared, full);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reclaim_with_no_free_pages_does_nothing() {
+        let dir = temp_db_dir("vacuum_none");
+        let conn = init_database(&dir).expect("init_database");
+        assert_eq!(reclaim_free_pages(&conn).unwrap(), 0);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The level-3 blobs read back through the same reader as the level-1
+    /// blobs already in every store.
+    #[test]
+    fn blobs_of_both_levels_read_back() {
+        use flate2::write::GzEncoder;
+        use std::io::Write;
+        let text = noisy_rows(9, 10_000);
+        let mut old = GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        old.write_all(text.as_bytes()).unwrap();
+        assert_eq!(decompress_or_passthrough(old.finish().unwrap()).unwrap(), text);
+        assert_eq!(decompress_or_passthrough(compress_data(&text).unwrap()).unwrap(), text);
     }
 }

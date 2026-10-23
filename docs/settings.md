@@ -101,7 +101,7 @@ the [Results History](query-history.md) navigator.
 | Entries to load | 10–5,000 entries | 200 | How many of the newest entries the Results History navigator fetches. The list is one fetch, not pages, so this is all of the history you can see at once. Nothing is deleted: a lower number only shows fewer. |
 | Record failed queries | On, Off | On | A query that fails leaves a row in the history, with the server's message, beside the ones that worked. The Results History navigator's **Failed** scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection or with a variable still unset, is never recorded. Turning this off stops new failures being recorded; rows already there stay until you clear them. See [History & Workspaces](query-history.md#failed-queries). |
 
-**Clear Query History…** deletes every entry and the cached results of each, and removes any workspace left with no entries. The confirmation names the exact number first, read from the store with the same rule the deletion uses, so it can never take more than it said. It cannot be undone, and Cancel is the default button.
+**Clear Query History…** deletes every entry and the cached results of each, and removes any workspace left with no entries. The confirmation names the exact number first, read from the store with the same rule the deletion uses, so it can never take more than it said. It cannot be undone, and Cancel is the default button. The space the entries took goes back to the disk at once; space freed by the automatic pruning and by deleted entries goes back at the next launch.
 
 
 ## Editor Pane

@@ -632,14 +632,10 @@ pub(crate) fn record_history(state: &AppState, entry: &QueryHistoryEntry, cache:
         let db = Arc::clone(&state.metadata_db);
         let entry_id = entry.id.clone();
         tokio::task::spawn_blocking(move || {
+            // Compress first: the store lock is held only for the write.
+            let blobs = sqlite::HistoryResultBlobs::compress(&columns_json, &rows_json, identity_json.as_deref());
             let Ok(db) = db.lock() else { return };
-            if let Err(e) = sqlite::attach_query_history_result(
-                &db,
-                &entry_id,
-                &columns_json,
-                &rows_json,
-                identity_json.as_deref(),
-            ) {
+            if let Err(e) = sqlite::attach_query_history_result(&db, &entry_id, &blobs) {
                 log::warn!("Failed to cache query history result: {}", e);
             }
         });
