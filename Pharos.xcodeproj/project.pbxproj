@@ -322,6 +322,7 @@
 		B4E887729AA6B374E5CA615B /* PharosCore+DuckDB.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B66356022E62F3638C73204 /* PharosCore+DuckDB.swift */; };
 		B4EC4931D5D8DDDEED9071DA /* ChartPaletteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */; };
 		B55941F651453FA605E6AF5B /* UnsavedWorkPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */; };
+		B58C21275DBE3E53F2845855 /* NavigatorPaneState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4869C5D3844F9198CB55373 /* NavigatorPaneState.swift */; };
 		B63E1EEF337D37241D9EB7C0 /* SettingsFormDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CBD4D1F97E1EA34FE8CFEC4 /* SettingsFormDocumentView.swift */; };
 		B6A807AF13F4EBB0866CBB48 /* SQLCompletionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6EF9DEF04D779C8CE0614A2 /* SQLCompletionProvider.swift */; };
 		B79EF88D4FB32A27BB1FFA99 /* SettingsMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E8FAEB6C42EFBE17142B4C /* SettingsMetrics.swift */; };
@@ -736,6 +737,7 @@
 		C3A133A112CDC62FDBC82CB2 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
 		C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarViewController.swift; sourceTree = "<group>"; };
 		C3BC598353E0F57A4149DB68 /* TagSampleTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagSampleTest.swift; sourceTree = "<group>"; };
+		C4869C5D3844F9198CB55373 /* NavigatorPaneState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigatorPaneState.swift; sourceTree = "<group>"; };
 		C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSelectionValidity.swift; sourceTree = "<group>"; };
 		C76ECA80D0A628845C307266 /* MainToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainToolbarController.swift; sourceTree = "<group>"; };
 		C87F939622E046E11116B21C /* ResultsGridColumnState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridColumnState.swift; sourceTree = "<group>"; };
@@ -1188,6 +1190,7 @@
 				15F15F6D530ED4B08BF8F19F /* Log.swift */,
 				21144A42AAC5D2C61BFC5EB0 /* MetadataCache.swift */,
 				51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */,
+				C4869C5D3844F9198CB55373 /* NavigatorPaneState.swift */,
 				43BCD1752648CB825D07D2BB /* PasswordAvailability.swift */,
 				55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */,
 				EBB204A7203DFE7F75AE059A /* PharosCore.swift */,
@@ -1713,6 +1716,7 @@
 				07CB04FD86A4BD5C9F06C2CA /* NameSuggestionPolicy.swift in Sources */,
 				655708804511E3B8A99A319D /* Navigator.swift in Sources */,
 				16F0B71B66720AB81A4BBF3A /* NavigatorOrdering.swift in Sources */,
+				B58C21275DBE3E53F2845855 /* NavigatorPaneState.swift in Sources */,
 				4ABE0F444FDE66FB28CA6600 /* NavigatorSettingsPaneVC.swift in Sources */,
 				30A7C93CCBFF9136F1562B32 /* NavigatorToolbarGroup.swift in Sources */,
 				98ABDB227EE8B96889F26C62 /* NotificationCoalescer.swift in Sources */,

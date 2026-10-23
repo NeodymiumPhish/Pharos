@@ -25,6 +25,7 @@ swiftc -o /tmp/schema-cell-one-line-tests \
   Pharos/Utilities/SQLTypeName.swift \
   Pharos/Models/ColumnTypeIcon.swift \
   Pharos/Core/DisplayEscape.swift \
+  Pharos/Views/EmptyStateView.swift \
   PharosTests/SchemaCellOneLineTests.swift \
   PharosTests/main.swift
 /tmp/schema-cell-one-line-tests

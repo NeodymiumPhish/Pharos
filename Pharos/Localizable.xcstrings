@@ -10,6 +10,33 @@
     " (more available)" : {
 
     },
+    "Couldn’t read the tables" : {
+
+    },
+    "Couldn’t Read the Schemas" : {
+
+    },
+    "Couldn’t Read the Tables in %@" : {
+
+    },
+    "Reading columns…" : {
+
+    },
+    "Reading partitions…" : {
+
+    },
+    "Reading tables…" : {
+
+    },
+    "Reading the schemas…" : {
+
+    },
+    "Reading the tables in %@…" : {
+      "comment" : "The Database Navigator while a schema's table list loads; the schema's name."
+    },
+    "Reading…" : {
+
+    },
     "—" : {
 
     },

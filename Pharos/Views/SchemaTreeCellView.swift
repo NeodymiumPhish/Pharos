@@ -15,6 +15,8 @@ import AppKit
 class SchemaTreeCellView: NSTableCellView {
 
     private let iconView = NSImageView()
+    /// In the icon's place on a `.loading` row whose read is running.
+    private let spinner = NSProgressIndicator()
     private let primaryLabel = NSTextField(labelWithString: "")
     private let badgeLabel = NSTextField(labelWithString: "")
     private let secondaryLabel = NSTextField(labelWithString: "")
@@ -52,6 +54,14 @@ class SchemaTreeCellView: NSTableCellView {
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
+
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isIndeterminate = true
+        spinner.isDisplayedWhenStopped = false
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        // The row's own text says what is being read.
+        spinner.setAccessibilityElement(false)
 
         primaryLabel.lineBreakMode = .byTruncatingTail
         primaryLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -94,6 +104,7 @@ class SchemaTreeCellView: NSTableCellView {
         stopButton.setAccessibilityIdentifier("schema.row.stopJob")
 
         addSubview(iconView)
+        addSubview(spinner)
         addSubview(primaryLabel)
         addSubview(secondaryLabel)
         addSubview(badgeLabel)
@@ -117,6 +128,11 @@ class SchemaTreeCellView: NSTableCellView {
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
 
+            spinner.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
+            spinner.widthAnchor.constraint(equalToConstant: 16),
+            spinner.heightAnchor.constraint(equalToConstant: 16),
+
             primaryLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
             primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
@@ -138,6 +154,9 @@ class SchemaTreeCellView: NSTableCellView {
 
     func configure(node: SchemaTreeNode) {
         iconView.image = node.icon
+        showsSpinner = node.isReading
+        iconView.isHidden = showsSpinner
+        updateSpinner()
         iconView.contentTintColor = node.tintColor
         primaryLabel.stringValue = node.title
         // The exact row count and the size on disk no longer fit on the row;
@@ -192,7 +211,9 @@ class SchemaTreeCellView: NSTableCellView {
         }
 
         if case .loading = node.kind {
-            primaryLabel.textColor = .tertiaryLabelColor
+            // Secondary, not tertiary: the line says what is being read (or
+            // that it failed) and must stay readable beside the spinner.
+            primaryLabel.textColor = .secondaryLabelColor
         } else if case .partition(let info) = node.kind,
                   PartitionDisplay.boundSummary(info.partitionBound) == "DEFAULT" {
             primaryLabel.textColor = .secondaryLabelColor
@@ -200,6 +221,27 @@ class SchemaTreeCellView: NSTableCellView {
             primaryLabel.textColor = .labelColor
         }
     }
+
+    /// The row is a read that is still running.
+    private var showsSpinner = false
+
+    /// Animate only while the row is on screen: a reused or removed cell
+    /// stops its spinner.
+    private func updateSpinner() {
+        if showsSpinner && window != nil {
+            spinner.startAnimation(nil)
+        } else {
+            spinner.stopAnimation(nil)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateSpinner()
+    }
+
+    /// Test seam: the row shows the spinner in place of its icon.
+    var isShowingSpinnerForTesting: Bool { showsSpinner && iconView.isHidden }
 
     @objc private func stopPressed() {
         guard let node else { return }
@@ -319,6 +361,9 @@ class SchemaTreeCellView: NSTableCellView {
         badgeLabel.isHidden = true
         badgeLabel.stringValue = ""
         stopButton.isHidden = true
+        showsSpinner = false
+        iconView.isHidden = false
+        updateSpinner()
         node = nil
         secondaryTrailingToBadge.isActive = false
         secondaryTrailingToStop.isActive = false

@@ -59,6 +59,12 @@ While an import, an export or a clone runs, the table's row shows its progress: 
 
 With no connection on the current tab, the panel shows **No Connection** — "Connect a tab to browse its schema." Connect the tab (see [Connections](connections.md)) and the tree loads in its place.
 
+## While the Tree Loads
+
+A large database can take a few seconds to list its tables. Until the tree is there, the panel shows a spinning indicator and what it is reading: "Reading the schemas…", then "Reading the tables in public…". The tree replaces it as soon as the tables arrive. A level that loads when you expand it — a table's columns, a Partitions folder, or a schema when the panel lists every schema — shows a small spinner in a row that says "Reading columns…", "Reading partitions…" or "Reading tables…".
+
+If a read fails, the panel says so and shows the server's message, with a **Try Again** button.
+
 ## Partitioned Tables
 
 Partitioned tables are marked with a split-square icon and a RANGE/LIST/HASH badge. When **Show leaf partitions** is enabled in [Settings](settings.md), expanding a partitioned table reveals a **Partitions** folder listing each partition; sub-partitioned tables nest recursively, and each partition can be expanded to its own columns. Partitions get a read-only context menu (view contents, export, indexes, constraints) — destructive operations are intentionally reserved for the parent table.

@@ -29,6 +29,10 @@ class SchemaBrowserVC: NSViewController {
     private var activeSchemaFilter: String?
     private var connectionId: String?
     private var refreshedSchemas: Set<String> = []
+    /// Connections whose schema list is being read, and the ones whose read
+    /// failed (the pane says so, with Try Again).
+    private var schemaListReads: Set<String> = []
+    private var schemaListErrors: [String: String] = [:]
     private let stateManager = AppStateManager.shared
     private var settingsCancellable: AnyCancellable?
     /// Separate from `settingsCancellable`: this one throws the metadata
@@ -144,17 +148,57 @@ class SchemaBrowserVC: NSViewController {
     /// Show the "no connection" state whenever there is no connection to browse.
     /// A connection that simply has no matching rows is NOT this state — the
     /// filter field is still working and the user can see that it is.
+    /// The pane in place of the tree: no connection, a read still running
+    /// (a spinner and what it reads), or a read that failed
+    /// (`NavigatorPaneState`).
     private func updateEmptyState() {
-        if connectionId == nil {
+        switch paneState {
+        case .noConnection:
             emptyState.show(
                 symbol: "cylinder.split.1x2",
                 title: String(localized: "No Connection"),
                 message: String(localized: "Connect a tab to browse its schema.")
             )
-        } else {
+        case .reading(let text):
+            emptyState.showProgress(text)
+        case let .failed(title, message):
+            emptyState.show(symbol: "exclamationmark.triangle", title: title, message: message,
+                            actionTitle: String(localized: "Try Again")) { [weak self] in
+                guard let self, let cid = self.connectionId else { return }
+                // The failed tree goes at once, so the pane shows the new
+                // read rather than the old error while it runs.
+                self.unfilteredRootNodes = []
+                self.rebuildDisplayTree()
+                self.loadSchemas(connectionId: cid, force: true)
+            }
+        case .tree:
             emptyState.isHidden = true
         }
     }
+
+    private var paneState: NavigatorPaneState {
+        guard let connectionId else {
+            return NavigatorPaneState.resolve(hasConnection: false, schemaList: .loaded, pinned: nil)
+        }
+        let schemaList: NavigatorPaneState.Phase
+        if let error = schemaListErrors[connectionId] {
+            schemaList = .failed(error)
+        } else if unfilteredRootNodes.isEmpty && schemaListReads.contains(connectionId) {
+            schemaList = .pending
+        } else {
+            schemaList = .loaded
+        }
+        var pinned: (schema: String, tables: NavigatorPaneState.Phase)?
+        if let name = activeSchemaFilter, let node = unfilteredRootNodes.first(where: { $0.schemaName == name }) {
+            let tables: NavigatorPaneState.Phase = node.loadError.map { .failed($0) }
+                ?? (node.isLoaded ? .loaded : .pending)
+            pinned = (DisplayEscape.escaped(name), tables)
+        }
+        return NavigatorPaneState.resolve(hasConnection: true, schemaList: schemaList, pinned: pinned)
+    }
+
+    /// Test seam: what the pane shows.
+    var paneStateForTesting: NavigatorPaneState { paneState }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -228,12 +272,23 @@ class SchemaBrowserVC: NSViewController {
             )
         }
 
+        let switching = self.connectionId != connectionId
         self.connectionId = connectionId
-        updateEmptyState()
         if force {
             refreshedSchemas.removeAll()
             treeCaches.removeValue(forKey: connectionId)
         }
+        // Another connection's tree must not stay on screen while this one
+        // is read: the pane shows the read instead. A refresh of the same
+        // connection keeps its tree until the new one arrives.
+        if switching {
+            refreshedSchemas.removeAll()
+            unfilteredRootNodes = []
+            rebuildDisplayTree()
+        }
+        schemaListReads.insert(connectionId)
+        schemaListErrors[connectionId] = nil
+        updateEmptyState()
 
         Task {
             do {
@@ -265,6 +320,7 @@ class SchemaBrowserVC: NSViewController {
                 }
 
                 await MainActor.run {
+                    self.schemaListReads.remove(connectionId)
                     // Only update display if this connection is still active
                     guard self.connectionId == connectionId else { return }
                     self.unfilteredRootNodes = schemaNodes
@@ -277,6 +333,8 @@ class SchemaBrowserVC: NSViewController {
                     // happened to stream in. rebuildDisplayTree applies the
                     // pinned schema and the text filter, and carries the same
                     // auto-expand of `public` with the same size threshold.
+                    self.reloadPreservingSelection { self.rebuildDisplayTree() }
+                    self.updateEmptyState()
                 }
 
                 // Load ALL schemas' tables concurrently (tables only — columns are lazy)
@@ -308,6 +366,11 @@ class SchemaBrowserVC: NSViewController {
                 }
             } catch {
                 Log.schema.error("Failed to load schemas: \(error.localizedDescription, privacy: .public)")
+                await MainActor.run {
+                    self.schemaListReads.remove(connectionId)
+                    self.schemaListErrors[connectionId] = error.localizedDescription
+                    if self.connectionId == connectionId { self.updateEmptyState() }
+                }
             }
         }
     }
@@ -339,6 +402,7 @@ class SchemaBrowserVC: NSViewController {
             await MainActor.run {
                 schemaNode.removeAllChildren()
                 schemaNode.isLoaded = true
+                schemaNode.loadError = nil
 
                 // Settings ▸ Navigator ▸ Order objects by. `NavigatorOrdering`
                 // holds the rules and is tested on its own; the default mode,
@@ -398,10 +462,21 @@ class SchemaBrowserVC: NSViewController {
                 // in. We now refresh just the affected schema's subtree.
                 if self.connectionId == connectionId {
                     self.refreshAfterLoad(schemaNode: schemaNode)
+                    self.updateEmptyState()
                 }
             }
         } catch {
             Log.schema.error("Failed to load tables for schema \(schemaName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            await MainActor.run {
+                // The schema's loading row now says the read failed (no
+                // spinner); a pinned schema's pane offers Try Again.
+                schemaNode.loadError = error.localizedDescription
+                guard self.connectionId == connectionId else { return }
+                if self.outlineView.row(forItem: schemaNode) >= 0 {
+                    self.outlineView.reloadItem(schemaNode, reloadChildren: true)
+                }
+                self.updateEmptyState()
+            }
         }
     }
 
@@ -488,6 +563,7 @@ class SchemaBrowserVC: NSViewController {
     /// If it's the active connection, also clears the display.
     func clearConnection(_ id: String) {
         treeCaches.removeValue(forKey: id)
+        schemaListErrors[id] = nil
         if id == connectionId {
             connectionId = nil
             activeSchemaFilter = nil
@@ -646,6 +722,7 @@ class SchemaBrowserVC: NSViewController {
         guard activeSchemaFilter != name else { return }
         activeSchemaFilter = name
         rebuildDisplayTree()
+        updateEmptyState()
         refreshRowCounts(for: name)
     }
 
@@ -653,6 +730,7 @@ class SchemaBrowserVC: NSViewController {
         guard activeSchemaFilter != nil else { return }
         activeSchemaFilter = nil
         rebuildDisplayTree()
+        updateEmptyState()
     }
 
     /// Rebuild the display tree from unfiltered data, applying schema filter then text filter.
@@ -661,7 +739,9 @@ class SchemaBrowserVC: NSViewController {
         var nodes: [SchemaTreeNode]
         if let schemaName = activeSchemaFilter {
             if let schemaNode = unfilteredRootNodes.first(where: { $0.schemaName == schemaName }) {
-                nodes = schemaNode.children
+                // Until its tables arrive the pane shows the read, not a
+                // lone loading row (`updateEmptyState`).
+                nodes = schemaNode.isLoaded ? schemaNode.children : []
             } else {
                 nodes = []
             }
@@ -702,6 +782,9 @@ class SchemaBrowserVC: NSViewController {
                 outlineView.expandItem(node)
             }
         } else if let target = rootNodes.first(where: { $0.schemaName == autoExpandSchemaName }),
+                  // Not before its tables are here: opening it on its loading
+                  // row would skip the size threshold when they arrive.
+                  target.isLoaded,
                   !outlineView.isItemExpanded(target),
                   NavigatorOrdering.shouldAutoExpand(
                       childCount: target.children.count,
@@ -826,8 +909,14 @@ class SchemaBrowserVC: NSViewController {
         let hasTextFilter = filterText?.isEmpty == false
         if !hasTextFilter, rootNodes.contains(where: { $0 === schemaNode }) {
             outlineView.reloadItem(schemaNode, reloadChildren: true)
-            // Keep the initial-load auto-expand of the home schema.
-            if schemaNode.schemaName == engine(for: connectionId).defaultSchema {
+            // The initial-load auto-expand of the home schema, by the same
+            // rule as `rebuildDisplayTree` (Settings ▸ Navigator's switch and
+            // size ceiling): expanding thousands of rows blocks for seconds.
+            if schemaNode.schemaName == autoExpandSchemaName,
+               NavigatorOrdering.shouldAutoExpand(
+                   childCount: schemaNode.children.count,
+                   enabled: stateManager.settings.navigator.autoExpandDefaultSchema,
+                   threshold: stateManager.settings.navigator.autoExpandThreshold) {
                 outlineView.expandItem(schemaNode)
             }
             return

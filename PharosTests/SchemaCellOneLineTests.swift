@@ -201,6 +201,39 @@ func runTests() {
     jobCell.configure(node: jobNode)
     expectTrue(jobCell.stopButtonForTesting.isHidden, "a job that cannot stop shows no button")
 
+    // MARK: Loading rows and the pane's waiting form (2026-10-23)
+
+    let schemaInfo = SchemaInfo(name: "public", owner: nil)
+    let schemaNode = SchemaTreeNode(.schema(schemaInfo))
+    let readingTables = SchemaTreeNode(.loading, parent: schemaNode)
+    schemaNode.addChild(readingTables)
+    let loadingCell = SchemaTreeCellView(identifier: NSUserInterfaceItemIdentifier("SchemaCell"))
+    loadingCell.configure(node: readingTables)
+    expectEqual(loadingCell.textField?.stringValue ?? "", "Reading tables…", "a schema's loading row says what it reads")
+    expectTrue(loadingCell.isShowingSpinnerForTesting, "a loading row shows the spinner in place of its icon")
+    let tableNode = makeTableNode(name: "orders", rows: 1, bytes: 1)
+    let readingColumns = SchemaTreeNode(.loading, parent: tableNode)
+    tableNode.addChild(readingColumns)
+    loadingCell.configure(node: readingColumns)
+    expectEqual(loadingCell.textField?.stringValue ?? "", "Reading columns…", "a table's loading row reads columns")
+    schemaNode.loadError = "permission denied for schema public"
+    loadingCell.configure(node: readingTables)
+    expectEqual(loadingCell.textField?.stringValue ?? "", "Couldn’t read the tables", "a failed read says so")
+    expectTrue(!loadingCell.isShowingSpinnerForTesting, "a failed read does not spin")
+    loadingCell.configure(node: tableNode)
+    expectTrue(!loadingCell.isShowingSpinnerForTesting, "a reused cell on an ordinary row shows its icon again")
+
+    let pane = EmptyStateView()
+    pane.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
+    pane.showProgress("Reading the tables in public…")
+    expectTrue(pane.isShowingProgress, "the pane's waiting form shows the spinner")
+    expectEqual(pane.messageText, "Reading the tables in public…", "the waiting form says what it reads")
+    expectEqual(pane.accessibilityLabel() ?? "", "Reading the tables in public…", "VoiceOver reads the same line")
+    pane.show(symbol: "exclamationmark.triangle", title: "Couldn’t Read the Tables in public", message: "timeout",
+              actionTitle: "Try Again", action: {})
+    expectTrue(!pane.isShowingProgress, "an error replaces the spinner")
+    expectTrue(!pane.actionButtonForTesting.isHidden, "the error offers Try Again")
+
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) test(s) failed")
     exit(failures == 0 ? 0 : 1)
 }

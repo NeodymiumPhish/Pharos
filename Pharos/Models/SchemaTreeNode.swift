@@ -34,6 +34,9 @@ class SchemaTreeNode: NSObject {
     var knownPartitionNames: [String] = []
     /// When a filter is active, the number of this node's partitions matching it.
     var partitionMatchCount: Int = 0
+    /// Why reading this node's children failed (a schema whose tables could
+    /// not be read). Its `.loading` row then says so, with no spinner.
+    var loadError: String?
 
     init(_ kind: Kind, parent: SchemaTreeNode? = nil) {
         self.kind = kind
@@ -59,8 +62,29 @@ class SchemaTreeNode: NSObject {
         case .column(let info): return DisplayEscape.escaped(info.name)
         case .partitionGroup: return "Partitions"
         case .partition(let info): return DisplayEscape.escaped(info.name)
-        case .loading: return "Loading\u{2026}"
+        case .loading: return loadingTitle
         }
+    }
+
+    /// A `.loading` row says what it is reading, from its parent (HIG,
+    /// Progress indicators: say what happens, not just "Loading"); after a
+    /// failed read it says that instead.
+    private var loadingTitle: String {
+        if parent?.loadError != nil {
+            return String(localized: "Couldn’t read the tables")
+        }
+        switch parent?.kind {
+        case .schema: return String(localized: "Reading tables…")
+        case .table, .view, .partition: return String(localized: "Reading columns…")
+        case .partitionGroup: return String(localized: "Reading partitions…")
+        default: return String(localized: "Reading…")
+        }
+    }
+
+    /// A `.loading` row whose read is still running: the row shows a spinner.
+    var isReading: Bool {
+        guard case .loading = kind else { return false }
+        return parent?.loadError == nil
     }
 
     var subtitle: String? {
