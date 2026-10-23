@@ -22,8 +22,10 @@ jobs:
         with:
           workspaces: "pharos-core -> pharos-core/target"
 
-      - name: Add Intel Rust target
-        run: rustup target add x86_64-apple-darwin
+      # llvm-tools: scripts/build-duckdb.sh runs rust-objcopy, which needs
+      # the component's libLLVM.dylib since Rust 1.9x.
+      - name: Add Intel Rust target and llvm-tools
+        run: rustup target add x86_64-apple-darwin && rustup component add llvm-tools
 
       # DuckDB and its extensions, built from source by scripts/build-duckdb.sh
       # (pinned versions; the key changes when the script or the extension

@@ -64,6 +64,15 @@ main() {
     # cmake and ninja come from Homebrew; Xcode's build phases do not have it on PATH.
     export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+    # rust-objcopy renames sqlite_scanner's SQLite symbols (the end of this
+    # script). It ships with rustc, but since Rust 1.9x it links libLLVM.dylib,
+    # which only the llvm-tools component installs. Check now, not after the build.
+    OBJCOPY="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/rust-objcopy"
+    if ! "$OBJCOPY" --version >/dev/null 2>&1; then
+        echo "build-duckdb: $OBJCOPY does not run; install it with: rustup component add llvm-tools" >&2
+        exit 1
+    fi
+
     mkdir -p "$WORK"
     if [ ! -d "$SRC/.git" ]; then
         git clone --depth 1 --branch "$DUCKDB_TAG" https://github.com/duckdb/duckdb.git "$SRC"
@@ -224,7 +233,6 @@ PY
     # names; rusqlite links a newer SQLite into the same binary. Rename every
     # sqlite3* symbol inside the extension's archive — its SQLite's definitions and
     # its own references to them — so the two copies never meet.
-    OBJCOPY="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/rust-objcopy"
     SQLITE_EXT="$OUT/lib/libsqlite_scanner_extension.a"
     nm -A "$SQLITE_EXT" 2>/dev/null | awk '{print $NF}' | grep -E '^_sqlite3' | sort -u \
         | awk '{ sub(/^_/, "", $1); print "_" $1 " _pharos_ext_" $1 }' > "$BUILD/sqlite-rename.map"
