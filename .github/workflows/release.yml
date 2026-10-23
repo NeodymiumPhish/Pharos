@@ -59,7 +59,11 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Pharos/App/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Pharos/App/Info.plist
-          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" pharos-core/Cargo.toml
+          # Cargo needs SemVer, which forbids leading zeros: a v2.7.001 tag
+          # stamps 2.7.001 in the app and 2.7.1 in pharos-core (whose version
+          # is the default PostgreSQL application_name).
+          CARGO_VERSION="$(echo "$VERSION" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 }')"
+          sed -i '' "s/^version = \".*\"/version = \"$CARGO_VERSION\"/" pharos-core/Cargo.toml
 
       - name: Build Rust library (universal)
         # Each target links its own DuckDB build (pharos-core/build.rs;
