@@ -73,7 +73,7 @@ class LineNumberGutter: NSView {
     /// where inside it the line numbers sit.
     ///
     /// The SQL editor's gutter carries an extra column left of the numbers:
-    /// the fold-chevron column (drawn at x = 3, 14 pt wide), which the error
+    /// the fold-chevron column (`markerColumnWidth` wide), which the error
     /// marker shares. A host that never calls `setFoldRegions` has no use for
     /// it, and reserving space for it is dead width — which matters in a
     /// narrow sidebar, where every point taken by the gutter is a point of
@@ -89,11 +89,13 @@ class LineNumberGutter: NSView {
 
         /// The main SQL editor: fold chevrons and error markers.
         ///
-        /// `leadingPadding` must clear the error marker's hit box, or the
-        /// numbers would crowd it — see `errorHitWidth`.
+        /// `leadingPadding` must clear the marker column, or the numbers
+        /// would crowd it — see `markerColumnWidth`. A two-digit floor: a
+        /// card is rarely 100 lines long, and a three-digit floor spent a
+        /// whole digit of blank space on every card that was not.
         static let sqlEditor = Metrics(
-            leadingPadding: errorHitWidth, numberTrailingPadding: 4,
-            minimumDigits: 3)
+            leadingPadding: markerColumnWidth, numberTrailingPadding: 4,
+            minimumDigits: 2)
 
         /// The variables panel's value editor: no chevrons, and a two-digit
         /// floor — a variable value that runs past 99 lines is not what this
@@ -103,11 +105,12 @@ class LineNumberGutter: NSView {
             minimumDigits: 2)
     }
 
-    /// Width of the error marker's hit box, and therefore the SQL editor's
-    /// leading padding. Derived in one place: the padding used to be a
-    /// hard-coded 16 that happened to equal this, and nudging either number
-    /// alone would have let the two drift apart with no test failing.
-    static let errorHitWidth: CGFloat = errorMarkerSize + 6
+    /// Width of the column left of the numbers that the fold chevron and the
+    /// error marker share: the chevron's click target, the error marker's hit
+    /// box, and therefore the SQL editor's leading padding. Derived in one
+    /// place so that the padding, the click target and the hit box cannot
+    /// drift apart.
+    static let markerColumnWidth: CGFloat = errorMarkerSize + 2
 
     private let metrics: Metrics
 
@@ -475,9 +478,9 @@ class LineNumberGutter: NSView {
                 continue
             }
 
-            // Fold chevron cursor (leftmost 14pt)
+            // Fold chevron cursor (the marker column)
             if foldRegions.contains(where: { $0.startLine == lineNum }) {
-                let chevronRect = NSRect(x: 0, y: y, width: 14, height: lineRect.height)
+                let chevronRect = NSRect(x: 0, y: y, width: Self.markerColumnWidth, height: lineRect.height)
                 addCursorRect(chevronRect, cursor: .pointingHand)
             }
 
@@ -514,8 +517,8 @@ class LineNumberGutter: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
 
-        // Check fold chevron click first (leftmost 14pt column)
-        if point.x < 14 {
+        // Check fold chevron click first (the marker column)
+        if point.x < Self.markerColumnWidth {
             let lineAtPoint = lineNumber(at: point)
             if let regionIdx = foldRegions.firstIndex(where: { $0.startLine == lineAtPoint }) {
                 onToggleFold?(regionIdx)
@@ -566,7 +569,7 @@ class LineNumberGutter: NSView {
     /// painted marker grown a few points, so the pointer does not have to land
     /// inside a 10 pt disc.
     private func errorLine(at point: NSPoint) -> Int? {
-        guard !errors.isEmpty, point.x < Self.errorHitWidth else { return nil }
+        guard !errors.isEmpty, point.x < Self.markerColumnWidth else { return nil }
         let line = lineNumber(at: point)
         guard errors.keys.contains(line),
               let frame = lineFrame(forLine: line) else { return nil }
@@ -787,6 +790,12 @@ class LineNumberGutter: NSView {
         let baseline: CGFloat
     }
 
+    /// The divider is one device pixel, so its width follows the screen.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let textView,
               let layoutManager = textView.layoutManager,
@@ -794,9 +803,16 @@ class LineNumberGutter: NSView {
 
         let text = textView.string as NSString
 
-        // Background — seamless with editor (no visible boundary)
+        // Background — the editor's own, so the gutter reads as part of it.
         NSColor.textBackgroundColor.setFill()
         bounds.fill()
+
+        // Divider — a one-pixel separator-colour rule on the trailing edge,
+        // the boundary between the numbers and the text.
+        let hairline = 1 / (window?.backingScaleFactor ?? 2)
+        NSColor.separatorColor.setFill()
+        NSRect(x: bounds.maxX - hairline, y: dirtyRect.minY,
+               width: hairline, height: dirtyRect.height).fill()
 
         // Prepare attributes for current-line vs normal line numbers
         let normalAttributes = lineAttributes
@@ -913,7 +929,7 @@ class LineNumberGutter: NSView {
                 if region.isCollapsed || mouseInGutter {
                     drawFoldChevron(
                         collapsed: region.isCollapsed,
-                        at: NSPoint(x: 3, y: entry.y),
+                        at: NSPoint(x: 0, y: entry.y),
                         lineHeight: entry.height
                     )
                 }
@@ -965,7 +981,7 @@ class LineNumberGutter: NSView {
     private func drawFoldChevron(collapsed: Bool, at origin: NSPoint, lineHeight: CGFloat) {
         let size: CGFloat = 12
         let centerY = origin.y + lineHeight / 2
-        let centerX = origin.x + 7 // center within the 14pt click column
+        let centerX = origin.x + Self.markerColumnWidth / 2 // centre of the marker column
 
         let chevron = NSBezierPath()
         if collapsed {
@@ -1067,7 +1083,7 @@ class LineNumberGutter: NSView {
                 return true
             }
             let frame = lineFrame(forLine: region.startLine).map {
-                NSRect(x: 0, y: $0.origin.y, width: 14, height: $0.height)
+                NSRect(x: 0, y: $0.origin.y, width: Self.markerColumnWidth, height: $0.height)
             }
             apply(frame: frame, to: element)
             ordered.append((region.startLine, 0, element))

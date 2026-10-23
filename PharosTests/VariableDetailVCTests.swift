@@ -550,27 +550,26 @@ private func testGutterMetricsWidths() {
     let sql = LineNumberGutter(textView: textView, scrollView: scroll)
     let compact = LineNumberGutter(textView: textView, scrollView: scroll, metrics: .compact)
 
-    // 3-digit floor plus 20pt of padding. The 4pt segment-bar column and its
-    // 6pt gap are gone: the segment colour is a band behind the numbers now,
-    // so it needs no column of its own.
+    // 2-digit floor plus 16pt of padding: the 12pt marker column and 4pt
+    // trailing. The segment colour is a band behind the numbers, so it needs
+    // no column of its own.
     expectClose(
-        sql.desiredWidth, ceil(3 * digit + 20),
-        "the SQL editor's gutter is its digits plus 20pt of padding")
+        sql.desiredWidth, ceil(2 * digit + 16),
+        "the SQL editor's gutter is its digits plus 16pt of padding")
     // 2-digit floor, 4pt leading, 5pt trailing, no bar column.
     expectClose(
         compact.desiredWidth, ceil(2 * digit + 4 + 5),
         "the compact gutter is only its digits plus 9pt of padding")
-    // The margin used to be 25pt. It is smaller now only because the SQL
-    // gutter itself lost the 10pt bar column — the compact gutter is
-    // unchanged, and still reclaims its own digit and padding difference.
+    // Both have a two-digit floor now, so the compact gutter's saving is the
+    // marker column it does not carry, less its extra point of trailing.
     // Whole points: a fractional gutter made the editor's text a fraction
     // wider than its clip, which AppKit shows as an empty horizontal scroller.
     expectTrue(
         sql.desiredWidth == sql.desiredWidth.rounded() && compact.desiredWidth == compact.desiredWidth.rounded(),
         "both gutters are a whole number of points wide (\(sql.desiredWidth), \(compact.desiredWidth))")
     expectTrue(
-        compact.desiredWidth < sql.desiredWidth - 15,
-        "the compact gutter reclaims over 15pt from the SQL editor's "
+        compact.desiredWidth < sql.desiredWidth - 5,
+        "the compact gutter reclaims over 5pt from the SQL editor's "
             + "(\(compact.desiredWidth) vs \(sql.desiredWidth))")
 
     // The width must be right in the host's FIRST layout pass, before any
