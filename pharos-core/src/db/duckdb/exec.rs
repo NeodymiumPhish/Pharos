@@ -13,7 +13,7 @@
 //!
 //! A statement DuckDB will not take as a subquery (`INSERT … RETURNING`,
 //! `PRAGMA`, `CALL`, `SHOW`, `EXPLAIN`, DDL) is run as written, ONCE, and its
-//! rows are formatted by `text::value_text`.
+//! rows are formatted by `text::typed_value_text`.
 //!
 //! Nothing here uses `Statement::stream_arrow`: its iterator panics when a
 //! fetch fails after execution started, which is exactly what an interrupt
@@ -25,7 +25,7 @@ use std::time::Duration;
 use duckdb::types::Value;
 use duckdb::{Connection, InterruptHandle};
 
-use super::text::{type_name, value_text};
+use super::text::{type_name, typed_value_text};
 use crate::commands::row_identity::ColumnDef;
 use crate::commands::sql_lexer::{split_chunks, ChunkKind};
 use crate::state::QueryCancel;
@@ -240,16 +240,18 @@ fn run_as_written(conn: &Connection, statement: &str, limit: Option<usize>) -> R
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     let mut columns: Option<Vec<ColumnDef>> = None;
+    let mut types = Vec::new();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let stmt_ref = row.as_ref();
         let width = stmt_ref.column_count();
         if columns.is_none() {
             columns = Some(columns_of(stmt_ref));
+            types = (0..width).map(|i| stmt_ref.column_logical_type(i)).collect();
         }
         let mut cells = Vec::with_capacity(width);
-        for i in 0..width {
+        for (i, ty) in types.iter().enumerate() {
             let value: Value = row.get(i).map_err(|e| e.to_string())?;
-            cells.push(value_text(&value).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+            cells.push(typed_value_text(&value, ty).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
         }
         out.push(serde_json::Value::Array(cells));
         // Everything is already materialised by DuckDB; stop at the page.
@@ -720,6 +722,34 @@ mod tests {
         for sql in ["PRAGMA table_info('t')", "SHOW TABLES", "DESCRIBE t", "SUMMARIZE t", "PRAGMA version"] {
             let r = query_text(&c, sql, Some(10), 0).unwrap_or_else(|e| panic!("{sql}: {e}"));
             assert!(!r.columns.is_empty(), "{sql}");
+        }
+    }
+
+    /// A RETURNING runs as written, so its INET cells come from the
+    /// fallback formatter; they read as DuckDB's own cast does.
+    #[test]
+    fn returning_shows_inet_as_duckdbs_text() {
+        let c = conn();
+        c.execute_batch("CREATE TABLE t (ip INET, ips INET[])").unwrap();
+        let r = query_text(
+            &c,
+            "INSERT INTO t VALUES ('134.209.25.199', ['10.0.0.0/8', NULL, '2001:db8::1']), \
+             ('2001:db8:0:0:0:0:0:1/64', NULL) RETURNING ip, ips, ip::VARCHAR, ips::VARCHAR",
+            Some(10),
+            0,
+        )
+        .unwrap();
+        assert!(!r.pageable, "it ran as written");
+        assert_eq!(r.columns[0].data_type, "INET");
+        assert_eq!(r.columns[1].data_type, "INET[]");
+        let rows = cells(&r);
+        assert_eq!(rows[0][0].as_deref(), Some("134.209.25.199"));
+        assert_eq!(rows[0][1].as_deref(), Some("[10.0.0.0/8, NULL, 2001:db8::1]"));
+        assert_eq!(rows[1][0].as_deref(), Some("2001:db8::1/64"));
+        assert_eq!(rows[1][1], None);
+        for row in &rows {
+            assert_eq!(row[0], row[2], "ip as DuckDB's cast");
+            assert_eq!(row[1], row[3], "ips as DuckDB's cast");
         }
     }
 

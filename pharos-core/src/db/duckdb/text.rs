@@ -8,21 +8,41 @@
 //! `CAST(… AS VARCHAR)` rules for the types those statements return. The tests
 //! compare it with DuckDB's cast, in process.
 
+use std::net::Ipv4Addr;
+
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime};
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
-use duckdb::types::{TimeUnit, Value};
+use duckdb::types::{OrderedMap, TimeUnit, Value};
 
 /// The text of one value, or None for SQL NULL.
 pub fn value_text(value: &Value) -> Option<String> {
     match value {
         Value::Null => None,
-        other => Some(render(other, false)),
+        other => Some(render(other, None, false)),
+    }
+}
+
+/// The text of one value of a known column type. The type matters for an
+/// alias type whose `Value` is its storage, not its text: an `INET` arrives
+/// as the STRUCT it is stored as.
+pub fn typed_value_text(value: &Value, ty: &LogicalTypeHandle) -> Option<String> {
+    match value {
+        Value::Null => None,
+        other => Some(render(other, Some(ty), false)),
     }
 }
 
 /// `nested` is true inside a LIST, STRUCT, MAP or ARRAY, where strings are
-/// quoted when they need to be and NULL prints as `NULL`.
-fn render(value: &Value, nested: bool) -> String {
+/// quoted when they need to be and NULL prints as `NULL`. `ty`, when known,
+/// is the value's logical type.
+fn render(value: &Value, ty: Option<&LogicalTypeHandle>, nested: bool) -> String {
+    if let (Some(t), Value::Struct(fields)) = (ty, value) {
+        if t.get_alias().as_deref() == Some("INET") {
+            if let Some(text) = inet_text(fields) {
+                return text;
+            }
+        }
+    }
     match value {
         Value::Null => "NULL".to_string(),
         Value::Boolean(b) => b.to_string(),
@@ -59,26 +79,123 @@ fn render(value: &Value, nested: bool) -> String {
         Value::Time64(unit, v) => time_text(unit.to_micros(*v)),
         Value::Interval { months, days, nanos } => interval_text(*months, *days, *nanos),
         Value::List(items) | Value::Array(items) => {
-            let parts: Vec<String> = items.iter().map(|v| render(v, true)).collect();
+            let item = child(ty, &[LogicalTypeId::List, LogicalTypeId::Array], 0);
+            let parts: Vec<String> = items.iter().map(|v| render(v, item.as_ref(), true)).collect();
             format!("[{}]", parts.join(", "))
         }
         Value::Struct(fields) => {
             let parts: Vec<String> = fields
                 .iter()
-                .map(|(k, v)| format!("{}: {}", quote_key(k), render(v, true)))
+                .enumerate()
+                .map(|(i, (k, v))| {
+                    let field = child(ty, &[LogicalTypeId::Struct], i);
+                    format!("{}: {}", quote_key(k), render(v, field.as_ref(), true))
+                })
                 .collect();
             format!("{{{}}}", parts.join(", "))
         }
         Value::Map(entries) => {
+            let key = child(ty, &[LogicalTypeId::Map], 0);
+            let val = child(ty, &[LogicalTypeId::Map], 1);
             let parts: Vec<String> = entries
                 .iter()
-                .map(|(k, v)| format!("{}={}", render(k, true), render(v, true)))
+                .map(|(k, v)| format!("{}={}", render(k, key.as_ref(), true), render(v, val.as_ref(), true)))
                 .collect();
             format!("{{{}}}", parts.join(", "))
         }
-        Value::Union(inner) => render(inner, nested),
+        // The Value does not say which member it holds, so its type is unknown.
+        Value::Union(inner) => render(inner, None, nested),
         other => format!("{:?}", other),
     }
+}
+
+/// Child `idx` of `ty` when `ty` is one of `ids` and has that child. A
+/// handle that does not match the value (it never should) gives None, so the
+/// value prints untyped instead of panicking in `child`.
+fn child(ty: Option<&LogicalTypeHandle>, ids: &[LogicalTypeId], idx: usize) -> Option<LogicalTypeHandle> {
+    let t = ty?;
+    (ids.contains(&t.id()) && idx < t.num_children()).then(|| t.child(idx))
+}
+
+/// The inet extension's text for its `INET` struct (`ip_type`, `address`,
+/// `mask`): the address, then `/mask` unless the mask covers every bit.
+/// IPv6 `address` is the 128-bit value with its top bit flipped (`::` is the
+/// smallest HUGEINT). None when the fields are not that shape.
+fn inet_text(fields: &OrderedMap<String, Value>) -> Option<String> {
+    let int = |name: &str| -> Option<i128> {
+        match fields.get(&name.to_string())? {
+            Value::TinyInt(v) => Some(*v as i128),
+            Value::UTinyInt(v) => Some(*v as i128),
+            Value::SmallInt(v) => Some(*v as i128),
+            Value::USmallInt(v) => Some(*v as i128),
+            Value::Int(v) => Some(*v as i128),
+            Value::UInt(v) => Some(*v as i128),
+            Value::BigInt(v) => Some(*v as i128),
+            Value::UBigInt(v) => Some(*v as i128),
+            Value::HugeInt(v) => Some(*v),
+            _ => None,
+        }
+    };
+    let address = int("address")?;
+    let mask = int("mask")?;
+    let (text, bits) = match int("ip_type")? {
+        1 => (Ipv4Addr::from(u32::try_from(address).ok()?).to_string(), 32),
+        2 => (ipv6_text((address as u128) ^ (1u128 << 127)), 128),
+        _ => return None,
+    };
+    Some(if mask == bits { text } else { format!("{}/{}", text, mask) })
+}
+
+/// The inet extension's `ToStringIPv6` (its `ipaddress.cpp`), which is not
+/// Rust's `Ipv6Addr` text: the longest run of two or more zero groups (the
+/// left-most on a tie) becomes `::`, and three forms end in a dotted IPv4
+/// address — `::a.b.c.d` (but not when the last group is 1, so `::0.1.0.1`
+/// prints `::1:1`), `::ffff:a.b.c.d`, and `::ffff:0:a.b.c.d`.
+fn ipv6_text(bits: u128) -> String {
+    let groups: [u16; 8] = std::array::from_fn(|i| (bits >> (112 - 16 * i)) as u16);
+    let (mut start, mut len) = (0, 0);
+    let mut i = 0;
+    while i < 8 {
+        if groups[i] != 0 {
+            i += 1;
+            continue;
+        }
+        let run_start = i;
+        while i < 8 && groups[i] == 0 {
+            i += 1;
+        }
+        if i - run_start > 1 && i - run_start > len {
+            (start, len) = (run_start, i - run_start);
+        }
+    }
+    let end = start + len;
+    let dotted_tail = start == 0
+        && ((end == 6 && groups[7] != 1)
+            || (end == 5 && groups[5] == 0xffff)
+            || (end == 4 && groups[4] == 0xffff && groups[5] == 0));
+    let mut out = String::new();
+    let mut i = 0;
+    while i < 8 {
+        if i > 0 {
+            out.push(':');
+        }
+        if (start..end).contains(&i) {
+            if i == 0 {
+                out.push(':');
+            }
+            i = end - 1;
+            if i == 7 {
+                out.push(':');
+            }
+        } else if i == 6 && dotted_tail {
+            out.push_str(&Ipv4Addr::from(bits as u32).to_string());
+            break;
+        } else {
+            out.push_str(&format!("{:x}", groups[i]));
+        }
+        i += 1;
+    }
+    out
 }
 
 /// DuckDB prints the shortest text that reads back to the same value, and
@@ -309,12 +426,16 @@ mod tests {
 
     /// The formatter against DuckDB's own cast, for every type a fallback
     /// statement can return.
+    /// It reads the column's type as `exec`'s fallback does, so an alias
+    /// type (INET) is checked as the grid shows it.
     fn assert_matches_cast(expr: &str) {
         let conn = crate::db::duckdb::memory_connection().unwrap();
         let sql = format!("SELECT {expr} AS v, CAST({expr} AS VARCHAR) AS t");
+        let mut stmt = conn.prepare(&sql).unwrap();
         let (value, cast): (Value, Option<String>) =
-            conn.query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
-        assert_eq!(value_text(&value), cast, "for {expr} (value {value:?})");
+            stmt.query_row([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        let ty = stmt.column_logical_type(0);
+        assert_eq!(typed_value_text(&value, &ty), cast, "for {expr} (value {value:?})");
     }
 
     #[test]
@@ -347,12 +468,38 @@ mod tests {
         }
     }
 
+    /// INET (the built-in inet extension) is an alias over a STRUCT; its
+    /// `Value` is that struct, and only the type says to print an address.
+    #[test]
+    fn inet_matches_duckdbs_cast() {
+        for ip in [
+            "134.209.25.199", "1.2.3.4/32", "10.0.0.0/8", "0.0.0.0/0", "255.255.255.255", "192.168.1.5/24",
+            "2001:db8::1", "2001:db8:0:0:0:0:0:1", "2001:db8::/32", "::", "::/0", "::1", "::1/128",
+            "::ffff:1.2.3.4", "::1.2.3.4", "::ffff:0:0", "fe80::1:0:0:1", "1:0:0:2:0:0:0:3",
+            "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2001:DB8:A::/48", "1:2:3:4:5:6:7:8",
+            // The extension's dotted-tail rules, quirks included.
+            "::2", "::ffff", "::1:0", "::1:1", "::1:2", "::255.255.255.255", "::1.2.3.4/96",
+            "::ffff:0:0", "::ffff:1.2.3.4/120", "::ffff:0:1.2.3.4", "::fffe:1.2.3.4", "64:ff9b::1.2.3.4",
+            "0:0:0:0:1:ffff:1.2.3.4", "0:0:0:0:0:1:0:0", "1::", "0:1::", "1:0:0:1::", "1:0:1:0:1:0:1:0",
+        ] {
+            assert_matches_cast(&format!("INET '{ip}'"));
+        }
+        for expr in [
+            "NULL::INET", "[INET '134.209.25.199', NULL, INET '2001:db8::/32']", "[]::INET[]",
+            "[INET '10.0.0.0/8']::INET[1]", "{'a': INET '::1', 'b': [INET '1.2.3.4/16']}",
+            "MAP {INET '1.2.3.4': INET 'fe80::1'}", "[[INET '1.2.3.4']]",
+        ] {
+            assert_matches_cast(expr);
+        }
+    }
+
     #[test]
     fn type_names_match_describe() {
         let conn = crate::db::duckdb::memory_connection().unwrap();
         let exprs = [
             "1::INTEGER", "1.5::DECIMAL(18,3)", "[1]", "{'a': 1}", "MAP {'a': 1}", "'{}'::JSON",
             "uuid()", "now()", "TIMESTAMP '2024-01-01'", "'x'::BLOB", "[1]::INTEGER[2]",
+            "INET '1.2.3.4'", "[INET '1.2.3.4']",
         ];
         for expr in exprs {
             let sql = format!("SELECT {expr}");
