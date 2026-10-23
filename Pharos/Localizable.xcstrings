@@ -430,7 +430,7 @@
     "A banner shows while a tab has a transaction open. 0 turns the timeout off; a forgotten transaction then holds its locks until you commit, roll back or close the tab." : {
 
     },
-    "A card failed or was cancelled while it ran, so DuckDB aborted the transaction. Its changes cannot be committed. Roll back to run more cards." : {
+    "A card failed or was cancelled, so DuckDB aborted the transaction. Its changes cannot be committed. Roll back to run more cards." : {
 
     },
     "A card you have named is never touched. Tabs take the name of their connection and schema." : {
@@ -1407,7 +1407,7 @@
         }
       }
     },
-    "DuckDB has no savepoints. An error while a statement runs, or Cancel, fails the whole transaction. Syntax errors do not." : {
+    "DuckDB has no savepoints. An error while a statement runs, a table or column that does not exist, or Cancel, fails the whole transaction. Syntax errors do not." : {
 
     },
     "DuckDB refuses writes to the attached database. A read-only connection always attaches read-only." : {

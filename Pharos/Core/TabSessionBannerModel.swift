@@ -28,15 +28,16 @@ enum TabSessionBannerState: Equatable {
     }
 
     /// `message` for the tab's engine. DuckDB has no savepoints, so an error
-    /// while a statement runs, or Cancel, fails the WHOLE transaction (plan
-    /// V3/V4) — which a PostgreSQL user would not expect (Q3).
+    /// while a statement runs, a missing table or column (since DuckDB 2.0),
+    /// or Cancel, fails the WHOLE transaction (plan V3/V4) — which a
+    /// PostgreSQL user would not expect (Q3).
     func message(engine: DatabaseEngine) -> String {
         guard engine == .duckdb else { return message }
         switch self {
         case .transaction:
-            return message + " " + String(localized: "DuckDB has no savepoints. An error while a statement runs, or Cancel, fails the whole transaction. Syntax errors do not.")
+            return message + " " + String(localized: "DuckDB has no savepoints. An error while a statement runs, a table or column that does not exist, or Cancel, fails the whole transaction. Syntax errors do not.")
         case .failed:
-            return String(localized: "A card failed or was cancelled while it ran, so DuckDB aborted the transaction. Its changes cannot be committed. Roll back to run more cards.")
+            return String(localized: "A card failed or was cancelled, so DuckDB aborted the transaction. Its changes cannot be committed. Roll back to run more cards.")
         case .reset:
             return message
         }

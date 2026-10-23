@@ -380,10 +380,10 @@ mod duckdb_format_tests {
 
     #[test]
     fn duckdb_syntax_survives_format_sql() {
-        let c = ::duckdb::Connection::open_in_memory().unwrap();
+        let c = crate::db::duckdb::memory_connection().unwrap();
         c.execute_batch("CREATE TABLE t AS SELECT range AS a, range % 3 AS g, 'x' || range AS s FROM range(9)").unwrap();
         let cases = [
-            ("lambda", "SELECT list_transform([1, 2, 3], x -> x + 1) AS l"),
+            ("lambda", "SELECT list_transform([1, 2, 3], lambda x: x + 1) AS l"),
             ("struct literal", "SELECT {'a': 1, 'b': 'two'} AS s"),
             ("FROM-first", "FROM t SELECT a WHERE a > 5"),
             ("EXCLUDE", "SELECT * EXCLUDE (s) FROM t WHERE a < 2"),

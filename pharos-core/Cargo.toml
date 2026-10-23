@@ -37,17 +37,21 @@ keyring = { version = "3", features = ["apple-native"] }
 urlencoding = "2"
 sqlformat = "0.3"
 flate2 = "1"
-# DuckDB 1.5.6, linked against the static libraries scripts/build-duckdb.sh
+# DuckDB 2.0.0, linked against the static libraries scripts/build-duckdb.sh
 # builds (with the extensions in duckdb/extension_config.cmake); build.rs adds
 # the extension libraries. No `bundled`: that build cannot link out-of-tree
-# extensions. `.cargo/config.toml` points libduckdb-sys at the libraries.
-duckdb = "=1.10506.1"
+# extensions. `.cargo/config.toml` points libduckdb-sys at the libraries. No
+# default features: they add `download-lib`, a build-script download of a
+# shared libduckdb that Pharos never uses.
+duckdb = { version = "=1.20000.0", default-features = false }
 
 [build-dependencies]
 cbindgen = "0.27"
 
-# duckdb with one addition, `Connection::progress_handle` (vendor/duckdb, marked
-# "PHAROS PATCH"). Drop when a published duckdb-rs carries a progress API.
+# duckdb with one addition, `Statement::query_streaming` (vendor/duckdb, marked
+# "PHAROS PATCH"): rows that stream, with a failed fetch as an Err (1.20000.0's
+# only streaming API, `stream_arrow`, panics on one). Drop when a published
+# duckdb-rs carries it.
 [patch.crates-io]
 duckdb = { path = "vendor/duckdb" }
 

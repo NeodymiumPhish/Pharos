@@ -48,7 +48,7 @@ struct Live {
     interrupt: Arc<InterruptHandle>,
     /// Taken at open, beside the interrupt: `run_on` holds `conn` for the
     /// whole query, so nothing could reach the connection to ask later.
-    progress: Arc<ProgressHandle>,
+    progress: ProgressHandle,
     /// The schema the toolbar last set; None until it sets one.
     schema: Option<String>,
     txn: TxnState,
@@ -522,14 +522,26 @@ pub async fn explain(target: SessionTarget, sql: String, analyze: bool, state: &
 /// executes nothing. Only the FIRST statement is checked, because a later
 /// one may name a table an earlier one creates. Skipped (valid) while the
 /// tab's connection is busy, as on PostgreSQL.
+///
+/// Inside an open transaction the check is for syntax only, on a connection
+/// of its own: since DuckDB 2.0 a catalog or binder error from `prepare`
+/// aborts the open transaction (a syntax error does not), so binding on the
+/// tab's connection would end the user's transaction while they type. The
+/// other connection cannot see what the transaction made, so it reports
+/// nothing but parser errors.
 pub async fn validate_sql(target: SessionTarget, sql: String, state: &AppState) -> Result<super::query::ValidationResult, String> {
     let valid = super::query::ValidationResult { valid: true, error: None };
     let Some(first) = exec::statements(&sql).into_iter().next() else { return Ok(valid) };
     let session = state.duck_session(&target.session_id).filter(|s| s.connection_id == target.connection_id);
+    let mut syntax_only = false;
     let conn: Arc<StdMutex<Connection>> = match &session {
         Some(s) => {
             let Ok(guard) = s.live.try_lock() else { return Ok(valid) };
             match guard.as_ref() {
+                Some(live) if live.txn == TxnState::InTransaction => {
+                    syntax_only = true;
+                    Arc::new(StdMutex::new(state.require_duck(&target.connection_id)?.connect()?))
+                }
                 Some(live) if live.txn != TxnState::Failed => live.conn.clone(),
                 Some(_) => return Ok(valid),
                 None => Arc::new(StdMutex::new(state.require_duck(&target.connection_id)?.connect()?)),
@@ -552,6 +564,7 @@ pub async fn validate_sql(target: SessionTarget, sql: String, state: &AppState) 
     .map_err(|e| e.to_string())?;
     Ok(match outcome {
         Ok(()) => valid,
+        Err(message) if syntax_only && !message.starts_with("Parser Error") => valid,
         Err(message) => validation_failure(&sql, &message),
     })
 }
@@ -793,6 +806,50 @@ mod tests {
         assert_eq!(e.column, Some(3), "{:?}", e);
     }
 
+    /// Typing in a card must never end the tab's transaction: a misspelled
+    /// table is not checked inside one (DuckDB 2.0 would abort it), a syntax
+    /// error still is, and the transaction commits afterwards.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn validation_inside_a_transaction_leaves_it_open() {
+        let state = state_with_duck("d1");
+        let target: SessionTarget = serde_json::from_value(serde_json::json!({"sessionId": "tab", "connectionId": "d1"})).unwrap();
+        execute_statement(run("tab", "CREATE TABLE kept(a INT)"), &state).await.unwrap();
+        execute_statement(run("tab", "BEGIN"), &state).await.unwrap();
+        execute_statement(run("tab", "INSERT INTO kept VALUES (1)"), &state).await.unwrap();
+        execute_statement(run("tab", "CREATE TEMP TABLE made_in_txn AS SELECT 1 AS x"), &state).await.unwrap();
+
+        let missing = validate_sql(target.clone(), "SELECT * FROM no_such_table".into(), &state).await.unwrap();
+        assert!(missing.valid, "not bound inside a transaction");
+        let own = validate_sql(target.clone(), "SELECT x FROM made_in_txn".into(), &state).await.unwrap();
+        assert!(own.valid, "a table the transaction made is not reported missing");
+        let syntax = validate_sql(target.clone(), "SELECT 1 FORM t".into(), &state).await.unwrap();
+        assert!(syntax.error.expect("a syntax error is still reported").message.starts_with("Parser Error"));
+
+        execute_statement(run("tab", "COMMIT"), &state).await.expect("the transaction is still open");
+        let r = execute_query(run("tab", "SELECT count(*) FROM kept"), &state).await.unwrap();
+        assert_eq!(r.result.rows[0][0], serde_json::json!("1"));
+
+        // Outside a transaction, binding errors are reported again.
+        let bound = validate_sql(target, "SELECT * FROM no_such_table".into(), &state).await.unwrap();
+        assert!(!bound.valid);
+    }
+
+    /// Which card errors fail the tab's transaction on DuckDB 2.0 (the
+    /// "What differs from PostgreSQL" table in docs/duckdb.md says so).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn which_card_errors_fail_the_tabs_transaction() {
+        let state = state_with_duck("d1");
+        let txn = || state.duck_session("tab").unwrap().report().txn;
+        for (sql, fails) in [("SELEC 1", false), ("SELECT * FROM no_such_table", true),
+                             ("SELECT 1 // 0", true), ("SELECT 1; SELEC 2", false)] {
+            execute_statement(run("tab", "BEGIN"), &state).await.unwrap();
+            assert!(execute_query(run("tab", sql), &state).await.is_err(), "{sql}");
+            let expected = if fails { TxnState::Failed } else { TxnState::InTransaction };
+            assert_eq!(txn(), expected, "{sql}");
+            execute_statement(run("tab", "ROLLBACK"), &state).await.unwrap();
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn a_write_on_a_read_only_database_fails_and_returns() {
         let path = std::env::temp_dir().join(format!("pharos_ro_{}.duckdb", uuid::Uuid::new_v4()));
@@ -819,7 +876,7 @@ mod tests {
     /// the position format or the prefixes fails here, not in the editor.
     #[test]
     fn the_engine_reports_positions_the_way_error_line_column_reads_them() {
-        let conn = duckdb::Connection::open_in_memory().unwrap();
+        let conn = crate::db::duckdb::memory_connection().unwrap();
         let err = |sql: &str| conn.prepare(sql).map(|_| ()).unwrap_err().to_string();
 
         // FORM is read as a column alias, so the error is at `t`.

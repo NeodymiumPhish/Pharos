@@ -24,18 +24,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${PHAROS_DUCKDB_WORK:-$ROOT/pharos-core/target/duckdb-build}"
 MODE="${1:-write}"
+# The version folders build-duckdb.sh uses (src-<tag>, build-<tag>-arm64).
+DUCKDB_TAG="$(sed -n 's/^ *DUCKDB_TAG="\(.*\)"$/\1/p' "$ROOT/scripts/build-duckdb.sh")"
+[ -n "$DUCKDB_TAG" ] || { echo "gen-third-party-notices: no DUCKDB_TAG in scripts/build-duckdb.sh" >&2; exit 1; }
 
 METADATA="$(mktemp)"
 trap 'rm -f "$METADATA"' EXIT
 (cd "$ROOT/pharos-core" && cargo metadata --format-version 1 --locked \
     --filter-platform aarch64-apple-darwin > "$METADATA")
 
-python3 -I - "$ROOT" "$WORK" "$METADATA" "$MODE" <<'PY'
+python3 -I - "$ROOT" "$WORK" "$METADATA" "$MODE" "$DUCKDB_TAG" <<'PY'
 import hashlib, json, os, re, sys
 
-root, work, metadata_path, mode = sys.argv[1:5]
-src = os.path.join(work, "src")
-build = os.path.join(work, "build-arm64", "release")
+root, work, metadata_path, mode, duckdb_tag = sys.argv[1:6]
+src = os.path.join(work, "src-" + duckdb_tag)
+build = os.path.join(work, "build-" + duckdb_tag + "-arm64", "release")
 deps = os.path.join(build, "_deps")
 triplet = "arm64-osx-pharos"
 

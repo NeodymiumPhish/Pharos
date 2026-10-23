@@ -18,7 +18,7 @@ nav_order: 20
 
 ## Overview
 
-Pharos opens [DuckDB](https://duckdb.org) database files as well as PostgreSQL servers. DuckDB 1.5.6 is built into the app: there is nothing else to install, and the database runs inside Pharos.
+Pharos opens [DuckDB](https://duckdb.org) database files as well as PostgreSQL servers. DuckDB 2.0.0 is built into the app: there is nothing else to install, and the database runs inside Pharos.
 
 A DuckDB file you open is **not** added to the Connections Manager. Pharos keeps a note of it, named after the file, so its tabs, query history, Sessions and workspaces stay linked to it, and it shows in the tab's Connection pop-up under **Open Files** while a tab uses it. When another file already has that name, Pharos adds the folder name, for example "data (Reports)". Query cards, tabs, query history, Sessions, workspaces, variables and tags work the same way as for a PostgreSQL connection.
 
@@ -91,6 +91,11 @@ Read-only applies to that connect only.
 While a connection is open read-only, the tab's context row shows **Read-only** with a lock. Its help says why: the connection's Read-only setting, or another app that holds the file. The Database Navigator then leaves out Import Data…, Truncate and Drop. Two connections on the same file must have the same Read-only setting: when one is open, the other does not connect and says so.
 
 A file written by a newer DuckDB than the one in Pharos does not open. The tab's context row says "Needs a newer DuckDB", with no Try Again, because a retry cannot succeed.
+
+### Files and other DuckDB tools
+
+- A file made by DuckDB 1.x keeps its format when Pharos writes to it, so DuckDB 1.x tools can still open it.
+- A new database file that Pharos creates uses the DuckDB 2.0 format. DuckDB 1.x tools (an older `duckdb` command, an older Python package) cannot open it. To make a file that they can open, attach it from a card with `ATTACH '/Users/you/shared.duckdb' (STORAGE_VERSION 'v1.5.6')`.
 
 When Pharos connects on its own (at launch, or from a Shortcut), it shows no alert. The tab's context row says "In use by another app" with an **Open Read-Only** button, or "File not found" with a **Locate…** button.
 
@@ -181,7 +186,7 @@ These run the query again on the tab's own connection, so its temporary tables a
 | Other attached databases | — | Shown as `database.schema` in the schema browser |
 | Cancel and the query timeout | Server cancel | DuckDB's interrupt. A statement the interrupt cannot reach (for example an ATTACH whose PostgreSQL server never answers) is left running in the background after 2 s; the card ends, and the tab gets a new connection, so its temporary tables and settings are gone. |
 | Exports (Export Data…, Export as Parquet…, Shortcuts) | No time limit | No time limit |
-| A card that fails inside a transaction | Undone alone (savepoint) | DuckDB has no savepoints: an error while a statement runs, or Cancel, fails the whole transaction (a syntax error does not). Roll it back from the transaction chip, whose help says so. |
+| A card that fails inside a transaction | Undone alone (savepoint) | DuckDB has no savepoints: an error while a statement runs, a table or column that does not exist, or Cancel, fails the whole transaction (a syntax error does not). While a transaction is open, the editor checks a card for syntax errors only, because DuckDB 2.0 would end the transaction for a missing table. Roll it back from the transaction chip, whose help says so. |
 | Editor-tab connections per connection | Limited by **Settings > Connections** | No limit: each tab always has its own connection |
 | Idle-transaction timeout | Set by the server | None |
 | Editing result cells | Yes | No |
@@ -190,6 +195,19 @@ These run the query again on the tab's own connection, so its temporary tables a
 | Export | CSV, TSV, JSON, JSON Lines, SQL, Markdown, XLSX | The same, and Parquet: **Export as Parquet…** in the schema browser, or **Parquet** in the **Export Data…** sheet with the columns you choose |
 
 Cells show DuckDB's own text for every type, including lists (`[1, 2]`), structs (`{'a': 1}`) and maps.
+
+### SQL that changed in DuckDB 2.0
+
+Queries written for DuckDB 1.x can need a change:
+
+| DuckDB 1.x | DuckDB 2.0 |
+|---|---|
+| Lambda `x -> x + 1` | `lambda x: x + 1`. To use the old form for a tab, run `SET lambda_syntax = 'enable_single_arrow'`. DuckDB 2.1 removes the old form. |
+| `10 // 0` and `10 % 0` give NULL | They give an error. `SET error_on_division_by_zero = false` gives NULL again. |
+| `~` matches the whole text | `~` and `!~` match part of the text, like PostgreSQL. `SET regex_match_operator_semantics = 'full'` gives the old meaning. |
+| `X'01'` is text | `X'01'` is a BLOB. |
+
+`CONNECT` and `DISCONNECT` attach and detach a database; the Database Navigator refreshes after them, as after `ATTACH`.
 
 ## Extensions
 

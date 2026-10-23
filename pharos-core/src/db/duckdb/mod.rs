@@ -177,6 +177,7 @@ impl DuckDbInstance {
             config = config.with("temp_directory", &spill.to_string_lossy()).map_err(|e| e.to_string())?;
         }
 
+        register_builtin_extensions();
         let conn = if path == IN_MEMORY {
             Connection::open_in_memory_with_flags(config)
         } else {
@@ -241,23 +242,51 @@ pub fn lock_holder(path: &str) -> Option<String> {
 
 /// What a DuckDB file's header says about its format: the storage version
 /// and the DuckDB release that wrote it ("storage version 64, written by
-/// DuckDB v1.5.6"). The header: 8 bytes checksum, "DUCK", the version
+/// DuckDB v1.5.6"). The main header: 8 bytes checksum, "DUCK", the version
 /// number (u64, little-endian), four u64 flags, then the writer's version
 /// text (32 bytes). None when the file is not a DuckDB file.
+///
+/// Since DuckDB 2.0 the main header's number is a marker, 999, and the
+/// storage version is in the database headers: the blocks at 4096 and 8192,
+/// each a u64 checksum, then iteration, meta block, free list, block count,
+/// block size, vector size and the storage version (u64s). The header with
+/// the higher iteration is the current one.
 pub fn file_storage(path: &str) -> Option<String> {
     use std::io::Read;
+    const MOVED_TO_DATABASE_HEADER: u64 = 999;
+    let mut file = std::fs::File::open(path).ok()?;
     let mut header = [0u8; 84];
-    std::fs::File::open(path).ok()?.read_exact(&mut header).ok()?;
+    file.read_exact(&mut header).ok()?;
     if &header[8..12] != b"DUCK" {
         return None;
     }
-    let version = u64::from_le_bytes(header[12..20].try_into().ok()?);
+    let mut version = Some(u64::from_le_bytes(header[12..20].try_into().ok()?));
+    if version == Some(MOVED_TO_DATABASE_HEADER) {
+        let mut blocks = vec![0u8; 3 * 4096];
+        version = file_read_prefix(&mut file, &mut blocks).then(|| {
+            let field = |block: usize, index: usize| {
+                let at = block * 4096 + 8 + index * 8;
+                u64::from_le_bytes(blocks[at..at + 8].try_into().unwrap())
+            };
+            let current = if field(1, 0) >= field(2, 0) { 1 } else { 2 };
+            field(current, 6)
+        })
+        // An encrypted file's database headers are not readable here.
+        .filter(|v| (1..MOVED_TO_DATABASE_HEADER).contains(v));
+    }
     let writer: String = header[52..84].iter().take_while(|b| **b != 0).map(|b| *b as char).collect();
-    Some(if writer.is_empty() {
-        format!("storage version {}", version)
-    } else {
-        format!("storage version {}, written by DuckDB {}", version, writer)
+    Some(match (version, writer.is_empty()) {
+        (Some(v), true) => format!("storage version {}", v),
+        (Some(v), false) => format!("storage version {}, written by DuckDB {}", v, writer),
+        (None, true) => "DuckDB 2.0 format".to_string(),
+        (None, false) => format!("written by DuckDB {}", writer),
     })
+}
+
+/// Fill `buffer` from the start of `file`; false when the file is shorter.
+fn file_read_prefix(file: &mut std::fs::File, buffer: &mut [u8]) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    file.seek(SeekFrom::Start(0)).is_ok() && file.read_exact(buffer).is_ok()
 }
 
 /// The folder relative reads of a file database start in: the file's own
@@ -320,9 +349,37 @@ fn open_failure_message(raw: &str) -> String {
     }
 }
 
-/// The DuckDB library version Pharos links, e.g. `v1.5.6`.
-pub fn duckdb_version() -> String {
+extern "C" {
+    /// The loader `scripts/build-duckdb.sh` generates from DuckDB's
+    /// `static_extension_loader.c.in`: it registers every extension in
+    /// `duckdb/extension_config.cmake`'s `duckdb_extension_statically_link`
+    /// list, and the two capabilities (the built-in HTTP client, INSTALL/LOAD).
+    fn duckdb_register_static_extensions() -> i32;
+}
+
+/// Register the built-in extensions with DuckDB: once per process, before the
+/// first database opens. Since DuckDB 2.0 a linked extension is not
+/// registered by being linked, and a database opened before this call has
+/// none of them (not even `core_functions`).
+pub fn register_builtin_extensions() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if unsafe { duckdb_register_static_extensions() } != 0 {
+            log::error!("DuckDB refused one or more built-in extensions");
+        }
+    });
+}
+
+/// An in-memory DuckDB with the built-in extensions, outside any
+/// `DuckDbInstance` (the version probe, tests).
+pub fn memory_connection() -> duckdb::Result<Connection> {
+    register_builtin_extensions();
     Connection::open_in_memory()
+}
+
+/// The DuckDB library version Pharos links, e.g. `v2.0.0`.
+pub fn duckdb_version() -> String {
+    memory_connection()
         .and_then(|c| c.query_row("SELECT library_version FROM pragma_version()", [], |r| r.get::<_, String>(0)))
         .unwrap_or_else(|_| "unknown".to_string())
 }
@@ -382,9 +439,9 @@ mod tests {
     #[test]
     #[ignore = "needs the duckdb command-line tool"]
     fn a_file_another_process_writes_reports_its_lock() {
+        // The CLI makes the file, so its format is one the CLI reads: a
+        // file Pharos made is DuckDB 2.0's format, which a 1.x CLI refuses.
         let path = temp_path("held");
-        drop(DuckDbInstance::open(&path, false, &OpenOptions::default()).unwrap());
-        assert_eq!(lock_holder(&path), None, "a free file");
         let mut child = std::process::Command::new("duckdb")
             .arg(&path)
             .stdin(std::process::Stdio::piped())
@@ -397,7 +454,7 @@ mod tests {
         let _ = child.wait();
         let message = held.expect("the CLI holds a write lock");
         assert!(message.contains(LOCKED_MARKER) && message.contains("PID"), "{message}");
-        assert_eq!(lock_holder(&path), None, "free again once the CLI quits");
+        assert_eq!(lock_holder(&path), None, "free once the CLI quits");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -406,8 +463,9 @@ mod tests {
         let path = temp_path("header");
         drop(DuckDbInstance::open(&path, false, &OpenOptions::default()).unwrap());
         let storage = file_storage(&path).unwrap();
-        assert!(storage.starts_with("storage version ") && storage.contains(&format!("DuckDB {}", duckdb_version())),
-                "{storage}");
+        // DuckDB 2.0's own number for its format (StorageVersion::V2_0_0),
+        // not the main header's 999 marker.
+        assert_eq!(storage, format!("storage version 69, written by DuckDB {}", duckdb_version()));
         std::fs::write(&path, b"not a database at all, just some text").unwrap();
         assert_eq!(file_storage(&path), None);
         let _ = std::fs::remove_file(&path);
@@ -489,7 +547,7 @@ mod tests {
         while std::time::Instant::now() < deadline && !worker.is_finished() {
             // A reading above 0: a table scan reports real progress (a
             // `range()` source would stay at 0 for the whole run).
-            if let Some(p) = progress.query_progress().and_then(|p| p.percentage).filter(|p| *p > 0.0) {
+            if let Some(p) = progress.query_progress().percentage().filter(|p| *p > 0.0) {
                 seen = Some(p);
                 break;
             }
@@ -500,7 +558,8 @@ mod tests {
         let p = seen.expect("a percentage above 0 while the query ran");
         assert!(p > 0.0 && p <= 100.0, "{p}");
         drop(conn);
-        assert_eq!(progress.query_progress(), None, "no reading after the connection closed");
+        assert!(!progress.is_connected(), "no reading after the connection closed");
+        assert_eq!(progress.query_progress().percentage(), None);
     }
 
     /// The extensions `duckdb/extension_config.cmake` links in. Each must
@@ -798,7 +857,7 @@ mod tests {
     }
 
     #[test]
-    fn the_linked_version_is_1_5() {
-        assert!(duckdb_version().starts_with("v1.5"), "{}", duckdb_version());
+    fn the_linked_version_is_2_0() {
+        assert!(duckdb_version().starts_with("v2.0"), "{}", duckdb_version());
     }
 }

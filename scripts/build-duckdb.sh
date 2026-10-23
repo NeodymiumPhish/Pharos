@@ -18,9 +18,9 @@ main() {
     ROOT="$(cd "$(dirname "$0")/.." && pwd)"
     CORE="$ROOT/pharos-core"
 
-    DUCKDB_TAG="v1.5.6"
-    DUCKDB_COMMIT="069cc9f9b5"            # what v1.5.6 points at (checked below)
-    VCPKG_TAG="2026.10.16"               # OpenSSL 3.6.5, curl 8.23.0, libpq 18.4 (DuckDB v1.5.6 names 2025.12.12)
+    DUCKDB_TAG="v2.0.0"
+    DUCKDB_COMMIT="d54cbbe3df"            # what v2.0.0 points at (checked below)
+    VCPKG_TAG="2026.10.16"               # OpenSSL 3.6.5, curl 8.23.0, libpq 18.4 (DuckDB v2.0.0 names 2026.06.24)
     DEPLOYMENT_TARGET="26.0"             # the app's minimum macOS (project.yml)
 
     ARCH="${1:-$(uname -m)}"
@@ -32,10 +32,12 @@ main() {
 
     # The sources and build folders (several GB). CI moves them out of target/,
     # which its Rust cache saves.
+    # Sources and build folders are per DuckDB version, so a version bump
+    # never builds on top of the last version's tree.
     WORK="${PHAROS_DUCKDB_WORK:-$CORE/target/duckdb-build}"
-    SRC="$WORK/src"
+    SRC="$WORK/src-$DUCKDB_TAG"
     VCPKG="$WORK/vcpkg"
-    BUILD="$WORK/build-$ARCH"
+    BUILD="$WORK/build-$DUCKDB_TAG-$ARCH"
     OUT="$CORE/target/duckdb/$RUST_TARGET"
     CONFIG="$CORE/duckdb/extension_config.cmake"
     TRIPLETS="$CORE/duckdb/triplets"
@@ -83,6 +85,8 @@ main() {
     export VCPKG_DEFAULT_BINARY_CACHE="$WORK/vcpkg-cache"
     mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
+    CAPABILITIES="duckdb_httplib duckdb_loadable_extensions"
+
     COMMON=(
         -G Ninja
         -DCMAKE_BUILD_TYPE=Release
@@ -97,8 +101,6 @@ main() {
         -DDUCKDB_EXPLICIT_PLATFORM="$PLATFORM"
         -DBUILD_SHELL=0
         -DBUILD_UNITTESTS=0
-        -DENABLE_EXTENSION_AUTOLOADING=1
-        -DENABLE_EXTENSION_AUTOINSTALL=0
         -DENABLE_SANITIZER=0
         -DENABLE_UBSAN=0
     )
@@ -113,14 +115,14 @@ main() {
         || { tail -40 "$BUILD.config.log"; exit 1; }
     MANIFEST_DIR="$SRC/build/extension_configuration"
     [ -f "$MANIFEST_DIR/vcpkg.json" ] || { echo "build-duckdb: no merged vcpkg.json in $MANIFEST_DIR" >&2; exit 1; }
-    # sqlite_scanner's manifest (at the pinned commit) lists openssl and curl, but
-    # none of its sources include or link either (checked with grep, 2026-10-20).
-    # Building them would cost minutes and put OpenSSL in the app for nothing.
+    # The merged manifest's dependencies, de-duplicated. (sqlite_scanner's
+    # manifest once listed openssl and curl that it never used; at the v2.0.0
+    # pin it lists none, and httpfs and postgres_scanner need what they list.)
     python3 -I - "$MANIFEST_DIR/vcpkg.json" "$VCPKG/ports" "$(git -C "$VCPKG" rev-parse HEAD)" <<'PY'
 import json, os, re, sys
 path, ports, vcpkg_head = sys.argv[1], sys.argv[2], sys.argv[3]
 manifest = json.load(open(path))
-unused = set()  # SPIKE: httpfs and postgres_scanner need what the manifests list
+unused = set()
 deps, seen = [], set()
 for d in manifest.get("dependencies", []):
     name = d if isinstance(d, str) else d.get("name")
@@ -175,19 +177,37 @@ PY
         -DVCPKG_MANIFEST_DIR="$MANIFEST_DIR"
     # Only the static libraries Pharos links (step 3): not libduckdb.dylib and
     # not the loadable .duckdb_extension files, which DuckDB builds by default.
+    # The two capability archives (2.0) are what 1.x had in the core: the
+    # built-in HTTP client, and INSTALL/LOAD of extension files.
     local targets
     targets="$(ninja -C "$BUILD/release" -t targets all \
         | awk -F: '$1 ~ /\/lib[a-z0-9_]+_extension\.a$/ {print $1}' | sort -u)"
     # shellcheck disable=SC2086
-    cmake --build "$BUILD/release" --config Release --target duckdb_static duckdb_generated_extension_loader $targets
+    cmake --build "$BUILD/release" --config Release --target duckdb_static $CAPABILITIES $targets
 
     # 3. Every static library the app needs, in one folder (DuckDB's gather-libs).
     rm -rf "$OUT"
     mkdir -p "$OUT/lib" "$OUT/include"
     cp "$BUILD/release/src/libduckdb_static.a" "$OUT/lib/"
     cp "$BUILD"/release/third_party/*/libduckdb_*.a "$OUT/lib/"
-    cp "$BUILD/release/extension/libduckdb_generated_extension_loader.a" "$OUT/lib/"
+    cp "$BUILD/release/src/main/http/libduckdb_httplib.a" \
+       "$BUILD/release/src/main/extension/libduckdb_loadable_extensions.a" "$OUT/lib/"
     cp "$BUILD"/release/extension/*/lib*_extension.a "$OUT/lib/"
+
+    # The loader (2.0): duckdb_register_static_extensions, which pharos-core
+    # calls once before it opens a database. Since 2.0 nothing else registers a
+    # linked extension. The list is the config's duckdb_extension_statically_link,
+    # after the capabilities (DuckDB's own order); a name with no archive fails
+    # the link, not the launch.
+    local linked
+    linked="$(awk '/^duckdb_extension_statically_link\(/{on=1; next} on && /^\)/{on=0} on {print $1}' "$CONFIG")"
+    [ -n "$linked" ] || { echo "build-duckdb: no duckdb_extension_statically_link list in $CONFIG" >&2; exit 1; }
+    # shellcheck disable=SC2086
+    python3 -I "$SRC/scripts/generate_static_extension_loader.py" -o "$BUILD/static_extension_loader.c" \
+        httplib loadable_extensions $linked
+    xcrun clang -c -O2 -arch "$ARCH" -mmacosx-version-min="$DEPLOYMENT_TARGET" -I "$SRC/src/include" \
+        "$BUILD/static_extension_loader.c" -o "$BUILD/static_extension_loader.o"
+    ar rcs "$OUT/lib/libduckdb_pharos_extension_loader.a" "$BUILD/static_extension_loader.o"
     # Not vcpkg's zlib: the app links macOS's libz (-lz), which minizip-ng uses
     # as well.
     # Not libpq's embedded-SQL libraries (ecpg, pgtypes) or psql's frontend

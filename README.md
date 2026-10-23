@@ -26,7 +26,7 @@ Download a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/relea
 xattr -c Pharos.app
 ```
 
-Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers and DuckDB database files (DuckDB 1.5.6 is built in).
+Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers and DuckDB database files (DuckDB 2.0.0 is built in).
 
 ## Features
 

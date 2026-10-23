@@ -779,6 +779,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn connects_that_start_together_share_one_instance() {
         let path = temp("together", "duckdb");
+        crate::db::duckdb::register_builtin_extensions();
         drop(::duckdb::Connection::open(&path).unwrap());
         let state = Arc::new(state_with("w1", &path));
         let base = state.get_config("w1").unwrap();
@@ -994,6 +995,7 @@ mod tests {
         save_in_memory("m".into(), file.clone(), &state).await.unwrap();
         // Refused: the target exists now.
         assert!(save_in_memory("m".into(), file.clone(), &state).await.is_err());
+        crate::db::duckdb::register_builtin_extensions();
         let saved = duckdb::Connection::open(&file).unwrap();
         let n: i64 = saved.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap();
         let d: i64 = saved.query_row("SELECT sum(d) FROM v", [], |r| r.get(0)).unwrap();

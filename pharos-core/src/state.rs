@@ -45,7 +45,7 @@ pub struct RunningQuery {
     pub cancel: Arc<QueryCancel>,
     /// The engine's progress reader, when it has one (DuckDB). Attached once
     /// the query knows its connection (`RegisteredQuery::attach_progress`).
-    pub progress: Option<Arc<duckdb::ProgressHandle>>,
+    pub progress: Option<duckdb::ProgressHandle>,
 }
 
 /// A query's place in `AppState::running_queries`, held for as long as the
@@ -82,7 +82,7 @@ impl Drop for RegisteredQuery<'_> {
 
 impl RegisteredQuery<'_> {
     /// Let `pharos_query_progress` read this query's progress.
-    pub fn attach_progress(&self, progress: Arc<duckdb::ProgressHandle>) {
+    pub fn attach_progress(&self, progress: duckdb::ProgressHandle) {
         let mut queries = self.state.running_queries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(q) = queries.get_mut(&self.query_id) {
             q.progress = Some(progress);
@@ -601,13 +601,15 @@ impl AppState {
     }
 
     /// A running query's progress: None when it is not running, its engine
-    /// reports none (PostgreSQL), or it has no estimate yet.
+    /// reports none (PostgreSQL), or its connection is closed. A reading with
+    /// no estimate yet has no percentage.
     pub fn query_progress(&self, query_id: &str) -> Option<duckdb::QueryProgress> {
         let handle = {
             let queries = self.running_queries.lock().unwrap_or_else(|e| e.into_inner());
             queries.get(query_id)?.progress.clone()?
         };
-        handle.query_progress()
+        let reading = handle.query_progress();
+        handle.is_connected().then_some(reading)
     }
 
     /// Whether a query is registered (can still be cancelled).

@@ -31,7 +31,10 @@ enum RunPathRule {
     /// Statements that change what the Database Navigator and completion
     /// show (N1). A comment or a string never counts: each statement is
     /// judged by its first word, after comments.
-    static let catalogWords: Set<String> = ["CREATE", "DROP", "ALTER", "ATTACH", "DETACH", "IMPORT", "COMMENT"]
+    /// DuckDB 2.0's CONNECT and DISCONNECT attach and detach a database (and
+    /// switch to it), so they count like ATTACH and DETACH.
+    static let catalogWords: Set<String> = ["CREATE", "DROP", "ALTER", "ATTACH", "DETACH", "IMPORT", "COMMENT",
+                                            "CONNECT", "DISCONNECT"]
 
     /// Does any of these statements (a card's, split by `SQLSegmentParser`)
     /// change the catalog? `COPY FROM DATABASE` copies tables in, so it

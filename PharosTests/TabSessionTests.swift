@@ -75,7 +75,7 @@ private func testBannerModel() {
     let duckOpen = TabSessionBannerState.transaction(elapsed: 5, idleRemaining: nil)
     expect(duckOpen.message(engine: .duckdb).contains("DuckDB has no savepoints"), "banner: DuckDB names the missing savepoints")
     expect(duckOpen.message(engine: .postgres) == duckOpen.message, "banner: PostgreSQL text unchanged")
-    expect(TabSessionBannerState.failed.message(engine: .duckdb).hasPrefix("A card failed or was cancelled while it ran"),
+    expect(TabSessionBannerState.failed.message(engine: .duckdb).hasPrefix("A card failed or was cancelled, so DuckDB aborted"),
            "banner: DuckDB's failed transaction says why")
     expect(TabSessionBannerState.failed.message(engine: .postgres) == "The transaction failed. Roll it back to run more cards.",
            "banner: PostgreSQL failed text unchanged")

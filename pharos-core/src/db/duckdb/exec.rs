@@ -336,10 +336,11 @@ pub fn explain_text(conn: &Connection, statement: &str, analyze: bool) -> Result
 /// engines.
 ///
 /// - `EXPLAIN (FORMAT json)` gives `[{name, children, extra_info}]`.
-/// - `EXPLAIN (ANALYZE, FORMAT json)` gives a profile: `latency` (seconds)
-///   at the root, then an `EXPLAIN_ANALYZE` operator whose child is the plan;
-///   each operator has `operator_name`, `operator_timing` (seconds, its own
-///   time) and `operator_cardinality` (rows out).
+/// - `EXPLAIN (ANALYZE, FORMAT json)` gives DuckDB 2.0's profile:
+///   `query.total_time` (seconds), and an `operator` tree whose plan starts
+///   below the RESULT_COLLECTOR, EXECUTE and EXPLAIN_ANALYZE wrappers; each
+///   operator has `type`, `timing` (seconds, its own time) and
+///   `intermediate_rows` (rows out).
 ///
 /// DuckDB has no cost model, so `Total Cost` is absent (0 in the viewer);
 /// `Estimated Cardinality` becomes `Plan Rows`.
@@ -355,12 +356,18 @@ pub fn explain_plan_json(conn: &Connection, statement: &str, analyze: bool) -> R
 }
 
 /// `{"Plan": …, "Execution Time": ms}` from DuckDB's own JSON.
+///
+/// EXPLAIN gives an array of plan nodes (`name`). EXPLAIN ANALYZE gives
+/// DuckDB 2.0's profile: `{"operator": [tree], "query": {"total_time": s}}`,
+/// whose tree starts with the wrappers RESULT_COLLECTOR, EXECUTE and
+/// EXPLAIN_ANALYZE, and whose nodes have `type`, `timing` (seconds) and
+/// `intermediate_rows`.
 pub fn plan_envelope(raw: &serde_json::Value, analyze: bool) -> Option<serde_json::Value> {
     use serde_json::{json, Map, Value};
+    const WRAPPERS: [&str; 3] = ["RESULT_COLLECTOR", "EXECUTE", "EXPLAIN_ANALYZE"];
     let root = if analyze {
-        // Skip the EXPLAIN_ANALYZE wrapper operator(s): the plan starts below.
-        let mut node = raw.get("children")?.get(0)?;
-        while node.get("operator_type").and_then(Value::as_str) == Some("EXPLAIN_ANALYZE") {
+        let mut node = raw.get("operator")?.get(0)?;
+        while node.get("type").and_then(Value::as_str).is_some_and(|t| WRAPPERS.contains(&t)) {
             node = node.get("children")?.get(0)?;
         }
         node
@@ -369,11 +376,17 @@ pub fn plan_envelope(raw: &serde_json::Value, analyze: bool) -> Option<serde_jso
     };
     fn convert(node: &Value, analyze: bool) -> Value {
         let mut out = Map::new();
-        let name = node
-            .get(if analyze { "operator_name" } else { "name" })
-            .or_else(|| node.get("operator_type"))
-            .and_then(Value::as_str)
-            .unwrap_or("Node");
+        let name = if analyze {
+            // A profile names every scan TABLE_SCAN, with the kind in
+            // extra_info; the plain plan's name for a table read is SEQ_SCAN.
+            let kind = node.get("extra_info").and_then(|e| e.get("Type")).and_then(Value::as_str);
+            match (node.get("type").and_then(Value::as_str), kind) {
+                (Some("TABLE_SCAN"), Some("Sequential Scan")) => "SEQ_SCAN",
+                (t, _) => t.unwrap_or("Node"),
+            }
+        } else {
+            node.get("name").and_then(Value::as_str).unwrap_or("Node")
+        };
         out.insert("Node Type".into(), Value::String(pretty_operator(name)));
         if let Some(extra) = node.get("extra_info").and_then(Value::as_object) {
             let text = |v: &Value| match v {
@@ -401,10 +414,10 @@ pub fn plan_envelope(raw: &serde_json::Value, analyze: bool) -> Option<serde_jso
             }
         }
         if analyze {
-            if let Some(seconds) = node.get("operator_timing").and_then(Value::as_f64) {
+            if let Some(seconds) = node.get("timing").and_then(Value::as_f64) {
                 out.insert("Actual Total Time".into(), json!(seconds * 1000.0));
             }
-            if let Some(rows) = node.get("operator_cardinality").and_then(Value::as_f64) {
+            if let Some(rows) = node.get("intermediate_rows").and_then(Value::as_f64) {
                 out.insert("Actual Rows".into(), json!(rows));
                 out.insert("Actual Loops".into(), json!(1));
             }
@@ -422,7 +435,7 @@ pub fn plan_envelope(raw: &serde_json::Value, analyze: bool) -> Option<serde_jso
     let mut envelope = Map::new();
     envelope.insert("Plan".into(), convert(root, analyze));
     if analyze {
-        if let Some(latency) = raw.get("latency").and_then(Value::as_f64) {
+        if let Some(latency) = raw.get("query").and_then(|q| q.get("total_time")).and_then(Value::as_f64) {
             envelope.insert("Execution Time".into(), json!(latency * 1000.0));
         }
     }
@@ -603,7 +616,7 @@ mod tests {
     use super::*;
 
     fn conn() -> Connection {
-        Connection::open_in_memory().unwrap()
+        crate::db::duckdb::memory_connection().unwrap()
     }
 
     fn cells(r: &TextRows) -> Vec<Vec<Option<String>>> {
@@ -810,7 +823,7 @@ mod tests {
         }
         assert_eq!(node["Node Type"], "Seq Scan");
         assert_eq!(node["Relation Name"], "memory.main.t");
-        assert_eq!(node["Filter"], "x>5");
+        assert_eq!(node["Filter"], "(x > 5)");
         assert!(node["Plan Rows"].as_f64().unwrap() > 0.0);
 
         let analyzed: serde_json::Value = serde_json::from_str(&explain_plan_json(&c, sql, true).unwrap()).unwrap();
@@ -819,6 +832,13 @@ mod tests {
         assert_eq!(root["Node Type"], "Projection", "the EXPLAIN_ANALYZE wrapper is skipped");
         assert_eq!(root["Actual Rows"], 994.0);
         assert!(root.get("Actual Total Time").is_some());
+        let mut leaf = root;
+        while let Some(child) = leaf.get("Plans").and_then(|p| p.get(0)) {
+            leaf = child;
+        }
+        assert_eq!(leaf["Node Type"], "Seq Scan", "named as in the plain plan");
+        assert_eq!(leaf["Relation Name"], "memory.main.t");
+        assert_eq!(leaf["Actual Rows"], 994.0);
         assert_eq!(pretty_operator("PERFECT_HASH_GROUP_BY"), "Perfect Hash Group By");
     }
 
@@ -850,7 +870,7 @@ mod tests {
     /// error and the connection keeps working.
     #[tokio::test(flavor = "multi_thread")]
     async fn interrupt_stops_a_long_query_and_the_connection_survives() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = crate::db::duckdb::memory_connection().unwrap();
         let interrupt = conn.interrupt_handle();
         let conn = Arc::new(std::sync::Mutex::new(conn));
         let cancel = Arc::new(crate::state::QueryCancel::new());
@@ -875,7 +895,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_timeout_interrupts_too() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = crate::db::duckdb::memory_connection().unwrap();
         let interrupt = conn.interrupt_handle();
         let cancel = crate::state::QueryCancel::new();
         let outcome = run_cancellable(interrupt, &cancel, 1, move || {
@@ -885,16 +905,20 @@ mod tests {
         assert_eq!(outcome, Err(RunStop::TimedOut(1)));
     }
 
-    /// An error found before a statement runs (parser, binder, catalog)
-    /// leaves an explicit transaction open and usable. An error while it
-    /// runs (a constraint violation) aborts it: only ROLLBACK works then.
-    /// `transaction_failed` tells the two apart.
+    /// DuckDB 2.0: a syntax error found by `prepare` leaves an explicit
+    /// transaction open and usable; a catalog or binder error (1.x kept the
+    /// transaction for those) and an error while a statement runs (a
+    /// constraint violation) abort it: only ROLLBACK works then.
+    /// `transaction_failed` tells them apart.
     #[test]
     fn which_errors_fail_a_transaction() {
         let c = conn();
         c.execute_batch("CREATE TABLE t(a INT PRIMARY KEY); BEGIN; INSERT INTO t VALUES (1)").unwrap();
-        assert!(c.execute_batch("SELECT * FROM nope").is_err());
-        assert!(!transaction_failed(&c), "a catalog error keeps the transaction");
+        assert!(c.prepare("SELEC 1").is_err());
+        assert!(!transaction_failed(&c), "a syntax error keeps the transaction");
+        assert!(c.prepare("SELECT * FROM nope").is_err());
+        assert!(transaction_failed(&c), "a catalog error aborts it (2.0)");
+        c.execute_batch("ROLLBACK; BEGIN; INSERT INTO t VALUES (1)").unwrap();
         c.execute_batch("INSERT INTO t VALUES (2)").unwrap();
         assert!(c.execute_batch("INSERT INTO t VALUES (2)").is_err());
         assert!(transaction_failed(&c), "a constraint error aborts it");
@@ -926,7 +950,7 @@ mod tests {
     /// An interrupt inside an explicit transaction: record what DuckDB does.
     #[tokio::test(flavor = "multi_thread")]
     async fn an_interrupt_inside_a_transaction_fails_it() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = crate::db::duckdb::memory_connection().unwrap();
         conn.execute_batch("CREATE TABLE t(a INT); BEGIN; INSERT INTO t VALUES (1)").unwrap();
         let interrupt = conn.interrupt_handle();
         let conn = Arc::new(std::sync::Mutex::new(conn));

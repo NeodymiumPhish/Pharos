@@ -216,7 +216,7 @@ void pharos_duckdb_save_in_memory(const char *connection_id,
  char *pharos_duckdb_lock_holder(const char *path);
 
 /**
- * The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
+ * The DuckDB library version Pharos links, e.g. `"v2.0.0"`, as a JSON
  * string. Free with `pharos_free_string`.
  */
  char *pharos_duckdb_version(void);

@@ -55,7 +55,7 @@
 //! ```
 #![warn(missing_docs)]
 
-pub use libduckdb_sys as ffi;
+pub use libduckdb_sys::v1 as ffi;
 
 use std::{
     cell::RefCell,
@@ -79,8 +79,9 @@ pub use crate::{
     config::{AccessMode, Config, DefaultNullOrder, DefaultOrder},
     error::Error,
     ffi::ErrorCode,
-    inner_connection::{InterruptHandle, ProgressHandle, QueryProgress},
+    inner_connection::InterruptHandle,
     params::{Params, ParamsFromIter, params_from_iter},
+    progress::{ProgressHandle, QueryProgress},
     row::{AndThenRows, Map, MappedRows, Row, RowIndex, Rows},
     statement::Statement,
     transaction::{DropBehavior, Transaction},
@@ -136,6 +137,7 @@ mod transaction;
 mod extension;
 
 pub mod profiling;
+pub mod progress;
 pub mod types;
 /// The duckdb table function interface
 #[cfg(feature = "vtab")]
@@ -205,6 +207,30 @@ macro_rules! params {
 ///         },
 ///         |row| row.get(0),
 ///     )
+/// }
+/// ```
+///
+/// An owned list is a [`Value::List`](crate::types::Value::List).
+/// Pass that value under a bare name.
+/// Write the SQL placeholder as `$names`, with no parentheses around it.
+///
+/// ```rust
+/// use duckdb::types::Value;
+/// use duckdb::{Connection, Result, named_params};
+///
+/// fn main() -> Result<()> {
+///     let conn = Connection::open_in_memory()?;
+///     conn.execute_batch(
+///         "CREATE TABLE items(name VARCHAR);
+///          INSERT INTO items VALUES ('alpha'), ('other');",
+///     )?;
+///     let names = Value::List(vec![Value::Text("alpha".to_string())]);
+///     let mut stmt = conn.prepare("SELECT name FROM items WHERE name IN $names ORDER BY name")?;
+///     let found: Vec<String> = stmt
+///         .query_map(named_params! { "names": names }, |row| row.get(0))?
+///         .collect::<Result<_>>()?;
+///     assert_eq!(found, vec!["alpha".to_string()]);
+///     Ok(())
 /// }
 /// ```
 #[macro_export]
@@ -670,12 +696,6 @@ impl Connection {
     /// }
     pub fn interrupt_handle(&self) -> std::sync::Arc<InterruptHandle> {
         self.db.borrow().get_interrupt_handle()
-    }
-
-    /// PHAROS PATCH: a handle that reads this connection's query progress
-    /// from another thread. See [`ProgressHandle`].
-    pub fn progress_handle(&self) -> std::sync::Arc<ProgressHandle> {
-        self.db.borrow().get_progress_handle()
     }
 
     /// Close the DuckDB connection.
@@ -1579,16 +1599,36 @@ mod test {
 
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let mut stmt = db
+            // The interrupt can land while the statement is still being prepared
+            // (prepare() itself surfaces it as an INTERRUPT error) or once the
+            // query starts executing.
+            let result = db
                 .prepare("select count(*) from range(10000000) t1, range(1000000) t2")
-                .unwrap();
-            tx.send(stmt.execute([])).unwrap();
+                .and_then(|mut stmt| stmt.execute([]));
+            tx.send(result).unwrap();
         });
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        db_interrupt.interrupt();
+        // DuckDB resets the interrupt flag when a query starts executing, so an
+        // interrupt that arrives while the worker is still preparing is discarded.
+        // Keep signalling until the query reacts; a single fixed-delay interrupt
+        // is missed whenever the worker is descheduled past the sleep.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let result = loop {
+            db_interrupt.interrupt();
+            match rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(result) => break result,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "query never observed the interrupt"
+                    );
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("query thread exited without returning a result")
+                }
+            }
+        };
 
-        let result = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
         assert!(result.is_err_and(|err| err.to_string().contains("INTERRUPT")));
         Ok(())
     }

@@ -11,6 +11,8 @@ func runTests() {
     expect(RunPathRule.changesCatalog(statements: ["-- note\n  drop view v"]), "after a comment, any case")
     expect(RunPathRule.changesCatalog(statements: ["ATTACH 'x.db' AS x"]) && RunPathRule.changesCatalog(statements: ["DETACH x"]),
            "ATTACH and DETACH")
+    expect(RunPathRule.changesCatalog(statements: ["CONNECT 'quack:localhost' AS remote"])
+           && RunPathRule.changesCatalog(statements: ["DISCONNECT remote"]), "DuckDB 2.0's CONNECT and DISCONNECT")
     expect(RunPathRule.changesCatalog(statements: ["COPY FROM DATABASE memory TO saved"]), "COPY FROM DATABASE")
     expect(!RunPathRule.changesCatalog(statements: ["COPY t TO 'x.csv'"]), "a plain COPY does not")
     expect(!RunPathRule.changesCatalog(statements: ["SELECT 'CREATE TABLE x'", "INSERT INTO t VALUES (1)"]),

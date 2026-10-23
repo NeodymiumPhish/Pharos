@@ -136,7 +136,7 @@ extension PharosCore {
         return result ?? nil
     }
 
-    /// The DuckDB library version Pharos links, e.g. "v1.5.6".
+    /// The DuckDB library version Pharos links, e.g. "v2.0.0".
     static func duckDBVersion() -> String {
         (try? callSync { pharos_duckdb_version() }) ?? "unknown"
     }

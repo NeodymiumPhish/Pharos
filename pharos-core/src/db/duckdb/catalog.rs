@@ -584,7 +584,7 @@ mod tests {
     use super::*;
 
     fn sample() -> Connection {
-        let c = Connection::open_in_memory().unwrap();
+        let c = crate::db::duckdb::memory_connection().unwrap();
         c.execute_batch(
             "CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');
              CREATE TABLE customers (id INTEGER PRIMARY KEY, email VARCHAR UNIQUE NOT NULL, m mood, score INTEGER CHECK (score >= 0));

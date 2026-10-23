@@ -306,12 +306,11 @@ pub fn type_name(t: &LogicalTypeHandle) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use duckdb::Connection;
 
     /// The formatter against DuckDB's own cast, for every type a fallback
     /// statement can return.
     fn assert_matches_cast(expr: &str) {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = crate::db::duckdb::memory_connection().unwrap();
         let sql = format!("SELECT {expr} AS v, CAST({expr} AS VARCHAR) AS t");
         let (value, cast): (Value, Option<String>) =
             conn.query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
@@ -350,7 +349,7 @@ mod tests {
 
     #[test]
     fn type_names_match_describe() {
-        let conn = Connection::open_in_memory().unwrap();
+        let conn = crate::db::duckdb::memory_connection().unwrap();
         let exprs = [
             "1::INTEGER", "1.5::DECIMAL(18,3)", "[1]", "{'a': 1}", "MAP {'a': 1}", "'{}'::JSON",
             "uuid()", "now()", "TIMESTAMP '2024-01-01'", "'x'::BLOB", "[1]::INTEGER[2]",

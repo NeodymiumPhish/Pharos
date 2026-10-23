@@ -202,7 +202,7 @@ pub extern "C" fn pharos_duckdb_lock_holder(path: *const c_char) -> *mut c_char 
     ffi_sync!(to_json_c_string(&crate::db::duckdb::lock_holder(&path)))
 }
 
-/// The DuckDB library version Pharos links, e.g. `"v1.5.6"`, as a JSON
+/// The DuckDB library version Pharos links, e.g. `"v2.0.0"`, as a JSON
 /// string. Free with `pharos_free_string`.
 #[no_mangle]
 pub extern "C" fn pharos_duckdb_version() -> *mut c_char {
@@ -221,9 +221,9 @@ pub extern "C" fn pharos_query_progress(query_id: *const c_char) -> *mut c_char 
         let progress = APP_STATE.get().and_then(|state| state.query_progress(&id));
         let json = match progress {
             Some(p) => serde_json::json!({
-                "percentage": p.percentage,
-                "rowsProcessed": p.rows_processed,
-                "totalRows": p.total_rows_to_process,
+                "percentage": p.percentage(),
+                "rowsProcessed": p.rows_processed(),
+                "totalRows": p.total_rows_to_process(),
             }),
             None => serde_json::Value::Null,
         };
