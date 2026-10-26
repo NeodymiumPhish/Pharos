@@ -19,7 +19,9 @@ extension ResultsGridVC: ResultsFindControllerDelegate {
         }
         pushDataToHelpers()
         pushFindStateToDataSource(matchSet: matchSet, currentMatchRow: currentMatchRow, currentMatchColId: currentMatchColId)
-        tableView.reloadData()
+        // Find re-runs when rows arrive or the filters change, not only when
+        // the user types in the find field.
+        reloadKeepingEditor { tableView.reloadData() }
         reconcileSelection(previousDisplayRows: previousDisplayRows)
         updateStatusBarText()
     }
@@ -54,6 +56,10 @@ extension ResultsGridVC: ResultsDataSourceDelegate {
     func dataSourceSelectionDidChange() {
         let indices = tableView.selectedRowIndexes
         onSelectionChanged?(indices)
+    }
+
+    func dataSourceReload(_ reload: () -> Void) {
+        reloadKeepingEditor(reload)
     }
 
     func dataSourceGridSettingsDidChange(_ settings: ResultsGridSettings) {

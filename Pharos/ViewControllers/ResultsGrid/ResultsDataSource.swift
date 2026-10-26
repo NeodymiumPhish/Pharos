@@ -22,6 +22,10 @@ protocol ResultsDataSourceDelegate: AnyObject {
     /// halves of one change in an order nobody controls, and the column widths
     /// depend on the fonts the data source has just taken.
     func dataSourceGridSettingsDidChange(_ settings: ResultsGridSettings)
+    /// Run `reload`, which redraws the rows, without closing an open inline
+    /// editor (`ResultsGridVC.reloadKeepingEditor`). A Settings change can
+    /// arrive while the user types in a cell.
+    func dataSourceReload(_ reload: () -> Void)
 }
 
 /// The Settings ▸ Results values the grid's chrome reads, snapshotted off one
@@ -410,15 +414,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// `ResultsGridVC` whenever the set changes; the render path only reads it.
     var pendingEdits = PendingCellEdits()
 
-    /// The cell currently showing an editable field, as a DISPLAY row and a
-    /// TABLE column index — the same address space `cellSelection` uses, so
-    /// both survive a column reorder the same way.
-    var editingCell: CellPosition?
-
-    /// Delegate of the inline editor field. `ResultsGridVC` handles Return,
-    /// Tab and Escape through `control(_:textView:doCommandBy:)`.
-    weak var cellEditorDelegate: NSTextFieldDelegate?
-
     weak var delegate: ResultsDataSourceDelegate?
 
     init(tableView: NSTableView) {
@@ -452,7 +447,11 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                     self.delegate?.dataSourceGridSettingsDidChange(chrome)
                 }
                 if changed {
-                    self.tableView.reloadData()
+                    if let delegate = self.delegate {
+                        delegate.dataSourceReload { self.tableView.reloadData() }
+                    } else {
+                        self.tableView.reloadData()
+                    }
                 }
             }
 
@@ -600,16 +599,15 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // override even when within the selection rectangle.
         applySelection(isInSelection && !isFindHighlighted, to: cell)
 
-        // The editor, last: it covers the cell, so nothing above needs to know
-        // about it. Assigned unconditionally in both directions — a recycled
-        // cell that once held the editor must not scroll back in still showing
-        // a field over a row nobody is editing.
-        if let editing = editingCell, editing.row == row, editing.column == cellColumnIndex {
-            cell.beginEditing(text: cell.textField?.stringValue ?? "",
-                              font: regularFont, delegate: cellEditorDelegate)
-        } else {
-            cell.endEditing()
-        }
+        // The editor, last: it covers the cell. This path only ever CLOSES
+        // one, so a recycled cell that once held the editor cannot come back
+        // still showing a field over a row nobody is editing. It never opens
+        // one: the label's text is the DISPLAY form (escaped, truncated,
+        // formatted, `↵` for a newline), and an editor seeded from it would
+        // write that form back. `ResultsGridVC.openEditor` opens it, with the
+        // value itself — and a reload under an open editor goes through
+        // `reloadKeepingEditor`, which re-opens it with the user's own text.
+        cell.endEditing()
 
         return cell
     }

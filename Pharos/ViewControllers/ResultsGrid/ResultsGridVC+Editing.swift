@@ -79,10 +79,6 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
         guard let dataColumn = dataColumnIndex(forTableColumn: position.column),
               let dataRow = dataRowIndex(forDisplayRow: position.row) else { return }
 
-        editingPosition = position
-        dataSource.editingCell = position
-        dataSource.cellEditorDelegate = self
-
         // The field opens on the value that would be WRITTEN — the pending one
         // where there is one, so a second edit of the same cell continues from
         // where the first left off rather than snapping back to the loaded
@@ -93,21 +89,98 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
         } else {
             seed = loadedText(dataRow: dataRow, columnIndex: dataColumn) ?? ""
         }
+        openEditor(at: position, text: seed, selection: nil)
+        Log.ui.debug("Editing cell row \(dataRow, privacy: .public) column \(dataColumn, privacy: .public)")
+    }
 
+    /// Show the editor over one cell, holding `text`, and give it the keyboard.
+    /// `selection` nil selects all of it — a fresh edit; a range puts back
+    /// where the caret was before a reload.
+    ///
+    /// The ONE place an editor opens. `ResultsDataSource` only ever closes
+    /// one, because all it has is the label's DISPLAY text.
+    private func openEditor(at position: CellPosition, text: String, selection: NSRange?) {
+        editingPosition = position
         tableView.scrollRowToVisible(position.row)
         tableView.scrollColumnToVisible(position.column)
         guard let cell = tableView.view(atColumn: position.column, row: position.row,
                                         makeIfNecessary: true) as? ResultCellView else {
             editingPosition = nil
-            dataSource.editingCell = nil
             return
         }
-        cell.beginEditing(text: seed, font: dataSource.gridStyle.cellFont, delegate: self)
-        if let field = cell.editorField {
-            view.window?.makeFirstResponder(field)
+        cell.beginEditing(text: text, font: dataSource.gridStyle.cellFont, delegate: self)
+        guard let field = cell.editorField else { return }
+        view.window?.makeFirstResponder(field)
+        if let selection, let editor = field.currentEditor() {
+            let length = (text as NSString).length
+            let location = min(selection.location, length)
+            editor.selectedRange = NSRange(location: location,
+                                           length: min(selection.length, length - location))
+        } else {
             field.currentEditor()?.selectAll(nil)
         }
-        Log.ui.debug("Editing cell row \(dataRow, privacy: .public) column \(dataColumn, privacy: .public)")
+    }
+
+    // MARK: - Reloading under an open editor
+
+    /// Run `reload` — anything that redraws grid rows — without closing an
+    /// open editor or committing its text. Every reload that can happen while
+    /// the user types goes through here; one that replaces the result outright
+    /// abandons the edit first instead (`showResult`, `clear`).
+    ///
+    /// Measured on AppKit: `reloadData()` and `reloadData(forRowIndexes:)`
+    /// take the field editor from the cell and post `controlTextDidEndEditing`
+    /// BEFORE drawing the row again. With `editingPosition` cleared for the
+    /// length of the reload, that handler's guard ignores it, so nothing is
+    /// committed and no second reload starts inside this one. Then the editor
+    /// opens again, by `EditorReloadRule`, with the text and caret it had.
+    ///
+    /// Nesting is safe: an inner call finds no editor and just reloads.
+    func reloadKeepingEditor(_ reload: () -> Void) {
+        guard let position = editingPosition,
+              let cell = tableView.view(atColumn: position.column, row: position.row,
+                                        makeIfNecessary: false) as? ResultCellView,
+              let field = cell.editorField, !field.isHidden,
+              let dataRow = dataRowIndex(forDisplayRow: position.row),
+              let dataColumn = dataColumnIndex(forTableColumn: position.column)
+        else {
+            reload()
+            return
+        }
+        let text = field.stringValue
+        let selection = field.currentEditor()?.selectedRange
+
+        editingPosition = nil
+        reload()
+
+        // A reload of OTHER rows leaves this cell, and its field editor,
+        // alone. Opening it again would hand the keyboard to a field that
+        // already has it — AppKit ends that edit first, and the end would
+        // commit. So: still editing means nothing to do.
+        if field.currentEditor() != nil, !field.isHidden {
+            editingPosition = position
+            return
+        }
+
+        switch EditorReloadRule.outcome(
+            dataRow: dataRow, dataColumn: dataColumn,
+            displayRows: displayRows,
+            tableColumn: { self.tableColumnIndex(forDataColumn: $0) },
+            isEditable: { self.canEditCell(at: CellPosition(row: $0, column: $1)) }) {
+        case .reopen(let row, let column):
+            openEditor(at: CellPosition(row: row, column: column), text: text, selection: selection)
+        case .commit:
+            // Its record or column is gone from view, or editing was turned
+            // off: keep the text the way clicking away does — as a pending
+            // edit, which Revert Edit and Discard still reach.
+            pendingEdits.set(PendingEdit(
+                dataRow: dataRow, columnIndex: dataColumn,
+                oldText: loadedText(dataRow: dataRow, columnIndex: dataColumn),
+                newText: text))
+            notifyPendingEditsChanged()
+            view.window?.makeFirstResponder(tableView)
+            reloadDataRow(dataRow)
+        }
     }
 
     /// The text in the open editor, or nil when nothing is open.
@@ -137,7 +210,6 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
     func finishEditing(commitText: String?, move: CellEditMove) {
         guard let position = editingPosition else { return }
         editingPosition = nil
-        dataSource.editingCell = nil
 
         if let text = commitText,
            let dataColumn = dataColumnIndex(forTableColumn: position.column),
@@ -162,10 +234,15 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
 
     /// Repaint one display row across every column, so a committed edit's
     /// marker appears without a full `reloadData` of a large result.
+    ///
+    /// Keeps an editor open in another cell: "Set NULL" or "Revert Edit" on a
+    /// row while a different cell is being typed into must not commit it.
     private func reloadDisplayRow(_ row: Int) {
         guard row >= 0, row < tableView.numberOfRows, tableView.numberOfColumns > 0 else { return }
-        tableView.reloadData(forRowIndexes: IndexSet(integer: row),
-                             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+        reloadKeepingEditor {
+            tableView.reloadData(forRowIndexes: IndexSet(integer: row),
+                                 columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+        }
     }
 
     private func applyMove(_ move: CellEditMove, from position: CellPosition) {

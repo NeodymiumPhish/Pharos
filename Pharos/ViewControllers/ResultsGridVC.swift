@@ -263,7 +263,6 @@ class ResultsGridVC: NSViewController {
         tableView.cellSelectionController = cellSelectionController
         // Double-click and ⌘Return ask here whether a cell may be edited.
         tableView.cellEditingRouter = self
-        dataSource.cellEditorDelegate = self
 
         columnFilterController = ResultsColumnFilterController()
         columnFilterController.delegate = self
@@ -335,7 +334,7 @@ class ResultsGridVC: NSViewController {
                 guard let self else { return }
                 self.tableView.gridColor = ContrastInk.gridLine
                 self.tableView.needsDisplay = true
-                self.tableView.reloadData()
+                self.reloadKeepingEditor { self.tableView.reloadData() }
             }
         }
 
@@ -360,7 +359,7 @@ class ResultsGridVC: NSViewController {
                     // A tag change can change which rows are VISIBLE.
                     self.recomputeDisplayRows()
                 } else {
-                    self.tableView.reloadData()
+                    self.reloadKeepingEditor { self.tableView.reloadData() }
                     self.updateStatusBarText()
                 }
             }
@@ -948,19 +947,25 @@ class ResultsGridVC: NSViewController {
     /// `findControllerDidUpdateResults` rather than returning a list, so when find is
     /// visible this hands off and that callback finishes the job. Find is therefore
     /// still stage 3, downstream of the column filters, exactly as before.
+    ///
+    /// Inside `reloadKeepingEditor`: a sort, a page of rows, a tag or the
+    /// force-show toggle all land here, and none of them is the user leaving
+    /// the cell they are typing in.
     func applyColumnFiltered(_ newFiltered: [Int]) {
         let previousDisplayRows = displayRows
         columnFilteredDisplayRows = newFiltered
-        if findController.isFindVisible {
-            // findFieldChanged calls back into findControllerDidUpdateResults
-            // synchronously, and THAT reconciles the selection against its own
-            // before-list. Reconciling here as well would be redundant.
-            findController.findFieldChanged(findField)
-        } else {
-            displayRows = columnFilteredDisplayRows
-            pushDataToHelpers()
-            tableView.reloadData()
-            reconcileSelection(previousDisplayRows: previousDisplayRows)
+        reloadKeepingEditor {
+            if findController.isFindVisible {
+                // findFieldChanged calls back into findControllerDidUpdateResults
+                // synchronously, and THAT reconciles the selection against its own
+                // before-list. Reconciling here as well would be redundant.
+                findController.findFieldChanged(findField)
+            } else {
+                displayRows = columnFilteredDisplayRows
+                pushDataToHelpers()
+                tableView.reloadData()
+                reconcileSelection(previousDisplayRows: previousDisplayRows)
+            }
         }
         updateStatusBarText()
     }
@@ -1215,7 +1220,7 @@ class ResultsGridVC: NSViewController {
                         // Tags decide visibility here; the map just changed.
                         self.recomputeDisplayRows()
                     } else {
-                        self.tableView.reloadData()
+                        self.reloadKeepingEditor { self.tableView.reloadData() }
                         self.updateStatusBarText()
                     }
                 }

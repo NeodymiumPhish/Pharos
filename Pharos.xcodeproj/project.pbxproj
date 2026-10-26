@@ -321,6 +321,7 @@
 		B428B0392086C871B29DBEA8 /* ResultsGridVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */; };
 		B4E887729AA6B374E5CA615B /* PharosCore+DuckDB.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B66356022E62F3638C73204 /* PharosCore+DuckDB.swift */; };
 		B4EC4931D5D8DDDEED9071DA /* ChartPaletteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */; };
+		B5495D5B18B5C69E125C5E33 /* EditorReloadRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = E138368974A1BF4CA80093DA /* EditorReloadRule.swift */; };
 		B55941F651453FA605E6AF5B /* UnsavedWorkPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */; };
 		B58C21275DBE3E53F2845855 /* NavigatorPaneState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4869C5D3844F9198CB55373 /* NavigatorPaneState.swift */; };
 		B63E1EEF337D37241D9EB7C0 /* SettingsFormDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CBD4D1F97E1EA34FE8CFEC4 /* SettingsFormDocumentView.swift */; };
@@ -787,6 +788,7 @@
 		E0E5D48E1CE429915CDFF074 /* CardStackLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardStackLayout.swift; sourceTree = "<group>"; };
 		E0EC306543F928A90BA622A4 /* ConnectionsManagerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsManagerVC.swift; sourceTree = "<group>"; };
 		E128075E277D62671E85189F /* SettingsAboutHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAboutHeader.swift; sourceTree = "<group>"; };
+		E138368974A1BF4CA80093DA /* EditorReloadRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorReloadRule.swift; sourceTree = "<group>"; };
 		E1FE870093E0771497391C67 /* TabNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabNaming.swift; sourceTree = "<group>"; };
 		E2286D19137325E548E4A8E9 /* SQLDraftFixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraftFixer.swift; sourceTree = "<group>"; };
 		E2D980BDF7D79B8243A59CF1 /* CardResultEviction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardResultEviction.swift; sourceTree = "<group>"; };
@@ -856,6 +858,7 @@
 			children = (
 				32EEDF8A81B6362B017AACE0 /* CellMatcher.swift */,
 				6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */,
+				E138368974A1BF4CA80093DA /* EditorReloadRule.swift */,
 				D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */,
 				90AC102665AFB681E295853B /* FilterCheckRowView.swift */,
 				BB6853CEDBCD972048E8523E /* FilterPopoverSizing.swift */,
@@ -1654,6 +1657,7 @@
 				806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */,
 				3E29C8CBCB83D4D5A595A604 /* EditorPaneVC+TabContext.swift in Sources */,
 				20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */,
+				B5495D5B18B5C69E125C5E33 /* EditorReloadRule.swift in Sources */,
 				0B25DA68EEA7AD800FE3EEFF /* EditorResultsSplitView.swift in Sources */,
 				B378FC8932BBF2A6354ACE01 /* EditorSettingsPaneVC.swift in Sources */,
 				9C75698AFD4443F5F35DEAA9 /* EmptyStateView.swift in Sources */,
