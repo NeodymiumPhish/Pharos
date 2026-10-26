@@ -170,7 +170,8 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
             referenceSize: referenceSize,
             counts: distinct.counts,
             loadedRowCount: rows.count,
-            hasMore: hasMore
+            hasMore: hasMore,
+            showInvisibleCharacters: dataSource.showInvisibleCharacters
         )
         popoverVC.filterDelegate = self
 

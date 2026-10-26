@@ -165,7 +165,6 @@
     "dateStyle": "medium",
     "defaultCopyFormat": "markdown",
     "density": "comfortable",
-    "escapeControlCharacters": false,
     "findMatchCase": true,
     "findMode": "regularExpression",
     "fixedColumnWidth": 201,
@@ -178,6 +177,7 @@
     "nullStyle": "dimmed",
     "numberStyle": "grouped",
     "showColumnTypeIcons": true,
+    "showInvisibleCharacters": true,
     "showNewResultsAutomatically": false,
     "showRowNumbers": false
   },

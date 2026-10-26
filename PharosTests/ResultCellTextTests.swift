@@ -18,27 +18,51 @@ func runTests() {
     expect(r(AnyCodable("42"), .numeric) == "42", "numeric raw")
     expect(r(AnyCodable("2026-01-01"), .temporal) == "2026-01-01", "temporal raw")
 
-    // MARK: - Hostile scalars are escaped for DISPLAY
+    // MARK: - Tier A is disclosed for DISPLAY, whatever the setting says
 
     // The grid draws attacker-controlled data. `DisplayEscape` owns the rule;
     // these pin that the grid's render boundary actually applies it, per
-    // category — a branch that forgot the call is the realistic defect.
+    // category — a branch that forgot the call is the realistic defect. `r`
+    // renders with the DEFAULT setting, which is now off.
     expect(r(AnyCodable("safe\u{202E}gpj.exe"), .string) == "safe<U+202E>gpj.exe",
            "string: a bidi override is shown, not obeyed")
-    expect(r(AnyCodable("10.0.0.1\u{200B}"), .string) == "10.0.0.1<U+200B>",
-           "string: a zero-width space cannot hide in a cell")
-    expect(r(AnyCodable("10.0.0.1 "), .string) == "10.0.0.1<U+0020>",
-           "string: a trailing space is marked, so look-alikes differ")
-    expect(r(AnyCodable("a\u{0000}b"), .string) == "a<U+0000>b",
-           "string: NUL no longer reaches the label")
     expect(r(AnyCodable("{\u{202E}}"), .json) == "{<U+202E>}", "json: escaped too")
-    expect(r(AnyCodable("{a,\u{200B}b}"), .array) == "{a,<U+200B>b}", "array: escaped too")
+    expect(r(AnyCodable("{a,\u{2066}b}"), .array) == "{a,<U+2066>b}", "array: escaped too")
     expect(r(AnyCodable("1\u{202E}2"), .numeric) == "1<U+202E>2",
            "numeric: the category is inferred from the column type, not a guarantee")
-    expect(r(AnyCodable("2026\u{200B}-01-01"), .temporal) == "2026<U+200B>-01-01",
+    expect(r(AnyCodable("2026\u{2028}-01-01"), .temporal) == "2026<U+2028>-01-01",
            "temporal: same")
     expect(r(AnyCodable("m\u{202E}aybe"), .boolean) == "m<U+202E>aybe",
            "boolean: a non-keyword value in a bool column is data, and is escaped")
+
+    // MARK: - Tier B: raw by default, dimmed marks when the user asks
+
+    func cell(_ v: AnyCodable, _ c: PGTypeCategory, on: Bool, limit: UInt32 = 0) -> DisplayEscape.CellText {
+        ResultCellText.renderedCell(value: v, category: c, boolTrue: "✓", boolFalse: "✗",
+                                    nullString: "NULL", maximumCharacters: limit, showInvisibles: on)
+    }
+    expect(r(AnyCodable(" abc "), .string) == " abc ", "default: edge spaces are drawn raw")
+    expect(r(AnyCodable("10.0.0.1\u{200B}"), .string) == "10.0.0.1\u{200B}", "default: zero-width is drawn raw")
+    expect(cell(AnyCodable("10.0.0.1 "), .string, on: true)
+               == .init(text: "10.0.0.1\u{B7}", dimmedRanges: [NSRange(location: 8, length: 1)]),
+           "on: a trailing space is a dimmed dot, so look-alikes differ")
+    expect(cell(AnyCodable("a\u{0000}b"), .string, on: true)
+               == .init(text: "a<U+0000>b", dimmedRanges: [NSRange(location: 1, length: 8)]),
+           "on: NUL is named, dimmed")
+    expect(cell(AnyCodable("{a,\u{200B}b}"), .array, on: true).text == "{a,<U+200B>b}", "on: array too")
+    expect(cell(AnyCodable("2026\u{200B}-01-01"), .temporal, on: true).text == "2026<U+200B>-01-01",
+           "on: temporal too")
+    expect(cell(AnyCodable("m aybe "), .boolean, on: true).text == "m aybe\u{B7}", "on: boolean data too")
+    expect(cell(AnyCodable("a\u{202E}b"), .string, on: true).dimmedRanges.isEmpty,
+           "on: tier A is never dimmed")
+    expect(cell(AnyCodable(nil), .string, on: true).dimmedRanges.isEmpty, "on: NULL is app text, no marks")
+    // Truncation clips the ranges to what is still drawn.
+    expect(cell(AnyCodable("ab   "), .string, on: true, limit: 3)
+               == .init(text: "ab\u{B7}…", dimmedRanges: [NSRange(location: 2, length: 1)]),
+           "on: a mark the ellipsis cuts through keeps only its drawn part")
+    expect(cell(AnyCodable("abcdef "), .string, on: true, limit: 3)
+               == .init(text: "abc…", dimmedRanges: []),
+           "on: a mark the ellipsis cuts off loses its range")
 
     // Flattening runs BEFORE escaping, so a newline keeps its readable ↵ marker
     // rather than becoming <U+000A>. Pinned because the order is the whole point.
@@ -100,17 +124,27 @@ func runTests() {
     expect(rMax(AnyCodable("\u{202E}abcdefgh"), .string, 4) == "<U+2…",
            "the limit applies to the escaped text, which is the text on screen")
 
-    // MARK: - Escaping can be turned off (Settings ▸ Results ▸ Cells)
+    // MARK: - The setting cannot turn tier A off (Settings ▸ Results ▸ Cells)
 
-    func rRaw(_ v: AnyCodable, _ c: PGTypeCategory) -> String {
-        ResultCellText.rendered(value: v, category: c, boolTrue: "✓", boolFalse: "✗",
-                                nullString: "NULL", escapeControls: false)
-    }
-    expect(rRaw(AnyCodable("safe\u{202E}gpj.exe"), .string) == "safe\u{202E}gpj.exe",
-           "escaping off passes the scalar through")
+    expect(cell(AnyCodable("safe\u{202E}gpj.exe"), .string, on: false).text == "safe<U+202E>gpj.exe",
+           "off still discloses the override — the setting governs tier B only")
     // Flattening is NOT escaping: a label that silently becomes two lines is a
     // layout fault, so `↵` stays whatever the setting says.
-    expect(rRaw(AnyCodable("a\nb"), .string) == "a↵b", "escaping off still flattens newlines")
+    expect(cell(AnyCodable("a\nb"), .string, on: false).text == "a↵b", "off still flattens newlines")
+    expect(cell(AnyCodable("a\nb"), .string, on: true).text == "a↵b", "on: the newline stays ↵, not <U+000A>")
+
+    // MARK: - VoiceOver names the marks, not the glyphs
+
+    expect(ResultCellText.accessibilityText(cell(AnyCodable("abc"), .string, on: true)) == nil,
+           "no marks: no override, the label's own text is read")
+    expect(ResultCellText.accessibilityText(cell(AnyCodable(" abc   "), .string, on: true))
+               == "space abc 3 spaces", "edge spaces are counted in words")
+    expect(ResultCellText.accessibilityText(cell(AnyCodable("a\tb"), .string, on: true)) == "a tab b",
+           "a tab is named")
+    expect(ResultCellText.accessibilityText(cell(AnyCodable("a\t "), .string, on: true)) == "a tab, space",
+           "one range of mixed marks names each run")
+    expect(ResultCellText.accessibilityText(cell(AnyCodable("a\u{A0}b"), .string, on: true)) == "a <U+00A0> b",
+           "a token already names its character")
 
     // MARK: - Settings ▸ Results ▸ Formatting reaches the render boundary
 

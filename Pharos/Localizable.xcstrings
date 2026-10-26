@@ -339,6 +339,12 @@
     "%lld saved Sessions" : {
 
     },
+    "%lld spaces" : {
+
+    },
+    "%lld tabs" : {
+
+    },
     "%lld tabs have open transactions." : {
 
     },
@@ -1553,9 +1559,6 @@
     "Errors only" : {
 
     },
-    "Escape control characters" : {
-
-    },
     "Estimated cost %@..%@" : {
       "localizations" : {
         "en" : {
@@ -2232,6 +2235,9 @@
     "Markdown" : {
 
     },
+    "Marks leading and trailing spaces, unusual spaces, zero-width and control characters." : {
+
+    },
     "Match" : {
 
     },
@@ -2653,6 +2659,9 @@
 
     },
     "On launch only" : {
+
+    },
+    "On, a leading or trailing space draws as a dimmed ·, a tab as a dimmed →, and any other invisible character as a dimmed <U+XXXX>, so two values that only differ by one of them no longer look the same. Characters that change how a value reads — a right-to-left override, a line separator — are always shown as <U+XXXX>, whatever this says. Display only: the pasteboard, every export, and find, filter and sort read the raw value." : {
 
     },
     "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save." : {
@@ -3632,6 +3641,9 @@
     "Show Inspector" : {
 
     },
+    "Show invisible characters" : {
+
+    },
     "Show leaf partitions" : {
 
     },
@@ -3686,9 +3698,6 @@
     "shown" : {
 
     },
-    "Shows invisible and direction-changing characters as <U+XXXX>." : {
-
-    },
     "Single quotes ('value')" : {
 
     },
@@ -3708,6 +3717,9 @@
 
     },
     "Source code" : {
+
+    },
+    "space" : {
 
     },
     "spaces" : {
@@ -3831,6 +3843,9 @@
 
     },
     "System trust store" : {
+
+    },
+    "tab" : {
 
     },
     "Tab" : {
@@ -4290,9 +4305,6 @@
 
     },
     "Turned off in Pharos settings." : {
-
-    },
-    "Turning this off lets a value DISPLAY as something it is not — a right-to-left override can make “safe␁gpj.exe” read as “safe.jpg” — so leave it on unless you are looking at text you trust. The escaping is display only. The pasteboard, every export, and find, filter and sort all read the raw value whatever this says." : {
 
     },
     "Turning this off removes them again." : {

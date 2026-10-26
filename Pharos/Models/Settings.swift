@@ -600,9 +600,12 @@ struct ResultsSettings: Codable, Equatable {
     /// Longest display string a cell draws, 0 for no limit. Display only —
     /// copy, export, find and sort read the raw value.
     var maximumCellCharacters: UInt32 = 0
-    /// Whether hostile scalars (bidi overrides, zero-width spaces, C0
-    /// controls) are shown as `<U+XXXX>` instead of being obeyed by the label.
-    var escapeControlCharacters: Bool = true
+    /// Whether result data discloses the characters that only hide a
+    /// difference — edge spaces, unusual spaces, zero-width characters,
+    /// controls (`DisplayEscape.hidesDifference`) — as dimmed marks. Bidi
+    /// controls and line separators (`DisplayEscape.changesLayout`) are
+    /// disclosed whatever this says.
+    var showInvisibleCharacters: Bool = false
 
     // MARK: Formatting
 

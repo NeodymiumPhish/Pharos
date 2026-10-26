@@ -98,12 +98,12 @@ final class ResultsSettingsPaneVC: SettingsFormPaneVC {
                     help: String(localized: "0 draws all of them. Copy, export, find and sort always use the whole value."),
                     kind: .stepper(.settings(\.results.maximumCellCharacters), range: 0...10000, unit: nil)),
                 SettingsItem(
-                    id: "escapeControlCharacters",
-                    title: String(localized: "Escape control characters"),
-                    caption: String(localized: "Shows invisible and direction-changing characters as <U+XXXX>."),
-                    icon: "eye.trianglebadge.exclamationmark",
-                    help: String(localized: "Turning this off lets a value DISPLAY as something it is not — a right-to-left override can make “safe␁gpj.exe” read as “safe.jpg” — so leave it on unless you are looking at text you trust. The escaping is display only. The pasteboard, every export, and find, filter and sort all read the raw value whatever this says."),
-                    kind: .toggle(.settings(\.results.escapeControlCharacters))),
+                    id: "showInvisibleCharacters",
+                    title: String(localized: "Show invisible characters"),
+                    caption: String(localized: "Marks leading and trailing spaces, unusual spaces, zero-width and control characters."),
+                    icon: "paragraphsign",
+                    help: String(localized: "On, a leading or trailing space draws as a dimmed ·, a tab as a dimmed →, and any other invisible character as a dimmed <U+XXXX>, so two values that only differ by one of them no longer look the same. Characters that change how a value reads — a right-to-left override, a line separator — are always shown as <U+XXXX>, whatever this says. Display only: the pasteboard, every export, and find, filter and sort read the raw value."),
+                    kind: .toggle(.settings(\.results.showInvisibleCharacters))),
             ]),
 
             SettingsSection(title: String(localized: "Formatting"), items: [

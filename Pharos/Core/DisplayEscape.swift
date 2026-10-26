@@ -26,6 +26,15 @@ import Foundation
 /// escaped string answers a different question than the user asked. Callers own
 /// that split and each one states it beside the call.
 ///
+/// # Two tiers
+///
+/// `changesLayout` (tier A) is what makes a label LIE: a bidi control reorders
+/// the text, a line separator moves part of it out of sight. `hidesDifference`
+/// (tier B), with edge spaces, only makes two distinct values look alike.
+/// Names disclose both always. Result DATA discloses tier A always and tier B
+/// only when the user turns on Settings ▸ Results ▸ Cells ▸ Show invisible
+/// characters (`escapedCell`, `escapedMultilineValue`).
+///
 /// # Home
 ///
 /// `Pharos/Core/` rather than the results-grid folder because the grid is only
@@ -44,13 +53,39 @@ enum DisplayEscape {
     /// non-BMP scalar is ever added here — the U+E0020–U+E007F tag characters
     /// are the realistic candidate — that per-unit walk stops seeing it and
     /// must become a scalar walk instead.
+    ///
+    /// The union of the two tiers below. Names (connections, schemas, tags,
+    /// column headers) disclose both tiers always; only result DATA lets the
+    /// user hide the second one (`escapedCell`, `escapedMultilineValue`).
     static func mustEscape(_ scalar: Unicode.Scalar) -> Bool {
+        changesLayout(scalar) || hidesDifference(scalar)
+    }
+
+    /// Tier A: scalars that change the ORDER or the LAYOUT of what is drawn.
+    /// A data surface discloses these whatever the user's setting says,
+    /// because the label otherwise reads as something the data does not hold.
+    ///
+    /// The line breakers were measured on a single-line `NSTextField` set up
+    /// as a results cell (2026-10-26): FF, NEL, U+2028 and U+2029 push the
+    /// rest of the value onto a clipped second line, exactly as LF does. VT
+    /// does not, so it is tier B.
+    static func changesLayout(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
-        case 0x00...0x1F, 0x7F...0x9F: return true   // C0 controls, DEL, C1 controls (incl. NEL)
         case 0x200E, 0x200F, 0x061C: return true     // LRM, RLM, ALM
         case 0x202A...0x202E: return true            // the embedding/override set
         case 0x2066...0x2069: return true            // the isolate set
-        case 0x2028, 0x2029: return true             // line/paragraph separators
+        case 0x2028, 0x2029, 0x0085, 0x000C: return true  // line/paragraph separators, NEL, FF
+        default: return false
+        }
+    }
+
+    /// Tier B: scalars that draw as nothing, or as an ordinary space, so they
+    /// only hide a DIFFERENCE between two values. Disclosed on a data surface
+    /// only when Settings ▸ Results ▸ Cells ▸ Show invisible characters is on.
+    static func hidesDifference(_ scalar: Unicode.Scalar) -> Bool {
+        if changesLayout(scalar) { return false }
+        switch scalar.value {
+        case 0x00...0x1F, 0x7F...0x9F: return true   // C0 controls, DEL, C1 controls
         case 0x200B...0x200D, 0x2060, 0xFEFF, 0x180E: return true  // zero-width, BOM, MVS
         case 0x00A0, 0x1680, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return true  // spaces
         default: return false
@@ -124,11 +159,7 @@ enum DisplayEscape {
         guard needsEscaping(text) else { return text }
 
         let scalars = Array(text.unicodeScalars)
-        var lead = 0
-        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
-        var trail = scalars.count
-        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
-
+        let (lead, trail) = edgeSpaceBounds(scalars)
         return escapedCore(scalars) { index in
             index < lead || index >= trail || mustEscape(scalars[index])
         }
@@ -200,15 +231,90 @@ enum DisplayEscape {
     ///
     /// So: `isHostileInFlowingText` for the body, and `escaped`'s own edge-space
     /// walk unchanged.
-    static func escapedMultilineValue(_ text: String) -> String {
+    ///
+    /// `showInvisibles` is Settings ▸ Results ▸ Cells ▸ Show invisible
+    /// characters, the same switch the grid obeys: off, only tier A
+    /// (`changesLayout`) is disclosed and everything else is drawn raw.
+    static func escapedMultilineValue(_ text: String, showInvisibles: Bool) -> String {
         let scalars = Array(text.unicodeScalars)
-        var lead = 0
-        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
-        var trail = scalars.count
-        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
+        guard showInvisibles else {
+            return escapedCore(scalars) { index in changesLayout(scalars[index]) }
+        }
+        let (lead, trail) = edgeSpaceBounds(scalars)
         return escapedCore(scalars) { index in
             index < lead || index >= trail || isHostileInFlowingText(scalars[index])
         }
+    }
+
+    /// What a results cell draws for a value: the text, and the UTF-16 ranges
+    /// in it that are tier B marks, which the cell draws dimmed.
+    struct CellText: Equatable {
+        var text: String
+        var dimmedRanges: [NSRange]
+    }
+
+    /// The results-cell renderer.
+    ///
+    /// Tier A (`changesLayout`) is ALWAYS disclosed as `<U+XXXX>`, at full
+    /// strength: an override that reorders a value is the one thing the
+    /// setting must never be able to hide.
+    ///
+    /// Tier B is disclosed only when `showInvisibles` is on, and as a dimmed
+    /// mark rather than as text the data could hold:
+    /// - a leading or trailing plain space is `·`, one per space, so the
+    ///   column is exactly as wide as the raw value would make it;
+    /// - a tab is `→`;
+    /// - anything else (NBSP, a zero-width character, NUL) is `<U+XXXX>`,
+    ///   run-collapsed, because the code point IS the information: U+00A0 and
+    ///   U+2009 must not draw alike.
+    ///
+    /// Off, tier B is drawn raw, which is what every other SQL client does.
+    static func escapedCell(_ text: String, showInvisibles: Bool) -> CellText {
+        let scalars = Array(text.unicodeScalars)
+        let needsWork = showInvisibles ? needsEscaping(text) : scalars.contains(where: changesLayout)
+        guard needsWork else { return CellText(text: text, dimmedRanges: []) }
+
+        let (lead, trail) = showInvisibles ? edgeSpaceBounds(scalars) : (0, scalars.count)
+        var out = ""
+        var length = 0          // `out`'s UTF-16 length, kept by hand: NSRange counts UTF-16
+        var dimmed: [NSRange] = []
+        func append(_ piece: String, dim: Bool) {
+            let pieceLength = piece.utf16.count
+            if dim {
+                // Adjacent marks share one range, so `···` is one run to colour.
+                if let last = dimmed.last, NSMaxRange(last) == length {
+                    dimmed[dimmed.count - 1].length += pieceLength
+                } else {
+                    dimmed.append(NSRange(location: length, length: pieceLength))
+                }
+            }
+            out += piece
+            length += pieceLength
+        }
+
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
+            if changesLayout(scalar) {
+                let run = runLength(scalars, from: index)
+                append(token(scalar, run: run), dim: false)
+                index += run
+            } else if showInvisibles, scalar == " ", index < lead || index >= trail {
+                append("\u{00B7}", dim: true)
+                index += 1
+            } else if showInvisibles, scalar == "\t" {
+                append("\u{2192}", dim: true)
+                index += 1
+            } else if showInvisibles, hidesDifference(scalar) {
+                let run = runLength(scalars, from: index)
+                append(token(scalar, run: run), dim: true)
+                index += run
+            } else {
+                append(String(Character(scalar)), dim: false)
+                index += 1
+            }
+        }
+        return CellText(text: out, dimmedRanges: dimmed)
     }
 
     static func escapedQualified(schema: String, table: String) -> String {
@@ -232,13 +338,33 @@ enum DisplayEscape {
             while index + run < scalars.count,
                   scalars[index + run] == scalar,
                   isMarked(index + run) { run += 1 }
-            if run == 1 {
-                out += String(format: "<U+%04X>", scalar.value)
-            } else {
-                out += String(format: "<U+%04X\u{00D7}%d>", scalar.value, run)
-            }
+            out += token(scalar, run: run)
             index += run
         }
         return out
+    }
+
+    /// `<U+XXXX>` for one scalar, `<U+XXXX×N>` for a run of N.
+    private static func token(_ scalar: Unicode.Scalar, run: Int) -> String {
+        run == 1
+            ? String(format: "<U+%04X>", scalar.value)
+            : String(format: "<U+%04X\u{00D7}%d>", scalar.value, run)
+    }
+
+    /// How many copies of `scalars[index]` start at `index`.
+    private static func runLength(_ scalars: [Unicode.Scalar], from index: Int) -> Int {
+        var run = 1
+        while index + run < scalars.count, scalars[index + run] == scalars[index] { run += 1 }
+        return run
+    }
+
+    /// The first index past the leading plain spaces, and the first index of
+    /// the trailing ones. An all-space value is all lead.
+    private static func edgeSpaceBounds(_ scalars: [Unicode.Scalar]) -> (lead: Int, trail: Int) {
+        var lead = 0
+        while lead < scalars.count, scalars[lead] == " " { lead += 1 }
+        var trail = scalars.count
+        while trail > lead, scalars[trail - 1] == " " { trail -= 1 }
+        return (lead, trail)
     }
 }

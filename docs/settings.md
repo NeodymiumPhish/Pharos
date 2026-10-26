@@ -206,7 +206,7 @@ Everything about the [results grid](results-grid.md). NULL display, boolean disp
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
 | Maximum characters per cell | 0–10,000 | 0 | Longer values are drawn cut short with an ellipsis; 0 draws all of them. Counted in characters, so an accented letter or an emoji is one. Display only — copy, export, find, filter and sort always use the whole value. |
-| Escape control characters | On/Off | On | Shows invisible and direction-changing characters as `<U+XXXX>`. Turning it off lets a value **display as something it is not**: a right-to-left override can make a filename ending `gpj.exe` read as one ending `.jpg`. Leave it on unless you are reading text you trust. Display only, whichever this says. |
+| Show invisible characters | On/Off | Off | Marks the characters that only hide a difference between two values: a leading or trailing space draws as a dimmed `·`, a tab as a dimmed `→`, and an unusual space, a zero-width character or a control character as a dimmed `<U+XXXX>`. Off, these draw as they are. Characters that change how a value **reads** — a right-to-left override (which can make a filename ending `gpj.exe` read as one ending `.jpg`), a direction mark or isolate, a line or paragraph separator, a form feed — are always shown as `<U+XXXX>`, whatever this says. The Inspector's value and the column filter's value list follow the same setting, with `<U+XXXX>` in place of the dimmed marks. Display only, whichever this says. |
 
 ### Formatting
 

@@ -188,36 +188,36 @@ func runTests() {
     do {
         // The regression this exists for: the Inspector's value pane wraps, so a
         // newline must render, not print as a token.
-        expectEqual(DisplayEscape.escapedMultilineValue("line one\r\nline two"),
+        expectEqual(DisplayEscape.escapedMultilineValue("line one\r\nline two", showInvisibles: true),
                     "line one\r\nline two",
                     "CR and LF in a wrapping value are formatting, not hostile")
-        expectEqual(DisplayEscape.escapedMultilineValue("a\tb"),
+        expectEqual(DisplayEscape.escapedMultilineValue("a\tb", showInvisibles: true),
                     "a\tb",
                     "a tab in a wrapping value is formatting too")
 
         // But it is still DATA, so its edges are still disclosed — this is the
         // whole reason plain `escapedMultiline` cannot be used here.
-        expectEqual(DisplayEscape.escapedMultilineValue("US     "),
+        expectEqual(DisplayEscape.escapedMultilineValue("US     ", showInvisibles: true),
                     "US<U+0020\u{00D7}5>",
                     "char padding is still disclosed, unlike escapedMultiline")
-        expectEqual(DisplayEscape.escapedMultilineValue("  abc  "),
+        expectEqual(DisplayEscape.escapedMultilineValue("  abc  ", showInvisibles: true),
                     "<U+0020\u{00D7}2>abc<U+0020\u{00D7}2>",
                     "edge spaces at both ends are disclosed")
 
         // And a genuinely hostile scalar is still caught.
-        expectEqual(DisplayEscape.escapedMultilineValue("ev\u{202E}il\ncom"),
+        expectEqual(DisplayEscape.escapedMultilineValue("ev\u{202E}il\ncom", showInvisibles: true),
                     "ev<U+202E>il\ncom",
                     "a bidi override is disclosed while the newline survives")
-        expectEqual(DisplayEscape.escapedMultilineValue("one\u{2028}two"),
+        expectEqual(DisplayEscape.escapedMultilineValue("one\u{2028}two", showInvisibles: true),
                     "one<U+2028>two",
                     "a line SEPARATOR is not a newline and is still disclosed")
 
         // The three variants genuinely differ on one input. If any two of these
         // agree, one of them is redundant and this file should say so.
         let sample = "  a\nb  "
-        expectEqual(DisplayEscape.escaped(sample) == DisplayEscape.escapedMultilineValue(sample),
+        expectEqual(DisplayEscape.escaped(sample) == DisplayEscape.escapedMultilineValue(sample, showInvisibles: true),
                     false, "escaped and escapedMultilineValue differ on newlines")
-        expectEqual(DisplayEscape.escapedMultiline(sample) == DisplayEscape.escapedMultilineValue(sample),
+        expectEqual(DisplayEscape.escapedMultiline(sample) == DisplayEscape.escapedMultilineValue(sample, showInvisibles: true),
                     false, "escapedMultiline and escapedMultilineValue differ on edge spaces")
     }
 
@@ -340,6 +340,116 @@ func runTests() {
     expectEqual(DisplayEscape.escapedQualified(schema: "public", table: " users"),
                 "public.<U+0020>users",
                 "the table's leading space is disclosed though joining would bury it")
+
+    // MARK: - 9. Two tiers: what a data surface may hide, and what it may not
+
+    do {
+        // The set as it stood before the split, copied verbatim. The ~55 name
+        // callers, `FoldingLayoutManager` and `SavedQueryFilename` read
+        // `mustEscape`, so the split must not move one scalar in or out of it.
+        func oldMustEscape(_ scalar: Unicode.Scalar) -> Bool {
+            switch scalar.value {
+            case 0x00...0x1F, 0x7F...0x9F: return true
+            case 0x200E, 0x200F, 0x061C: return true
+            case 0x202A...0x202E: return true
+            case 0x2066...0x2069: return true
+            case 0x2028, 0x2029: return true
+            case 0x200B...0x200D, 0x2060, 0xFEFF, 0x180E: return true
+            case 0x00A0, 0x1680, 0x2000...0x200A, 0x202F, 0x205F, 0x3000: return true
+            default: return false
+            }
+        }
+        var unionMismatches: [UInt32] = []
+        var overlaps: [UInt32] = []
+        var tierA: [UInt32] = []
+        for value in UInt32(0)...0xFFFF {
+            guard let scalar = Unicode.Scalar(value) else { continue }  // surrogates
+            if DisplayEscape.mustEscape(scalar) != oldMustEscape(scalar) { unionMismatches.append(value) }
+            if DisplayEscape.changesLayout(scalar) && DisplayEscape.hidesDifference(scalar) { overlaps.append(value) }
+            if DisplayEscape.changesLayout(scalar) { tierA.append(value) }
+        }
+        expectEqual(unionMismatches, [], "mustEscape is the same set after the split")
+        expectEqual(overlaps, [], "no scalar is in both tiers")
+        expectEqual(tierA, [0x000C, 0x0085, 0x061C, 0x200E, 0x200F,
+                            0x2028, 0x2029, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+                            0x2066, 0x2067, 0x2068, 0x2069],
+                    "tier A is exactly the bidi controls and the measured line breakers")
+        expectEqual(DisplayEscape.changesLayout("\u{0B}"), false,
+                    "VT is tier B: measured NOT to break a single-line label")
+    }
+
+    // MARK: - 10. escapedCell, setting OFF: raw text except tier A
+
+    do {
+        let off = { (s: String) in DisplayEscape.escapedCell(s, showInvisibles: false) }
+        expectEqual(off(" abc  "), .init(text: " abc  ", dimmedRanges: []),
+                    "off: edge spaces are drawn raw")
+        expectEqual(off("safe\u{202E}gpj.exe"), .init(text: "safe<U+202E>gpj.exe", dimmedRanges: []),
+                    "off: a right-to-left override is STILL disclosed, at full strength")
+        expectEqual(off("a\u{2066}b\u{200F}c").text, "a<U+2066>b<U+200F>c",
+                    "off: isolates and marks are still disclosed")
+        expectEqual(off("one\u{2028}two\u{2029}three\u{85}four\u{0C}five").text,
+                    "one<U+2028>two<U+2029>three<U+0085>four<U+000C>five",
+                    "off: every measured line breaker is still disclosed")
+        expectEqual(off("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}").text,
+                    "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+                    "off: a ZWJ emoji sequence is drawn as the emoji")
+        expectEqual(off("\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}").text,
+                    "\u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}",
+                    "off: a Persian ZWNJ is drawn as text")
+        expectEqual(off("a\u{A0}b\tc\u{0}d\u{0B}e").text, "a\u{A0}b\tc\u{0}d\u{0B}e",
+                    "off: NBSP, tab, NUL and VT are drawn raw")
+        expectEqual(off("US        ").text, "US        ", "off: char(n) padding is drawn raw")
+        expectEqual(off("plain").text, "plain", "off: plain text is itself")
+        expectEqual(off("").text, "", "off: empty is empty")
+        expectEqual(off("\u{202E}\u{202E}x").text, "<U+202E\u{00D7}2>x",
+                    "off: a tier A run still collapses")
+    }
+
+    // MARK: - 11. escapedCell, setting ON: tier B as dimmed marks
+
+    do {
+        let on = { (s: String) in DisplayEscape.escapedCell(s, showInvisibles: true) }
+        expectEqual(on(" abc  "),
+                    .init(text: "\u{B7}abc\u{B7}\u{B7}",
+                          dimmedRanges: [NSRange(location: 0, length: 1), NSRange(location: 4, length: 2)]),
+                    "on: each edge space is one dimmed middle dot")
+        expectEqual(on("a b").text, "a b", "on: an interior space is not a mark")
+        expectEqual(on("   "), .init(text: "\u{B7}\u{B7}\u{B7}", dimmedRanges: [NSRange(location: 0, length: 3)]),
+                    "on: an all-space value is three dots, one range")
+        expectEqual(on("US        ").text.unicodeScalars.count, "US        ".unicodeScalars.count,
+                    "on: char(n) padding keeps its width — one mark per space")
+        expectEqual(on("a\tb"), .init(text: "a\u{2192}b", dimmedRanges: [NSRange(location: 1, length: 1)]),
+                    "on: a tab is a dimmed arrow")
+        expectEqual(on("a\u{A0}b"), .init(text: "a<U+00A0>b", dimmedRanges: [NSRange(location: 1, length: 8)]),
+                    "on: an NBSP keeps its code point, dimmed")
+        expectEqual(on("a\u{200B}\u{200B}b"),
+                    .init(text: "a<U+200B\u{00D7}2>b", dimmedRanges: [NSRange(location: 1, length: 10)]),
+                    "on: a tier B run collapses and is dimmed as one")
+        expectEqual(on(" \u{202E}x"),
+                    .init(text: "\u{B7}<U+202E>x", dimmedRanges: [NSRange(location: 0, length: 1)]),
+                    "on: tier A stays at full strength beside a dimmed mark")
+        expectEqual(on("\u{1F600} "),
+                    .init(text: "\u{1F600}\u{B7}", dimmedRanges: [NSRange(location: 2, length: 1)]),
+                    "on: ranges count UTF-16 — an emoji before a mark is two units")
+        expectEqual(on("\u{1F468}\u{200D}\u{1F469}").text, "\u{1F468}<U+200D>\u{1F469}",
+                    "on: a ZWJ is disclosed when the user asks for invisibles")
+        expectEqual(on("plain"), .init(text: "plain", dimmedRanges: []), "on: plain text is itself")
+        expectEqual(on("cafe\u{301}").text, "cafe\u{301}", "on: a combining accent is not a mark")
+    }
+
+    // MARK: - 12. escapedMultilineValue, setting OFF
+
+    do {
+        expectEqual(DisplayEscape.escapedMultilineValue("  abc  ", showInvisibles: false), "  abc  ",
+                    "multiline off: edge spaces are raw")
+        expectEqual(DisplayEscape.escapedMultilineValue("a\u{A0}b\u{200B}c", showInvisibles: false),
+                    "a\u{A0}b\u{200B}c", "multiline off: tier B is raw")
+        expectEqual(DisplayEscape.escapedMultilineValue("ev\u{202E}il\ncom", showInvisibles: false),
+                    "ev<U+202E>il\ncom", "multiline off: an override is still disclosed, the newline is not")
+        expectEqual(DisplayEscape.escapedMultilineValue("one\u{2028}two", showInvisibles: false),
+                    "one<U+2028>two", "multiline off: a line separator is still disclosed")
+    }
 
     if failures == 0 {
         print("\nAll DisplayEscape tests passed.")

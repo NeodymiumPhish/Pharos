@@ -23,6 +23,13 @@ final class FilterValueListView: NSView {
     private var sortAscending: Bool = true
     private var heightConstraint: NSLayoutConstraint!
 
+    /// Whether a row discloses tier B (`DisplayEscape.hidesDifference`, edge
+    /// spaces) as well as tier A. True by default: the tag funnel lists tag
+    /// NAMES, which disclose both always. The column filter lists DATA, so it
+    /// passes Settings ▸ Results ▸ Cells ▸ Show invisible characters. Set it
+    /// before `setValues`.
+    var showsInvisibleCharacters = true
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -159,7 +166,9 @@ final class FilterValueListView: NSView {
     /// The label for the EYE: hostile invisibles disclosed as `<U+XXXX>`. Every
     /// site that draws or measures a row uses this one.
     func escapedLabel(for value: String) -> String {
-        DisplayEscape.escaped(searchLabel(for: value))
+        showsInvisibleCharacters
+            ? DisplayEscape.escaped(searchLabel(for: value))
+            : DisplayEscape.escapedCell(searchLabel(for: value), showInvisibles: false).text
     }
 
     /// Aggregate state of the Select All row over the currently visible rows.

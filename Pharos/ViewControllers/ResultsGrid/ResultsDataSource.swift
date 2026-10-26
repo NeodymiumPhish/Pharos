@@ -63,187 +63,6 @@ struct ResultsGridSettings: Equatable {
     }
 }
 
-// MARK: - ResultCellView
-
-/// The cell's label, with one extra: an accessibility value the data source
-/// can override for a cell holding an uncommitted edit.
-///
-/// A subclass is needed rather than a plain `setAccessibilityValue(_:)` call.
-/// An `NSTextField`'s AXValue is served by its `NSTextFieldCell` and is always
-/// the displayed string, so a value set on the view never reaches the
-/// accessibility tree — reading it back through the AX API on a live grid is
-/// what showed that, and it is the only way to tell.
-final class ResultCellLabel: NSTextField {
-    /// Replaces the AXValue while set. nil restores the displayed text.
-    var accessibilityValueOverride: String? {
-        didSet { NSAccessibility.post(element: self, notification: .valueChanged) }
-    }
-
-    // No `override`: AppKit declares `accessibilityValue()` on NSObject
-    // through the NSAccessibility protocol, not as a method of NSTextField, so
-    // Swift sees nothing to override. Declaring it here still replaces the
-    // Objective-C implementation for this class, which is what the
-    // accessibility server asks.
-    @objc func accessibilityValue() -> Any? {
-        accessibilityValueOverride ?? stringValue
-    }
-}
-
-/// Internal, not private: `ResultsGridVC+Editing` has to reach the cell's
-/// editor field to give it the keyboard once the table has realized the view.
-final class ResultCellView: NSTableCellView {
-    /// Type-appropriate unselected text color (purple for temporal, tertiary
-    /// for NULL, blue for numeric, etc.). Setter keeps `textField.textColor` in
-    /// sync when not selected — callers no longer assign textField directly.
-    var normalTextColor: NSColor = .labelColor {
-        didSet { updateTextColor() }
-    }
-
-    // MARK: - Pending-edit marker
-
-    /// Width of the accent rule down the leading edge of a cell holding an
-    /// uncommitted edit. 2pt: visible beside the 6pt text inset without
-    /// touching the glyphs.
-    static let pendingRuleWidth: CGFloat = 2
-
-    private var pendingRuleLayer: CALayer?
-
-    /// Whether this cell carries an uncommitted edit. Assigned on EVERY
-    /// realize, including false, so a recycled cell cannot keep another row's
-    /// marker — the same rule the find border and the tag tint follow.
-    var showsPendingRule: Bool = false {
-        didSet {
-            guard oldValue != showsPendingRule else { return }
-            updatePendingRule()
-        }
-    }
-
-    private func updatePendingRule() {
-        if showsPendingRule {
-            let rule = pendingRuleLayer ?? {
-                let fresh = CALayer()
-                // No implicit animation: the rule appears the instant the edit
-                // commits, and a fade would read as the grid still thinking.
-                fresh.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
-                layer?.addSublayer(fresh)
-                pendingRuleLayer = fresh
-                return fresh
-            }()
-            rule.backgroundColor = NSColor.controlAccentColor.cgColor
-            rule.isHidden = false
-            layoutPendingRule()
-        } else {
-            pendingRuleLayer?.isHidden = true
-        }
-    }
-
-    private func layoutPendingRule() {
-        guard let rule = pendingRuleLayer, !rule.isHidden else { return }
-        rule.frame = NSRect(x: 0, y: 0, width: Self.pendingRuleWidth, height: bounds.height)
-    }
-
-    // MARK: - Inline editor
-
-    /// The real editable field, made only for the cell being edited and kept
-    /// afterwards (cells are recycled, and rebuilding a field per edit would
-    /// churn the field editor). Hidden whenever `endEditing()` has run.
-    private(set) var editorField: NSTextField?
-
-    /// Swap the label for an editable field seeded with `text`.
-    func beginEditing(text: String, font: NSFont, delegate: NSTextFieldDelegate?) {
-        let field = editorField ?? {
-            let fresh = NSTextField(string: "")
-            fresh.isBordered = true
-            fresh.bezelStyle = .squareBezel
-            fresh.isEditable = true
-            fresh.isSelectable = true
-            fresh.drawsBackground = true
-            fresh.usesSingleLineMode = true
-            fresh.lineBreakMode = .byClipping
-            fresh.cell?.wraps = false
-            fresh.cell?.isScrollable = true
-            fresh.focusRingType = .default
-            fresh.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(fresh)
-            NSLayoutConstraint.activate([
-                fresh.leadingAnchor.constraint(equalTo: leadingAnchor),
-                fresh.trailingAnchor.constraint(equalTo: trailingAnchor),
-                fresh.topAnchor.constraint(equalTo: topAnchor),
-                fresh.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
-            editorField = fresh
-            return fresh
-        }()
-        // The same face as the cell, so the text does not jump on the way in.
-        field.font = font
-        field.textColor = .labelColor
-        field.delegate = delegate
-        field.stringValue = text
-        field.isHidden = false
-        field.setAccessibilityIdentifier("results.cellEditor")
-        textField?.isHidden = true
-    }
-
-    /// Put the label back. Safe to call on a cell that was never edited.
-    func endEditing() {
-        guard let field = editorField, !field.isHidden else { return }
-        field.isHidden = true
-        field.delegate = nil
-        textField?.isHidden = false
-    }
-
-    /// True while this cell is showing its editor.
-    var isEditing: Bool { editorField.map { !$0.isHidden } ?? false }
-
-    override func layout() {
-        super.layout()
-        layoutPendingRule()
-    }
-
-    /// True when this cell is part of the active cell-mode selection. Setter
-    /// flips text color between white (selected) and `normalTextColor`. The
-    /// background fill is managed externally by the data source so it can
-    /// coordinate precedence with find-match highlighting.
-    var isSelected: Bool = false {
-        didSet {
-            guard oldValue != isSelected else { return }
-            updateTextColor()
-        }
-    }
-
-    /// True while the grid's window is key. A selected cell in a non-key
-    /// window paints the system's unemphasized (grey) selection, and its
-    /// text must stay readable on that grey, so the text colour follows.
-    var selectionEmphasized: Bool = true {
-        didSet {
-            guard oldValue != selectionEmphasized else { return }
-            updateTextColor()
-        }
-    }
-
-    private func updateTextColor() {
-        // Row-emphasis (.emphasized) wins when NSTableView sets it via
-        // selectRowIndexes (row-number-column selection). Cell-mode selection
-        // never sets .emphasized, so isSelected drives the color.
-        if backgroundStyle == .emphasized {
-            textField?.textColor = .alternateSelectedControlTextColor
-        } else if isSelected {
-            // The system's own pair for selected content: white on the accent
-            // fill, label-ish grey on the unemphasized fill. `.white` was hard
-            // coded here, and stayed white on the grey fill of a non-key window.
-            textField?.textColor = selectionEmphasized
-                ? .alternateSelectedControlTextColor : .unemphasizedSelectedTextColor
-        } else {
-            textField?.textColor = normalTextColor
-        }
-    }
-
-    override var backgroundStyle: NSView.BackgroundStyle {
-        didSet { updateTextColor() }
-    }
-}
-
-
 // MARK: - ResultsDataSource
 
 @MainActor
@@ -485,7 +304,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         /// realized cell, so it belongs in the reload trigger.
         let style: ResultsGridStyle
         let maximumCellCharacters: UInt32
-        let escapeControlCharacters: Bool
+        let showInvisibleCharacters: Bool
         /// Settings ▸ Results ▸ Formatting. Both rewrite the TEXT of every
         /// temporal or numeric cell on screen, so a change to either has to
         /// reload the grid exactly as a font change does.
@@ -503,7 +322,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// Settings ▸ Results ▸ Cells, read by `styleCell` and by the VC's width
     /// measurer through `renderedText(...)`.
     private(set) var maximumCellCharacters: UInt32 = 0
-    private(set) var escapeControlCharacters = true
+    private(set) var showInvisibleCharacters = false
 
     /// Settings ▸ Results ▸ Formatting, read by `renderedText` only.
     private var dateStyle: ResultDateStyle = .asReturned
@@ -520,7 +339,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             nullStyle: settings.results.nullStyle,
             style: ResultsGridStyle(settings.results),
             maximumCellCharacters: settings.results.maximumCellCharacters,
-            escapeControlCharacters: settings.results.escapeControlCharacters,
+            showInvisibleCharacters: settings.results.showInvisibleCharacters,
             dateStyle: settings.results.dateStyle,
             numberStyle: settings.results.numberStyle
         )
@@ -533,7 +352,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         italicFont = next.style.cellItalicFont
         rownumFont = next.style.rowNumberFont
         maximumCellCharacters = next.maximumCellCharacters
-        escapeControlCharacters = next.escapeControlCharacters
+        showInvisibleCharacters = next.showInvisibleCharacters
         dateStyle = next.dateStyle
         numberStyle = next.numberStyle
         let changed = next != lastDisplaySignature
@@ -560,12 +379,19 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// that could omit it would silently measure an unformatted cell and draw
     /// a formatted one. Out of range takes `.other`, which formats nothing.
     func renderedText(value: AnyCodable, category: PGTypeCategory, columnIndex: Int) -> String {
+        renderedCell(value: value, category: category, columnIndex: columnIndex).text
+    }
+
+    /// `renderedText` plus the ranges the cell draws dimmed. The cell reads
+    /// this; the measurer reads `renderedText`. One call underneath both.
+    func renderedCell(value: AnyCodable, category: PGTypeCategory,
+                      columnIndex: Int) -> DisplayEscape.CellText {
         let kind = columnIndex >= 0 && columnIndex < columnValueKinds.count
             ? columnValueKinds[columnIndex] : .other
-        return ResultCellText.rendered(
+        return ResultCellText.renderedCell(
             value: value, category: category,
             boolTrue: boolTrueString, boolFalse: boolFalseString, nullString: nullDisplayString,
-            maximumCharacters: maximumCellCharacters, escapeControls: escapeControlCharacters,
+            maximumCharacters: maximumCellCharacters, showInvisibles: showInvisibleCharacters,
             kind: kind, dateStyle: dateStyle, numberStyle: numberStyle)
     }
 
@@ -692,8 +518,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let dataRowIdx = displayRows[row]
 
         if colIdRaw == "__rownum__" {
-            cell.textField?.stringValue = "\(row + 1)"
             cell.textField?.font = rownumFont
+            cell.setDisplayedText("\(row + 1)")
             cell.normalTextColor = .tertiaryLabelColor
             cell.showsPendingRule = false
             (cell.textField as? ResultCellLabel)?.accessibilityValueOverride = nil
@@ -717,8 +543,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 // the numeric alignment still come from the column.
                 applyPendingEdit(to: cell, dataRow: dataRowIdx, columnIndex: idx)
             } else {
-                cell.textField?.stringValue = ""
                 cell.textField?.font = regularFont
+                cell.setDisplayedText("")
                 cell.normalTextColor = .labelColor
                 cell.showsPendingRule = false
                 (cell.textField as? ResultCellLabel)?.accessibilityValueOverride = nil
@@ -800,12 +626,12 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// rule and a slant are invisible to a screen reader: "edited, was alice".
     private func applyPendingEdit(to cell: ResultCellView, dataRow: Int, columnIndex: Int) {
         guard let edit = pendingEdits.edit(at: dataRow, columnIndex: columnIndex) else {
+            // No `accessibilityValueOverride = nil` here: `styleCell`, which
+            // always runs first, has just assigned it — nil, or the marks.
             cell.showsPendingRule = false
-            (cell.textField as? ResultCellLabel)?.accessibilityValueOverride = nil
             return
         }
         let isNull = edit.newText == nil
-        cell.textField?.stringValue = isNull ? nullDisplayString : (edit.newText ?? "")
         if isNull {
             cell.textField?.font = nullFont
             cell.normalTextColor = nullTextColor
@@ -814,6 +640,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
                 ? italicFont : regularFont
             cell.normalTextColor = .controlAccentColor
         }
+        cell.setDisplayedText(isNull ? nullDisplayString : (edit.newText ?? ""))
         cell.showsPendingRule = true
 
         // On the LABEL, not on the cell view. An NSTableCellView is not itself
@@ -974,20 +801,26 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private func styleCell(_ cell: ResultCellView, value: AnyCodable,
                            category: PGTypeCategory, columnIndex: Int) {
         guard let textField = cell.textField else { return }
-        textField.stringValue = renderedText(value: value, category: category,
-                                             columnIndex: columnIndex)
+        let shown = renderedCell(value: value, category: category, columnIndex: columnIndex)
 
         // Numbers line up on their last digit; everything else reads from the
         // left. Assigned on EVERY realize so a recycled cell cannot keep the
-        // alignment of the column it last served.
+        // alignment of the column it last served. Font and alignment go
+        // BEFORE the text: a marked cell copies both into its attributed form.
         textField.alignment = category == .numeric ? .right : .left
+        textField.font = value.isNull ? nullFont : regularFont
+        cell.setDisplayedText(shown.text, dimmedRanges: shown.dimmedRanges)
+
+        // A mark draws as `·` or `→`, which VoiceOver would read as "middle
+        // dot". Assigned on every realize, nil included, so a recycled cell
+        // cannot keep another value's description.
+        (textField as? ResultCellLabel)?.accessibilityValueOverride =
+            ResultCellText.accessibilityText(shown)
 
         if value.isNull {
-            textField.font = nullFont
             cell.normalTextColor = nullTextColor
             return
         }
-        textField.font = regularFont
         let color: NSColor
         switch category {
         case .numeric: color = .systemBlue

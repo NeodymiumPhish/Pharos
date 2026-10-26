@@ -97,7 +97,8 @@ class ColumnFilterPopoverVC: NSViewController {
     init(columnName: String, displayName: String, category: PGTypeCategory, dataType: String,
          existingFilter: ColumnFilter?, distinctValues: [String], hasBlanks: Bool,
          referenceSize: CGSize,
-         counts: [String: FilterValueCount], loadedRowCount: Int, hasMore: Bool) {
+         counts: [String: FilterValueCount], loadedRowCount: Int, hasMore: Bool,
+         showInvisibleCharacters: Bool) {
         self.columnName = columnName
         self.displayName = displayName
         self.category = category
@@ -109,6 +110,8 @@ class ColumnFilterPopoverVC: NSViewController {
         self.loadedRowCount = loadedRowCount
         self.hasMore = hasMore
         super.init(nibName: nil, bundle: nil)
+        // The values are column DATA, so the list follows the grid's setting.
+        valueList.showsInvisibleCharacters = showInvisibleCharacters
     }
 
     @available(*, unavailable)

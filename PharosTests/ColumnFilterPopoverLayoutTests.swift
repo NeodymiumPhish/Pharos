@@ -40,7 +40,7 @@ private func popover(hasMore: Bool, existing: ColumnFilter?) -> ColumnFilterPopo
         columnName: "name", displayName: "name", category: .string, dataType: "text",
         existingFilter: existing, distinctValues: ["alpha", "beta", "gamma"], hasBlanks: true,
         referenceSize: CGSize(width: 900, height: 600),
-        counts: [:], loadedRowCount: 1234, hasMore: hasMore)
+        counts: [:], loadedRowCount: 1234, hasMore: hasMore, showInvisibleCharacters: false)
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 460),
                           styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = vc.view
@@ -118,6 +118,14 @@ func runTests() {
 
         expectTrue(list.escapedLabel(for: hostile).contains("<U+00A0>"),
                    "the checkbox title discloses a non-breaking space")
+        // Off (the column filter's value under the default setting): tier B raw,
+        // tier A still disclosed.
+        let offList = FilterValueListView(frame: .zero)
+        offList.showsInvisibleCharacters = false
+        expectTrue(offList.escapedLabel(for: hostile) == hostile,
+                   "setting off: a non-breaking space is drawn raw")
+        expectTrue(offList.escapedLabel(for: "a\u{202E}b") == "a<U+202E>b",
+                   "setting off: a bidi override is still disclosed")
         expectTrue(list.searchLabel(for: hostile) == hostile,
                    "the search label stays raw so typing the real value still matches")
         let font = NSFont.systemFont(ofSize: 12)

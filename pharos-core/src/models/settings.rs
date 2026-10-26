@@ -501,8 +501,13 @@ pub struct ResultsSettings {
     // Cells
     #[serde(default)]
     pub maximum_cell_characters: u32,
-    #[serde(default = "default_true")]
-    pub escape_control_characters: bool,
+    /// Tier B disclosure in result data: edge spaces, unusual spaces,
+    /// zero-width characters and controls. Bidi controls and line separators
+    /// are disclosed whatever this says. Replaced `escapeControlCharacters`
+    /// (default on, and governing both tiers) on 2026-10-26; a new key so every
+    /// user starts at the new default.
+    #[serde(default)]
+    pub show_invisible_characters: bool,
 
     // Formatting
     #[serde(default)]
@@ -557,7 +562,7 @@ impl Default for ResultsSettings {
             maximum_column_width: default_maximum_column_width(),
             fixed_column_width: default_fixed_column_width(),
             maximum_cell_characters: 0,
-            escape_control_characters: true,
+            show_invisible_characters: false,
             date_style: ResultDateStyle::default(),
             number_style: ResultNumberStyle::default(),
             find_mode: FindMode::default(),
@@ -1380,7 +1385,7 @@ pub(crate) mod fixture {
                     maximum_column_width: 1001,
                     fixed_column_width: 201,
                     maximum_cell_characters: 1,
-                    escape_control_characters: false,
+                    show_invisible_characters: true,
                     date_style: ResultDateStyle::Medium,
                     number_style: ResultNumberStyle::Grouped,
                     find_mode: FindMode::RegularExpression,
@@ -1803,6 +1808,7 @@ mod tests {
             "theme": "dark",
             "editor": {"fontSize": 18, "fontFamily": "Menlo", "minimap": true},
             "query": {"defaultLimit": 42, "autoCommit": false},
+            "results": {"escapeControlCharacters": true},
             "emptyFolders": ["a/b"],
             "ui": {"navigatorWidth": 400, "savedQueriesWidth": 200, "resultsPanelHeight": 320, "editorSplitPosition": 60},
             "keyboard": {"shortcuts": [{"id": "run-query", "label": "Run Query", "description": "Runs the current query", "key": "Return", "modifiers": ["cmd"]}]}
@@ -1823,5 +1829,9 @@ mod tests {
         assert!(!re_serialized.contains("minimap"), "removed `minimap` key must not reappear");
         assert!(!re_serialized.contains("autoCommit"), "removed `autoCommit` key must not reappear");
         assert!(!re_serialized.contains("emptyFolders"), "removed `emptyFolders` key must not reappear");
+        assert!(!re_serialized.contains("escapeControlCharacters"),
+                "replaced `escapeControlCharacters` key must not reappear");
+        // Its replacement starts at the new default, not at the old key's `true`.
+        assert!(!parsed.results.show_invisible_characters);
     }
 }

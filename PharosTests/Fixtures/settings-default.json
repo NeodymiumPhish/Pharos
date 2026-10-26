@@ -161,7 +161,6 @@
     "dateStyle": "asReturned",
     "defaultCopyFormat": "tsv",
     "density": "normal",
-    "escapeControlCharacters": true,
     "findMatchCase": false,
     "findMode": "contains",
     "fixedColumnWidth": 200,
@@ -174,6 +173,7 @@
     "nullStyle": "italic",
     "numberStyle": "asReturned",
     "showColumnTypeIcons": false,
+    "showInvisibleCharacters": false,
     "showNewResultsAutomatically": true,
     "showRowNumbers": true
   },

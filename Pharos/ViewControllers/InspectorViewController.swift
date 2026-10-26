@@ -1018,10 +1018,14 @@ class InspectorViewController: NSViewController {
         // whatever the analyst pastes it into.
         // `escapedMultilineValue`, not `escaped`: this label WRAPS
         // (`maximumNumberOfLines = 0` above), so a newline renders correctly and
-        // escaping it litters the pane with `<U+000A>`. Edge spaces are still
-        // disclosed, because a trailing run is `char(20)` padding the analyst
-        // needs to see — which is why plain `escapedMultiline` will not do here.
-        label.stringValue = DisplayEscape.escapedMultilineValue(value.displayString)
+        // escaping it litters the pane with `<U+000A>`. Edge spaces are
+        // disclosed when the user asks, because a trailing run is `char(20)`
+        // padding — which is why plain `escapedMultiline` will not do here. The
+        // value is DATA, so it obeys the grid's setting: tier A always, tier B
+        // only with Show invisible characters on.
+        label.stringValue = DisplayEscape.escapedMultilineValue(
+            value.displayString,
+            showInvisibles: AppStateManager.shared.settings.results.showInvisibleCharacters)
         label.copyableValue = value.displayString
 
         switch category {

@@ -398,6 +398,7 @@
 		EBF3A8542C5D58F707E68799 /* PharosCore+Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD416A1F571FCC783678756A /* PharosCore+Session.swift */; };
 		EC35BFAF32F403FC747D305B /* CardExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8264E0C51A4ABE06D594A6 /* CardExecutor.swift */; };
 		ED0D9A8EC09C789256FB7C16 /* SidebarViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A2E02523DDEE84E0861216 /* SidebarViewController.swift */; };
+		EDFB862435D437381FC0E7D5 /* ResultCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 981A54C0DCA86C6933049E03 /* ResultCellView.swift */; };
 		EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B5ECAA757C7692770A532EA /* FoldState.swift */; };
 		EF88431D010EF0A90A3C9E89 /* FontSizeStepper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7A78B9EFF3187B7B4B7E31 /* FontSizeStepper.swift */; };
 		EFFF2A68F5607096CD52D914 /* PartitionDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */; };
@@ -656,6 +657,7 @@
 		976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosEntities.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
+		981A54C0DCA86C6933049E03 /* ResultCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultCellView.swift; sourceTree = "<group>"; };
 		984D24F626720473910C61FE /* PharosCore+TableMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableMetadata.swift"; sourceTree = "<group>"; };
 		996B3F5F2F449C51713A9F35 /* ResultsGridVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridVC.swift; sourceTree = "<group>"; };
 		9993005117CA5F91ED0A2692 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -864,6 +866,7 @@
 				D14B40F475E3FEB12C3F9B9F /* InsetScrollView.swift */,
 				CDED3E898043241B00FE18D7 /* ResizeGripView.swift */,
 				D712C9854028F854DE9E6E46 /* ResultCellText.swift */,
+				981A54C0DCA86C6933049E03 /* ResultCellView.swift */,
 				06CFD36F776181AE6119B2D5 /* ResultsCellSelection.swift */,
 				745C3CCB90931B5D1CC056E7 /* ResultsColumnFilterController.swift */,
 				F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */,
@@ -1782,6 +1785,7 @@
 				F02654A5479FD0226052ED9C /* ResizeGripView.swift in Sources */,
 				2ED41922CF0DE93531A6EB5E /* RestoreConnectPolicy.swift in Sources */,
 				FB448EB1A7763038E94ADAC5 /* ResultCellText.swift in Sources */,
+				EDFB862435D437381FC0E7D5 /* ResultCellView.swift in Sources */,
 				6BA96F1C55425E22450B0287 /* ResultLoadState.swift in Sources */,
 				E4DA12266E68AD108BF10535 /* ResultValueFormatter.swift in Sources */,
 				8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */,
