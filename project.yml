@@ -63,7 +63,8 @@ targets:
       configs:
         # Strip local symbols from the shipped binary (about 16 MB of
         # DuckDB's); the dSYM keeps them for crash reports (CrashLogger
-        # logs raw addresses, symbolicated against the release's dSYM).
+        # logs raw addresses, symbolicated against the release run's "dsym"
+        # artifact — see release.yml).
         Release:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
           DEPLOYMENT_POSTPROCESSING: YES

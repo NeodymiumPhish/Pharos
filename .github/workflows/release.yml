@@ -114,6 +114,10 @@ jobs:
 
       # The shipped binary is stripped; its dSYM turns crash-log addresses
       # back into function names (atos -o Pharos.app.dSYM/... -l <load addr>).
+      # It is for the developer, so it stays OFF the release page: it is kept
+      # as this run's "dsym" artifact instead. GitHub keeps an artifact of a
+      # public repository for 90 days at most — download it from the run
+      # before then to symbolicate this version's crashes later.
       - name: Zip dSYM
         run: |
           ditto -c -k --keepParent \
@@ -124,9 +128,14 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: dmg
-          path: |
-            *.dmg
-            *.dSYM.zip
+          path: "*.dmg"
+
+      - name: Upload dSYM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dsym
+          path: "*.dSYM.zip"
+          retention-days: 90
 
   release:
     needs: build
@@ -142,9 +151,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            *.dmg
-            *.dSYM.zip
+          files: "*.dmg"
           generate_release_notes: true
 
       - name: Trigger Homebrew tap update
