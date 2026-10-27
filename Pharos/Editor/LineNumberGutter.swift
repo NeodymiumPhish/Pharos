@@ -808,11 +808,13 @@ class LineNumberGutter: NSView {
         bounds.fill()
 
         // Divider — a one-pixel separator-colour rule on the trailing edge,
-        // the boundary between the numbers and the text.
+        // the boundary between the numbers and the text. Spans `bounds`, not
+        // `dirtyRect`: views do not clip to bounds (macOS 14+), so the dirty
+        // rect can reach past the gutter and the rule would cross other cards.
         let hairline = 1 / (window?.backingScaleFactor ?? 2)
         NSColor.separatorColor.setFill()
-        NSRect(x: bounds.maxX - hairline, y: dirtyRect.minY,
-               width: hairline, height: dirtyRect.height).fill()
+        NSRect(x: bounds.maxX - hairline, y: bounds.minY,
+               width: hairline, height: bounds.height).fill()
 
         // Prepare attributes for current-line vs normal line numbers
         let normalAttributes = lineAttributes
