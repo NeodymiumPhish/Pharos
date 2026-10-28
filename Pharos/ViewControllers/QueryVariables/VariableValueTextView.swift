@@ -13,8 +13,15 @@ final class VariableValueTextView: NSTextView {
     /// Shift-Tab pressed — the host moves focus back to the name field.
     var onBacktab: (() -> Void)?
 
-    /// Escape pressed — the host returns to the list level.
+    /// Escape pressed — the host settles the edit.
     var onCancel: (() -> Void)?
+
+    /// Rewrites pasted or dropped text before it goes in: the pasted text and
+    /// the range it replaces in, the text to insert out. Nil, or a nil
+    /// result, inserts the pasted text unchanged. The List editor turns a CSV
+    /// row or a spreadsheet column into one item per line here
+    /// (`VariableListPaste`).
+    var pasteTransform: ((_ pasted: String, _ range: NSRange) -> String?)?
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -81,5 +88,25 @@ final class VariableValueTextView: NSTextView {
 
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
+    }
+
+    /// Paste (`paste(_:)` reads the general pasteboard through here) and a
+    /// drop both arrive here, so `pasteTransform` sees both. The rewrite goes
+    /// through `shouldChangeText` / `didChangeText`, so it is one undo step
+    /// and the delegate hears it like typing.
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        let range = selectedRange()
+        guard let transform = pasteTransform, let pasted = pboard.string(forType: .string),
+              let replacement = transform(pasted, range) else {
+            return super.readSelection(from: pboard, type: type)
+        }
+        guard shouldChangeText(in: range, replacementString: replacement) else { return false }
+        // With the typing attributes: a bare string would take the font of
+        // the character before it, and an empty view has none.
+        textStorage?.replaceCharacters(in: range, with: NSAttributedString(string: replacement,
+                                                                            attributes: typingAttributes))
+        didChangeText()
+        setSelectedRange(NSRange(location: range.location + (replacement as NSString).length, length: 0))
+        return true
     }
 }

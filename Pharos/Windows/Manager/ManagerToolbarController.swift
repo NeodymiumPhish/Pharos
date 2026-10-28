@@ -7,9 +7,14 @@ extension NSToolbarItem.Identifier {
 }
 
 /// A manager window's toolbar: **+** (New Variable, New Tag, New
-/// Connection) and the filter field, both over the sidebar, then a separator
-/// that tracks the sidebar's divider. Putting New here keeps it out of the
-/// bottom of the sidebar (HIG *Sidebars*).
+/// Connection) at the trailing edge of the sidebar's part of the bar, a
+/// separator that tracks the sidebar's divider, and the filter field at the
+/// trailing edge of the window, over the detail. Putting New here keeps it out
+/// of the bottom of the sidebar (HIG *Sidebars*).
+///
+/// The field sits over the detail, not the sidebar, because the sidebar's
+/// part of the bar is too narrow for it: at sidebar widths of 220–260 pt
+/// AppKit collapsed it to its 36 pt magnifier button.
 ///
 /// Like `SettingsToolbarController`, not customisable and not autosaved:
 /// these two items are the window's only way to add a record and find one, so
@@ -32,13 +37,22 @@ final class ManagerToolbarController: NSObject, NSToolbarDelegate {
     /// toolbar asks for the separator, which happens during `install`.
     private weak var splitView: NSSplitView?
 
-    /// The order of the default items: over the sidebar, + then the filter;
-    /// the tracking separator ends the sidebar's part of the bar.
+    /// The order of the default items. Over the sidebar: a flexible space
+    /// that pushes + to the sidebar's trailing edge. The tracking separator
+    /// ends the sidebar's part of the bar. Over the detail: a flexible space
+    /// that pushes the filter field to the window's trailing edge.
     static let defaultItems: [NSToolbarItem.Identifier] = [
+        .flexibleSpace,
         .pharosManagerAdd,
-        .pharosManagerFilter,
         .pharosManagerSidebarSeparator,
+        .flexibleSpace,
+        .pharosManagerFilter,
     ]
+
+    /// The filter field's preferred width. It sits over the detail, which is
+    /// never narrower than its minimum, so it does not have to share the
+    /// sidebar's width with +.
+    static let filterPreferredWidth: CGFloat = 220
 
     /// - Parameters:
     ///   - identifier: unique per window. Toolbars that share an identifier
@@ -107,9 +121,7 @@ final class ManagerToolbarController: NSObject, NSToolbarDelegate {
             item.paletteLabel = item.label
             item.searchField = searchField
             item.resignsFirstResponderWithCancel = true
-            // As wide as the sidebar can be: the field takes what the
-            // sidebar's part of the bar leaves after +, and no more.
-            item.preferredWidthForSearchField = ManagerSplitViewController.sidebarMaximum
+            item.preferredWidthForSearchField = Self.filterPreferredWidth
             return item
 
         case .pharosManagerSidebarSeparator:
@@ -131,6 +143,6 @@ final class ManagerToolbarController: NSObject, NSToolbarDelegate {
 
     /// Nothing here may be dragged out (see the type's comment).
     func toolbarImmovableItemIdentifiers(_ toolbar: NSToolbar) -> Set<NSToolbarItem.Identifier> {
-        Set(Self.defaultItems)
+        Set(Self.defaultItems.filter { $0 != .flexibleSpace })
     }
 }

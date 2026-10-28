@@ -1,20 +1,31 @@
 #!/bin/bash
 # Standalone test runner for the Variable Manager's content: VariableManagerVC
-# (list | detail, the panel's settle/prune/collision rules) and
-# VariableConnectionsView (global or linked). Headless AppKit.
+# in the manager shell (sidebar rows, the settle/prune/collision rules, the
+# toolbar, Delete and Duplicate, the store-republish rule) and
+# VariableConnectionsView (global or linked) in the form's Connections box.
+# Real AppKit in a window ordered in offscreen.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/variable-manager-tests \
   Pharos/ViewControllers/QueryVariables/VariableManagerVC.swift \
   Pharos/ViewControllers/QueryVariables/VariableConnectionsView.swift \
-  Pharos/ViewControllers/QueryVariables/VariableListView.swift \
-  Pharos/ViewControllers/QueryVariables/VariableRowView.swift \
   Pharos/ViewControllers/QueryVariables/VariableDetailVC.swift \
+  Pharos/ViewControllers/QueryVariables/VariableValueEditors.swift \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
+  Pharos/Windows/Manager/*.swift \
+  Pharos/Settings/Furniture/SettingsSymbolBadge.swift \
+  Pharos/Settings/Furniture/SettingsMetrics.swift \
+  Pharos/Settings/Furniture/SettingsGroupBox.swift \
+  Pharos/Settings/Furniture/SettingsRow.swift \
+  Pharos/Settings/Furniture/SettingsSectionHeader.swift \
+  Pharos/Settings/Furniture/SettingsControlFactory.swift \
+  Pharos/Settings/Furniture/SettingsFormDocumentView.swift \
+  Pharos/Settings/Furniture/SettingsFooterButtonRow.swift \
   "Pharos/Utilities/NSLayoutConstraint+Swap.swift" \
   Pharos/Views/ConnectionMenuArt.swift \
   Pharos/Views/TabConnectionDot.swift \
   Pharos/Views/EmptyStateView.swift \
+  Pharos/Core/TimeZoneChoices.swift \
   Pharos/Core/VariableSubstitutor.swift \
   Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \

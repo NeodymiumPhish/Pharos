@@ -5,8 +5,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-constraint-swap-tests \
   "Pharos/Utilities/NSLayoutConstraint+Swap.swift" \
-  Pharos/ViewControllers/QueryVariables/VariableRowView.swift \
-  Pharos/ViewControllers/QueryVariables/VariableListView.swift \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
   Pharos/Core/VariableSubstitutor.swift \
   Pharos/Core/VariableValueRules.swift \

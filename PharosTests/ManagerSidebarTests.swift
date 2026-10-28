@@ -657,7 +657,15 @@ private func testToolbar() {
         return
     }
     expectEqual(toolbar.items.map(\.itemIdentifier), ManagerToolbarController.defaultItems,
-                "toolbar: + , filter, then the tracking separator")
+                "toolbar: the items are the default set, in order")
+    // Spelled out, not read back from `defaultItems`: the order IS the fix.
+    // Over the sidebar: space, +. Then the separator. Over the detail:
+    // space, filter — the filter is not over the sidebar, where a 220–260 pt
+    // sidebar collapsed it to a magnifier button.
+    expectEqual(toolbar.items.map(\.itemIdentifier),
+                [.flexibleSpace, .pharosManagerAdd, .pharosManagerSidebarSeparator, .flexibleSpace,
+                 .pharosManagerFilter],
+                "toolbar: space, +, the tracking separator, space, then the filter at the trailing edge")
     expectTrue(!toolbar.allowsUserCustomization, "toolbar: not customisable")
 
     let separator = toolbar.items.first { $0.itemIdentifier == .pharosManagerSidebarSeparator }
@@ -676,6 +684,10 @@ private func testToolbar() {
 
     let filter = toolbar.items.first { $0.itemIdentifier == .pharosManagerFilter } as? NSSearchToolbarItem
     expectEqual(filter?.searchField.placeholderString, "Filter", "toolbar: the field says Filter")
+    expectEqual(filter?.preferredWidthForSearchField, ManagerToolbarController.filterPreferredWidth,
+                "toolbar: the field asks for its own width, not the sidebar's")
+    expectTrue((180...240).contains(ManagerToolbarController.filterPreferredWidth),
+               "toolbar: and that width is 180–240 pt")
     toolbarController.filterField.stringValue = "del"
     _ = toolbarController.filterField.sendAction(toolbarController.filterField.action,
                                                  to: toolbarController.filterField.target)
@@ -694,12 +706,21 @@ private func testToolbar() {
     } else {
         print("INFO filter field is not in a window (toolbar not laid out offscreen)")
     }
-    for width: CGFloat in [260, 320] {
+    for width: CGFloat in [220, 260, 320] {
         split.splitView.setPosition(width, ofDividerAt: 0)
         window.layoutIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        let shownWidth = split.splitViewItems[0].viewController.view.frame.width
         if let field = filter?.searchField, field.window != nil {
-            print("INFO sidebar \(split.splitViewItems[0].viewController.view.frame.width): filter field frame \(field.convert(field.bounds, to: nil))")
+            let frame = field.convert(field.bounds, to: nil)
+            print("INFO sidebar \(shownWidth): filter field frame \(frame)")
+            // Only when AppKit laid the bar out (a zero frame says nothing).
+            if frame.width > 0 {
+                expectTrue(frame.minX >= shownWidth,
+                           "toolbar: with a \(Int(width)) pt sidebar the filter is over the detail (x \(frame.minX))")
+                expectTrue(frame.width > 100,
+                           "toolbar: with a \(Int(width)) pt sidebar the filter is a field, not a magnifier (w \(frame.width))")
+            }
         }
     }
 }

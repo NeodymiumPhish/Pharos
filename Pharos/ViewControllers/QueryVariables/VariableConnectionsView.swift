@@ -1,7 +1,10 @@
 import AppKit
 
 /// The Variable Manager's Connections section: whether a variable applies to
-/// every connection (global, the default) or only to some, and which.
+/// every connection (global, the default) or only to some, and which. It is
+/// the one row of the detail form's Connections box (`VariableDetailVC`), so
+/// it has no title of its own (the section header says "Connections") and no
+/// scroll view (the form scrolls): it is as tall as its list.
 ///
 /// A view only: the owner gives it the choices (`VariableScope.linkTargets`,
 /// with names and tiles) and the linked ids, and hears every change through
@@ -21,13 +24,11 @@ final class VariableConnectionsView: NSView {
 
     var onChange: (([String]) -> Void)?
 
-    private let titleLabel = NSTextField(labelWithString: String(localized: "Connections"))
     private let allButton = NSButton(radioButtonWithTitle: String(localized: "All connections"), target: nil, action: nil)
     private let someButton = NSButton(radioButtonWithTitle: String(localized: "Only these connections"),
                                       target: nil, action: nil)
     private let hintLabel = NSTextField(labelWithString: "")
     private let listStack = NSStackView()
-    private let scrollView = NSScrollView()
     private var boxes: [(id: String, box: NSButton)] = []
     private var linked: [String] = []
     private var choosingSome = false
@@ -40,7 +41,6 @@ final class VariableConnectionsView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     private func build() {
-        titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         for button in [allButton, someButton] {
             button.target = self
             button.action = #selector(scopeChosen(_:))
@@ -49,39 +49,38 @@ final class VariableConnectionsView: NSView {
         someButton.setAccessibilityIdentifier("variables.scope.some")
         hintLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         hintLabel.textColor = .secondaryLabelColor
+        hintLabel.lineBreakMode = .byWordWrapping
+        hintLabel.maximumNumberOfLines = 0
+        hintLabel.setAccessibilityIdentifier("variables.scope.hint")
 
         listStack.orientation = .vertical
         listStack.alignment = .leading
         listStack.spacing = 4
-        listStack.edgeInsets = NSEdgeInsets(top: 4, left: 20, bottom: 4, right: 4)
-        let document = FlippedView()
-        document.translatesAutoresizingMaskIntoConstraints = false
-        listStack.translatesAutoresizingMaskIntoConstraints = false
-        document.addSubview(listStack)
-        scrollView.documentView = document
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
+        // Under the radio buttons' labels.
+        listStack.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 0)
+        listStack.detachesHiddenViews = true
 
-        let column = NSStackView(views: [titleLabel, allButton, someButton, scrollView, hintLabel])
+        let column = NSStackView(views: [allButton, someButton, listStack, hintLabel])
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 6
         column.translatesAutoresizingMaskIntoConstraints = false
         addSubview(column)
+        // The group box's row insets, so this lines up with a SettingsRow.
         NSLayoutConstraint.activate([
             column.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             column.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             column.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             column.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-            scrollView.widthAnchor.constraint(equalTo: column.widthAnchor),
-            listStack.topAnchor.constraint(equalTo: document.topAnchor),
-            listStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            listStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            listStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-            document.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
         ])
+        column.spanArrangedSubviewsFullWidth()
+    }
+
+    override func layout() {
+        super.layout()
+        // A wrapping label reports its height for the width it is given.
+        let width = hintLabel.bounds.width
+        if width > 0, hintLabel.preferredMaxLayoutWidth != width { hintLabel.preferredMaxLayoutWidth = width }
     }
 
     /// Show `choices`, with `linked` ticked; empty `linked` is global.
@@ -114,6 +113,8 @@ final class VariableConnectionsView: NSView {
             listStack.addArrangedSubview(row)
             boxes.append((choice.id, box))
         }
+        // No list, no gap where it would be.
+        listStack.isHidden = choices.isEmpty
         applyEnabledState()
     }
 
@@ -154,10 +155,4 @@ final class VariableConnectionsView: NSView {
     func chooseSome() { scopeChosen(someButton) }
     func chooseAll() { scopeChosen(allButton) }
     var isGlobalChosen: Bool { allButton.state == .on }
-}
-
-/// A document view whose origin is at the top, so a short list sits at the
-/// top of its scroll view.
-private final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
 }

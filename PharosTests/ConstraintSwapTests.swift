@@ -92,18 +92,6 @@ private func testSwap() {
     expect(SpyWindow.conflicts == before, "swap: no conflict either way", "\(SpyWindow.conflicts - before) reported")
 }
 
-private func testVariableListHeader() {
-    let list = VariableListView()
-    let w = hostWindow(holding: list)
-    let before = SpyWindow.conflicts
-    list.showsHeader = false
-    w.contentView?.layoutSubtreeIfNeeded()
-    list.showsHeader = true
-    w.contentView?.layoutSubtreeIfNeeded()
-    expect(SpyWindow.conflicts == before, "variables list: hiding and showing the header makes no conflict",
-           "\(SpyWindow.conflicts - before) reported")
-}
-
 private func testSettingsRowCaption() {
     let row = SettingsRow(title: "Row limit", caption: nil, control: NSButton(checkboxWithTitle: "", target: nil, action: nil))
     let w = hostWindow(holding: row)
@@ -120,7 +108,6 @@ func runTests() {
     UserDefaults.standard.set(true, forKey: "NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints")
     testTheDetectorSeesTheOldOrder()
     testSwap()
-    testVariableListHeader()
     testSettingsRowCaption()
     if failures == 0 { print("\nAll constraint swap tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

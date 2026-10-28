@@ -1,16 +1,29 @@
 #!/bin/bash
-# Standalone test runner for VariableDetailVC — no Xcode project involvement.
-# Separate binary from test-variable-row-layout.sh because only one runTests()
-# can exist per compiled binary; this one exercises real AppKit (Auto Layout,
-# hit-testing, resolved colours, text-view round-tripping) via a headless
-# (never-shown) NSWindow, same technique as the row/list harness.
+# Standalone test runner for VariableDetailVC, the Variable Manager's form —
+# no Xcode project involvement. Real AppKit (Auto Layout, field editors,
+# popovers, resolved colours, offscreen renders) in a titled window ordered in
+# offscreen. See PharosTests/VariableDetailVCTests.swift.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 TMPMAIN=$(mktemp -d)/main.swift
 echo "runTests()" > "$TMPMAIN"
 swiftc -o /tmp/variable-detail-vc-tests \
   Pharos/ViewControllers/QueryVariables/VariableDetailVC.swift \
+  Pharos/ViewControllers/QueryVariables/VariableValueEditors.swift \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
+  Pharos/ViewControllers/QueryVariables/VariableConnectionsView.swift \
+  Pharos/Settings/Furniture/SettingsMetrics.swift \
+  Pharos/Settings/Furniture/SettingsGroupBox.swift \
+  Pharos/Settings/Furniture/SettingsRow.swift \
+  Pharos/Settings/Furniture/SettingsSectionHeader.swift \
+  Pharos/Settings/Furniture/SettingsControlFactory.swift \
+  Pharos/Settings/Furniture/SettingsFormDocumentView.swift \
+  Pharos/Settings/Furniture/SettingsFooterButtonRow.swift \
+  "Pharos/Utilities/NSLayoutConstraint+Swap.swift" \
+  Pharos/Views/ConnectionMenuArt.swift \
+  Pharos/Views/TabConnectionDot.swift \
+  Pharos/Models/Connection.swift \
+  Pharos/Core/TimeZoneChoices.swift \
   Pharos/Core/VariableSubstitutor.swift \
   Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \

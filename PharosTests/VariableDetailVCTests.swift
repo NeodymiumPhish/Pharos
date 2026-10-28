@@ -1,34 +1,28 @@
-// Standalone test runner for VariableDetailVC — no Xcode project or test
-// target involvement. Measures real AppKit geometry (Auto Layout, hit-testing,
-// resolved colours, text-view round-tripping) inside a headless, never-shown
-// NSWindow, the same technique VariableRowLayoutTests.swift uses for the list
-// level. This is a separate binary (own `runTests()`) rather than appended to
-// that file, since only one `runTests()` can exist per compiled binary.
+// Standalone test runner for VariableDetailVC, the Variable Manager's form —
+// compiled by scripts/test-variable-detail-vc.sh. Real AppKit: the form is
+// hosted at a REQUIRED width (a window grows rather than compressing) in a
+// titled window ordered in offscreen at (-20000, -20000), so field editors,
+// the key-view loop and popovers all exist.
 //
-// Compiled with VariableDetailVC.swift, VariableValueTextView.swift,
-// VariableSubstitutor.swift, VariableValuePreview.swift, QueryVariable.swift,
-// PulseClock.swift, SQLSegmentParser.swift, SQLFoldingParser.swift,
-// SQLLexer.swift and LineNumberGutter.swift by
-// scripts/test-variable-detail-vc.sh.
+// Covers: the form's sections and rows per type, each value editor (growing
+// text view, Number's live check, Bool, Date / Timestamp pickers and the
+// calendar popover, the zone pop-up, List paste), type changes converting the
+// value, "Renders as", the name-collision refusal and settle points, the
+// store-republish rule, constraint conflicts, and an offscreen render of
+// every editor kind in Light and Dark.
 import AppKit
 
 private var failures = 0
 
-private func expectTrue(_ actual: Bool, _ name: String) {
-    if actual { print("PASS \(name)") } else {
+private func expectTrue(_ condition: Bool, _ name: String, _ detail: @autoclosure () -> String = "") {
+    if condition { print("PASS \(name)") } else {
         failures += 1
-        print("FAIL \(name)")
+        let text = detail()
+        print("FAIL \(name)" + (text.isEmpty ? "" : "\n  \(text)"))
     }
 }
 
-private func expectEqual(_ actual: String, _ expected: String, _ name: String) {
-    if actual == expected { print("PASS \(name)") } else {
-        failures += 1
-        print("FAIL \(name)\n  expected: \(expected.debugDescription)\n  actual:   \(actual.debugDescription)")
-    }
-}
-
-private func expectEqual(_ actual: Int, _ expected: Int, _ name: String) {
+private func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ name: String) {
     if actual == expected { print("PASS \(name)") } else {
         failures += 1
         print("FAIL \(name)\n  expected: \(expected)\n  actual:   \(actual)")
@@ -42,1682 +36,676 @@ private func expectClose(_ actual: CGFloat, _ expected: CGFloat, tolerance: CGFl
     }
 }
 
-// MARK: - Harness helpers
+// MARK: - Harness
 
-/// A borderless, never-shown window hosting `vc.view` at a fixed size. As in
-/// `VariableRowLayoutTests`, a window is required for Auto Layout to actually
-/// run — an unhosted view never resolves its constraints.
-private func makeHostedDetail(
-    width: CGFloat, height: CGFloat = 400, variable: QueryVariable
-) -> (window: NSWindow, container: NSView, vc: VariableDetailVC) {
-    let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-        styleMask: [.borderless], backing: .buffered, defer: false
-    )
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-    window.contentView = container
-    let vc = VariableDetailVC(variable: variable)
-    vc.view.translatesAutoresizingMaskIntoConstraints = false
-    container.addSubview(vc.view)
-    NSLayoutConstraint.activate([
-        vc.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-        vc.view.topAnchor.constraint(equalTo: container.topAnchor),
-        vc.view.widthAnchor.constraint(equalToConstant: width),
-        vc.view.heightAnchor.constraint(equalToConstant: height),
-    ])
-    container.layoutSubtreeIfNeeded()
-
-    // Measured directly: `editorContainer`'s defaultLow vertical hugging
-    // inside `body` (an NSStackView) is not fully resolved by this first
-    // layoutSubtreeIfNeeded() call — the gutter/scrollView frames `viewDidLayout`
-    // computes from `editorContainer.bounds` come out zero-height. This is not
-    // a code defect: a live window's own run loop settles the same geometry
-    // within milliseconds with no code involved (proven by spinning
-    // RunLoop.main briefly here instead of forcing a second pass — it produces
-    // the identical final frames). A headless harness that never spins the run
-    // loop has to force that follow-up pass explicitly to read genuinely-final
-    // geometry, or every measurement below the editor container would be
-    // reading first-pass, not settled, layout.
-    vc.view.needsLayout = true
-    container.layoutSubtreeIfNeeded()
-
-    return (window, container, vc)
+/// Counts constraint conflicts, transient ones included (see
+/// scripts/test-constraint-swap.sh). AppKit reports one conflict once per
+/// process, so the conflict test runs first, on fresh views.
+private final class SpyWindow: NSWindow {
+    static var conflicts = 0
+    override func visualizeConstraints(_ constraints: [NSLayoutConstraint]?) {
+        if !(constraints ?? []).isEmpty { Self.conflicts += 1 }
+    }
 }
 
-/// Hosts the VC with only its width pinned — no height constraint — so
-/// `vc.view.fittingSize` reflects the minimum height Auto Layout actually
-/// needs for this content, rather than whatever fixed height a test harness
-/// forces on it. Used only for the Bool-vs-Literal height comparison; every
-/// other test in this file needs a concrete, pinned height to measure real
-/// geometry inside.
-private func makeHostedDetailForFittingSize(
-    width: CGFloat, variable: QueryVariable
-) -> (window: NSWindow, container: NSView, vc: VariableDetailVC) {
-    let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: width, height: 800),
-        styleMask: [.borderless], backing: .buffered, defer: false
-    )
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 800))
-    window.contentView = container
-    let vc = VariableDetailVC(variable: variable)
-    vc.view.translatesAutoresizingMaskIntoConstraints = false
-    container.addSubview(vc.view)
-    NSLayoutConstraint.activate([
-        vc.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-        vc.view.topAnchor.constraint(equalTo: container.topAnchor),
-        vc.view.widthAnchor.constraint(equalToConstant: width),
-    ])
-    container.layoutSubtreeIfNeeded()
-    vc.view.needsLayout = true
-    container.layoutSubtreeIfNeeded()
-    return (window, container, vc)
-}
+private final class Hosted {
+    let window: SpyWindow
+    let vc: VariableDetailVC
+    var changes: [QueryVariable] = []
+    var backs = 0
+    var deletes = 0
 
-private func hasAmbiguousLayoutRecursively(_ view: NSView) -> Bool {
-    if view.hasAmbiguousLayout { return true }
-    return view.subviews.contains { hasAmbiguousLayoutRecursively($0) }
+    init(_ variable: QueryVariable, width: CGFloat = 520, height: CGFloat = 760,
+         connections: VariableConnectionsView? = nil, otherNames: Set<String> = []) {
+        window = SpyWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.titled],
+                           backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        window.contentView = container
+        vc = VariableDetailVC(variable: variable, connectionsView: connections)
+        vc.otherNames = otherNames
+        vc.onChange = { [unowned self] in self.changes.append($0) }
+        vc.onBack = { [unowned self] in self.backs += 1 }
+        vc.onDelete = { [unowned self] in self.deletes += 1 }
+        vc.view.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(vc.view)
+        NSLayoutConstraint.activate([
+            vc.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            vc.view.topAnchor.constraint(equalTo: container.topAnchor),
+            vc.view.widthAnchor.constraint(equalToConstant: width),
+            vc.view.heightAnchor.constraint(equalToConstant: height),
+        ])
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        settle()
+    }
+
+    func settle() {
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func close() {
+        vc.dateControl.closePopover()
+        vc.timestampControl.closePopover()
+        window.orderOut(nil)
+    }
+
+    /// Types into a field through its real field editor, as the user would.
+    /// Refuses a field the user could not type in.
+    func type(_ text: String, into field: NSTextField, replacing: Bool = true) {
+        guard field.isEnabled, field.isEditable, field.window != nil else {
+            expectTrue(false, "setup: \(field.accessibilityIdentifier()) can be typed in")
+            return
+        }
+        window.makeFirstResponder(field)
+        guard let editor = field.currentEditor() as? NSTextView else {
+            expectTrue(false, "setup: \(field.accessibilityIdentifier()) has a field editor")
+            return
+        }
+        if replacing { editor.selectAll(nil) }
+        editor.insertText(text, replacementRange: editor.selectedRange())
+        settle()
+    }
+
+    /// Types into the value text view at `range` (default: replace all).
+    func typeValue(_ text: String, replacing range: NSRange? = nil) {
+        let tv = vc.valueTextView
+        window.makeFirstResponder(tv)
+        let target = range ?? NSRange(location: 0, length: (tv.string as NSString).length)
+        tv.setSelectedRange(target)
+        tv.insertText(text, replacementRange: target)
+        settle()
+    }
+
+    var rowTitles: [String] {
+        allDescendants(of: vc.view).compactMap { ($0 as? SettingsRow)?.titleLabel.stringValue }
+    }
+
+    func row(_ title: String) -> SettingsRow? {
+        allDescendants(of: vc.view).compactMap { $0 as? SettingsRow }.first { $0.titleLabel.stringValue == title }
+    }
+
+    func shows(_ view: NSView) -> Bool { view.isDescendant(of: vc.view) && view.window != nil }
 }
 
 private func allDescendants(of view: NSView) -> [NSView] {
-    var result: [NSView] = []
-    for sub in view.subviews {
-        result.append(sub)
-        result.append(contentsOf: allDescendants(of: sub))
-    }
-    return result
+    view.subviews.flatMap { [$0] + allDescendants(of: $0) }
 }
 
-/// `VariableDetailVC` exposes nothing test-visible beyond its view hierarchy
-/// (all its controls are `private`), so — mirroring how
-/// `VariableRowLayoutTests` locates `VariableListView`'s internals — these
-/// helpers walk the public `subviews` tree instead of reaching into private
-/// stored properties.
-
-/// The only editable `NSTextField` in the tree: `nameField` is a plain,
-/// input-configured `NSTextField()`. `captionLabel` and `duplicationLabel` are
-/// both built with `NSTextField(labelWithString:)`, which is not editable —
-/// that is the discriminator, not view order or text content.
-private func nameField(in vc: VariableDetailVC) -> NSTextField {
-    allDescendants(of: vc.view).compactMap { $0 as? NSTextField }.first { $0.isEditable }!
-}
-
-private func typePopup(in vc: VariableDetailVC) -> NSPopUpButton {
-    allDescendants(of: vc.view).compactMap { $0 as? NSPopUpButton }.first!
-}
-
-private func backButton(in vc: VariableDetailVC) -> NSButton {
-    allDescendants(of: vc.view).compactMap { $0 as? NSButton }
-        .first { !($0 is NSPopUpButton) && $0.toolTip == "Back to variables" }!
-}
-
-private func deleteButton(in vc: VariableDetailVC) -> NSButton {
-    allDescendants(of: vc.view).compactMap { $0 as? NSButton }
-        .first { !($0 is NSPopUpButton) && $0.toolTip == "Delete variable" }!
-}
-
-private func headerStack(in vc: VariableDetailVC) -> NSStackView {
-    allDescendants(of: vc.view).compactMap { $0 as? NSStackView }.first { $0.orientation == .horizontal }!
-}
-
-private func bodyStack(in vc: VariableDetailVC) -> NSStackView {
-    allDescendants(of: vc.view).compactMap { $0 as? NSStackView }.first { $0.orientation == .vertical }!
-}
-
-/// `body`'s arranged subviews are always `[duplicationLabel, editorContainer,
-/// captionLabel, valueChoiceContainer, collisionNoticeContainer]`, in that
-/// fixed order — positional lookup is safe here. Only the first three are
-/// looked up positionally below; the two containers were appended after them
-/// precisely so these indices would not move.
-private func duplicationLabel(in vc: VariableDetailVC) -> NSTextField {
-    bodyStack(in: vc).arrangedSubviews[0] as! NSTextField
-}
-
-private func editorContainer(in vc: VariableDetailVC) -> NSView {
-    bodyStack(in: vc).arrangedSubviews[1]
-}
-
-private func captionLabel(in vc: VariableDetailVC) -> NSTextField {
-    bodyStack(in: vc).arrangedSubviews[2] as! NSTextField
-}
-
-/// The only `NSTextField` added directly to `editorContainer` (the gutter
-/// and scroll view are its other two direct subviews, neither an
-/// `NSTextField`).
-private func valuePlaceholderLabel(in vc: VariableDetailVC) -> NSTextField {
-    editorContainer(in: vc).subviews.compactMap { $0 as? NSTextField }.first!
-}
-
-/// The separator is a private, file-scoped type (`HairlineView`, mirroring
-/// `VariableListView`'s own private hairline), so it cannot be looked up by
-/// concrete type from this file. It is identified structurally instead: of
-/// `vc.view`'s three direct subviews (`header`, `headerSeparator`, `body`),
-/// it is the only one that is not an `NSStackView`.
-private func headerSeparatorView(in vc: VariableDetailVC) -> NSView {
-    vc.view.subviews.first { !($0 is NSStackView) }!
-}
-
-private func gutterView(in vc: VariableDetailVC) -> LineNumberGutter {
-    allDescendants(of: vc.view).compactMap { $0 as? LineNumberGutter }.first!
-}
-
-private func scrollView(in vc: VariableDetailVC) -> NSScrollView {
-    allDescendants(of: vc.view).compactMap { $0 as? NSScrollView }.first!
-}
-
-private func valueTextView(in vc: VariableDetailVC) -> VariableValueTextView {
-    scrollView(in: vc).documentView as! VariableValueTextView
-}
-
-/// The fourth (last) arranged subview of `body` — see the comment at its
-/// construction site in `VariableDetailVC.loadView` for why it was appended
-/// rather than inserted among the first three.
-private func valueChoiceContainer(in vc: VariableDetailVC) -> NSView {
-    bodyStack(in: vc).arrangedSubviews[3]
-}
-
-private func valueChoiceControl(in vc: VariableDetailVC) -> NSSegmentedControl {
-    allDescendants(of: vc.view).compactMap { $0 as? NSSegmentedControl }.first!
-}
-
-/// The fifth (last) arranged subview of `body`, appended after
-/// `valueChoiceContainer` — see the comment at its construction site in
-/// `VariableDetailVC.loadView`.
-private func collisionNoticeContainer(in vc: VariableDetailVC) -> NSView {
-    bodyStack(in: vc).arrangedSubviews[4]
-}
-
-private func collisionNoticeLabel(in vc: VariableDetailVC) -> NSTextField {
-    collisionNoticeContainer(in: vc).subviews.compactMap { $0 as? NSTextField }.first!
-}
-
-/// Simulates a real click/selection on a control wired with `target`/`action`
-/// — the same dispatch path AppKit itself uses, rather than calling the
-/// (private) action method directly, which test code cannot reach anyway.
-private func triggerAction(of control: NSControl) {
+private func press(_ control: NSControl) {
     guard let action = control.action else { return }
     _ = NSApp.sendAction(action, to: control.target, from: control)
 }
 
-/// True when `a` sits visually above `b` in `view`'s own coordinate space,
-/// flip-aware (this view happens to be a plain, non-flipped `NSView`, but the
-/// check does not assume that).
-private func isAbove(_ a: NSRect, _ b: NSRect, in view: NSView) -> Bool {
-    view.isFlipped ? a.maxY <= b.minY : a.minY >= b.maxY
+private func choose(_ segment: Int, in control: NSSegmentedControl) {
+    control.selectedSegment = segment
+    press(control)
 }
 
-private func frameInView(_ subview: NSView, of vc: VariableDetailVC) -> NSRect {
-    subview.superview!.convert(subview.frame, to: vc.view)
+private func choose(_ title: String, in popup: NSPopUpButton) {
+    popup.selectItem(withTitle: title)
+    press(popup)
 }
 
-// MARK: - Fixtures
+private let utc = TimeZone(identifier: "UTC")!
 
-private func shortValueVariable() -> QueryVariable {
-    QueryVariable(name: "target_ip", value: "10.0.0.1", type: .literal)
+/// A UTC-bound date for stored fields, through the rules' own parser.
+private func date(_ text: String, _ type: VariableType) -> Date {
+    VariableValueRules.dateTime(from: text, as: type)!.date
 }
 
-private func emptyVariable() -> QueryVariable {
-    QueryVariable(name: "", value: "", type: .literal)
+/// Ambiguous views the user can see. Skipped: hidden views (SettingsRow's
+/// empty caption label keeps no vertical pin while hidden) and AppKit's
+/// private views (a field editor's `_NSText…` internals lay out by frame).
+private func hasAmbiguousLayoutRecursively(_ view: NSView) -> [NSView] {
+    let counts = view.hasAmbiguousLayout && !view.isHiddenOrHasHiddenAncestor
+        && !NSStringFromClass(type(of: view)).hasPrefix("_")
+    return (counts ? [view] : []) + view.subviews.flatMap(hasAmbiguousLayoutRecursively)
 }
 
-private func longValueVariable(lines: Int = 200) -> QueryVariable {
-    let value = (1...lines).map { "line \($0) of a long value" }.joined(separator: "\n")
-    return QueryVariable(name: "id_list", value: value, type: .literal)
+// MARK: - Rendering (SettingsFurnitureTests' Rendered wrapper)
+
+private final class Rendered {
+    let rep: NSBitmapImageRep
+    let scale: Int
+    init(rep: NSBitmapImageRep, pointWidth: CGFloat) {
+        self.rep = rep
+        scale = max(1, Int((CGFloat(rep.pixelsWide) / pointWidth).rounded()))
+    }
+
+    /// The pixel at a POINT coordinate, top-left origin as `colorAt` counts.
+    func pixel(_ x: Int, _ y: Int) -> NSColor? {
+        rep.colorAt(x: x * scale, y: y * scale)?.usingColorSpace(.sRGB)
+    }
+
+    /// Pixels (not points) that read as the system red.
+    var redPixels: Int {
+        var count = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { continue }
+                if c.redComponent > 0.75, c.greenComponent < 0.45, c.blueComponent < 0.45 { count += 1 }
+            }
+        }
+        return count
+    }
 }
 
-// MARK: - Tests
+/// Renders `view` under `appearance` — set on the view too, because
+/// `cacheDisplay` restores each view's own appearance (lessons, 2026-09-19).
+private func render(_ view: NSView, appearance: NSAppearance) -> Rendered? {
+    view.appearance = appearance
+    view.window?.appearance = appearance
+    view.layoutSubtreeIfNeeded()
+    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+    appearance.performAsCurrentDrawingAppearance {
+        view.cacheDisplay(in: view.bounds, to: rep)
+    }
+    return Rendered(rep: rep, pointWidth: view.bounds.width)
+}
 
-/// Layout must fully resolve — no ambiguity anywhere in the tree — for an
-/// empty variable, a short single-line value, and a 200-line value, at every
-/// width the panel actually uses.
-private func testLayoutUnambiguous() {
-    let fixtures: [(String, QueryVariable)] = [
-        ("empty", emptyVariable()),
-        ("short single-line", shortValueVariable()),
-        ("200-line", longValueVariable()),
+private func channelsWithin(_ a: NSColor?, _ b: NSColor?, _ tolerance: CGFloat) -> Bool {
+    guard let a = a?.usingColorSpace(.sRGB), let b = b?.usingColorSpace(.sRGB) else { return false }
+    return abs(a.redComponent - b.redComponent) <= tolerance
+        && abs(a.greenComponent - b.greenComponent) <= tolerance
+        && abs(a.blueComponent - b.blueComponent) <= tolerance
+}
+
+private func resolved(_ color: NSColor, in appearance: NSAppearance) -> NSColor? {
+    var out: NSColor?
+    appearance.performAsCurrentDrawingAppearance { out = color.usingColorSpace(.sRGB) }
+    return out
+}
+
+// MARK: - 1. Constraint conflicts and ambiguity (first: one report per process)
+
+private func testNoConflictsForAnyEditor() {
+    let before = SpyWindow.conflicts
+    let variables: [QueryVariable] = [
+        QueryVariable(name: "lit", value: "abc"),
+        QueryVariable(name: "multi", value: (1...20).map(String.init).joined(separator: "\n"), type: .text),
+        QueryVariable(name: "num", value: "4x", type: .number),
+        QueryVariable(name: "flag", value: "t", type: .bool),
+        QueryVariable(name: "day", value: "2026-10-28", type: .date),
+        QueryVariable(name: "rel", value: "today", type: .date),
+        QueryVariable(name: "at", value: "2026-10-28 14:30:00", type: .timestamp),
+        QueryVariable(name: "atz", value: "2026-10-28 14:30:00 Europe/Paris", type: .timestamptz),
+        QueryVariable(name: "ids", value: "1\nx", type: .numberList),
     ]
-    for width: CGFloat in [180, 300, 600] {
-        for (label, variable) in fixtures {
-            let (_, _, vc) = makeHostedDetail(width: width, variable: variable)
-            vc.view.layoutSubtreeIfNeeded()
-            expectTrue(
-                !hasAmbiguousLayoutRecursively(vc.view),
-                "layout unambiguous at \(Int(width))pt for \(label) value")
+    for variable in variables {
+        for width: CGFloat in [460, 700] {
+            let host = Hosted(variable, width: width, connections: VariableConnectionsView())
+            let ambiguous = hasAmbiguousLayoutRecursively(host.vc.view)
+            expectTrue(ambiguous.isEmpty, "layout: \(variable.type.rawValue) at \(Int(width)) pt is not ambiguous",
+                       ambiguous.map { "\(type(of: $0))" }.joined(separator: ", "))
+            host.close()
         }
     }
+    // Type changes rebuild the boxes; walk every family on one form.
+    let host = Hosted(QueryVariable(name: "walk", value: "1"), width: 460)
+    for title in VariableTypeFamily.allCases.map(\.displayName) + ["Literal"] {
+        choose(title, in: host.vc.typePopup)
+        host.settle()
+    }
+    host.vc.timeZoneSwitch.state = .on
+    choose("Timestamp", in: host.vc.typePopup)
+    host.settle()
+    host.close()
+    expectEqual(SpyWindow.conflicts - before, 0, "layout: no constraint conflict for any editor, width or type change")
 }
 
-/// C1-class bug, pinned specifically on the view that constructs the editor:
-/// the embedded `valueTextView` must actually hold text, both what `loadView`
-/// seeds it with from the variable and what is set afterwards. A value
-/// containing a tab and newlines must round-trip exactly.
-private func testValueEditorHoldsText() {
-    let seeded = "line one\twith a tab\nline two\nline three"
-    let variable = QueryVariable(name: "v", value: seeded, type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    let tv = valueTextView(in: vc)
+// MARK: - 2. Form structure
 
-    expectEqual(tv.string, seeded, "valueTextView is seeded with the variable's value at construction")
+private func testFormStructure() {
+    let host = Hosted(QueryVariable(name: "target_ip", value: "10.0.0.1"), connections: VariableConnectionsView())
+    defer { host.close() }
+    let ids = Set(allDescendants(of: host.vc.view).map { $0.accessibilityIdentifier() })
+    for section in ["variable", "value", "connections"] {
+        expectTrue(ids.contains("settings.section.\(section)"), "form: a \(section) section header")
+    }
+    expectEqual(host.rowTitles, ["Name", "Type", "Value", "Renders as"], "form: Literal rows, in order")
+    expectTrue(host.vc.connectionsView.map(host.shows) ?? false, "form: the Connections view is in the form")
+    expectTrue(allDescendants(of: host.vc.view).contains { $0 is SettingsGroupBox && $0.subviews.first.map {
+        allDescendants(of: $0).contains { $0 === host.vc.connectionsView } } ?? false },
+        "form: inside a group box")
+    expectEqual(host.vc.typePopup.itemTitles, ["Literal", "Text", "Number", "Bool", "Date", "Timestamp", "List"],
+                "Type: one entry per family")
+    expectEqual(host.vc.typePopup.titleOfSelectedItem, "Literal", "Type: the variable's family is chosen")
+    expectEqual(host.vc.nameField.stringValue, "target_ip", "Name: the name")
+    expectTrue(host.vc.nameField.font?.isFixedPitch == true, "Name: monospaced")
+    expectTrue(host.vc.deleteButton.hasDestructiveAction && host.shows(host.vc.deleteButton),
+               "Delete Variable: a destructive button in the form")
+    press(host.vc.deleteButton)
+    expectEqual(host.deletes, 1, "Delete Variable: calls onDelete")
+    expectTrue(host.vc.rendersAsLabel.isSelectable, "Renders as: selectable")
+    expectTrue(host.vc.rendersAsLabel.font?.isFixedPitch == true, "Renders as: monospaced")
 
-    let reassigned = "a\tb\nc\r\nd\te"
-    tv.string = reassigned
-    expectEqual(tv.string, reassigned, "valueTextView round-trips a value containing tabs and mixed line breaks")
+    let bare = Hosted(QueryVariable(name: "x", value: "1"))
+    defer { bare.close() }
+    expectTrue(!Set(allDescendants(of: bare.vc.view).map { $0.accessibilityIdentifier() })
+        .contains("settings.section.connections"), "form: no Connections section without a view to show")
+
+    let stamp = Hosted(QueryVariable(name: "at", value: "now", type: .timestamp))
+    defer { stamp.close() }
+    expectEqual(stamp.rowTitles, ["Name", "Type", "With time zone", "Value", "Renders as"],
+                "Timestamp: a With time zone switch; Now has no picker")
+    let list = Hosted(QueryVariable(name: "ids", value: "a", type: .numberList))
+    defer { list.close() }
+    expectEqual(list.rowTitles, ["Name", "Type", "Items are", "Items", "Renders as"], "List: an Items are pop-up")
+    expectEqual(list.vc.listElementPopup.titleOfSelectedItem, "Number", "List: showing the element type")
 }
 
-/// Minor: the multi-line value editor has no native placeholder (unlike
-/// `nameField.placeholderString`), but the spec calls for keeping one — the
-/// old single-line value field had "value". Shown only while the editor is
-/// empty and the type isn't Bool (the choice control has no "empty" state
-/// the way free text does), and updates live as the value is typed/cleared.
-private func testValuePlaceholderShowsOnlyWhenEmpty() {
-    let empty = QueryVariable(name: "v", value: "", type: .literal)
-    let (_, _, vcEmpty) = makeHostedDetail(width: 300, variable: empty)
-    expectTrue(!valuePlaceholderLabel(in: vcEmpty).isHidden, "placeholder shown for an empty Literal value")
+// MARK: - 3. Type changes convert the value
 
-    let filled = QueryVariable(name: "v", value: "something", type: .literal)
-    let (_, _, vcFilled) = makeHostedDetail(width: 300, variable: filled)
-    expectTrue(valuePlaceholderLabel(in: vcFilled).isHidden, "placeholder hidden for a non-empty value")
+private func testTypeChangeConverts() {
+    let host = Hosted(QueryVariable(name: "v", value: "2026-10-28"))
+    defer { host.close() }
+    choose("Date", in: host.vc.typePopup)
+    expectEqual(host.vc.variable.type, .date, "type: Date chosen")
+    expectEqual(host.vc.variable.value, "2026-10-28", "type: a date-shaped Literal stays the date")
+    expectEqual(host.changes.last?.type, .date, "type: onChange carries the new type")
 
-    let boolVar = QueryVariable(name: "b", value: "", type: .bool)
-    let (_, _, vcBool) = makeHostedDetail(width: 300, variable: boolVar)
-    expectTrue(valuePlaceholderLabel(in: vcBool).isHidden, "placeholder hidden for Bool regardless of value")
+    choose("Timestamp", in: host.vc.typePopup)
+    expectEqual(host.vc.variable.value, "2026-10-28 00:00:00", "type: Date → Timestamp adds midnight")
+    host.vc.timeZoneSwitch.state = .on
+    press(host.vc.timeZoneSwitch)
+    expectEqual(host.vc.variable.type, .timestamptz, "type: With time zone makes it zoned")
+    expectEqual(host.vc.variable.value, "2026-10-28 00:00:00 " + TimeZone.current.identifier,
+                "type: and adds this Mac's zone")
 
-    // Live updates as the value is edited.
-    let tv = valueTextView(in: vcFilled)
-    tv.string = ""
-    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
-    expectTrue(!valuePlaceholderLabel(in: vcFilled).isHidden, "clearing the value restores the placeholder")
+    let list = Hosted(QueryVariable(name: "l", value: "a, b, c", type: .text))
+    defer { list.close() }
+    choose("List", in: list.vc.typePopup)
+    expectEqual(list.vc.variable.type, .textList, "type: List of Text by default")
+    expectEqual(list.vc.variable.value, "a\nb\nc", "type: a CSV value becomes one item per line")
+    expectEqual(list.vc.valueTextView.string, "a\nb\nc", "type: and the editor shows it")
+    choose("Number", in: list.vc.listElementPopup)
+    expectEqual(list.vc.variable.type, .numberList, "type: Items are Number")
 
-    tv.string = "x"
-    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
-    expectTrue(valuePlaceholderLabel(in: vcFilled).isHidden, "typing again hides the placeholder")
+    let today = Hosted(QueryVariable(name: "d", value: "today", type: .date))
+    defer { today.close() }
+    choose("Timestamp", in: today.vc.typePopup)
+    expectEqual(today.vc.variable.value, "now", "type: today becomes now")
+    let number = Hosted(QueryVariable(name: "n", value: "  42 \n"))
+    defer { number.close() }
+    choose("Number", in: number.vc.typePopup)
+    expectEqual(number.vc.variable.value, "42", "type: to Number trims")
+    expectTrue(number.shows(number.vc.numberField), "type: and swaps in the Number field")
+    expectTrue(!number.shows(number.vc.textEditor), "type: the text editor is gone")
 }
 
-/// I5: every other test in this file that exercises `controlTextDidChange`
-/// / `controlTextDidEndEditing` / `textDidChange` calls the delegate method
-/// directly — which proves the *method* behaves correctly, but not that
-/// `nameField.delegate = self` (or `valueTextView.delegate = self`) is
-/// actually wired up. Mutation testing confirmed the gap: deleting either
-/// assignment left every one of those tests green. This posts the real
-/// `NSControl.textDidChangeNotification` — the notification AppKit itself
-/// posts, naming the control as its object — and relies on `nameField
-/// .delegate` being set to route it to `controlTextDidChange`, exactly as a
-/// real keystroke would.
-private func testNameFieldDelegateWiringReactsToRealNotification() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
+// MARK: - 4. Number: live check
 
-    let field = nameField(in: vc)
-    // A COLLIDING value, deliberately: `attemptBack`/`commitNameIfValid`
-    // read `nameField.stringValue` directly regardless of whether the
-    // delegate ever ran, so a unique rename here would make the "back
-    // commits it" assertion pass even with the delegate disconnected —
-    // exactly the false confidence this test exists to avoid. Red is not
-    // the field's default colour (indigo is), so it can only appear as a
-    // result of `controlTextDidChange` actually running.
-    field.stringValue = "ip"
-    NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+private func testNumberLiveCheck() {
+    let host = Hosted(QueryVariable(name: "port", value: "443", type: .number))
+    defer { host.close() }
+    expectTrue(!host.vc.numberField.showsError, "Number: a good value has no error outline")
+    expectEqual(host.vc.valueRow?.caption ?? "", "", "Number: and no caption")
 
-    expectTrue(field.textColor == .systemRed, "the real notification reached the delegate and flagged the collision")
-    expectTrue(
-        !collisionNoticeContainer(in: vc).isHidden,
-        "the real notification path shows the collision notice in the value area")
+    host.type("4x", into: host.vc.numberField)
+    expectEqual(host.vc.variable.value, "4x", "Number: a bad value keeps its text")
+    expectEqual(host.changes.last?.value, "4x", "Number: and is written on the keystroke")
+    expectTrue(host.vc.numberField.showsError, "Number: the field shows the error outline")
+    let caption = host.vc.valueRow?.caption ?? ""
+    expectTrue(caption.contains("not a valid number") && caption.contains("4x"), "Number: the caption says why", caption)
+    expectEqual(host.vc.valueRow?.captionLabel.textColor, NSColor.systemRed, "Number: in red")
+    expectEqual(host.vc.valueRow?.captionLabel.accessibilityIdentifier(), "variables.value.caption",
+                "Number: the caption label carries the identifier")
+    expectEqual(host.vc.rendersAsLabel.textColor, NSColor.systemRed, "Renders as: red for a bad value")
+    expectTrue(host.vc.rendersAsLabel.stringValue.contains("not a valid number"), "Renders as: with the reason")
 
-    var backFired = false
-    vc.onBack = { backFired = true }
-    triggerAction(of: backButton(in: vc))
-    expectTrue(!backFired, "back is refused: the delegate-driven collision state still blocks leaving")
+    // The outline is drawn: red pixels in the field while it shows, and
+    // (nearly) none once the value is good. Light and Dark.
+    for (name, appearance) in [("light", NSAppearance(named: .aqua)!), ("dark", NSAppearance(named: .darkAqua)!)] {
+        host.type("4x", into: host.vc.numberField)
+        host.window.makeFirstResponder(nil)
+        let bad = render(host.vc.numberField, appearance: appearance)?.redPixels ?? 0
+        host.type("42", into: host.vc.numberField)
+        host.window.makeFirstResponder(nil)
+        let good = render(host.vc.numberField, appearance: appearance)?.redPixels ?? 0
+        expectTrue(bad > 200 && good < 20, "Number (\(name)): the error outline is drawn red, and goes",
+                   "red pixels bad \(bad), good \(good)")
+        host.vc.numberField.appearance = nil
+        host.window.appearance = nil
+    }
+    expectEqual(host.vc.variable.value, "42", "Number: a good value")
+    expectTrue(!host.vc.numberField.showsError, "Number: clears the outline")
+    expectEqual(host.vc.rendersAsLabel.stringValue, "42", "Renders as: the number")
 }
 
-/// The `NSTextViewDelegate` counterpart, via `NSText.didChangeNotification`
-/// — the real notification a text view's own typing posts, naming the text
-/// view as its object — relying on `valueTextView.delegate` being wired up.
-/// Also checks the two things `textDidChange` is responsible for:
-/// `variable.value` and the size caption, both of which apply live (the
-/// value editor is not part of commit-on-settle).
-private func testValueTextViewDelegateWiringReactsToRealNotification() {
-    let variable = QueryVariable(name: "v", value: "old", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    let tv = valueTextView(in: vc)
+// MARK: - 5. Date
 
-    tv.string = "new value here"
-    NotificationCenter.default.post(name: NSText.didChangeNotification, object: tv)
+private func testDateEditor() {
+    let host = Hosted(QueryVariable(name: "day", value: "2026-10-28", type: .date))
+    defer { host.close() }
+    expectEqual(host.vc.dateModeControl.selectedSegment, 0, "Date: a fixed value shows Fixed")
+    expectEqual(host.vc.dateModeControl.label(forSegment: 1), "Today", "Date: the other segment is Today")
+    expectEqual(host.rowTitles, ["Name", "Type", "Value", "Date", "Renders as"], "Date: a Date row under Fixed")
+    let picker = host.vc.dateControl.textualPicker
+    expectEqual(picker.datePickerStyle, .textFieldAndStepper, "Date: a textual picker")
+    expectEqual(picker.datePickerElements, [.yearMonthDay], "Date: year, month, day")
+    expectEqual(picker.timeZone?.secondsFromGMT(), 0, "Date: bound in UTC")
+    expectEqual(VariableValueRules.format(picker.dateValue, timeZone: utc, as: .date), "2026-10-28",
+                "Date: the picker shows the stored date")
+    expectEqual(host.vc.rendersAsLabel.stringValue, "DATE '2026-10-28'", "Renders as: the DATE literal")
 
-    expectEqual(vc.variable.value, "new value here", "the real notification reaches variable.value")
-    expectEqual(
-        captionLabel(in: vc).stringValue, VariableValuePreview.caption(for: "new value here"),
-        "the real notification updates the size caption to match the new value")
+    picker.dateValue = date("2025-01-15", .date)
+    press(picker)
+    expectEqual(host.vc.variable.value, "2025-01-15", "Date: the picker writes YYYY-MM-DD")
+    expectEqual(host.changes.last?.value, "2025-01-15", "Date: through onChange")
+
+    // The calendar popover: a graphical picker, in step with the textual one.
+    host.vc.dateControl.calendarButton.performClick(nil)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    expectEqual(host.vc.dateControl.calendarButton.image?.accessibilityDescription, "Show Calendar",
+                "calendar: the button is labelled")
+    expectTrue(host.vc.dateControl.popover?.isShown == true, "calendar: the button opens the popover")
+    if let graphical = host.vc.dateControl.graphicalPicker {
+        expectEqual(graphical.datePickerStyle, .clockAndCalendar, "calendar: a graphical picker")
+        expectEqual(VariableValueRules.format(graphical.dateValue, timeZone: utc, as: .date), "2025-01-15",
+                    "calendar: showing the value")
+        expectTrue(graphical.frame.width > 100 && graphical.frame.height > 100,
+                   "calendar: the picker has its size after the show", "\(graphical.frame.size)")
+        graphical.dateValue = date("2024-02-29", .date)
+        press(graphical)
+        expectEqual(host.vc.variable.value, "2024-02-29", "calendar: a pick writes the value")
+        expectEqual(VariableValueRules.format(picker.dateValue, timeZone: utc, as: .date), "2024-02-29",
+                    "calendar: and the textual picker follows")
+    } else {
+        expectTrue(false, "calendar: a graphical picker was made")
+    }
+    host.vc.dateControl.closePopover()
+
+    choose(1, in: host.vc.dateModeControl)
+    expectEqual(host.vc.variable.value, "today", "Today writes today")
+    expectTrue(!host.shows(host.vc.dateControl), "Today: no picker")
+    expectEqual(host.vc.rendersAsLabel.stringValue, "CURRENT_DATE", "Renders as: CURRENT_DATE")
+    choose(0, in: host.vc.dateModeControl)
+    expectEqual(host.vc.variable.value, VariableValueRules.format(Date(), timeZone: .current, as: .date),
+                "Fixed: starts from today's date here")
+    expectTrue(host.shows(host.vc.dateControl), "Fixed: the picker is back")
 }
 
-/// An edit in the middle of a value must leave the insertion point where that
-/// edit put it — not at the end of the document.
-///
-/// Every keystroke round-trips through the panel: `textDidChange` ->
-/// `onChange` -> `QueryVariablesPanelVC.variableEdited` -> `refreshDetailState`
-/// -> `otherNames` (assigned unconditionally, so its `didSet` always fires) ->
-/// `recomputeCollisionState` -> `applyValueControlVisibility`, which lands back
-/// in this VC and re-assigns `valueTextView.string`. Assigning `string` on an
-/// `NSTextView` collapses the selection to the end of the new text, even when
-/// the text is identical to what the view already holds — so before the guard
-/// there, every Return, Tab, Backspace and plain keystroke typed anywhere but
-/// the very end threw the caret to the end of the value.
-///
-/// A fresh VC per case: `variable.value` must agree with the text view's
-/// content at the start of each edit, which only the real edit path
-/// establishes.
-private func testValueEditKeepsInsertionPointAfterPanelRoundTrip() {
-    let cases: [(name: String, edit: (VariableValueTextView) -> Void, text: String, caret: Int)] = [
-        ("plain keystroke", { $0.insertText("X", replacementRange: $0.selectedRange()) }, "abcXdef", 4),
-        ("Return", { $0.insertNewline(nil) }, "abc\ndef", 4),
-        ("Tab", { $0.insertTab(nil) }, "abc\tdef", 4),
-        ("Backspace", { $0.deleteBackward(nil) }, "abdef", 2),
+// MARK: - 6. Timestamp with time zone
+
+private func testTimestampWithZone() {
+    let host = Hosted(QueryVariable(name: "at", value: "2026-10-28 14:30:00 Europe/Paris", type: .timestamptz))
+    defer { host.close() }
+    expectEqual(host.rowTitles, ["Name", "Type", "With time zone", "Value", "Date and time", "Time zone", "Renders as"],
+                "Timestamp tz: date-time and zone rows")
+    expectEqual(host.vc.timeZoneSwitch.state, .on, "Timestamp tz: the switch is on")
+    expectEqual(host.vc.timestampModeControl.label(forSegment: 1), "Now", "Timestamp: the other segment is Now")
+    let picker = host.vc.timestampControl.textualPicker
+    expectEqual(picker.datePickerElements, [.yearMonthDay, .hourMinuteSecond], "Timestamp: date and time")
+    expectEqual(VariableValueRules.format(picker.dateValue, timeZone: utc, as: .timestamp), "2026-10-28 14:30:00",
+                "Timestamp tz: the picker shows the wall-clock time")
+    expectEqual(host.vc.zonePopup.titleOfSelectedItem, "Europe/Paris", "zone: the stored zone is chosen")
+    let titles = host.vc.zonePopup.itemArray.map { $0.isSeparatorItem ? "—" : $0.title }
+    expectEqual(titles.first, "UTC", "zone: UTC first")
+    let pinned = TimeZoneChoices.pinned()
+    expectEqual(Array(titles.prefix(pinned.count + 1)), pinned + ["—"], "zone: then this Mac's zone, then a separator")
+    expectTrue(titles.count > 300 && titles.contains("America/New_York"), "zone: then every zone", "\(titles.count)")
+
+    choose("America/New_York", in: host.vc.zonePopup)
+    expectEqual(host.vc.variable.value, "2026-10-28 14:30:00 America/New_York",
+                "zone: a new zone keeps the wall-clock time")
+    picker.dateValue = date("2027-01-02 03:04:05", .timestamp)
+    press(picker)
+    expectEqual(host.vc.variable.value, "2027-01-02 03:04:05 America/New_York", "Timestamp tz: the picker writes … <zone id>")
+    expectTrue(host.vc.rendersAsLabel.stringValue.hasPrefix("TIMESTAMPTZ '2027-01-02 03:04:05-05:00'"),
+               "Renders as: the zoned literal", host.vc.rendersAsLabel.stringValue)
+
+    host.vc.timestampControl.calendarButton.performClick(nil)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    expectEqual(host.vc.timestampControl.graphicalPicker?.datePickerElements, [.yearMonthDay, .hourMinuteSecond],
+                "calendar: a timestamp's popover has the clock too")
+    host.vc.timestampControl.closePopover()
+
+    choose(1, in: host.vc.timestampModeControl)
+    expectEqual(host.vc.variable.value, "now", "Now writes now")
+    expectTrue(!host.shows(host.vc.zonePopup), "Now: no zone")
+    expectEqual(host.vc.rendersAsLabel.stringValue, "CURRENT_TIMESTAMP", "Renders as: CURRENT_TIMESTAMP")
+
+    let utcStamp = Hosted(QueryVariable(name: "u", value: "2026-01-01 00:00:00 UTC", type: .timestamptz))
+    defer { utcStamp.close() }
+    expectEqual(utcStamp.vc.zonePopup.titleOfSelectedItem, "UTC", "zone: UTC stays UTC (not GMT)")
+    utcStamp.vc.timestampControl.textualPicker.dateValue = date("2026-01-01 08:00:00", .timestamp)
+    press(utcStamp.vc.timestampControl.textualPicker)
+    expectEqual(utcStamp.vc.variable.value, "2026-01-01 08:00:00 UTC", "zone: written back as UTC")
+}
+
+// MARK: - 7. List
+
+private func testListEditor() {
+    let host = Hosted(QueryVariable(name: "ids", value: "", type: .textList))
+    defer { host.close() }
+    let board = NSPasteboard(name: NSPasteboard.Name("com.pharos.tests.variable-detail.\(UUID().uuidString)"))
+    defer { board.releaseGlobally() }
+    func paste(_ text: String, at range: NSRange) {
+        board.clearContents()
+        board.setString(text, forType: .string)
+        host.window.makeFirstResponder(host.vc.valueTextView)
+        host.vc.valueTextView.setSelectedRange(range)
+        _ = host.vc.valueTextView.readSelection(from: board)
+        host.settle()
+    }
+
+    paste("a, b, c", at: NSRange(location: 0, length: 0))
+    expectEqual(host.vc.variable.value, "a\nb\nc", "List paste: a CSV row becomes three lines")
+    expectEqual(host.changes.last?.value, "a\nb\nc", "List paste: written through onChange")
+    expectEqual(host.vc.valueRow?.caption ?? "", "3 items", "List: the caption counts the items")
+    expectEqual(host.vc.rendersAsLabel.stringValue, "('a', 'b', 'c')", "Renders as: the IN list")
+    expectEqual(host.vc.valueTextView.font?.isFixedPitch, true, "List paste: keeps the editor's font")
+
+    // Into the middle of a line: the items go on lines of their own.
+    paste("'x'\t'y'", at: NSRange(location: 1, length: 0))
+    expectEqual(host.vc.variable.value, "a\nx\ny\nb\nc", "List paste: mid-line, on lines of their own")
+    paste("1;2", at: NSRange(location: 4, length: 0))
+    expectEqual(host.vc.variable.value, "a\nx\n1\n2\ny\nb\nc", "List paste: a break after the items when text follows")
+    // One item is inserted as typed, quotes stripped, no line breaks added.
+    host.typeValue("ab")
+    paste("'q'", at: NSRange(location: 1, length: 0))
+    expectEqual(host.vc.variable.value, "aqb", "List paste: one item goes in as is")
+
+    let numbers = Hosted(QueryVariable(name: "n", value: "1\n2\nx\n4", type: .numberList))
+    defer { numbers.close() }
+    expectEqual(numbers.vc.valueRow?.caption ?? "", "4 items · 1 not a number (line 3)",
+                "List of numbers: the caption names the bad line")
+    numbers.typeValue("1\ny\n3\nz")
+    expectEqual(numbers.vc.valueRow?.caption ?? "", "4 items · 2 not numbers (lines 2, 4)", "List of numbers: two bad lines")
+    expectEqual(numbers.vc.rendersAsLabel.textColor, NSColor.systemRed, "Renders as: red for a bad list")
+
+    // Literal does not split a paste.
+    let literal = Hosted(QueryVariable(name: "l", value: ""))
+    defer { literal.close() }
+    board.clearContents()
+    board.setString("a, b", forType: .string)
+    literal.window.makeFirstResponder(literal.vc.valueTextView)
+    _ = literal.vc.valueTextView.readSelection(from: board)
+    expectEqual(literal.vc.variable.value, "a, b", "Literal paste: pasted as is")
+}
+
+// MARK: - 8. The growing text editor
+
+private func testGrowingEditor() {
+    let host = Hosted(QueryVariable(name: "v", value: "one line"))
+    defer { host.close() }
+    let editor = host.vc.textEditor
+    let oneLine = editor.height(forVisibleLines: 1, horizontalScroller: 0)
+    expectClose(editor.frame.height, oneLine, "editor: one line high for one line")
+    expectTrue(editor.gutter.isHidden, "editor: no line numbers for one line")
+    expectEqual(host.vc.valueRow?.caption ?? "", "8 chars", "editor: the size caption")
+
+    host.typeValue("1\n2\n3\n4\n5")
+    expectClose(editor.frame.height, editor.height(forVisibleLines: 5, horizontalScroller: 0),
+                "editor: grows to five lines as they are typed")
+    expectTrue(!editor.gutter.isHidden && editor.gutter.frame.width > 0, "editor: line numbers from two lines")
+    let clip = editor.scrollView.contentView.bounds.height
+    expectTrue(editor.textView.frame.height <= clip + 0.5, "editor: five lines fit without scrolling",
+               "text \(editor.textView.frame.height), clip \(clip)")
+
+    host.typeValue((1...30).map(String.init).joined(separator: "\n"))
+    expectClose(editor.frame.height, editor.height(forVisibleLines: 12, horizontalScroller: 0),
+                "editor: stops at twelve lines")
+    expectTrue(editor.textView.frame.height > editor.scrollView.contentView.bounds.height + 10,
+               "editor: and scrolls past them")
+
+    host.typeValue("short")
+    expectClose(editor.frame.height, oneLine, "editor: shrinks back to one line")
+    expectTrue(editor.gutter.isHidden, "editor: and drops the line numbers")
+
+    // A click anywhere in the box lands in the text view.
+    let point = editor.convert(NSPoint(x: editor.bounds.maxX - 20, y: editor.bounds.midY), to: nil)
+    let hit = host.window.contentView?.hitTest(host.window.contentView!.convert(point, from: nil))
+    expectTrue(hit === editor.textView, "editor: a click beside short text hits the text view",
+               "hit \(hit.map { "\(type(of: $0))" } ?? "nil")")
+
+    // Placeholder only while empty.
+    host.typeValue("")
+    expectTrue(!editor.placeholderLabel.isHidden && editor.placeholderLabel.stringValue == "value",
+               "editor: the placeholder shows while empty")
+    expectEqual(host.vc.rendersAsLabel.textColor, NSColor.systemRed, "Renders as: red for an empty Literal")
+    host.typeValue("x")
+    expectTrue(editor.placeholderLabel.isHidden, "editor: and hides with text")
+}
+
+// MARK: - 9. Renders as
+
+private func testRendersAs() {
+    let cases: [(QueryVariable, String)] = [
+        (QueryVariable(name: "t", value: "O'Brien", type: .text), "'O''Brien'"),
+        (QueryVariable(name: "b", value: "t", type: .bool), "true"),
+        (QueryVariable(name: "n", value: "NULL", type: .bool), "NULL"),
+        (QueryVariable(name: "l", value: "now()"), "now()"),
+        (QueryVariable(name: "ts", value: "2026-10-28 01:02:03", type: .timestamp), "TIMESTAMP '2026-10-28 01:02:03'"),
     ]
-    for testCase in cases {
-        let variable = QueryVariable(name: "v", value: "abcdef", type: .literal)
-        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-        let tv = valueTextView(in: vc)
-        // Stands in for the panel: it re-supplies `otherNames` on every edit,
-        // whether or not the sibling names actually changed.
-        vc.onChange = { [weak vc] _ in vc?.otherNames = ["other"] }
-        _ = vc.view.window?.makeFirstResponder(tv)
-
-        tv.setSelectedRange(NSRange(location: 3, length: 0))
-        testCase.edit(tv)
-
-        expectEqual(tv.string, testCase.text, "\(testCase.name) mid-value: the edit itself lands correctly")
-        expectEqual(
-            tv.selectedRange().location, testCase.caret,
-            "\(testCase.name) mid-value: the insertion point stays where the edit left it")
-        expectEqual(vc.variable.value, testCase.text, "\(testCase.name) mid-value: the model still tracks the edit")
+    for (variable, sql) in cases {
+        let host = Hosted(variable)
+        expectEqual(host.vc.rendersAsLabel.stringValue, sql, "Renders as: \(variable.type.rawValue) \(variable.value)")
+        expectEqual(host.vc.rendersAsLabel.textColor, NSColor.labelColor, "Renders as: in the label colour")
+        expectEqual(host.vc.rendersAsRow?.titleLabel.stringValue, "Renders as", "Renders as: its row")
+        host.close()
     }
 }
 
-/// Tab must insert a literal tab character; Shift-Tab (`insertBacktab`) must
-/// hand focus to the host's name field rather than inserting anything.
-private func testTabAndBacktabBehavior() {
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    let tv = valueTextView(in: vc)
-    let name = nameField(in: vc)
+// MARK: - 10. Bool
 
-    tv.string = ""
-    tv.insertTab(nil)
-    expectEqual(tv.string, "\t", "insertTab inserts a literal tab character in the value editor")
-
-    _ = vc.view.window?.makeFirstResponder(tv)
-    expectTrue(vc.view.window?.firstResponder === tv, "setup: valueTextView is first responder before backtab")
-
-    tv.string = "unchanged"
-    tv.insertBacktab(nil)
-    expectEqual(tv.string, "unchanged", "insertBacktab does not insert any text into the value editor")
-    expectTrue(
-        vc.view.window?.firstResponder !== tv,
-        "insertBacktab hands focus away from the value editor")
-    expectTrue(
-        name.currentEditor() != nil,
-        "insertBacktab hands focus specifically to the name field (it has an active field editor)")
-}
-
-/// Every row of `body` starts at one leading edge and spans the panel.
-///
-/// The caption is what this is really guarding. `body` asked for
-/// `alignment = .width`, which NSStackView rejects outright, and the caption —
-/// the only row narrow enough to reveal it — was then pushed hard against the
-/// trailing edge and moved as the value's length changed the caption's text,
-/// while everything above it started at the leading edge. The panel's own rule
-/// is stated beside `collisionNoticeLabel`: that notice is centred "unlike
-/// every other label in the panel", so the caption belongs at the leading edge.
-private func testBodyRowsShareOneLeadingEdge() {
-    // Two very different caption texts, because the drift moved WITH the text:
-    // a single value could not have told a fixed offset from a floating one.
-    for variable in [shortValueVariable(), longValueVariable()] {
-        let (_, _, vc) = makeHostedDetail(width: 240, variable: variable)
-        vc.view.layoutSubtreeIfNeeded()
-        let body = bodyStack(in: vc)
-
-        expectTrue(body.alignment == .leading,
-                   "body asks for an alignment NSStackView accepts")
-
-        // Alignment rects, not frames: an NSTextField label's frame overhangs
-        // its alignment rect by 2pt each side, so a correctly-placed label
-        // reads x=-2 as a frame and x=0 as an alignment rect.
-        for (index, row) in body.arrangedSubviews.enumerated() {
-            let rect = row.alignmentRect(forFrame: row.frame)
-            expectTrue(abs(rect.minX) < 0.5,
-                       "body row \(index) starts at the leading edge (\(Int(rect.minX)))")
-            expectTrue(abs(rect.width - body.frame.width) < 0.5,
-                       "body row \(index) spans the panel (\(Int(rect.width)) of \(Int(body.frame.width)))")
-        }
-
-        // Named separately from the sweep: this is the row that was wrong, and
-        // a future edit that reorders `body` must not quietly stop testing it.
-        let caption = captionLabel(in: vc)
-        expectTrue(abs(caption.alignmentRect(forFrame: caption.frame).minX) < 0.5,
-                   "the size caption starts at the leading edge, not against the trailing one")
-    }
-}
-
-/// The editor container must fill the remaining height between the header
-/// separator and the footer caption with nothing overlapping, and grow when
-/// the view is made taller.
-private func testEditorContainerFillsRemainingHeight() {
-    for height: CGFloat in [250, 500] {
-        let (_, _, vc) = makeHostedDetail(width: 300, height: height, variable: shortValueVariable())
-        vc.view.layoutSubtreeIfNeeded()
-
-        let headerFrame = frameInView(headerStack(in: vc), of: vc)
-        let sepFrame = frameInView(headerSeparatorView(in: vc), of: vc)
-        let editorFrame = frameInView(editorContainer(in: vc), of: vc)
-        let captionFrame = frameInView(captionLabel(in: vc), of: vc)
-
-        expectTrue(
-            isAbove(headerFrame, sepFrame, in: vc.view),
-            "header sits above the header separator at \(Int(height))pt tall")
-        expectTrue(
-            isAbove(sepFrame, editorFrame, in: vc.view),
-            "header separator sits above the editor container at \(Int(height))pt tall")
-        expectTrue(
-            isAbove(editorFrame, captionFrame, in: vc.view),
-            "editor container sits above the footer caption at \(Int(height))pt tall")
-    }
-
-    let (_, _, shortVC) = makeHostedDetail(width: 300, height: 250, variable: shortValueVariable())
-    shortVC.view.layoutSubtreeIfNeeded()
-    let (_, _, tallVC) = makeHostedDetail(width: 300, height: 600, variable: shortValueVariable())
-    tallVC.view.layoutSubtreeIfNeeded()
-
-    let shortHeight = editorContainer(in: shortVC).frame.height
-    let tallHeight = editorContainer(in: tallVC).frame.height
-    expectTrue(
-        tallHeight > shortHeight,
-        "editor container grows when the view is made taller (\(shortHeight) at 250pt vs \(tallHeight) at 600pt)")
-}
-
-/// `LineNumberGutter.Metrics.compact` must actually reclaim the two columns
-/// the variables panel has no use for, and `.sqlEditor` must keep the exact
-/// width it had before metrics were factored out — the main editor's gutter is
-/// not part of this change.
-private func testGutterMetricsWidths() {
-    let digit = NSAttributedString(
-        string: "8",
-        attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)]
-    ).size().width
-
-    let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-    scroll.documentView = textView
-    textView.string = "one\ntwo\nthree\nfour"
-
-    let sql = LineNumberGutter(textView: textView, scrollView: scroll)
-    let compact = LineNumberGutter(textView: textView, scrollView: scroll, metrics: .compact)
-
-    // 2-digit floor plus 16pt of padding: the 12pt marker column and 4pt
-    // trailing. The segment colour is a band behind the numbers, so it needs
-    // no column of its own.
-    expectClose(
-        sql.desiredWidth, ceil(2 * digit + 16),
-        "the SQL editor's gutter is its digits plus 16pt of padding")
-    // 2-digit floor, 4pt leading, 5pt trailing, no bar column.
-    expectClose(
-        compact.desiredWidth, ceil(2 * digit + 4 + 5),
-        "the compact gutter is only its digits plus 9pt of padding")
-    // Both have a two-digit floor now, so the compact gutter's saving is the
-    // marker column it does not carry, less its extra point of trailing.
-    // Whole points: a fractional gutter made the editor's text a fraction
-    // wider than its clip, which AppKit shows as an empty horizontal scroller.
-    expectTrue(
-        sql.desiredWidth == sql.desiredWidth.rounded() && compact.desiredWidth == compact.desiredWidth.rounded(),
-        "both gutters are a whole number of points wide (\(sql.desiredWidth), \(compact.desiredWidth))")
-    expectTrue(
-        compact.desiredWidth < sql.desiredWidth - 5,
-        "the compact gutter reclaims over 5pt from the SQL editor's "
-            + "(\(compact.desiredWidth) vs \(sql.desiredWidth))")
-
-    // The width must be right in the host's FIRST layout pass, before any
-    // keystroke: the stored default cannot be correct for both metric sets.
-    let fresh = LineNumberGutter(textView: textView, scrollView: scroll, metrics: .compact)
-    expectClose(
-        fresh.desiredWidth, 2 * digit + 4 + 5,
-        "the gutter resolves its width from its metrics at construction, not on the first edit")
-}
-
-/// The value text must start close to the gutter, and the gutter's numbers
-/// close to the panel edge — the whole point of the compact metrics. Measured
-/// as real laid-out geometry rather than re-asserting the constants.
-///
-/// Also pins the placeholder to the same x as the real first glyph: it stands
-/// in for that text, and `NSTextContainer`'s default 5pt line-fragment padding
-/// used to push the glyph right while `layoutEditorArea` left the placeholder
-/// at `textContainerInset.width`.
-private func testValueTextStartsCloseToTheGutter() {
-    let (_, _, vc) = makeHostedDetail(width: 260, variable: shortValueVariable())
-    vc.view.layoutSubtreeIfNeeded()
-
-    let tv = valueTextView(in: vc)
-    let gutter = gutterView(in: vc)
-    guard let container = tv.textContainer, let layoutManager = tv.layoutManager else {
-        failures += 1
-        print("FAIL value text view has no TextKit stack to measure")
-        return
-    }
-    layoutManager.ensureLayout(for: container)
-
-    let glyphX = tv.convert(
-        NSPoint(
-            x: layoutManager.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: container).minX
-                + tv.textContainerInset.width,
-            y: 0),
-        to: vc.view
-    ).x
-    let gutterTrailingX = gutter.convert(NSPoint(x: gutter.bounds.maxX, y: 0), to: vc.view).x
-    let gutterLeadingX = gutter.convert(NSPoint(x: 0, y: 0), to: vc.view).x
-
-    expectTrue(
-        glyphX - gutterTrailingX <= 3,
-        "the first glyph sits within 3pt of the gutter's trailing edge (gap \(glyphX - gutterTrailingX)pt)")
-    expectTrue(
-        gutter.desiredWidth <= 24,
-        "the gutter itself is no wider than 24pt (\(gutter.desiredWidth)pt)")
-    expectTrue(
-        glyphX - gutterLeadingX <= 26,
-        "the whole gutter plus its padding costs under 26pt before the first character "
-            + "(\(glyphX - gutterLeadingX)pt)")
-
-    let placeholderX = valuePlaceholderLabel(in: vc).frame.minX
-    let placeholderInVC = valuePlaceholderLabel(in: vc).superview!
-        .convert(NSPoint(x: placeholderX, y: 0), to: vc.view).x
-    expectClose(
-        placeholderInVC, glyphX,
-        "the placeholder starts at the same x as the real text it stands in for")
-}
-
-/// Every line the gutter *places* inside its own bounds must also be inside the
-/// range the gutter decides to *draw*. When the two disagree the visible rows
-/// past the end of that range get no line number — the "blank unnumbered rows
-/// at the bottom of a long value" symptom.
-///
-/// Ground truth is `y(forLine:)`, which converts through the real view
-/// hierarchy; the range under test is `visibleCharacterRange()`. The two are
-/// computed by different means on purpose: the range used to be hand-derived
-/// from `scrollView.contentView.bounds.origin.y` in text-container space, and
-/// in this editor that origin is a large negative number, so the rect landed
-/// entirely above the text.
-///
-/// Checked both unscrolled and scrolled to the end, because the old
-/// arithmetic's error moved with the scroll offset.
-private func testGutterNumbersEveryVisibleLine() {
-    let value = (1...30).map { "line \($0)" }.joined(separator: "\n")
-    let variable = QueryVariable(name: "long", value: value, type: .literal)
-    let (window, _, vc) = makeHostedDetail(width: 260, height: 400, variable: variable)
-    window.makeKeyAndOrderFront(nil)
-    let gutter = gutterView(in: vc)
-    let tv = valueTextView(in: vc)
-    if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
-    vc.view.layoutSubtreeIfNeeded()
-
-    /// 1-based line number containing `index`, counted independently of the
-    /// gutter's own cached `lineStarts`.
-    let text = tv.string as NSString
-    func line(at index: Int) -> Int {
-        var line = 1
-        for i in 0..<min(index, text.length) where text.character(at: i) == 0x0A { line += 1 }
-        return line
-    }
-
-    for scrolledToEnd in [false, true] {
-        if scrolledToEnd {
-            tv.scrollRangeToVisible(NSRange(location: text.length, length: 0))
-            vc.view.layoutSubtreeIfNeeded()
-        }
-        let label = scrolledToEnd ? "scrolled to the end" : "unscrolled"
-
-        // Ground truth: the lines whose text actually paints inside the gutter.
-        let onScreen = (1...30).filter { lineNumber in
-            guard let y = gutter.y(forLine: lineNumber) else { return false }
-            return y >= 0 && y + 13 <= gutter.bounds.height
-        }
-        guard let first = onScreen.first, let last = onScreen.last else {
-            failures += 1
-            print("FAIL \(label): setup — no line is on screen at all")
-            continue
-        }
-        // A 400pt-tall panel must not fit all 30 lines, or "the range stops
-        // early" could never be observed in the first place.
-        expectTrue(
-            onScreen.count < 30,
-            "\(label): setup — the value is taller than the editor (\(onScreen.count) of 30 lines on screen)")
-
-        guard let range = gutter.visibleCharacterRange() else {
-            failures += 1
-            print("FAIL \(label): the gutter reports no visible character range")
-            continue
-        }
-        let drawnFirst = line(at: range.location)
-        let drawnLast = line(at: max(range.location, NSMaxRange(range) - 1))
-
-        expectTrue(
-            drawnFirst <= first,
-            "\(label): the drawn range starts at or above the first on-screen line "
-                + "(draws from \(drawnFirst), line \(first) is on screen)")
-        expectTrue(
-            drawnLast >= last,
-            "\(label): the drawn range reaches the last on-screen line "
-                + "(draws to \(drawnLast), line \(last) is on screen)")
-    }
-}
-
-/// The gutter and scroll view must be laid out inside `editorContainer`, side
-/// by side, neither zero-width nor overlapping, and the gutter's width must
-/// track `desiredWidth`.
-private func testGutterAndScrollViewLayout() {
-    for width: CGFloat in [180, 300, 600] {
-        let (_, _, vc) = makeHostedDetail(width: width, variable: shortValueVariable())
-        vc.view.layoutSubtreeIfNeeded()
-
-        let gutter = gutterView(in: vc)
-        let scroll = scrollView(in: vc)
-
-        expectTrue(gutter.frame.width > 0, "gutter is not zero-width at \(Int(width))pt")
-        expectTrue(scroll.frame.width > 0, "scroll view is not zero-width at \(Int(width))pt")
-        expectTrue(
-            gutter.frame.maxX <= scroll.frame.minX + 0.5,
-            "gutter does not overlap the scroll view at \(Int(width))pt")
-        expectClose(
-            gutter.frame.maxX, scroll.frame.minX,
-            "gutter and scroll view sit directly side by side (no gap) at \(Int(width))pt")
-        expectClose(
-            gutter.frame.width, gutter.desiredWidth,
-            "gutter width tracks desiredWidth at \(Int(width))pt")
-    }
-}
-
-/// The duplication note must collapse (contribute no height) when absent,
-/// show the state-specific copy for `.shadowed`, and render nothing at all
-/// for `.overriding` — deleted because the new name-collision refusal (see
-/// `testCollidingNameNeverReachesModelOrFiresOnChange` etc. below) makes it
-/// unreachable for anything the user can type; only a duplicate pair loaded
-/// from a saved query that predates that rule can still produce `.shadowed`.
-private func testDuplicationNoteCollapsesWhenAbsent() {
-    let (_, _, vcNone) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    // The label starts hidden by construction (before any `setState` call at
-    // all), which would make "hidden when state is nil" pass vacuously if
-    // checked only on a freshly-built VC — proven by reverting the `nil` case
-    // in `setState`'s switch to skip re-hiding: that regression left this test
-    // green, because a VC that had never been given a duplication note has
-    // nothing to reset. Setting `.shadowed` first, then `nil`, exercises the
-    // actual shown → hidden transition `setState` is responsible for.
-    vcNone.setState(.init(duplication: .shadowed, problem: nil))
-    vcNone.view.layoutSubtreeIfNeeded()
-    vcNone.setState(nil)
-    vcNone.view.layoutSubtreeIfNeeded()
-    expectTrue(
-        duplicationLabel(in: vcNone).isHidden,
-        "duplication label re-hides when setState(nil) follows a prior .shadowed state")
-    let heightNone = editorContainer(in: vcNone).frame.height
-
-    let (_, _, vcShadowed) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vcShadowed.setState(.init(duplication: .shadowed, problem: nil))
-    vcShadowed.view.layoutSubtreeIfNeeded()
-    expectTrue(!duplicationLabel(in: vcShadowed).isHidden, "duplication label shown for .shadowed")
-    expectEqual(
-        duplicationLabel(in: vcShadowed).stringValue,
-        "Redefined below — this row has no effect.",
-        ".shadowed shows the shadowed copy")
-    let heightShadowed = editorContainer(in: vcShadowed).frame.height
-
-    let (_, _, vcOverriding) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vcOverriding.setState(.init(duplication: .overriding, problem: nil))
-    vcOverriding.view.layoutSubtreeIfNeeded()
-    expectTrue(
-        duplicationLabel(in: vcOverriding).isHidden,
-        ".overriding renders no note at all (deleted — unreachable via typing; only .shadowed still shows)")
-
-    // With the total body height fixed by the outer constraints, a note that
-    // truly collapses (rather than merely going blank while still reserving
-    // its row) reclaims that height for the editor container.
-    expectTrue(
-        heightNone > heightShadowed,
-        "editor container is taller with no duplication note (\(heightNone)) than with one present (\(heightShadowed))")
-}
-
-/// `setState` must render its two signals independently: a state with only
-/// `.problem` reddens the name and shows no note; a state with only
-/// `.duplication` shows the note and leaves the name its normal colour; a
-/// state with both shows both.
-private func testSetStateRendersSignalsIndependently() {
-    let (_, _, vcProblemOnly) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vcProblemOnly.setState(.init(duplication: nil, problem: .emptyLiteral))
-    expectTrue(
-        nameField(in: vcProblemOnly).textColor == .systemRed,
-        "problem-only: name field reddens")
-    expectTrue(
-        duplicationLabel(in: vcProblemOnly).isHidden,
-        "problem-only: no duplication note")
-
-    let (_, _, vcDupOnly) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vcDupOnly.setState(.init(duplication: .shadowed, problem: nil))
-    expectTrue(
-        nameField(in: vcDupOnly).textColor == .systemIndigo,
-        "duplication-only: name field stays its normal colour")
-    expectTrue(
-        !duplicationLabel(in: vcDupOnly).isHidden,
-        "duplication-only: duplication note shown")
-
-    let (_, _, vcBoth) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vcBoth.setState(.init(duplication: .shadowed, problem: .emptyLiteral))
-    expectTrue(
-        nameField(in: vcBoth).textColor == .systemRed,
-        "both: name field reddens")
-    expectTrue(
-        !duplicationLabel(in: vcBoth).isHidden,
-        "both: duplication note shown")
-}
-
-/// A separator box with no explicit height constraint measures 5pt, not 1pt
-/// (verified in the list level's own hairlines). Pinned here for the header
-/// separator too.
-private func testHeaderSeparatorIsOnePoint() {
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vc.view.layoutSubtreeIfNeeded()
-    expectClose(headerSeparatorView(in: vc).frame.height, 1, "header separator is 1pt tall, not 5pt")
-}
-
-/// `hitTest` over the name field must return something that can take text
-/// input — unlike the list level, where every label is a passthrough — and
-/// the type popup and delete button must be hit-testable.
-private func testHitTestReachesControls() {
-    let (_, container, vc) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    vc.view.layoutSubtreeIfNeeded()
-
-    let name = nameField(in: vc)
-    expectTrue(name.isEditable, "name field is a real editable control")
-    let nameHitPoint = name.convert(NSPoint(x: name.bounds.midX, y: name.bounds.midY), to: container)
-    let nameHit = container.hitTest(nameHitPoint)
-    expectTrue(
-        nameHit === name || nameHit?.isDescendant(of: name) == true,
-        "hitTest over the name field reaches an editable control")
-
-    let popup = typePopup(in: vc)
-    let popupHitPoint = popup.convert(NSPoint(x: popup.bounds.midX, y: popup.bounds.midY), to: container)
-    let popupHit = container.hitTest(popupHitPoint)
-    expectTrue(
-        popupHit === popup || popupHit?.isDescendant(of: popup) == true,
-        "hitTest over the type popup reaches it")
-
-    let del = deleteButton(in: vc)
-    let delHitPoint = del.convert(NSPoint(x: del.bounds.midX, y: del.bounds.midY), to: container)
-    let delHit = container.hitTest(delHitPoint)
-    expectTrue(
-        delHit === del || delHit?.isDescendant(of: del) == true,
-        "hitTest over the delete button reaches it")
-}
-
-/// Sanity check the harness's own control-lookup helpers against the back
-/// button too, and confirm the type popup carries every `VariableType` case.
-private func testControlsWireUpCorrectly() {
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: shortValueVariable())
-    let popup = typePopup(in: vc)
-    expectTrue(
-        popup.itemTitles == VariableType.allCases.map(\.displayName),
-        "type popup lists every VariableType in order")
-    expectTrue(backButton(in: vc).toolTip == "Back to variables", "back button is reachable and labeled")
-}
-
-// MARK: - Bool value control tests
-
-/// `.bool` shows the True/False/NULL choice and hides the free-text editor
-/// and its `N chars` caption (a per-character caption is meaningless for a
-/// three-way choice); every other type does the reverse. Both hidden
-/// controls must contribute zero height, not merely go invisible while still
-/// reserving their row (the same distinction `testDuplicationNoteCollapsesWhenAbsent`
-/// already draws for the duplication note).
-private func testBoolTypeSwapsValueControl() {
-    for width: CGFloat in [180, 300, 600] {
-        let boolVariable = QueryVariable(name: "b", value: "true", type: .bool)
-        let (_, _, vcBool) = makeHostedDetail(width: width, variable: boolVariable)
-        vcBool.view.layoutSubtreeIfNeeded()
-
-        expectTrue(
-            !valueChoiceContainer(in: vcBool).isHidden,
-            "bool @\(Int(width))pt: choice control is visible")
-        expectTrue(
-            editorContainer(in: vcBool).isHidden, "bool @\(Int(width))pt: editor is hidden")
-        expectTrue(
-            captionLabel(in: vcBool).isHidden, "bool @\(Int(width))pt: caption is hidden")
-        expectClose(
-            editorContainer(in: vcBool).frame.height, 0,
-            "bool @\(Int(width))pt: hidden editor contributes no height")
-        // Not asserted the same way for `captionLabel`: unlike `editorContainer`
-        // (a plain, size-less `NSView`, forced to exactly 0 by the fallback
-        // constraint added in `loadView`), a hidden `NSTextField` label simply
-        // retains its own last intrinsic frame rather than collapsing to
-        // zero — measured directly (11pt, its text height), even though it
-        // reserves no space in the stack and paints nothing. The height
-        // comparison in `testBoolViewIsShorterThanLiteral` below is what
-        // actually proves the caption isn't consuming space.
-
-        for type: VariableType in [.literal, .text, .number] {
-            let variable = QueryVariable(name: "v", value: "true", type: type)
-            let (_, _, vc) = makeHostedDetail(width: width, variable: variable)
-            vc.view.layoutSubtreeIfNeeded()
-            expectTrue(
-                valueChoiceContainer(in: vc).isHidden,
-                "\(type) @\(Int(width))pt: choice control is hidden")
-            expectTrue(!editorContainer(in: vc).isHidden, "\(type) @\(Int(width))pt: editor is visible")
-            expectTrue(!captionLabel(in: vc).isHidden, "\(type) @\(Int(width))pt: caption is visible")
-            expectClose(
-                valueChoiceContainer(in: vc).frame.height, 0,
-                "\(type) @\(Int(width))pt: hidden choice control contributes no height")
-        }
-    }
-}
-
-/// A `.bool` variable's natural content height is shorter than the same
-/// value rendered as a `.literal` — the choice control replaces both the
-/// editor and its caption rather than just one of them. Measured via
-/// `fittingSize` with only width pinned (see `makeHostedDetailForFittingSize`),
-/// since a harness that also pins height would force both configurations to
-/// the same forced number regardless of content.
-private func testBoolViewIsShorterThanLiteral() {
-    let boolVariable = QueryVariable(name: "b", value: "true", type: .bool)
-    let literalVariable = QueryVariable(name: "b", value: "true", type: .literal)
-    let (_, _, vcBool) = makeHostedDetailForFittingSize(width: 300, variable: boolVariable)
-    let (_, _, vcLiteral) = makeHostedDetailForFittingSize(width: 300, variable: literalVariable)
-    let boolHeight = vcBool.view.fittingSize.height
-    let literalHeight = vcLiteral.view.fittingSize.height
-    expectTrue(
-        boolHeight < literalHeight,
-        "bool view (\(boolHeight)pt) is shorter than the same variable rendered as Literal (\(literalHeight)pt)")
-}
-
-/// I5: `boolSegmentIndex(for:)`'s doc comment claims "segment order has to
-/// match `BoolChoice.allCases`, which the harness asserts" — it did not.
-/// Every existing test (including the one below) compares segment *indices*
-/// against expected index numbers, which stays green even if the control's
-/// construction-time labels are reordered: mutation-tested directly by
-/// rebuilding with `["NULL", "True", "False"]` — in that build a `true`
-/// value selects index 0, which now reads "NULL" on screen, and clicking
-/// "NULL" writes `true`. This ties the actual label *text* at each index to
-/// what that index means, closing the gap.
-private func testBoolSegmentLabelsMatchChoiceOrder() {
-    let variable = QueryVariable(name: "b", value: "true", type: .bool)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    let seg = valueChoiceControl(in: vc)
-
+private func testBool() {
     for (index, choice) in VariableSubstitutor.BoolChoice.allCases.enumerated() {
-        let expectedLabel: String
-        switch choice {
-        case .isTrue: expectedLabel = "True"
-        case .isFalse: expectedLabel = "False"
-        case .isNull: expectedLabel = "NULL"
-        }
-        expectEqual(
-            seg.label(forSegment: index) ?? "<none>", expectedLabel,
-            "segment \(index) displays the label a user would read as \(choice)")
+        expectEqual(VariableDetailVC.boolSegmentLabels[index].lowercased(), choice.rawValue.lowercased(),
+                    "Bool: segment \(index) is \(choice.rawValue)")
     }
+    let host = Hosted(QueryVariable(name: "flag", value: "yes", type: .bool))
+    defer { host.close() }
+    expectEqual(host.vc.boolControl.selectedSegment, 0, "Bool: 'yes' selects True")
+    choose(2, in: host.vc.boolControl)
+    expectEqual(host.vc.variable.value, "NULL", "Bool: NULL writes the canonical NULL")
+    expectEqual(host.changes.count, 1, "Bool: one onChange per choice")
+    let unset = Hosted(QueryVariable(name: "f", value: "abc", type: .bool))
+    defer { unset.close() }
+    expectEqual(unset.vc.boolControl.selectedSegment, -1, "Bool: a value that means none selects nothing")
 }
 
-/// Entry-side selection mapping: the same case-insensitive, trimmed sets
-/// `VariableSubstitutor.format`'s `.bool` branch matches against must select
-/// the matching segment, and anything that matches none of them — including
-/// empty and a leftover non-bool value like "abc" — must leave no segment
-/// selected at all, never a guessed default.
-private func testBoolSelectionMappingOnEntry() {
-    let matching: [(String, Int)] = [
-        ("true", 0), ("TRUE", 0), ("True", 0), ("t", 0), ("1", 0), ("yes", 0), ("y", 0),
-        ("false", 1), ("FALSE", 1), ("f", 1), ("0", 1), ("no", 1), ("n", 1),
-        ("null", 2), ("NULL", 2), ("Null", 2),
-    ]
-    for (value, expectedSegment) in matching {
-        let variable = QueryVariable(name: "b", value: value, type: .bool)
-        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-        let selected = valueChoiceControl(in: vc).selectedSegment
-        expectTrue(
-            selected == expectedSegment,
-            "value \(value.debugDescription) selects segment \(expectedSegment) (got \(selected))")
+// MARK: - 11. Name: collision refusal and settle points
+
+private func testNameCollision() {
+    let host = Hosted(QueryVariable(name: "env", value: "prod"), otherNames: ["limit"])
+    defer { host.close() }
+    host.type("limit", into: host.vc.nameField)
+    expectTrue(host.vc.isNameCollision, "collision: typing an existing name collides")
+    expectEqual(host.vc.variable.name, "env", "collision: never reaches the model")
+    expectTrue(host.changes.isEmpty, "collision: and fires no onChange")
+    expectEqual(host.vc.nameField.textColor, NSColor.systemRed, "collision: the name goes red")
+    let notice = host.vc.collisionNoticeRow?.titleLabel.stringValue ?? ""
+    expectTrue(notice.contains("\"limit\"") && notice.contains("already exists"), "collision: the Value box says so", notice)
+    expectEqual(host.rowTitles.count, 3, "collision: the notice stands in for the value rows")
+    expectTrue(!host.shows(host.vc.textEditor), "collision: the value editor is gone")
+
+    host.vc.cancelOperation(nil)
+    expectEqual(host.backs, 0, "collision: Escape is refused")
+    expectTrue(host.window.firstResponder === host.vc.nameField.currentEditor(), "collision: focus goes back to the name")
+    host.vc.settleForDismissal()
+    expectEqual(host.vc.variable.name, "env", "collision: a forced dismissal drops the colliding name")
+
+    host.type("limits ", into: host.vc.nameField)
+    expectTrue(!host.vc.isNameCollision, "collision: clears with a unique name")
+    expectTrue(host.shows(host.vc.textEditor), "collision: the value editor is back")
+    expectEqual(host.vc.variable.name, "env", "settle: a unique name waits for a settle point")
+    host.vc.cancelOperation(nil)
+    expectEqual(host.backs, 1, "settle: Escape leaves once unique")
+    expectEqual(host.vc.variable.name, "limits", "settle: and commits the trimmed name")
+    expectEqual(host.changes.count, 1, "settle: exactly once")
+    host.vc.settleForDismissal()
+    expectEqual(host.changes.count, 1, "settle: a second settle point with no change fires nothing")
+
+    // A committed collision (legacy duplicate data) shows before any typing.
+    let legacy = Hosted(QueryVariable(name: "dup", value: "1"), otherNames: ["dup"])
+    defer { legacy.close() }
+    expectTrue(legacy.vc.isNameCollision && legacy.vc.collisionNoticeRow != nil, "collision: a committed duplicate shows at once")
+    legacy.vc.setState(.init(duplication: .shadowed, problem: nil))
+    expectEqual(legacy.vc.nameRow?.caption ?? "", "Redefined below — this row has no effect.",
+                "duplication: the shadowed note is the Name row's caption")
+
+    // An empty name never collides, even with another empty one.
+    let blank = Hosted(QueryVariable(name: "", value: ""), otherNames: [""])
+    defer { blank.close() }
+    expectTrue(!blank.vc.isNameCollision, "collision: an empty name never collides")
+}
+
+// MARK: - 12. Keyboard: Tab, Shift-Tab, the caret
+
+private func testKeyboard() {
+    let host = Hosted(QueryVariable(name: "v", value: "abcdef"))
+    defer { host.close() }
+    // The next TEXT control after the name is the value editor.
+    var next = host.vc.nameField.nextValidKeyView
+    var steps = 0
+    while let view = next, !(view is NSText || view is NSTextField), steps < 12 {
+        next = view.nextValidKeyView
+        steps += 1
     }
+    expectTrue(next === host.vc.valueTextView, "Tab: the name's next text control is the value editor",
+               "got \(next.map { "\(type(of: $0))" } ?? "nil")")
+    host.window.makeFirstResponder(host.vc.valueTextView)
+    host.vc.valueTextView.insertBacktab(nil)
+    expectTrue(host.window.firstResponder === host.vc.nameField.currentEditor(), "Shift-Tab: back to the name")
 
-    for unmatched in ["", "abc", "  ", "truee"] {
-        let variable = QueryVariable(name: "b", value: unmatched, type: .bool)
-        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-        let selected = valueChoiceControl(in: vc).selectedSegment
-        expectTrue(
-            selected == -1,
-            "value \(unmatched.debugDescription) selects no segment (got \(selected))")
+    // The host's round trip on each keystroke (otherNames, setState) must not
+    // move the caret.
+    host.vc.onChange = { [unowned host] _ in
+        host.vc.otherNames = ["zzz"]
+        host.vc.setState(nil)
     }
+    host.window.makeFirstResponder(host.vc.valueTextView)
+    host.vc.valueTextView.setSelectedRange(NSRange(location: 3, length: 0))
+    host.vc.valueTextView.insertText("X", replacementRange: NSRange(location: 3, length: 0))
+    expectEqual(host.vc.variable.value, "abcXdef", "caret: the edit lands")
+    expectEqual(host.vc.valueTextView.selectedRange().location, 4, "caret: stays after the typed character")
+    host.vc.valueTextView.cancelOperation(nil)
+    expectEqual(host.backs, 1, "Escape in the value editor goes through attemptBack")
 }
 
-/// Exit-side mapping: choosing each segment writes the canonical spelling
-/// (not whatever variant was there before) and fires `onChange` exactly
-/// once — the same contract the text editor's `textDidChange` honors.
-private func testChoosingSegmentWritesCanonicalValueAndFiresOnChangeOnce() {
-    let cases: [(Int, String)] = [(0, "true"), (1, "false"), (2, "NULL")]
-    for (segmentIndex, expectedValue) in cases {
-        let variable = QueryVariable(name: "b", value: "", type: .bool)
-        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-        var changeCount = 0
-        var lastValue: String?
-        vc.onChange = { updated in
-            changeCount += 1
-            lastValue = updated.value
-        }
+// MARK: - 13. The store's republish
 
-        let seg = valueChoiceControl(in: vc)
-        seg.selectedSegment = segmentIndex
-        triggerAction(of: seg)
-
-        expectEqual(
-            lastValue ?? "<no onChange fired>", expectedValue,
-            "choosing segment \(segmentIndex) writes the canonical value")
-        expectTrue(
-            changeCount == 1,
-            "choosing segment \(segmentIndex) fires onChange exactly once (got \(changeCount))")
-    }
+private func testAdoptExternalChange() {
+    let host = Hosted(QueryVariable(name: "v", value: "one"))
+    defer { host.close() }
+    var incoming = host.vc.variable
+    incoming.value = "two"
+    host.window.makeFirstResponder(nil)
+    host.vc.adoptExternalChange(incoming)
+    expectEqual(host.vc.valueTextView.string, "two", "republish: adopted while nobody types")
+    host.window.makeFirstResponder(host.vc.valueTextView)
+    incoming.value = "three"
+    host.vc.adoptExternalChange(incoming)
+    expectEqual(host.vc.valueTextView.string, "two", "republish: ignored while the user types in the form")
+    expectEqual(host.vc.variable.value, "two", "republish: the model too")
 }
 
-/// The assertion that ties the control to what actually executes, rather
-/// than to this file's own restatement of the mapping rule: after choosing
-/// NULL through the real control, `VariableSubstitutor.render` must produce
-/// the literal SQL keyword.
-private func testChoosingNullRoundTripsThroughSubstitutor() {
-    let variable = QueryVariable(name: "n", value: "", type: .bool)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    let seg = valueChoiceControl(in: vc)
-    seg.selectedSegment = 2
-    triggerAction(of: seg)
+// MARK: - 14. Gutter alignment (defect 3), on the growing editor
 
-    let result = VariableSubstitutor.render("x = {{n}}", with: [vc.variable])
-    expectEqual(result.sql, "x = NULL", "choosing NULL renders to \"x = NULL\" through the real substitutor")
-}
-
-/// Switching type via the popup — Bool → Text → Bool — must swap which
-/// control is showing both ways, and must never mutate the value along the
-/// way: `"true"` is a perfectly good `Literal`/`Text` value too.
-private func testSwitchingTypeSwapsControlsAndPreservesValue() {
-    let variable = QueryVariable(name: "b", value: "true", type: .bool)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    let popup = typePopup(in: vc)
-
-    expectTrue(!valueChoiceContainer(in: vc).isHidden, "starts Bool: choice control visible")
-    expectTrue(editorContainer(in: vc).isHidden, "starts Bool: editor hidden")
-
-    let textIndex = VariableType.allCases.firstIndex(of: .text)!
-    popup.selectItem(at: textIndex)
-    triggerAction(of: popup)
-    vc.view.layoutSubtreeIfNeeded()
-
-    expectTrue(valueChoiceContainer(in: vc).isHidden, "Bool -> Text: choice control hidden")
-    expectTrue(!editorContainer(in: vc).isHidden, "Bool -> Text: editor visible")
-    expectEqual(vc.variable.value, "true", "Bool -> Text preserves the value")
-    expectEqual(valueTextView(in: vc).string, "true", "Bool -> Text: text editor reflects the preserved value")
-
-    let boolIndex = VariableType.allCases.firstIndex(of: .bool)!
-    popup.selectItem(at: boolIndex)
-    triggerAction(of: popup)
-    vc.view.layoutSubtreeIfNeeded()
-
-    expectTrue(!valueChoiceContainer(in: vc).isHidden, "Text -> Bool: choice control visible")
-    expectTrue(editorContainer(in: vc).isHidden, "Text -> Bool: editor hidden")
-    expectEqual(vc.variable.value, "true", "Text -> Bool preserves the value")
-    expectTrue(
-        valueChoiceControl(in: vc).selectedSegment == 0,
-        "Text -> Bool: re-selects True from the preserved value")
-}
-
-/// No ambiguity or conflicts anywhere in the tree for any `VariableType`,
-/// not just `.bool` — extends `testLayoutUnambiguous`'s width matrix across
-/// every type, since the Bool/non-Bool control swap is the part of this
-/// view most likely to introduce a fresh ambiguity the original test never
-/// had reason to check for.
-private func testAllTypesLayoutUnambiguous() {
-    for width: CGFloat in [180, 300, 600] {
-        for type in VariableType.allCases {
-            let variable = QueryVariable(name: "v", value: "true", type: type)
-            let (_, _, vc) = makeHostedDetail(width: width, variable: variable)
-            vc.view.layoutSubtreeIfNeeded()
-            expectTrue(
-                !hasAmbiguousLayoutRecursively(vc.view),
-                "layout unambiguous at \(Int(width))pt for type \(type)")
-        }
-    }
-}
-
-/// The choice control must actually fit the panel at its 180pt minimum
-/// width: its natural (`fittingSize`) width must not exceed the available
-/// editor width (panel width minus the `body` stack's 10pt-per-side insets).
-/// A failure here is the documented signal to switch from a segmented
-/// control to a popup instead.
-private func testChoiceControlFitsAvailableWidth() {
-    let variable = QueryVariable(name: "b", value: "true", type: .bool)
-    let (_, _, vc) = makeHostedDetail(width: 180, variable: variable)
-    vc.view.layoutSubtreeIfNeeded()
-    let seg = valueChoiceControl(in: vc)
-    let availableWidth: CGFloat = 180 - 20
-    expectTrue(
-        seg.fittingSize.width <= availableWidth,
-        "choice control's natural width (\(seg.fittingSize.width)pt) fits the available "
-            + "editor width (\(availableWidth)pt) at the panel's 180pt minimum")
-}
-
-// MARK: - Name collision refusal (defect 2)
-
-/// A typed name that collides (exact, trimmed, case-sensitive) with another
-/// row's name is refused: never written to `variable.name`, and `onChange`
-/// never fires for it.
-private func testCollidingNameNeverReachesModelOrFiresOnChange() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    var changeCount = 0
-    vc.onChange = { _ in changeCount += 1 }
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    expectEqual(vc.variable.name, "original", "colliding name is not written to variable.name")
-    expectTrue(changeCount == 0, "colliding name fires no onChange (got \(changeCount))")
-}
-
-/// The collision replaces the value area entirely (the notice fills the same
-/// slot the editor occupies, in place of it — not a separate note under the
-/// header, which is where it used to live and which caused the layout-shift
-/// bug by reporting the same thing twice), and reddens the name field. The
-/// name field itself keeps showing exactly what was typed and keeps
-/// accepting keystrokes — the refusal blocks the VALUE, per the user's own
-/// framing ("block input into the value, not the name"), never the name
-/// field's typing.
-private func testCollidingNameShowsInlineErrorAndRedTint() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    expectEqual(field.stringValue, "ip", "the field keeps showing exactly what was typed")
-    expectTrue(field.textColor == .systemRed, "the name field is tinted red")
-
-    expectTrue(!collisionNoticeContainer(in: vc).isHidden, "the collision notice replaces the value area")
-    expectEqual(
-        collisionNoticeLabel(in: vc).stringValue, "A variable named \"ip\" already exists. Choose a different name.",
-        "the collision notice names the colliding value and instructs the user what to do")
-    expectTrue(collisionNoticeLabel(in: vc).textColor == .systemRed, "the collision notice is red")
-    // Centred, and asserted rather than left to `.natural`: this label stands in
-    // for the value editor, so it should read as a notice about the whole area.
-    // The old empty-state label shipped visibly mis-aligned because nothing
-    // pinned its alignment, and that is the bug this line exists to prevent.
-    expectTrue(collisionNoticeLabel(in: vc).alignment == .center, "the collision notice is centred")
-    // Centring only means anything if the label actually spans the slot it is
-    // centred within — a label hugging its text would look centred at one string
-    // length and not another.
-    vc.view.layoutSubtreeIfNeeded()
-    // Compare *alignment* rects, not frames: Auto Layout equates alignment rects,
-    // and a borderless NSTextField insets its by a couple of points, so its frame
-    // legitimately overhangs the container it is pinned to. Measured 284 vs 280.
-    let label = collisionNoticeLabel(in: vc)
-    let slot = collisionNoticeContainer(in: vc)
-    let labelSpan = label.alignmentRect(forFrame: label.frame).width
-    let slotSpan = slot.alignmentRect(forFrame: slot.frame).width
-    expectTrue(
-        labelSpan == slotSpan && slotSpan > 0,
-        "the collision notice label spans its container (\(labelSpan) vs \(slotSpan))")
-
-    expectTrue(editorContainer(in: vc).isHidden, "the text editor is hidden while colliding")
-    expectTrue(captionLabel(in: vc).isHidden, "the size caption is hidden while colliding")
-    expectTrue(valueChoiceContainer(in: vc).isHidden, "the Bool choice control is hidden while colliding")
-
-    expectTrue(
-        duplicationLabel(in: vc).isHidden,
-        "the header-level note does not also report the collision — only the value area does")
-}
-
-/// A duplicate pair loaded from a saved query that predates this refusal
-/// rule has a COMMITTED name that already collides with its sibling. This
-/// exercises `otherNames`'s own `didSet`: the view is already loaded (this
-/// helper forces that), and `otherNames` is set afterward, mirroring
-/// `QueryVariablesPanelVC.refreshDetailState` being called again later
-/// (e.g. another edit changing the comparison set) rather than the very
-/// first `drillIn`. Confirmed sane, not broken: the name field stays fully
-/// editable (still shows the actual name, still red), and typing past the
-/// collision clears the notice and restores the editor normally — the same
-/// behaviour a legal, user-typed collision gets.
-private func testLegacyDuplicateShowsCollisionNoticeWhenOtherNamesIsRefreshed() {
-    let variable = QueryVariable(name: "dup", value: "some value", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-
-    vc.otherNames = ["dup"]
-
-    expectTrue(!collisionNoticeContainer(in: vc).isHidden, "the collision notice shows immediately, without any keystroke")
-    expectEqual(
-        collisionNoticeLabel(in: vc).stringValue, "A variable named \"dup\" already exists. Choose a different name.",
-        "the notice names the collision correctly")
-    expectTrue(nameField(in: vc).textColor == .systemRed, "the name field is red immediately too")
-    expectEqual(nameField(in: vc).stringValue, "dup", "the name field still shows the actual name, and stays editable")
-
-    let field = nameField(in: vc)
-    field.stringValue = "dup2"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    expectTrue(collisionNoticeContainer(in: vc).isHidden, "typing past the legacy collision clears the notice normally")
-    expectTrue(!editorContainer(in: vc).isHidden, "the editor returns once the name is unique")
-}
-
-/// The exact ordering the real panel uses: `QueryVariablesPanelVC.drillIn`
-/// sets `otherNames` (via `refreshDetailState`) BEFORE ever touching
-/// `detail.view` — unlike `makeHostedDetail`, which forces view creation as
-/// part of hosting the VC. Constructs the VC directly and hosts it manually
-/// so `otherNames` is genuinely set first, exercising `loadView`'s own
-/// initial `recomputeCollisionState()` call rather than `otherNames`'s
-/// `didSet` (which the test above already covers) — this is the path that
-/// makes a variable whose committed name already collides show the notice
-/// the very first time you drill into it, not just on a later refresh.
-private func testCommittedCollisionDetectedBeforeViewEverLoads() {
-    let variable = QueryVariable(name: "dup", value: "v", type: .literal)
-    let vc = VariableDetailVC(variable: variable)
-    vc.otherNames = ["dup"]  // set before `.view` is ever accessed, exactly like drillIn does
-
-    let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: 300, height: 300),
-        styleMask: [.borderless], backing: .buffered, defer: false
-    )
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
-    window.contentView = container
-    vc.view.translatesAutoresizingMaskIntoConstraints = false
-    container.addSubview(vc.view)
-    NSLayoutConstraint.activate([
-        vc.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-        vc.view.topAnchor.constraint(equalTo: container.topAnchor),
-        vc.view.widthAnchor.constraint(equalToConstant: 300),
-        vc.view.heightAnchor.constraint(equalToConstant: 300),
-    ])
-    container.layoutSubtreeIfNeeded()
-    vc.view.needsLayout = true
-    container.layoutSubtreeIfNeeded()
-
-    expectTrue(
-        !collisionNoticeContainer(in: vc).isHidden,
-        "the collision notice shows the moment the view loads, before any keystroke")
-    expectTrue(nameField(in: vc).textColor == .systemRed, "the name field is red the moment the view loads")
-}
-
-/// A unique (non-colliding) typed name updates the live UI immediately —
-/// normal colour, no inline error — but is NOT written to the model, and
-/// fires no `onChange`, while it is still just typed. Commit is deferred to
-/// a settle point (see `testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint`
-/// below for the commit side of this): mirrors
-/// `testCollidingNameNeverReachesModelOrFiresOnChange` in that neither a
-/// colliding nor a non-colliding keystroke reaches the model by itself.
-private func testUniqueNameNotCommittedUntilSettle() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    var changeCount = 0
-    vc.onChange = { _ in changeCount += 1 }
-
-    let field = nameField(in: vc)
-    field.stringValue = "hostname"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    expectEqual(vc.variable.name, "original", "a unique typed name is not written to variable.name while still just typed")
-    expectTrue(changeCount == 0, "no onChange fires for typing alone, even when the typed name is unique (got \(changeCount))")
-    expectTrue(field.textColor == .systemIndigo, "the name field shows its normal colour for a non-colliding name")
-    expectTrue(collisionNoticeContainer(in: vc).isHidden, "no collision notice for a non-colliding name")
-    expectTrue(!editorContainer(in: vc).isHidden, "the value editor shows normally for a non-colliding name")
-}
-
-/// Commit-on-settle, end to end, at each of the four settle points: typing
-/// a unique name never commits it, and reaching exactly one settle point
-/// commits it exactly once, with the final value.
-private func testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint() {
-    // `expectedChangeCount` is 1 for every settle point except the type
-    // popup, which is two logically separate edits landing in the same
-    // gesture: `typeChanged` commits the deferred name (one `onChange`),
-    // then applies the type change itself (a second, independent
-    // `onChange` — the same call it always made, with or without a pending
-    // name). Two calls for two edits is not the per-keystroke-commit bug
-    // this suite guards against; only a *name* commit firing more than
-    // once per edit would be.
-    func run(_ label: String, expectedChangeCount: Int = 1, settle: (VariableDetailVC) -> Void) {
-        let variable = QueryVariable(name: "original", value: "v", type: .literal)
-        let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-        vc.otherNames = ["ip"]
-
-        var changeCount = 0
-        var lastName: String?
-        vc.onChange = { changeCount += 1; lastName = $0.name }
-
-        let field = nameField(in: vc)
-        for prefix in ["h", "ho", "hos", "host", "hostname"] {
-            field.stringValue = prefix
-            vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-        }
-        expectTrue(changeCount == 0, "\(label): no onChange fires while typing (got \(changeCount))")
-        expectEqual(vc.variable.name, "original", "\(label): the model is unchanged while still just typed")
-
-        settle(vc)
-
-        expectTrue(
-            changeCount == expectedChangeCount,
-            "\(label): settling commits the name exactly once (expected \(expectedChangeCount) onChange call(s), "
-                + "got \(changeCount))")
-        expectEqual(lastName ?? "<no onChange fired>", "hostname", "\(label): the committed name is the final typed value")
-    }
-
-    run("back") { vc in triggerAction(of: backButton(in: vc)) }
-    run("Enter") { vc in
-        _ = vc.control(
-            nameField(in: vc), textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
-    }
-    run("losing first responder") { vc in
-        vc.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: nameField(in: vc)))
-    }
-    run("type change via popup", expectedChangeCount: 2) { vc in
-        let popup = typePopup(in: vc)
-        let textIndex = VariableType.allCases.firstIndex(of: .text)!
-        popup.selectItem(at: textIndex)
-        triggerAction(of: popup)
-    }
-}
-
-/// The new invariant commit-on-settle exists to guarantee: for as long as
-/// the user is just typing — before any settle point — the model's name is
-/// exactly what it was before this edit began, at every intermediate
-/// prefix, not just the final one.
-private func testModelNameUnchangedWhileTypingUntilSettle() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    for prefix in ["h", "ho", "hos", "host", "hostname"] {
-        field.stringValue = prefix
-        vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-        expectEqual(
-            vc.variable.name, "original",
-            "the model name stays \"original\" mid-typing at prefix \(prefix.debugDescription)")
-    }
-}
-
-/// While the field collides, the back button must do nothing except keep
-/// the message visible and return focus to the name field — not revert the
-/// field, not commit anything, not navigate. (See `testSeedListPrefixWalk...`
-/// below for why reverting is actively wrong, not just unnecessary.)
-private func testBackRefusedWhileColliding() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    var backFired = false
-    vc.onBack = { backFired = true }
-    triggerAction(of: backButton(in: vc))
-
-    expectTrue(!backFired, "back does not navigate while the field collides")
-    expectEqual(field.stringValue, "ip", "back does not revert the field while it collides")
-    expectTrue(
-        !collisionNoticeContainer(in: vc).isHidden,
-        "the collision notice stays visible in the value area after a refused back")
-    expectTrue(
-        field.currentEditor() != nil,
-        "focus returns to the name field after a refused back (it has an active field editor)")
-}
-
-/// Escape is refused the same way as the back button, through both the
-/// paths that can trigger it: the name field's own delegate (Escape while
-/// it has focus) and `cancelOperation` (Escape with no text control
-/// focused, e.g. right after the level-slide).
-private func testEscapeRefusedWhileColliding() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    var backFired = false
-    vc.onBack = { backFired = true }
-
-    let handled = vc.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:)))
-    expectTrue(handled, "the name field's delegate still claims to handle Escape while colliding")
-    expectTrue(!backFired, "Escape via the name field's delegate does not navigate while colliding")
-    expectEqual(field.stringValue, "ip", "Escape via the delegate does not revert the field while colliding")
-
-    vc.cancelOperation(nil)
-    expectTrue(!backFired, "Escape via cancelOperation does not navigate while colliding")
-    expectEqual(field.stringValue, "ip", "Escape via cancelOperation does not revert the field while colliding")
-}
-
-/// I4: Escape while the *value editor* has focus is a fourth path off this
-/// screen, distinct from the name field's own Escape handling above —
-/// `VariableValueTextView.onCancel` used to call `onBack` directly, bypassing
-/// `attemptBack` (and so the collision refusal) entirely. The value editor
-/// has its own focus, independent of the name field's, so a colliding name
-/// can still be showing when this fires.
-private func testEscapeInValueEditorRoutesThroughAttemptBack() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    var backFired = false
-    vc.onBack = { backFired = true }
-
-    // The real production path: cancelOperation is what AppKit calls when
-    // Escape is pressed while this view has focus, and
-    // VariableValueTextView routes it to `onCancel`.
-    valueTextView(in: vc).cancelOperation(nil)
-
-    expectTrue(!backFired, "Escape in the value editor does not navigate while the name field collides")
-    expectEqual(field.stringValue, "ip", "Escape in the value editor does not revert the colliding name field")
-
-    // And once the name field is unique again, this same path must still
-    // work — it is a real way off the screen, not merely blocked forever.
-    field.stringValue = "ip2"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    valueTextView(in: vc).cancelOperation(nil)
-
-    expectTrue(backFired, "Escape in the value editor navigates normally once the name field is unique")
-    expectEqual(vc.variable.name, "ip2", "Escape in the value editor commits the unique name on the way out")
-}
-
-/// Once the field is unique again, back (and therefore Escape) works
-/// normally — the refusal is specific to the colliding state, not a
-/// permanent lock on this screen.
-private func testBackSucceedsOnceUnique() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    field.stringValue = "ip2"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    expectEqual(vc.variable.name, "original", "setup: the unique extension is not committed until a settle point")
-
-    var backFired = false
-    vc.onBack = { backFired = true }
-    triggerAction(of: backButton(in: vc))
-
-    expectTrue(backFired, "back navigates normally once the field is unique again")
-    expectEqual(vc.variable.name, "ip2", "back commits the unique name on the way out")
-}
-
-/// Delete must still work while the field collides — it is the only
-/// guaranteed way off this screen if the user does not want to resolve the
-/// collision by typing. Without this, refusing to leave would trap the user
-/// outright, which is worse than the bug the refusal exists to prevent.
-private func testDeleteWorksWhileColliding() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    var deleteFired = false
-    vc.onDelete = { deleteFired = true }
-    triggerAction(of: deleteButton(in: vc))
-
-    expectTrue(deleteFired, "delete still works while the name field collides")
-}
-
-/// The regression this fix exists for. Renaming an existing "seed_list" by
-/// typing a second "seed_list" walks the field through every prefix on the
-/// way there — "s", "se", …, "seed_lis" — none of which collide, so each is
-/// accepted and committed in turn; only the final keystroke, "seed_list"
-/// itself, collides. Under the old "revert to the variable's last valid
-/// name" rule, attempting to leave right after typing that final character
-/// committed "seed_lis" — a name the user never typed and does not
-/// recognize, with the actual collision "silently resolved" by mangling
-/// their input instead of being surfaced. Refusing to leave instead of
-/// reverting means the field is never touched by anything but the user's
-/// own typing, and continuing past the collision (to "seed_list2") is still
-/// how they actually get off this screen.
-private func testSeedListPrefixWalkNeverMangledOnBack() {
-    let variable = QueryVariable(name: "", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["seed_list"]
-
-    let field = nameField(in: vc)
-    var backFired = false
-    vc.onBack = { backFired = true }
-
-    for prefix in ["s", "se", "see", "seed", "seed_", "seed_l", "seed_li", "seed_lis", "seed_list"] {
-        field.stringValue = prefix
-        vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-        expectEqual(
-            vc.variable.name, "",
-            "the model's name is unchanged mid-walk at prefix \(prefix.debugDescription) — nothing "
-                + "intermediate is ever committed, not even \"seed_lis\"")
-    }
-
-    triggerAction(of: backButton(in: vc))
-    expectTrue(!backFired, "back is refused while the final keystroke collides")
-    expectEqual(
-        field.stringValue, "seed_list",
-        "the field is not reverted by the refused back — it still shows exactly what was typed")
-    expectEqual(vc.variable.name, "", "the model still has its pre-edit name after a refused back")
-
-    field.stringValue = "seed_list2"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    expectEqual(vc.variable.name, "", "the unique extension is not committed until the next settle point")
-
-    triggerAction(of: backButton(in: vc))
-    expectTrue(backFired, "back succeeds once the field is extended to a unique name")
-    expectEqual(vc.variable.name, "seed_list2", "the final committed name is exactly what the user typed")
-    expectTrue(
-        vc.variable.name != "seed_lis",
-        "the name is never left as the mangled intermediate prefix \"seed_lis\"")
-}
-
-/// The commit trims, matching every collision rule (which also trims).
-/// Typing "ip " (trailing space) settles to the trimmed "ip", not the raw
-/// string with the space still attached — an untrimmed commit produced a
-/// row no `{{token}}` could ever reference, showed healthy (indigo, no
-/// badge — `rowStates` cannot flag a collision the model itself does not
-/// contain), and then refused the correctly-spelled "ip" on another row as
-/// a duplicate, with no visible reason why the two looked different.
-private func testCommitTrimsTheName() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = []
-
-    var lastName: String?
-    vc.onChange = { lastName = $0.name }
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip "
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    triggerAction(of: backButton(in: vc))
-
-    expectEqual(vc.variable.name, "ip", "the committed name is trimmed, not \"ip \" verbatim")
-    expectEqual(lastName ?? "<no onChange fired>", "ip", "onChange reports the trimmed name")
-}
-
-/// The prune-gap half of the same fix: a name of only whitespace commits as
-/// empty (not as a non-empty string of spaces), so an abandoned `+` row
-/// still prunes on back rather than surviving as an unreferenceable junk
-/// row.
-private func testWhitespaceOnlyNameCommitsEmptyAndStillPrunes() {
-    let variable = QueryVariable(name: "", value: "", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = []
-
-    let field = nameField(in: vc)
-    field.stringValue = "   "
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    triggerAction(of: backButton(in: vc))
-
-    expectEqual(vc.variable.name, "", "a whitespace-only name commits as empty, not as three spaces")
-}
-
-/// An empty (trimmed) name never collides with anything, including another
-/// empty name — two freshly added rows are not duplicates of each other.
-private func testEmptyNameNeverCollides() {
-    let variable = QueryVariable(name: "x", value: "", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    // Deliberately includes "" — the panel is documented to exclude empty
-    // names from what it supplies, but the VC's own check must not depend on
-    // that: an empty typed name must never collide even if `otherNames`
-    // somehow contained one (e.g. another freshly added, still-empty row).
-    vc.otherNames = [""]
-
-    var changeCount = 0
-    var lastName: String?
-    vc.onChange = { changeCount += 1; lastName = $0.name }
-
-    let field = nameField(in: vc)
-    field.stringValue = ""
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    expectTrue(collisionNoticeContainer(in: vc).isHidden, "no collision notice for an empty name")
-    expectTrue(changeCount == 0, "clearing to an empty name does not commit while still just typed (got \(changeCount))")
-    expectEqual(vc.variable.name, "x", "the model is unchanged mid-typing")
-
-    triggerAction(of: backButton(in: vc))
-
-    expectTrue(changeCount == 1, "settling commits the empty name exactly once (got \(changeCount))")
-    expectEqual(lastName ?? "<no onChange fired>", "", "the committed name is empty, as typed, even against another empty name")
-}
-
-/// Matching is case-sensitive: `{{IP}}` and `{{ip}}` are different tokens to
-/// `render`, so they must not collide here either.
-private func testCaseDifferenceDoesNotCollide() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    var changeCount = 0
-    var lastName: String?
-    vc.onChange = { changeCount += 1; lastName = $0.name }
-
-    let field = nameField(in: vc)
-    field.stringValue = "IP"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-
-    expectTrue(field.textColor == .systemIndigo, "a case-different name is not treated as a collision")
-    expectTrue(changeCount == 0, "a case-different (non-colliding) name does not commit while still just typed (got \(changeCount))")
-
-    triggerAction(of: backButton(in: vc))
-
-    expectTrue(changeCount == 1, "settling commits the case-different name exactly once (got \(changeCount))")
-    expectEqual(lastName ?? "<no onChange fired>", "IP", "the committed name is exactly what was typed, case preserved")
-}
-
-/// The layout-shift bug the note exposed: the editor's frame must move in
-/// the same call that shows the inline message, not on some later pass that
-/// happens to be triggered by something else (in practice, the user's next
-/// keystroke) — pinned by NOT forcing a layout pass here ourselves.
-private func testInlineMessageShiftsEditorInSameLayoutPass() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let editorFrameBefore = editorContainer(in: vc).frame
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    // No explicit layoutSubtreeIfNeeded() call here: the fix must force its
-    // own relayout as part of showing the collision state, not rely on this
-    // test (or anything else) to trigger a follow-up pass.
-    let editorFrameAfter = editorContainer(in: vc).frame
-
-    // Under the current design the editor is HIDDEN outright while
-    // colliding (replaced by the collision notice, not merely displaced by
-    // a note above it) — a stronger version of "the frame changed in the
-    // same pass," since there's no ambiguity about whether hiding actually
-    // took effect immediately.
-    expectTrue(
-        editorFrameAfter != editorFrameBefore,
-        "editor container's frame changes in the same pass the collision state appears "
-            + "(before: \(editorFrameBefore), after: \(editorFrameAfter))")
-}
-
-/// Item 2, generalized: the frame math for `gutter`/`scrollView` must be
-/// re-applied after ANY programmatic change that can alter `body`'s height —
-/// not merely, by coincidence, for the one path (the old collision note
-/// under the header) that happened to surface the bug first.
-/// `view.layoutSubtreeIfNeeded()` resolves `editorContainer`'s own Auto
-/// Layout frame immediately, but does not re-invoke `viewDidLayout()`, so
-/// without `layoutEditorArea()` being called again explicitly,
-/// `gutter`/`scrollView` (positioned by frames, not constraints) would stay
-/// sized for the container's PREVIOUS bounds. Toggling the `.shadowed` note
-/// — the only note left under the header now that the collision case moved
-/// out (see item 1) — changes `body`'s height while the editor stays
-/// visible throughout, which is the general shape this needs to cover.
-private func testGutterAndScrollViewMatchContainerImmediatelyAfterHeightChange() {
-    let variable = QueryVariable(name: "v", value: "hello", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
-
-    let gutter = gutterView(in: vc)
-    let scroll = scrollView(in: vc)
-    let editor = editorContainer(in: vc)
-
-    vc.setState(.init(duplication: .shadowed, problem: nil))
-    // Deliberately no vc.view.layoutSubtreeIfNeeded() call here: the fix
-    // must settle the frame-positioned children on its own, in the very
-    // call that changes body's height, not on some later pass.
-
-    let containerHeight = editor.bounds.height
-    expectClose(
-        gutter.frame.height, max(0, containerHeight - 2),
-        "gutter height matches the container's new bounds immediately after the .shadowed note appears")
-    expectClose(
-        scroll.frame.height, max(0, containerHeight - 2),
-        "scroll view height matches the container's new bounds immediately after the .shadowed note appears")
-    expectClose(gutter.frame.maxX, scroll.frame.minX, "gutter and scroll view still sit side by side with no gap")
-}
-
-/// The same general fix, exercised through the NEW path item 1 added: the
-/// editor's frame-positioned children must not be left stale for when the
-/// name stops colliding and the editor comes back, either.
-private func testGutterAndScrollViewMatchContainerAfterCollisionClears() {
-    let variable = QueryVariable(name: "original", value: "v", type: .literal)
-    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
-    vc.otherNames = ["ip"]
-
-    let field = nameField(in: vc)
-    field.stringValue = "ip"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    expectTrue(!collisionNoticeContainer(in: vc).isHidden, "setup: colliding")
-
-    field.stringValue = "ip2"
-    vc.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
-    // No explicit layoutSubtreeIfNeeded() here either.
-    expectTrue(!editorContainer(in: vc).isHidden, "setup: editor shows again once the name is unique")
-
-    let gutter = gutterView(in: vc)
-    let scroll = scrollView(in: vc)
-    let containerHeight = editorContainer(in: vc).bounds.height
-    expectClose(
-        gutter.frame.height, max(0, containerHeight - 2),
-        "gutter height matches the container's bounds immediately after the collision clears")
-    expectClose(
-        scroll.frame.height, max(0, containerHeight - 2),
-        "scroll view height matches the container's bounds immediately after the collision clears")
-}
-
-// MARK: - Gutter line-number alignment (defect 3)
-
-/// Ground truth for where line `line` actually renders, in `gutter`'s own
-/// coordinate space — measured via real view-hierarchy coordinate
-/// conversion (`NSView.convert(_:to:)`), NOT by restating the gutter's own
-/// y-computation formula. A hand-duplicated copy of that formula would
-/// agree with the gutter even if both copies shared the same bug; asking
-/// AppKit where the glyph actually paints cannot.
 private func groundTruthGutterY(line: Int, textView tv: NSTextView, gutter: LineNumberGutter) -> CGFloat? {
     guard let lm = tv.layoutManager else { return nil }
     let ns = tv.string as NSString
@@ -1733,89 +721,73 @@ private func groundTruthGutterY(line: Int, textView tv: NSTextView, gutter: Line
     return tv.convert(rectInTextView, to: gutter).origin.y
 }
 
-/// Convenience for the `VariableDetailVC`-hosted checks below.
-private func groundTruthGutterY(line: Int, in vc: VariableDetailVC) -> CGFloat? {
-    groundTruthGutterY(line: line, textView: valueTextView(in: vc), gutter: gutterView(in: vc))
-}
-
-/// Hosts a real `VariableDetailVC` for `variable`, optionally overriding the
-/// value editor's `textContainerInset` (to prove the fix generalizes across
-/// insets rather than merely cancelling out at the one `VariableValueTextView`
-/// happens to use), and checks the gutter's `y(forLine:)` seam against
-/// `groundTruthGutterY` for every line.
-private func checkGutterAlignment(
-    variable: QueryVariable, lineCount: Int, inset: NSSize?, label: String
-) {
-    let (_, _, vc) = makeHostedDetail(width: 300, height: 300, variable: variable)
-    let tv = valueTextView(in: vc)
-    if let inset { tv.textContainerInset = inset }
-    vc.view.layoutSubtreeIfNeeded()
-    if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
-
-    let gutter = gutterView(in: vc)
-    for line in 1...lineCount {
-        guard let groundTruth = groundTruthGutterY(line: line, in: vc) else {
-            expectTrue(false, "\(label): could not measure ground-truth y for line \(line)")
-            continue
+private func testGutterAlignment() {
+    for inset in [nil, NSSize(width: 4, height: 8)] as [NSSize?] {
+        let host = Hosted(QueryVariable(name: "v", value: "line1\nline2\nline3\nline4\nline5"))
+        let tv = host.vc.valueTextView
+        if let inset { tv.textContainerInset = inset }
+        host.vc.textEditor.needsUpdateConstraints = true
+        host.settle()
+        if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
+        let gutter = host.vc.textEditor.gutter
+        let label = inset == nil ? "default inset" : "SQLTextView-style inset"
+        for line in 1...5 {
+            let truth = groundTruthGutterY(line: line, textView: tv, gutter: gutter)
+            let seam = gutter.y(forLine: line)
+            expectTrue(truth != nil && seam != nil && abs(seam! - truth!) < 1,
+                       "gutter (\(label)): line \(line) number aligns with its text",
+                       "seam \(String(describing: seam)), text \(String(describing: truth))")
         }
-        let seam = gutter.y(forLine: line)
-        let matched = seam.map { abs($0 - groundTruth) < 1.0 } ?? false
-        expectTrue(
-            matched,
-            "\(label): gutter y for line \(line) matches the text's line-fragment y "
-                + "(seam=\(seam.map { String(format: "%.2f", $0) } ?? "nil"), "
-                + "text=\(String(format: "%.2f", groundTruth)))")
+        host.close()
     }
 }
 
-/// Pins the defect: for a one-line and a five-line value, at the value
-/// editor's own inset and again at `SQLTextView`'s (4, 8) inset, the gutter's
-/// computed y for every line must match where that line's text actually is.
-/// Measured directly: before the fix, `y(forLine:)`'s predecessor (inline
-/// `lineRect.origin.y + textInset.height - scrollOffset` arithmetic) put line
-/// 1 at y≈25 while the text itself rendered at y≈4 — the gutter number a
-/// full line below its text, matching the reported symptom exactly.
-private func testGutterLineNumberAlignsWithTextLine() {
-    let oneLine = QueryVariable(name: "v", value: "test text", type: .literal)
-    let fiveLine = QueryVariable(name: "v", value: "line1\nline2\nline3\nline4\nline5", type: .literal)
-
-    checkGutterAlignment(variable: oneLine, lineCount: 1, inset: nil, label: "one-line, default inset")
-    checkGutterAlignment(variable: fiveLine, lineCount: 5, inset: nil, label: "five-line, default inset")
-    checkGutterAlignment(
-        variable: oneLine, lineCount: 1, inset: NSSize(width: 4, height: 8),
-        label: "one-line, SQLTextView-style inset")
-    checkGutterAlignment(
-        variable: fiveLine, lineCount: 5, inset: NSSize(width: 4, height: 8),
-        label: "five-line, SQLTextView-style inset")
+/// The gutter numbers every line on screen (`visibleCharacterRange`, a test
+/// seam in LineNumberGutter): the range it draws and the lines `y(forLine:)`
+/// puts inside its bounds are computed by different means and must agree.
+/// The editor stops at 12 lines, so a 30-line value scrolls; checked at rest
+/// and scrolled to the end.
+private func testGutterNumbersEveryVisibleLine() {
+    let host = Hosted(QueryVariable(name: "long", value: (1...30).map { "line \($0)" }.joined(separator: "\n")))
+    defer { host.close() }
+    let gutter = host.vc.textEditor.gutter
+    let tv = host.vc.valueTextView
+    if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
+    let text = tv.string as NSString
+    func line(at index: Int) -> Int {
+        var line = 1
+        for i in 0..<min(index, text.length) where text.character(at: i) == 0x0A { line += 1 }
+        return line
+    }
+    for scrolledToEnd in [false, true] {
+        if scrolledToEnd {
+            tv.scrollRangeToVisible(NSRange(location: text.length, length: 0))
+            host.settle()
+        }
+        let label = scrolledToEnd ? "scrolled to the end" : "unscrolled"
+        let lineHeight = host.vc.textEditor.lineHeight
+        let onScreen = (1...30).filter { number in
+            guard let y = gutter.y(forLine: number) else { return false }
+            return y >= 0 && y + lineHeight <= gutter.bounds.height + 0.5
+        }
+        guard let first = onScreen.first, let last = onScreen.last, let range = gutter.visibleCharacterRange() else {
+            expectTrue(false, "gutter (\(label)): lines on screen and a visible range")
+            continue
+        }
+        expectTrue(onScreen.count < 30, "gutter (\(label)): setup — the value is taller than the editor")
+        expectTrue(line(at: range.location) <= first && line(at: max(range.location, NSMaxRange(range) - 1)) >= last,
+                   "gutter (\(label)): the drawn range covers every line on screen (\(first)–\(last))")
+    }
 }
 
-// MARK: - SQL editor gutter-alignment regression guard
-
-/// Mirrors `SQLTextView`'s exact shape — a subclass with its own manually
-/// assembled `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`,
-/// swapping only its `FoldingLayoutManager` for plain `NSLayoutManager`
-/// (irrelevant to this bug, which lives in TextKit/AppKit's own geometry,
-/// not in anything either subclass adds on top) — including setting
-/// `textContainerInset` from *inside* its own init, exactly where
-/// `SQLTextView.commonInit()` sets it (`Pharos/Editor/SQLTextView.swift`).
-///
-/// Measured directly, and this is the one genuinely surprising part: that
-/// last detail is *the* discriminator. Assigning the identical `(4, 8)`
-/// inset from outside, after construction (as this test's first draft did,
-/// and as the resizing/scroller flags genuinely are assigned externally by
-/// `SQLEditorController.loadView`) never reproduced defect 3's symptom, in a
-/// subclass or not. Setting it inside init — which is genuinely how
-/// `SQLTextView` and `VariableValueTextView` (the view that actually hit
-/// this bug) both do it — reproduces it every time. That means `SQLTextView`
-/// sits in the exact same risk class as `VariableValueTextView`,
-/// independently of anything specific to the variables panel. This class
-/// exists so a test can stand in for `SQLTextView` without pulling in its
-/// `FoldingLayoutManager`, syntax highlighting, or any of `SQLEditorController`'s
-/// dependency graph.
+/// Mirrors `SQLTextView`'s shape, inset set INSIDE init — the discriminator
+/// for defect 3 (see the history of this file). Guards the SQL editor against
+/// a regression in `LineNumberGutter.y(forLine:)`.
 private final class SQLEditorStyleTextView: NSTextView {
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
-        commonInit()
+        textContainerInset = NSSize(width: 4, height: 8)
+        font = .monospacedSystemFont(ofSize: 11, weight: .regular)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
     convenience init() {
@@ -1828,162 +800,125 @@ private final class SQLEditorStyleTextView: NSTextView {
         layoutManager.addTextContainer(container)
         self.init(frame: .zero, textContainer: container)
     }
-    private func commonInit() {
-        // SQLTextView.commonInit() sets exactly this, exactly here.
-        textContainerInset = NSSize(width: 4, height: 8)
-        font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-    }
 }
 
-/// Hosts `SQLEditorStyleTextView` with the SQL editor's own configuration on
-/// top of that shared construction shape — not horizontally resizable,
-/// width-tracking container, vertical-only scroller, all assigned
-/// externally exactly as `SQLEditorController.loadView` assigns them (only the
-/// inset is internal — see `SQLEditorStyleTextView.commonInit()`). Uses
-/// `makeKeyAndOrderFront` + `displayIfNeeded()` rather than the other
-/// harnesses' `orderFrontRegardless()` + `layoutSubtreeIfNeeded()` —
-/// measured directly: this bug only surfaces once the window actually
-/// displays, not merely lays out, so a harness that skips a real display
-/// pass would silently fail to reproduce it.
-private func makeHostedSQLEditorStyleGutter(
-    text: String, width: CGFloat = 300, height: CGFloat = 200
-) -> (window: NSWindow, textView: NSTextView, scrollView: NSScrollView, gutter: LineNumberGutter) {
-    let window = NSWindow(
-        contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-        styleMask: [.borderless], backing: .buffered, defer: false
-    )
+private func testSQLEditorStyleGutterAlignment() {
+    let width: CGFloat = 300, height: CGFloat = 60
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless],
+                          backing: .buffered, defer: false)
     let container = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
     window.contentView = container
-
     let textView = SQLEditorStyleTextView()
-    textView.string = text
+    textView.string = (1...8).map { "select \($0);" }.joined(separator: "\n")
     textView.isVerticallyResizable = true
     textView.isHorizontallyResizable = false
     textView.autoresizingMask = [.width]
-    textView.minSize = NSSize(width: 0, height: 0)
     textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-    textView.textContainer?.widthTracksTextView = true
-
     let scrollView = NSScrollView(frame: container.bounds)
     scrollView.hasVerticalScroller = true
-    scrollView.hasHorizontalScroller = false
-    scrollView.autohidesScrollers = true
-    scrollView.borderType = .noBorder
-    scrollView.drawsBackground = false
     scrollView.documentView = textView
-
     let gutter = LineNumberGutter(textView: textView, scrollView: scrollView)
     gutter.frame = NSRect(x: 0, y: 0, width: gutter.desiredWidth, height: height)
-    scrollView.frame = NSRect(
-        x: gutter.frame.width, y: 0, width: width - gutter.frame.width, height: height)
-
+    scrollView.frame = NSRect(x: gutter.frame.width, y: 0, width: width - gutter.frame.width, height: height)
     container.addSubview(gutter)
     container.addSubview(scrollView)
-
-    window.makeKeyAndOrderFront(nil)
+    window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+    window.orderFrontRegardless()
+    defer { window.orderOut(nil) }
     container.layoutSubtreeIfNeeded()
     container.displayIfNeeded()
     if let tc = textView.textContainer { textView.layoutManager?.ensureLayout(for: tc) }
 
-    return (window, textView, scrollView, gutter)
-}
-
-/// Protects the SQL editor from a regression introduced by changes made to
-/// `LineNumberGutter` for the variables panel (defect 3, above, rewrote
-/// `y(forLine:)` from `lineRect.origin.y + inset.height - scrollOffset`
-/// arithmetic to real `NSView.convert(_:to:)` coordinate conversion).
-/// Checks alignment for lines 1–3 of a multi-line string under the SQL
-/// editor's own text-view configuration, both at rest and — the assertion
-/// that actually pins the bug *class*, not just the one instance the
-/// variables panel hit — after the clip view has been scrolled to a
-/// nonzero `contentView.bounds.origin.y`, which is exactly the condition
-/// that broke the old formula for the value editor.
-private func testSQLEditorStyleGutterAlignmentUnscrolledAndScrolled() {
-    let text = "select 1;\nselect 2;\nselect 3;\nselect 4;\nselect 5;\nselect 6;\nselect 7;\nselect 8;"
-    let (_, textView, scrollView, gutter) = makeHostedSQLEditorStyleGutter(text: text, height: 60)
-
-    func checkAlignment(_ label: String) {
+    func check(_ label: String) {
         for line in 1...3 {
-            guard let groundTruth = groundTruthGutterY(line: line, textView: textView, gutter: gutter) else {
-                expectTrue(false, "\(label): could not measure ground truth for line \(line)")
-                continue
-            }
+            let truth = groundTruthGutterY(line: line, textView: textView, gutter: gutter)
             let seam = gutter.y(forLine: line)
-            let matched = seam.map { abs($0 - groundTruth) < 1.0 } ?? false
-            expectTrue(
-                matched,
-                "\(label): line \(line) gutter y "
-                    + "(seam=\(seam.map { String(format: "%.2f", $0) } ?? "nil")) matches the text's "
-                    + "line-fragment y (\(String(format: "%.2f", groundTruth)))")
+            expectTrue(truth != nil && seam != nil && abs(seam! - truth!) < 1, "\(label): line \(line) aligns",
+                       "seam \(String(describing: seam)), text \(String(describing: truth))")
         }
     }
-
-    checkAlignment("SQL-editor-style gutter, unscrolled")
-
+    check("SQL-editor-style gutter, unscrolled")
     scrollView.contentView.scroll(to: NSPoint(x: 0, y: 20))
     scrollView.reflectScrolledClipView(scrollView.contentView)
-    let scrollOffset = scrollView.contentView.bounds.origin.y
-    expectTrue(scrollOffset != 0, "setup: scrolling actually moved the clip view (offset=\(scrollOffset))")
+    expectTrue(scrollView.contentView.bounds.origin.y != 0, "setup: the clip view scrolled")
+    check("SQL-editor-style gutter, scrolled")
+}
 
-    checkAlignment("SQL-editor-style gutter, scrolled to a nonzero contentView.bounds.origin.y")
+// MARK: - 15. Offscreen render of every editor kind, Light and Dark
+
+private func testRenderEveryEditor() {
+    let kinds: [QueryVariable] = [
+        QueryVariable(name: "lit", value: "a\nb\nc"),
+        QueryVariable(name: "num", value: "4x", type: .number),
+        QueryVariable(name: "flag", value: "true", type: .bool),
+        QueryVariable(name: "day", value: "2026-10-28", type: .date),
+        QueryVariable(name: "atz", value: "2026-10-28 14:30:00 Europe/Paris", type: .timestamptz),
+        QueryVariable(name: "ids", value: "1\nx", type: .numberList),
+    ]
+    let light = NSAppearance(named: .aqua)!, dark = NSAppearance(named: .darkAqua)!
+    for variable in kinds {
+        let host = Hosted(variable, width: 520, height: 700, connections: VariableConnectionsView())
+        let renders = [light, dark].map { render(host.vc.view, appearance: $0) }
+        guard let l = renders[0], let d = renders[1] else {
+            expectTrue(false, "render: \(variable.type.rawValue) renders")
+            host.close()
+            continue
+        }
+        // The surface (left of the boxes: the pane inset is 20 pt) and the
+        // Name row's plate, at the row's middle. Relative checks: the
+        // absolute system colours differ between macOS releases.
+        guard let nameRow = host.vc.nameRow,
+              let valueBox = sequence(first: host.vc.rendersAsRow as NSView?, next: { $0?.superview })
+                .compactMap({ $0 as? SettingsGroupBox }).first else {
+            expectTrue(false, "render: \(variable.type.rawValue) has its rows")
+            host.close()
+            continue
+        }
+        let row = nameRow.convert(nameRow.bounds, to: host.vc.view)
+        let y = Int(row.midY)
+        let kind = variable.type.rawValue
+        for (name, image) in [("light", l), ("dark", d)] {
+            let surface = image.pixel(6, y), plate = image.pixel(Int(row.minX) + 4, y)
+            expectTrue(!channelsWithin(surface, plate, 0.02), "render (\(kind), \(name)): the plate stands off the surface",
+                       "surface \(String(describing: surface)), plate \(String(describing: plate))")
+            // Ink in the Value box: text and control glyphs, not plate.
+            let box = valueBox.convert(valueBox.bounds, to: host.vc.view).insetBy(dx: 2, dy: 2)
+            var ink = 0
+            for py in stride(from: Int(box.minY), to: Int(box.maxY), by: 1) {
+                for px in stride(from: Int(box.minX), to: Int(box.maxX), by: 1) where !channelsWithin(image.pixel(px, py), plate, 0.2) {
+                    ink += 1
+                }
+            }
+            expectTrue(ink > 40, "render (\(kind), \(name)): the Value box draws its contents", "ink \(ink)")
+        }
+        expectTrue(!channelsWithin(l.pixel(6, y), d.pixel(6, y), 0.1),
+                   "render (\(kind)): dark is not light (the pass is not vacuous)")
+        host.close()
+    }
 }
 
 func runTests() {
     _ = NSApplication.shared
     NSApplication.shared.setActivationPolicy(.prohibited)
+    UserDefaults.standard.set(true, forKey: "NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints")
 
-    testLayoutUnambiguous()
-    testValueEditorHoldsText()
-    testValuePlaceholderShowsOnlyWhenEmpty()
-    testNameFieldDelegateWiringReactsToRealNotification()
-    testValueTextViewDelegateWiringReactsToRealNotification()
-    testValueEditKeepsInsertionPointAfterPanelRoundTrip()
-    testTabAndBacktabBehavior()
-    testBodyRowsShareOneLeadingEdge()
-    testEditorContainerFillsRemainingHeight()
-    testGutterMetricsWidths()
+    testNoConflictsForAnyEditor()
+    testFormStructure()
+    testTypeChangeConverts()
+    testNumberLiveCheck()
+    testDateEditor()
+    testTimestampWithZone()
+    testListEditor()
+    testGrowingEditor()
+    testRendersAs()
+    testBool()
+    testNameCollision()
+    testKeyboard()
+    testAdoptExternalChange()
+    testGutterAlignment()
     testGutterNumbersEveryVisibleLine()
-    testValueTextStartsCloseToTheGutter()
-    testGutterAndScrollViewLayout()
-    testDuplicationNoteCollapsesWhenAbsent()
-    testSetStateRendersSignalsIndependently()
-    testHeaderSeparatorIsOnePoint()
-    testHitTestReachesControls()
-    testControlsWireUpCorrectly()
-
-    testBoolTypeSwapsValueControl()
-    testBoolViewIsShorterThanLiteral()
-    testBoolSegmentLabelsMatchChoiceOrder()
-    testBoolSelectionMappingOnEntry()
-    testChoosingSegmentWritesCanonicalValueAndFiresOnChangeOnce()
-    testChoosingNullRoundTripsThroughSubstitutor()
-    testSwitchingTypeSwapsControlsAndPreservesValue()
-    testAllTypesLayoutUnambiguous()
-    testChoiceControlFitsAvailableWidth()
-
-    testCollidingNameNeverReachesModelOrFiresOnChange()
-    testCollidingNameShowsInlineErrorAndRedTint()
-    testLegacyDuplicateShowsCollisionNoticeWhenOtherNamesIsRefreshed()
-    testCommittedCollisionDetectedBeforeViewEverLoads()
-    testUniqueNameNotCommittedUntilSettle()
-    testTypingUniqueNameCommitsExactlyOnceAtEachSettlePoint()
-    testModelNameUnchangedWhileTypingUntilSettle()
-    testBackRefusedWhileColliding()
-    testEscapeRefusedWhileColliding()
-    testEscapeInValueEditorRoutesThroughAttemptBack()
-    testBackSucceedsOnceUnique()
-    testDeleteWorksWhileColliding()
-    testSeedListPrefixWalkNeverMangledOnBack()
-    testCommitTrimsTheName()
-    testWhitespaceOnlyNameCommitsEmptyAndStillPrunes()
-    testEmptyNameNeverCollides()
-    testCaseDifferenceDoesNotCollide()
-    testInlineMessageShiftsEditorInSameLayoutPass()
-    testGutterAndScrollViewMatchContainerImmediatelyAfterHeightChange()
-    testGutterAndScrollViewMatchContainerAfterCollisionClears()
-
-    testGutterLineNumberAlignsWithTextLine()
-    testSQLEditorStyleGutterAlignmentUnscrolledAndScrolled()
+    testSQLEditorStyleGutterAlignment()
+    testRenderEveryEditor()
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

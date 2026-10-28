@@ -15,16 +15,22 @@ final class VariableManagerWindowController: NSWindowController, NSWindowDelegat
     private var cancellables = Set<AnyCancellable>()
     private var observer: NSObjectProtocol?
 
+    /// The sidebar (220–320 pt) and the form (at least 460 pt) side by side.
+    static let defaultSize = NSSize(width: 860, height: 560)
+    static let minimumSize = NSSize(width: 720, height: 440)
+
     private init() {
         let window = UtilityWindow(autosaveName: "PharosVariableManagerWindow",
                                    title: String(localized: "Variable Manager"),
-                                   defaultSize: NSSize(width: 1020, height: 560),
-                                   minimumSize: NSSize(width: 880, height: 420))
+                                   defaultSize: Self.defaultSize,
+                                   minimumSize: Self.minimumSize)
         super.init(window: window)
         window.contentViewController = managerVC
+        // + and the filter field, before the window first draws.
+        managerVC.installToolbar(on: window)
         // After the content controller, which resizes the window to its
         // fitting size; a remembered frame still wins.
-        window.setContentSize(NSSize(width: 1020, height: 560))
+        window.setContentSize(Self.defaultSize)
         window.center()
         window.setFrameUsingName("PharosVariableManagerWindow")
         window.delegate = self
