@@ -137,6 +137,9 @@ class SQLTextView: NSTextView {
     /// Called when a `{{name}}` token is clicked (a plain click that selects
     /// nothing), with the name. The variable may not exist.
     var onVariableTokenClicked: ((String) -> Void)?
+    /// The "Change Variable To" submenu for a right-click on a `{{name}}`
+    /// chip, or nil for none.
+    var changeVariableMenu: ((_ name: String) -> NSMenu?)?
 
     /// Called whenever the text changes (after highlighting).
     var onTextChange: ((String) -> Void)?
@@ -760,6 +763,14 @@ class SQLTextView: NSTextView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
+        if let token = variableToken(at: convert(event.locationInWindow, from: nil)),
+           let submenu = changeVariableMenu?(token.name) {
+            let item = NSMenuItem(title: String(localized: "Change Variable To"), action: nil, keyEquivalent: "")
+            item.image = NSImage(systemSymbolName: "curlybraces", accessibilityDescription: nil)
+            item.submenu = submenu
+            menu?.insertItem(.separator(), at: 0)
+            menu?.insertItem(item, at: 0)
+        }
         if selectedRange().length > 0 {
             let item = NSMenuItem(
                 title: "Format as SQL list",
@@ -1226,6 +1237,13 @@ class SQLTextView: NSTextView {
         invalidateFoldLayout(revealing: [removed.range])
     }
 
+    /// Unfold every fold that hides part of `range` (a find match).
+    func unfold(intersecting range: NSRange) {
+        for entry in foldState.entries where NSIntersectionRange(entry.range, range).length > 0 {
+            unfold(id: entry.id)
+        }
+    }
+
     /// Unfold all folded regions.
     func unfoldAll() {
         guard !foldState.entries.isEmpty else { return }
@@ -1573,6 +1591,25 @@ class SQLTextView: NSTextView {
         }
     }
 
+    // MARK: - Find Highlights
+
+    /// The card stack's find matches in this text. Drawn in this view's own
+    /// background pass, so they scroll with the text: an overlay placed from
+    /// rects after each scroll (`NSTextFinder`'s) trails it. Not temporary
+    /// attributes: `updateBracketHighlight` clears every background one.
+    var findHighlights = FindHighlights() {
+        didSet { if findHighlights != oldValue { needsDisplay = true } }
+    }
+
+    private func drawFindHighlights(in rect: NSRect) {
+        guard !findHighlights.isEmpty, let layoutManager, let textContainer else { return }
+        let origin = textContainerOrigin
+        let glyphRange = layoutManager.glyphRange(
+            forBoundingRect: rect.offsetBy(dx: -origin.x, dy: -origin.y), in: textContainer)
+        let visible = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+        findHighlights.draw(in: visible, layoutManager: layoutManager, textContainer: textContainer, origin: origin)
+    }
+
     // MARK: - Bracket Matching
 
     private static let openBrackets = Set<Character>(["(", "[", "{"])
@@ -1678,6 +1715,7 @@ class SQLTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         drawVariableTokenChips(in: rect)
+        drawFindHighlights(in: rect)
         // `textContainer` is checked, not bound: the body below uses
         // `textContainerInset` and `textContainerOrigin`, which are different
         // symbols on the text view itself.

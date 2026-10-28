@@ -155,6 +155,10 @@ enum MainMenu {
         findShow.keyEquivalentModifierMask = [.command]
         findShow.tag = NSTextFinder.Action.showFindInterface.rawValue
 
+        let findReplace = findMenu.addItem(withTitle: String(localized: "Find and Replace…"), action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "f")
+        findReplace.keyEquivalentModifierMask = [.command, .option]
+        findReplace.tag = NSTextFinder.Action.showReplaceInterface.rawValue
+
         let findNext = findMenu.addItem(withTitle: String(localized: "Find Next"), action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "g")
         findNext.keyEquivalentModifierMask = [.command]
         findNext.tag = NSTextFinder.Action.nextMatch.rawValue

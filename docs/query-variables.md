@@ -56,6 +56,19 @@ In the editor, typing **`{{`** opens a list of the variables the tab can use, fi
 
 Because the list is shared, an edit in the Variable Manager appears at once in every window's editor highlighting.
 
+### Change a variable in a tab
+
+To use a different variable everywhere a tab uses one (for example `{{router}}` → `{{coda_dlink}}`):
+
+1. Click the **Variables** pull-down (**{ }**) in the editor's header row. It shows when the tab's cards use a variable, and lists each one. **Undefined** marks a name that no variable has.
+2. Choose the variable, then **Change To**, then the variable to use. The list holds the variables the tab's connection can use, each with what it renders as.
+
+Under **Change To**, a grey line shows what the variable puts into the query when it runs: **Renders as** and the first line of the rendered SQL (up to 60 characters, then "…"). A list shows as `('a', 'b')` and a date as a `DATE` literal, as in the Variable Manager's **Renders as**. A warning sign marks a name that no variable has (**Undefined**), a value that renders nothing, and a value that cannot render (with the reason).
+
+A right-click on a `{{name}}` token in a card gives the same list (**Change Variable To**).
+
+The change writes every `{{name}}` in all the tab's cards, `{{ name }}` with spaces too, and not other names such as `{{name_2}}`. It is one step for **Edit > Undo** in the focused card. A locked version (one that holds results) keeps its SQL; a message says how many versions were not changed. **Show in Variable Manager** in the same submenu opens the variable.
+
 ## Types and Substitution
 
 Choose the type from the **Type** pop-up: Literal, Text, Number, Bool, Date, Timestamp or List. When you run the query, each placeholder is replaced according to its variable's type:

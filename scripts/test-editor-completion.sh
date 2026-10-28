@@ -13,6 +13,7 @@ swiftc -o /tmp/pharos-editor-completion-tests \
   Pharos/Editor/CompletionResolver.swift \
   Pharos/Editor/SQLSegmentParser.swift \
   Pharos/Editor/SQLTextView.swift \
+  Pharos/Editor/FindHighlights.swift \
   Pharos/Core/DataFiles.swift \
   Pharos/Editor/VariableCompletion.swift \
   Pharos/Core/VariableSubstitutor.swift \

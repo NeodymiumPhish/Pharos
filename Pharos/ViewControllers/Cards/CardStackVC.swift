@@ -78,6 +78,8 @@ final class CardStackVC: NSViewController {
     var onTextEdited: ((_ cardId: String, _ text: String) -> Void)?
     var onFocusChanged: ((_ cardId: String) -> Void)?
     var onVariableChosen: ((String) -> Void)?
+    /// The "Change Variable To" submenu for a `{{name}}` chip's context menu.
+    var changeVariableMenu: ((_ name: String) -> NSMenu?)?
     var onRenameRequest: ((_ cardId: String) -> Void)?
     var onClearResults: ((_ cardId: String) -> Void)?
     var onListPasteOffer: ((_ offered: Bool) -> Void)?
@@ -211,6 +213,7 @@ final class CardStackVC: NSViewController {
         for v in groupViews.values { v.removeFromSuperview() }
         groupViews.removeAll()
         self.tabId = tabId
+        currentMatch = nil
         items = []
         frames = []
         reload()
@@ -497,6 +500,8 @@ final class CardStackVC: NSViewController {
         editor.textView.usesFindBar = false
         editor.textView.textFinderActionHandler = { [weak self] action in self?.performFind(action) ?? false }
         editor.textView.textFinderActionValidator = { [weak self] action in self?.canPerformFind(action) ?? false }
+        editor.textView.findHighlights = highlights(for: card.id)
+        editor.textView.changeVariableMenu = { [weak self] name in self?.changeVariableMenu?(name) }
         editor.validationConnectionId = { [weak self] in self?.validationConnectionId() }
         editor.textView.acceptsDataFileDrops = { [weak self] in self?.acceptsDataFileDrops() ?? false }
         editor.validationTab = { [weak self] in
@@ -556,6 +561,7 @@ final class CardStackVC: NSViewController {
     }
 
     private func configure(_ preview: CardPreviewView, card: QueryCard) {
+        preview.findHighlights = highlights(for: card.id)
         preview.show(sql: card.sql, font: SQLEditorController.editorFont(family: editorSettings.fontFamily, size: CGFloat(editorSettings.fontSize)),
                      theme: SQLTheme.named(editorSettings.syntaxTheme), wraps: editorSettings.wordWrap,
                      showsLineNumbers: editorSettings.lineNumbers, variableNames: variableNames)
@@ -1155,54 +1161,274 @@ final class CardStackVC: NSViewController {
         documentView.scrollToVisible(inDoc.insetBy(dx: 0, dy: -24))
     }
 
-    // MARK: - Find across cards
+    // MARK: - Find and Replace across cards
 
-    private lazy var finderClient = CardStackFinderClient(stack: self)
-    private lazy var textFinder: NSTextFinder = {
-        let finder = NSTextFinder()
-        finder.client = finderClient
-        finder.findBarContainer = scrollView
-        finder.isIncrementalSearchingEnabled = true
-        finder.incrementalSearchingShouldDimContentView = false
-        return finder
-    }()
-    private var finderUsed = false
+    /// The Find and Replace bar, made the first time Find is used.
+    private var findBar: CardFindBar?
+    /// Every match, in stack order.
+    private var findOrder: [(cardId: String, range: NSRange)] = []
+    private var findByCard: [String: [NSRange]] = [:]
+    /// The match the bar is on; one of `findOrder`.
+    private var currentMatch: (cardId: String, range: NSRange)?
+    private var findMatcher = CardTextMatcher(pattern: "", mode: .contains, matchCase: false)
+    private var findRefreshScheduled = false
+    /// What the last Replace All did, said in place of the count until the
+    /// search changes.
+    private var findNote: String?
+
+    private var isFindBarShown: Bool { findBar != nil && scrollView.isFindBarVisible }
+
+    private func makeFindBar() -> CardFindBar {
+        if let findBar { return findBar }
+        let bar = CardFindBar(frame: NSRect(x: 0, y: 0, width: scrollView.bounds.width, height: 0))
+        bar.onSearchChange = { [weak self] in self?.searchChanged() }
+        bar.onNext = { [weak self] in self?.step(forward: true) }
+        bar.onPrevious = { [weak self] in self?.step(forward: false) }
+        bar.onDone = { [weak self] in self?.hideFindBar() }
+        bar.onReplace = { [weak self] in self?.replaceCurrent() }
+        bar.onReplaceAll = { [weak self] in self?.replaceAll() }
+        bar.onHeightChange = { [weak self] in self?.scrollView.findBarViewDidChangeHeight() }
+        findBar = bar
+        scrollView.findBarPosition = .aboveContent
+        scrollView.findBarView = bar
+        return bar
+    }
+
+    private func showFindBar(replace: Bool) {
+        let bar = makeFindBar()
+        bar.showsReplace = replace
+        if !scrollView.isFindBarVisible { scrollView.isFindBarVisible = true }
+        refreshFind()
+        if replace, !bar.pattern.isEmpty { bar.focusReplace() } else { bar.focusFind() }
+    }
+
+    /// Done or Esc: the highlights go, and the current match is selected in
+    /// its card with the keyboard there, so typing replaces it.
+    private func hideFindBar() {
+        guard isFindBarShown else { return }
+        scrollView.isFindBarVisible = false
+        let match = currentMatch
+        currentMatch = nil
+        refreshFind()
+        if let match, let editor = editor(for: match.cardId) {
+            view.window?.makeFirstResponder(editor.textView)
+            editor.textView.setSelectedRange(match.range)
+        } else if let editor = focusedEditor {
+            view.window?.makeFirstResponder(editor.textView)
+        }
+    }
 
     /// Edit ▸ Find on the stack. Returns false when the action does not apply.
     @discardableResult
     func performFind(_ action: NSTextFinder.Action) -> Bool {
-        guard isViewLoaded, textFinder.validateAction(action) else { return false }
-        finderUsed = true
-        textFinder.performAction(action)
+        guard canPerformFind(action) else { return false }
+        switch action {
+        case .showFindInterface:
+            showFindBar(replace: false)
+        case .showReplaceInterface:
+            showFindBar(replace: true)
+        case .hideFindInterface:
+            hideFindBar()
+        case .nextMatch, .previousMatch:
+            if !isFindBarShown { showFindBar(replace: findBar?.showsReplace ?? false) }
+            step(forward: action == .nextMatch)
+        case .setSearchString:
+            guard let (cardId, range) = focusedSelection(), let sql = document()?.card(cardId)?.sql else { return false }
+            makeFindBar().setPattern((sql as NSString).substring(with: range))
+        case .replace:
+            replaceCurrent(andStep: false)
+        case .replaceAndFind:
+            replaceCurrent()
+        case .replaceAll:
+            replaceAll()
+        default:
+            return false
+        }
         return true
     }
 
     func canPerformFind(_ action: NSTextFinder.Action) -> Bool {
-        isViewLoaded && textFinder.validateAction(action)
-    }
-
-    /// The cards' text or their order changed: the finder searches anew.
-    private func findTextChanged() {
-        guard finderUsed else { return }
-        finderClient.invalidate()
-        textFinder.noteClientStringWillChange()
-    }
-
-    /// The cards find searches: the laid-out, unfolded cards, in stack order.
-    func findableCards() -> [(id: String, sql: String)] {
-        guard let doc = document() else { return [] }
-        return items.compactMap { item in
-            guard case let .card(id) = item, let card = doc.card(id), !card.isCollapsed else { return nil }
-            return (id, card.sql)
+        guard isViewLoaded else { return false }
+        switch action {
+        case .showFindInterface, .showReplaceInterface: return true
+        case .hideFindInterface: return isFindBarShown
+        case .nextMatch, .previousMatch: return !(findBar?.pattern.isEmpty ?? true)
+        case .setSearchString: return (focusedSelection()?.range.length ?? 0) > 0
+        case .replace, .replaceAndFind: return isFindBarShown && currentMatch != nil
+        case .replaceAll: return isFindBarShown && !findOrder.isEmpty
+        default: return false
         }
     }
 
-    /// The cards at least partly on screen.
-    func visibleCardIds() -> [String] {
-        let visible = scrollView.contentView.bounds
-        return CardStackLayout.visibleIndices(frames, visible: visible).compactMap { i in
-            guard i < items.count, case let .card(id) = items[i] else { return nil }
-            return id
+    /// Edit ▸ Find while the keyboard is in the find bar (a card's editor
+    /// answers for itself, through `textFinderActionHandler`). Anything the
+    /// stack does not do goes on up the chain, to the results grid's find.
+    @objc override func performTextFinderAction(_ sender: Any?) {
+        if let tag = (sender as? NSValidatedUserInterfaceItem)?.tag,
+           let action = NSTextFinder.Action(rawValue: tag), performFind(action) { return }
+        nextResponder?.performTextFinderAction(sender)
+    }
+
+    /// The cards' text or their order changed: search again, once per turn
+    /// of the run loop however many edits there were.
+    private func findTextChanged() {
+        guard isFindBarShown, !findRefreshScheduled else { return }
+        findRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.findRefreshScheduled = false
+            self.refreshFind()
+        }
+    }
+
+    /// The pattern or an option changed: search, and go to the first match
+    /// from the caret on, as you type.
+    private func searchChanged() {
+        findNote = nil
+        currentMatch = nil
+        refreshFind()
+        if isFindBarShown, !findOrder.isEmpty { step(forward: true) }
+    }
+
+    /// Find every match, and give each card its own.
+    private func refreshFind() {
+        guard let bar = findBar else { return }
+        findMatcher = CardTextMatcher(pattern: bar.pattern, mode: bar.mode, matchCase: bar.matchCase)
+        findOrder = []
+        findByCard = [:]
+        if isFindBarShown {
+            for (id, sql) in findableCards() {
+                let ranges = findMatcher.ranges(in: sql)
+                guard !ranges.isEmpty else { continue }
+                findByCard[id] = ranges
+                findOrder += ranges.map { (id, $0) }
+            }
+        }
+        if let c = currentMatch, findByCard[c.cardId]?.contains(c.range) != true { currentMatch = nil }
+        pushHighlights()
+        updateFindCount()
+    }
+
+    private func highlights(for cardId: String) -> FindHighlights {
+        FindHighlights(ranges: findByCard[cardId] ?? [],
+                       current: currentMatch?.cardId == cardId ? currentMatch?.range : nil)
+    }
+
+    private func pushHighlights() {
+        for (id, editor) in editors { editor.textView.findHighlights = highlights(for: id) }
+        for (id, preview) in previews { preview.findHighlights = highlights(for: id) }
+    }
+
+    private func updateFindCount() {
+        guard let bar = findBar else { return }
+        let index = currentMatch.flatMap { c in findOrder.firstIndex { $0.cardId == c.cardId && $0.range == c.range } }
+        bar.setCount(current: index.map { $0 + 1 }, total: findOrder.count,
+                     isInvalid: !findMatcher.isValid, note: findNote)
+    }
+
+    /// The next or previous match: from the current one, else from the
+    /// focused card's caret. Wraps at either end.
+    private func step(forward: Bool) {
+        guard !findOrder.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let n = findOrder.count
+        if let c = currentMatch, let at = findOrder.firstIndex(where: { $0.cardId == c.cardId && $0.range == c.range }) {
+            go(to: forward ? (at + 1) % n : (at - 1 + n) % n)
+            return
+        }
+        guard let doc = document(), let focused = doc.focusedCardId else {
+            go(to: forward ? 0 : n - 1)
+            return
+        }
+        let caret = editors[focused]?.textView.selectedRange().location ?? doc.card(focused)?.cursorPosition ?? 0
+        go(to: matchIndex(from: focused, caret, forward: forward))
+    }
+
+    /// The first match at or after `location` in `cardId` (forward), or the
+    /// last one before it, in stack order. Wraps.
+    private func matchIndex(from cardId: String, _ location: Int, forward: Bool) -> Int {
+        let rank = Dictionary(findableCards().enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let start = (rank[cardId] ?? 0, location)
+        func key(_ m: (cardId: String, range: NSRange)) -> (Int, Int) { (rank[m.cardId] ?? 0, m.range.location) }
+        if forward { return findOrder.firstIndex { key($0) >= start } ?? 0 }
+        return findOrder.lastIndex { key($0) < start } ?? findOrder.count - 1
+    }
+
+    /// Make a match current: open its card (and a fold that hides it), put
+    /// the caret there and scroll it into view. The keyboard stays in the bar.
+    private func go(to index: Int) {
+        let match = findOrder[index]
+        currentMatch = match
+        if document()?.card(match.cardId)?.isCollapsed == true {
+            mutate { doc in doc.setCollapsed(cardId: match.cardId, false) }
+            reload(anchor: .card(match.cardId))
+        }
+        editor(for: match.cardId)?.textView.unfold(intersecting: match.range)
+        selectMatch(cardId: match.cardId, range: NSRange(location: match.range.location, length: 0))
+        pushHighlights()
+        updateFindCount()
+        revealMatch(cardId: match.cardId, range: match.range)
+    }
+
+    /// Replace the current match, then (`andStep`) go to the next one.
+    private func replaceCurrent(andStep: Bool = true) {
+        guard let bar = findBar, let match = currentMatch, let card = document()?.card(match.cardId) else {
+            NSSound.beep()
+            return
+        }
+        if card.isLocked {
+            findNote = String(localized: "This version is locked")
+            updateFindCount()
+            NSSound.beep()
+            return
+        }
+        guard let edit = CardTextEdits.replace(match.range, in: EditableCardText(id: card.id, sql: card.sql, isLocked: false),
+                                               matcher: findMatcher, template: bar.template) else {
+            NSSound.beep()
+            return
+        }
+        applyEdits([edit], actionName: String(localized: "Replace"))
+        findNote = nil
+        currentMatch = nil
+        refreshFind()
+        guard andStep, !findOrder.isEmpty else { return }
+        let resume = match.range.location + ((edit.edits.first?.replacement ?? "") as NSString).length
+        go(to: matchIndex(from: match.cardId, resume, forward: true))
+    }
+
+    /// Replace every match, in every card the stack shows or in the focused
+    /// one (the bar's scope). Locked versions keep their text.
+    private func replaceAll() {
+        guard let bar = findBar, let doc = document(), findMatcher.isValid, !bar.pattern.isEmpty else { return }
+        let ids: [String]
+        switch bar.scope {
+        case .allCards: ids = findableCards().map(\.id)
+        case .thisCard: ids = (currentMatch?.cardId ?? doc.focusedCardId).map { [$0] } ?? []
+        }
+        let cards = ids.compactMap { doc.card($0) }.map { EditableCardText(id: $0.id, sql: $0.sql, isLocked: $0.isLocked) }
+        let plan = CardTextEdits.replaceAll(in: cards, matcher: findMatcher, template: bar.template)
+        applyEdits(plan.cards, actionName: String(localized: "Replace All"))
+        currentMatch = nil
+        refreshFind()
+        var note = String(localized: "Replaced \(CountedNounText.phrase(plan.editCount, "match"))")
+        if plan.lockedCardsSkipped > 0 {
+            note += " · " + String(localized: "\(CountedNounText.phrase(plan.lockedCardsSkipped, "version")) skipped (locked)")
+        }
+        findNote = note
+        updateFindCount()
+    }
+
+    /// The cards find searches: every card the stack lays out (not the ones
+    /// a typed filter hides, nor older versions folded into their row), in
+    /// stack order. A collapsed card is searched, and opens when a match in
+    /// it becomes current.
+    func findableCards() -> [(id: String, sql: String)] {
+        guard let doc = document() else { return [] }
+        return items.compactMap { item in
+            guard case let .card(id) = item, let card = doc.card(id) else { return nil }
+            return (id, card.sql)
         }
     }
 
@@ -1212,8 +1438,8 @@ final class CardStackVC: NSViewController {
         return (id, editor.textView.selectedRange())
     }
 
-    /// Select a match in its card and make that card the focused one, while
-    /// the keyboard stays in the find bar.
+    /// Select a range in its card and make that card the focused one, while
+    /// the keyboard stays where it is.
     func selectMatch(cardId: String, range: NSRange) {
         guard let editor = editor(for: cardId) else { return }
         editor.textView.setSelectedRange(range)
@@ -1235,6 +1461,64 @@ final class CardStackVC: NSViewController {
         }
         let inDoc = documentView.convert(card.convert(rect, from: textView), from: card)
         documentView.scrollToVisible(inDoc.insetBy(dx: 0, dy: -24))
+    }
+
+    // MARK: - Edits across cards
+
+    /// Make `edits` as one step, which ⌘Z in the focused card takes back
+    /// (and ⇧⌘Z makes again). A card whose text is no longer the text the
+    /// edit was planned on is left alone.
+    func applyEdits(_ edits: [CardEdit], actionName: String) {
+        guard !edits.isEmpty else { return }
+        let undo = undoManagerForFocus()
+        let made = edits.filter { apply($0, keepingUndoOf: undo) }
+        guard !made.isEmpty else { return }
+        undo?.registerUndo(withTarget: self) { target in
+            target.applyEdits(made.map(CardTextEdits.inverse(of:)), actionName: actionName)
+        }
+        undo?.setActionName(actionName)
+        findTextChanged()
+        scheduleRelayout()
+    }
+
+    /// One card's edit: through its live editor (whose text-change path
+    /// stores the text, refolds and recolours), else in the document.
+    private func apply(_ edit: CardEdit, keepingUndoOf undo: UndoManager?) -> Bool {
+        if let editor = editors[edit.cardId] {
+            let textView = editor.textView
+            guard textView.string == edit.oldSQL else { return false }
+            let manager = textView.undoManager
+            manager?.disableUndoRegistration()
+            for e in edit.edits.sorted(by: { $0.range.location > $1.range.location }) {
+                guard textView.shouldChangeText(in: e.range, replacementString: e.replacement) else { continue }
+                textView.textStorage?.replaceCharacters(in: e.range, with: e.replacement)
+                textView.didChangeText()
+            }
+            manager?.enableUndoRegistration()
+            // This editor's own steps name places in the old text; the step
+            // that takes the edit back is on `undo`.
+            if manager !== undo { manager?.removeAllActions() }
+            return true
+        }
+        guard document()?.card(edit.cardId)?.sql == edit.oldSQL else { return false }
+        var accepted = false
+        mutate { doc in accepted = doc.updateSQL(cardId: edit.cardId, edit.newSQL) }
+        guard accepted else { return false }
+        if let preview = previews[edit.cardId], let card = document()?.card(edit.cardId) { configure(preview, card: card) }
+        onTextEdited?(edit.cardId, edit.newSQL)
+        refreshStatus(only: [edit.cardId])
+        return true
+    }
+
+    /// Change every `{{from}}` in the tab's cards to `{{to}}`, as one undo
+    /// step. Locked versions keep their SQL; the plan counts them.
+    @discardableResult
+    func changeVariable(from: String, to: String) -> CardEditPlan {
+        guard let doc = document() else { return CardEditPlan() }
+        let cards = doc.cards.map { EditableCardText(id: $0.id, sql: $0.sql, isLocked: $0.isLocked) }
+        let plan = CardTextEdits.changeVariable(in: cards, from: from, to: to)
+        applyEdits(plan.cards, actionName: String(localized: "Change Variable"))
+        return plan
     }
 
     // MARK: - Variables
@@ -1290,5 +1574,16 @@ extension CardStackVC: NSAccessibilityCustomRotorItemSearchDelegate {
         let result = NSAccessibilityCustomRotor.ItemResult(targetElement: view)
         result.customLabel = labels[target]
         return result
+    }
+}
+
+// MARK: - Menu validation
+
+extension CardStackVC: NSMenuItemValidation {
+    /// Edit ▸ Find items while the keyboard is in the find bar.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(performTextFinderAction(_:)),
+              let action = NSTextFinder.Action(rawValue: menuItem.tag) else { return true }
+        return canPerformFind(action)
     }
 }

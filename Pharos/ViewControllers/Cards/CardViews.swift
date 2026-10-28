@@ -678,6 +678,11 @@ final class CardPreviewView: NSView {
     private var wraps = false
     static let inset = NSSize(width: 4, height: 8)
 
+    /// The card stack's find matches in this card (see `FindHighlights`).
+    var findHighlights = FindHighlights() {
+        didSet { if findHighlights != oldValue { needsDisplay = true } }
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         layoutManager.addTextContainer(container)
@@ -719,6 +724,8 @@ final class CardPreviewView: NSView {
         let origin = NSPoint(x: gutterWidth + Self.inset.width, y: Self.inset.height)
         let glyphs = layoutManager.glyphRange(for: container)
         layoutManager.drawBackground(forGlyphRange: glyphs, at: origin)
+        findHighlights.draw(in: NSRange(location: 0, length: storage.length), layoutManager: layoutManager,
+                            textContainer: container, origin: origin)
         layoutManager.drawGlyphs(forGlyphRange: glyphs, at: origin)
         guard gutterWidth > 0 else { return }
         // Line numbers, in the gutter's place.

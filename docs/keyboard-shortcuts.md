@@ -55,6 +55,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Cut / Copy / Paste | Cmd+X / Cmd+C / Cmd+V |
 | Select All | Cmd+A |
 | Find… (all cards of the tab, or the results grid when it has focus) | Cmd+F |
+| Find and Replace… (all cards of the tab) | Cmd+Option+F |
 | Find Next | Cmd+G |
 | Find Previous | Cmd+Shift+G |
 | Use Selection for Find | Cmd+E |

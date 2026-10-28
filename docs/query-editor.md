@@ -107,6 +107,21 @@ Type in the **Filter Cards** field in the editor toolbar to show only the cards 
 
 With a card focused, **Edit > Find** (**Cmd+F**, **Cmd+G**, **Cmd+Shift+G**, **Cmd+E**) searches **all cards** of the tab, with one find bar at the top of the cards. To find in the results instead, click into the grid first (see [Find in Results](results-grid.md#find-in-results)).
 
+- The bar searches every card the editor shows, collapsed cards too (a collapsed card opens when a match in it becomes current). It does not search cards that **Filter Cards** hides, or older versions folded into their row.
+- Every match is highlighted in its card, and the current match is highlighted more strongly. The highlights are drawn with the text, so they stay on it while you scroll.
+- The magnifier menu in the search field sets how text matches: **Contains**, **Whole word** or **Regular expression**, and **Match Case**. An invalid regular expression shows **Invalid pattern** in red.
+- **Return** goes to the next match and **Shift+Return** to the previous one. **Done** or **Escape** closes the bar and selects the current match in its card.
+
+### Find and Replace
+
+**Edit > Find > Find and Replace…** (**Cmd+Option+F**), or **Replace** in the bar's pop-up, adds a second row:
+
+- **Replace** (or **Return** in the replace field) replaces the current match and goes to the next one.
+- **Replace All** replaces every match in **All Cards** or in **This Card** (the pop-up beside the field). The bar then shows how many it replaced.
+- With **Regular expression**, the replacement can use `$1`, `$2`… for the pattern's groups. In the other modes, the replacement is put in as typed.
+- A locked version (a version that holds results) keeps the SQL its results came from: Replace and Replace All leave it as it is, and say how many versions they skipped.
+- One **Edit > Undo** (**Cmd+Z**) in the focused card takes back the whole Replace All, in every card. Click into a card first: with the keyboard in the find bar, Cmd+Z undoes typing in the bar.
+
 ### VoiceOver
 
 A **Query Cards** rotor moves card by card. Each card has the actions **Move Up**, **Move Down**, **New Card Above** and **New Card Below** (VO-Command-Space).

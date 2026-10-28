@@ -206,6 +206,9 @@
     "%@ rows affected" : {
 
     },
+    "%@ skipped (locked)" : {
+
+    },
     "%@ will be read by the model on this Mac. Nothing leaves this Mac." : {
 
     },
@@ -293,6 +296,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld not numbers (lines %2$@)"
+          }
+        }
+      }
+    },
+    "%lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld"
           }
         }
       }
@@ -605,6 +618,9 @@
     "All" : {
 
     },
+    "All Cards" : {
+
+    },
     "All connections" : {
 
     },
@@ -814,6 +830,9 @@
     "Cancelled. The password stays hidden." : {
 
     },
+    "Cannot render: %@" : {
+
+    },
     "cannot run" : {
 
     },
@@ -830,6 +849,15 @@
 
     },
     "Cells" : {
+
+    },
+    "Change To" : {
+
+    },
+    "Change Variable" : {
+
+    },
+    "Change Variable To" : {
 
     },
     "Changing the connection rolls them back." : {
@@ -1768,7 +1796,22 @@
     "Find" : {
 
     },
+    "Find and Replace…" : {
+
+    },
+    "Find in Cards" : {
+
+    },
+    "Find in Query Cards" : {
+
+    },
     "Find Next" : {
+
+    },
+    "Find Options" : {
+
+    },
+    "Find or Replace" : {
 
     },
     "Find Previous" : {
@@ -2254,6 +2297,9 @@
     "Locked" : {
 
     },
+    "Locked versions keep the SQL their results came from. %@ not changed." : {
+
+    },
     "Locked: this version keeps the SQL its results came from. Use Edit as New Card to change it." : {
 
     },
@@ -2294,6 +2340,9 @@
 
     },
     "Match case" : {
+
+    },
+    "Match Case" : {
 
     },
     "Match what I type" : {
@@ -2512,7 +2561,16 @@
     "Next Card" : {
 
     },
+    "Next Match" : {
+
+    },
+    "Next Match (⌘G)" : {
+
+    },
     "Next suggestion" : {
+
+    },
+    "No cards were changed" : {
 
     },
     "No cloud credentials. Public files and presigned https:// links need none." : {
@@ -2558,6 +2616,9 @@
 
     },
     "no notes" : {
+
+    },
+    "No Other Variables" : {
 
     },
     "no pre-release was found" : {
@@ -2636,6 +2697,9 @@
 
     },
     "Not connected to “%@”. Click Connect above the cards, or choose File ▸ Connect." : {
+
+    },
+    "Not found" : {
 
     },
     "Not helpful" : {
@@ -3103,6 +3167,12 @@
     "Previous Card" : {
 
     },
+    "Previous Match" : {
+
+    },
+    "Previous Match (⇧⌘G)" : {
+
+    },
     "Previous suggestion" : {
 
     },
@@ -3349,6 +3419,12 @@
     "Renders as" : {
 
     },
+    "Renders as %@" : {
+
+    },
+    "Renders as nothing (no value)" : {
+
+    },
     "Reopen Closed Tab" : {
 
     },
@@ -3359,6 +3435,21 @@
 
     },
     "Replace" : {
+
+    },
+    "Replace All" : {
+
+    },
+    "Replace All In" : {
+
+    },
+    "Replace the current match and go to the next one" : {
+
+    },
+    "Replace With" : {
+
+    },
+    "Replaced %@" : {
 
     },
     "Replacing it replaces its queries and its saved results. Do you want to replace it or save as a new Session?" : {
@@ -3798,6 +3889,9 @@
     "Show in Finder" : {
 
     },
+    "Show in Variable Manager" : {
+
+    },
     "Show Inspector" : {
 
     },
@@ -3874,6 +3968,9 @@
 
     },
     "Slowest step: %@" : {
+
+    },
+    "Some versions still use {{%@}}" : {
 
     },
     "Source code" : {
@@ -4371,6 +4468,9 @@
     "Third-party notices" : {
 
     },
+    "This Card" : {
+
+    },
     "This card is already running." : {
 
     },
@@ -4423,6 +4523,9 @@
 
     },
     "This tab's schema" : {
+
+    },
+    "This version is locked" : {
 
     },
     "This will delete %lld Sessions in this folder, with their saved results." : {
@@ -4492,6 +4595,12 @@
 
     },
     "Typing straight before existing text never pairs." : {
+
+    },
+    "Undefined" : {
+
+    },
+    "Undefined: no variable has this name" : {
 
     },
     "Undo" : {
@@ -4602,6 +4711,9 @@
     "Variables" : {
 
     },
+    "Variables in This Tab" : {
+
+    },
     "Verify CA" : {
 
     },
@@ -4684,6 +4796,9 @@
 
     },
     "When a row fails" : {
+
+    },
+    "Where Replace All replaces" : {
 
     },
     "Where the save panel opens. Leave it empty to open wherever you saved last. A folder that is no longer there is ignored." : {

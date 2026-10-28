@@ -55,6 +55,8 @@ class EditorPaneVC: NSViewController {
     /// "Format as SQL list" — hidden until a paste qualifies for the offer.
     private let formatListButton = NSButton()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
+    /// The `{{name}}`s the tab uses, each with Change To (`EditorPaneVC+Variables`).
+    let variablesDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
     private let newCardButton = NSButton()
     private let collapseAllButton = NSButton()
 
@@ -309,6 +311,7 @@ class EditorPaneVC: NSViewController {
             guard let self, let tabId = self.cardStack.tabId else { return }
             self.session.updateTab(id: tabId) { $0.isDirty = true }
             self.delegate?.editorPane(self, didEditCard: id)
+            self.updateVariablesDropdown()
         }
         cardStack.onNotesEdited = { [weak self] id in
             guard let self, let tabId = self.cardStack.tabId else { return }
@@ -419,10 +422,12 @@ class EditorPaneVC: NSViewController {
         guard let newTabId,
               let tab = session.tabs.first(where: { $0.id == newTabId }) else {
             cardStack.show(tabId: nil)
+            updateVariablesDropdown()
             return
         }
 
         cardStack.show(tabId: newTabId)
+        updateVariablesDropdown()
 
         // Sync global state to this tab's connection/schema so sidebar updates.
         // Only set when the value actually changes to avoid redundant reloads.
@@ -521,6 +526,7 @@ class EditorPaneVC: NSViewController {
     func reloadCards(anchor: String? = nil, splitFrom locked: String? = nil) {
         if let locked, let anchor { cardStack.cardDidSplit(locked: locked, new: anchor) }
         cardStack.reload(anchor: anchor.map { .card($0) })
+        updateVariablesDropdown()
         updateCollapseAllButton()
     }
 
@@ -627,10 +633,12 @@ class EditorPaneVC: NSViewController {
         newCardButton.translatesAutoresizingMaskIntoConstraints = false
         newCardButton.setAccessibilityIdentifier("editor.newCard")
 
-        // After the tab's context: Format, Describe, Save, New Card,
-        // Format-as-SQL-list.
+        setUpVariablesDropdown()
+
+        // After the tab's context: Format, Describe, Save, Variables, New
+        // Card, Format-as-SQL-list.
         let toolbarStack = NSStackView(
-            views: [formatButton, describeQueryButton, saveDropdown, newCardButton, formatListButton])
+            views: [formatButton, describeQueryButton, saveDropdown, variablesDropdown, newCardButton, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
@@ -686,6 +694,7 @@ class EditorPaneVC: NSViewController {
             describeQueryButton.widthAnchor.constraint(equalToConstant: 24),
             describeQueryButton.heightAnchor.constraint(equalToConstant: 24),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
+            variablesDropdown.widthAnchor.constraint(equalToConstant: 32),
             newCardButton.widthAnchor.constraint(equalToConstant: 24),
             newCardButton.heightAnchor.constraint(equalToConstant: 24),
 

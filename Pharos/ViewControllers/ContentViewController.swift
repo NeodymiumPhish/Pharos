@@ -5048,6 +5048,9 @@ extension ContentViewController {
             resultsVC.findController.findNext(nil)
         case .previousMatch:
             resultsVC.findController.findPrevious(nil)
+        case .showReplaceInterface:
+            // The grid has no Replace: the editor's cards do.
+            editorPane.cardStack.performFind(.showReplaceInterface)
         default:
             break
         }
@@ -5265,6 +5268,8 @@ extension ContentViewController: NSMenuItemValidation {
                 // This fallback opens the grid find bar (the editor validates
                 // its own Find… when it has the focus).
                 return resultsVC.findController?.canShowFindBar ?? false
+            case .showReplaceInterface:
+                return editorPane.cardStack.canPerformFind(.showReplaceInterface)
             default:
                 return true
             }
