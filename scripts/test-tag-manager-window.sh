@@ -1,7 +1,9 @@
 #!/bin/bash
-# Standalone test runner for TagManagerHostVC: the Tag Manager window's content — it
-# opens with no tags, stays open after a save on a fresh sheet, closes on Cancel,
-# follows the store only when it has no edits, and asks before discarding them.
+# Standalone test runner for TagManagerHostVC: the Tag Manager window's content on
+# the shared manager shell — sidebar rows and the unsaved dot, selection driving
+# the detail, + / New Tag, Delete key and context menu, Save and Revert, the
+# discard question, the colour swatches (click, key, VoiceOver), Light/Dark
+# renders with the swatch ring measured, and no constraint conflicts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/tag-manager-window-tests \
@@ -38,10 +40,23 @@ swiftc -o /tmp/tag-manager-window-tests \
   Pharos/Views/TagRuleGridView.swift \
   Pharos/Views/Toast.swift \
   Pharos/Sheets/TagManagerSheet.swift \
+  Pharos/Sheets/TagDetailVC.swift \
+  Pharos/Views/TagColorSwatchPicker.swift \
+  Pharos/Views/EmptyStateView.swift \
+  Pharos/Settings/SettingsDetailVC.swift \
+  Pharos/Settings/Furniture/SettingsMetrics.swift \
+  Pharos/Settings/Furniture/SettingsFormDocumentView.swift \
+  Pharos/Settings/Furniture/SettingsGroupBox.swift \
+  Pharos/Settings/Furniture/SettingsRow.swift \
+  Pharos/Settings/Furniture/SettingsSectionHeader.swift \
+  Pharos/Settings/Furniture/SettingsFooterButtonRow.swift \
+  Pharos/Utilities/NSLayoutConstraint+Swap.swift \
   Pharos/Core/TagSampleTest.swift \
   Pharos/Sheets/TagAddValuesSheet.swift \
   Pharos/Core/TagValueImport.swift \
   Pharos/Sheets/TagManagerHostVC.swift \
+  Pharos/Windows/Manager/*.swift \
+  Pharos/Settings/Furniture/SettingsSymbolBadge.swift \
   PharosTests/TagManagerWindowTests.swift \
   PharosTests/main.swift
 /tmp/tag-manager-window-tests

@@ -418,6 +418,24 @@ final class TagRuleGroupView: NSView {
         unsupportedNotice.lineBreakMode = .byWordWrapping
         unsupportedNotice.maximumNumberOfLines = 0
         unsupportedNotice.cell?.wraps = true
+        // Yields its one-line width, and wraps at the width it is given
+        // (`layout()`). Measured: at the default 750 its 533 pt line held the
+        // whole grid at least that wide even while HIDDEN — the stack's span
+        // pin still holds a hidden row — which kept the Tag Manager window
+        // from going below 837 pt.
+        unsupportedNotice.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
+    override func layout() {
+        super.layout()
+        // AFTER the pass, so the notice has its width: a wrapping label with
+        // no preferred width reports one long line, and so one line's height.
+        // A change invalidates its intrinsic size, which schedules the next
+        // pass (the `SettingsRow` pattern).
+        let width = unsupportedNotice.frame.width
+        if width > 0, unsupportedNotice.preferredMaxLayoutWidth != width {
+            unsupportedNotice.preferredMaxLayoutWidth = width
+        }
     }
 
     /// `ruleIndex` arrives as a parameter, not read off `self`, so each row's

@@ -591,5 +591,43 @@ func runTests() {
     expect(emptyOutranks.saveBlocker() == .emptyRule(tagIndex: 0, ruleIndex: 0),
            "an empty rule outranks a duplicate that is really there")
 
+    // MARK: per-tag edits (the Tag Manager sidebar's unsaved dot)
+
+    // Three tags, each touched a different way, plus one left alone. The dot
+    // must name exactly the touched ones, so each fixture differs from the
+    // untouched tag in ONE field — a rule that keyed the dot off "any edit
+    // anywhere" would light all four.
+    let perTag = [
+        storedTag("p1", "Renamed later", [storedRule("pr1", [condition("text", "a.example")])]),
+        storedTag("p2", "Left alone", [storedRule("pr2", [condition("text", "b.example")])]),
+        storedTag("p3", "Rule edited", [storedRule("pr3", [condition("text", "c.example")])]),
+        storedTag("p4", "Deleted", []),
+    ]
+    var dots = TagManagerModel(tags: perTag, mode: .manage)
+    expect((0..<4).allSatisfy { !dots.hasEdits(tagAt: $0) }, "an untouched model has no per-tag edits")
+    dots.rename(tagAt: 0, to: "Renamed now")
+    _ = dots.replaceCondition(at: 0, inRuleAt: 0, ofTagAt: 2, with: condition("text", "d.example"))
+    dots.deleteTag(at: 3)
+    dots.addTag(name: "Brand new", colorIndex: 0)
+    expect(dots.hasEdits(tagAt: 0), "a renamed tag has edits")
+    expect(!dots.hasEdits(tagAt: 1), "a tag nobody touched has none, though its neighbours do")
+    expect(dots.hasEdits(tagAt: 2), "a tag whose rule changed has edits")
+    expect(dots.hasEdits(tagAt: 3), "a deleted stored tag has edits (its delete)")
+    expect(dots.hasEdits(tagAt: 4), "a tag made this session has edits (its create)")
+    expect(!dots.hasEdits(tagAt: 99), "an index out of range has none, rather than trapping")
+    // The per-tag answers ARE the save: concatenated in tag order they must be
+    // exactly what `commits()` writes, so the dot and Save cannot disagree.
+    expect((0..<dots.tags.count).flatMap { dots.commits(forTagAt: $0) } == dots.commits(),
+           "the per-tag commits, in tag order, are the whole save")
+    // A trailing space the commit trims is not an edit — the same rule Save uses.
+    var trimmed = TagManagerModel(tags: perTag, mode: .manage)
+    trimmed.rename(tagAt: 1, to: "Left alone ")
+    expect(!trimmed.hasEdits(tagAt: 1), "a trailing space the save would trim is not an edit")
+    // A tag created AND deleted here never reaches the store, so it has none.
+    var bornAndGone = TagManagerModel(tags: [], mode: .manage)
+    bornAndGone.addTag(name: "Brief", colorIndex: 0)
+    bornAndGone.deleteTag(at: 0)
+    expect(!bornAndGone.hasEdits(tagAt: 0), "a tag made and deleted this session has no edits")
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

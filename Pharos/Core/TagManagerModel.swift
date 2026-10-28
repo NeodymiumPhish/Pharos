@@ -404,89 +404,102 @@ struct TagManagerModel {
     /// rather than from a dirty flag maintained by hand — a flag can drift out
     /// of step with what actually changed, and this cannot.
     func commits() -> [TagManagerCommit] {
+        tags.indices.flatMap { commits(forTagAt: $0) }
+    }
+
+    /// What a save would write for ONE tag, in the order `commits()` writes
+    /// it. Empty for a tag with no edits — which is what the Tag Manager's
+    /// sidebar asks, per row, to draw its unsaved dot from the same diff Save
+    /// uses rather than from a flag of its own.
+    func commits(forTagAt index: Int) -> [TagManagerCommit] {
+        guard tags.indices.contains(index) else { return [] }
+        let tag = tags[index]
         var out: [TagManagerCommit] = []
-        for (index, tag) in tags.enumerated() {
-            // A tag deleted this session: one command, and nothing else. There
-            // is no point updating a tag that is about to go — and a tag both
-            // CREATED and deleted here never reached the store at all, so it
-            // needs no command.
-            if deleted.contains(index) {
-                if let id = tag.id { out.append(.deleteTag(id)) }
-                continue
-            }
-
-            guard let id = tag.id, let before = stored[id] else {
-                // A tag the analyst made this session.
-                out.append(.create(CreateTag(
-                    name: Self.committedName(tag.name), colorIndex: tag.colorIndex,
-                    note: tag.note.isEmpty ? nil : tag.note,
-                    rules: tag.rules.compactMap(Self.newRule))))
-                continue
-            }
-
-            // Identity. An empty note is written as an empty STRING, never nil:
-            // nil means "leave it alone" in this payload, so nil could never
-            // clear a note.
-            //
-            // The name is compared in the form it would be WRITTEN, on BOTH
-            // sides. Two different mistakes are avoided by that.
-            //
-            // Asking it of the edited name stops a trailing space the analyst
-            // added, and the trim then removes, from lighting up Save to write
-            // the name it already had.
-            //
-            // Asking it of the STORED name too stops a tag nobody touched from
-            // reporting itself as changed. A name written before the sanitiser
-            // existed can hold a scalar the sanitiser removes, and comparing the
-            // clean form against the raw one would make every such tag arrive
-            // pre-edited — Save lit, "Nothing has changed yet" gone, and a write
-            // the analyst never asked for. The rewrite still happens when they
-            // save a REAL edit, which is right: the name field shows them the
-            // sanitised form, so that is the name they are agreeing to.
-            //
-            // The NOTE is not treated this way — it is prose, it is neither
-            // sanitised nor escaped, and its edge whitespace may be deliberate.
-            let name = Self.committedName(tag.name)
-            if name != Self.committedName(before.name) || tag.colorIndex != before.colorIndex
-                || tag.note != (before.note ?? "") {
-                out.append(.update(UpdateTag(id: id, name: name,
-                                             colorIndex: tag.colorIndex, note: tag.note)))
-            }
-
-            // Rules. Three groups: gone, edited, and new.
-            let beforeRules = Dictionary(before.rules.map { ($0.id, $0) },
-                                         uniquingKeysWith: { first, _ in first })
-            let survivingIds = Set(tag.rules.compactMap(\.id))
-            let goneIds = before.rules.map(\.id).filter { !survivingIds.contains($0) }
-
-            var updates: [UpdateTagRule] = []
-            var added: [NewTagRule] = []
-            for rule in tag.rules {
-                guard let ruleId = rule.id else {
-                    if let new = Self.newRule(rule) { added.append(new) }
-                    continue
-                }
-                guard let beforeRule = beforeRules[ruleId],
-                      beforeRule.conditions != rule.conditions else { continue }
-                // Edited, and written in place — ONE command. The rule keeps its
-                // id, and with it its `createdAt`: when the finding was first
-                // recorded. The delete-plus-add this replaces reset both.
-                guard let key = Self.ruleKey(rule) else { continue }
-                updates.append(UpdateTagRule(ruleId: ruleId, conditions: rule.conditions,
-                                             tupleKey: key))
-            }
-
-            // Deletes FIRST: a rule being deleted may hold the very key an
-            // edited rule is moving onto, and the unique index would refuse the
-            // update otherwise.
-            if !goneIds.isEmpty { out.append(.deleteRules(goneIds)) }
-            // Updates next, each keeping its rule's id and first-seen time.
-            for update in updates { out.append(.updateRule(update)) }
-            // Adds last. INSERT OR IGNORE absorbs a collision here, which is
-            // the re-tagging no-op and is correct.
-            if !added.isEmpty { out.append(.addRules(AddTagRules(tagId: id, rules: added))) }
+        // A tag deleted this session: one command, and nothing else. There
+        // is no point updating a tag that is about to go — and a tag both
+        // CREATED and deleted here never reached the store at all, so it
+        // needs no command.
+        if deleted.contains(index) {
+            if let id = tag.id { out.append(.deleteTag(id)) }
+            return out
         }
+
+        guard let id = tag.id, let before = stored[id] else {
+            // A tag the analyst made this session.
+            out.append(.create(CreateTag(
+                name: Self.committedName(tag.name), colorIndex: tag.colorIndex,
+                note: tag.note.isEmpty ? nil : tag.note,
+                rules: tag.rules.compactMap(Self.newRule))))
+            return out
+        }
+
+        // Identity. An empty note is written as an empty STRING, never nil:
+        // nil means "leave it alone" in this payload, so nil could never
+        // clear a note.
+        //
+        // The name is compared in the form it would be WRITTEN, on BOTH
+        // sides. Two different mistakes are avoided by that.
+        //
+        // Asking it of the edited name stops a trailing space the analyst
+        // added, and the trim then removes, from lighting up Save to write
+        // the name it already had.
+        //
+        // Asking it of the STORED name too stops a tag nobody touched from
+        // reporting itself as changed. A name written before the sanitiser
+        // existed can hold a scalar the sanitiser removes, and comparing the
+        // clean form against the raw one would make every such tag arrive
+        // pre-edited — Save lit, "Nothing has changed yet" gone, and a write
+        // the analyst never asked for. The rewrite still happens when they
+        // save a REAL edit, which is right: the name field shows them the
+        // sanitised form, so that is the name they are agreeing to.
+        //
+        // The NOTE is not treated this way — it is prose, it is neither
+        // sanitised nor escaped, and its edge whitespace may be deliberate.
+        let name = Self.committedName(tag.name)
+        if name != Self.committedName(before.name) || tag.colorIndex != before.colorIndex
+            || tag.note != (before.note ?? "") {
+            out.append(.update(UpdateTag(id: id, name: name,
+                                         colorIndex: tag.colorIndex, note: tag.note)))
+        }
+
+        // Rules. Three groups: gone, edited, and new.
+        let beforeRules = Dictionary(before.rules.map { ($0.id, $0) },
+                                     uniquingKeysWith: { first, _ in first })
+        let survivingIds = Set(tag.rules.compactMap(\.id))
+        let goneIds = before.rules.map(\.id).filter { !survivingIds.contains($0) }
+
+        var updates: [UpdateTagRule] = []
+        var added: [NewTagRule] = []
+        for rule in tag.rules {
+            guard let ruleId = rule.id else {
+                if let new = Self.newRule(rule) { added.append(new) }
+                continue
+            }
+            guard let beforeRule = beforeRules[ruleId],
+                  beforeRule.conditions != rule.conditions else { continue }
+            // Edited, and written in place — ONE command. The rule keeps its
+            // id, and with it its `createdAt`: when the finding was first
+            // recorded. The delete-plus-add this replaces reset both.
+            guard let key = Self.ruleKey(rule) else { continue }
+            updates.append(UpdateTagRule(ruleId: ruleId, conditions: rule.conditions,
+                                         tupleKey: key))
+        }
+
+        // Deletes FIRST: a rule being deleted may hold the very key an
+        // edited rule is moving onto, and the unique index would refuse the
+        // update otherwise.
+        if !goneIds.isEmpty { out.append(.deleteRules(goneIds)) }
+        // Updates next, each keeping its rule's id and first-seen time.
+        for update in updates { out.append(.updateRule(update)) }
+        // Adds last. INSERT OR IGNORE absorbs a collision here, which is
+        // the re-tagging no-op and is correct.
+        if !added.isEmpty { out.append(.addRules(AddTagRules(tagId: id, rules: added))) }
         return out
+    }
+
+    /// True when a save would write something for the tag at `index`.
+    func hasEdits(tagAt index: Int) -> Bool {
+        !commits(forTagAt: index).isEmpty
     }
 
     /// One tag's name as the store receives it: SANITISED, then TRIMMED.

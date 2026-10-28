@@ -2,16 +2,21 @@ import AppKit
 
 /// The Tag Manager: one window for every tag, opened from the toolbar,
 /// Window ▸ Tag Manager, Edit ▸ Manage Tags…, the grid's right-click menu and
-/// the inspector's Edit button. Unlike the sheet it hosts, it opens with no
-/// tags at all (to make the first one) and with no results behind it.
+/// the inspector's Edit button. It opens with no tags at all (to make the
+/// first one) and with no results behind it.
 ///
-/// It hosts a `TagManagerSheet` in `.manage`. A save writes and keeps the
-/// window open, on a fresh sheet built from the store; Cancel closes the
-/// window. The grid's Add Tag… and Remove From Tag… stay sheets on the grid.
+/// The shared manager shell: tags in a Glass sidebar, **+** and the filter in
+/// the toolbar, the chosen tag's detail on the right (`TagManagerHostVC`).
+/// A save writes and keeps the window open; closing with unsaved edits asks
+/// first. The grid's Add Tag… and Remove From Tag… stay sheets on the grid
+/// (`TagManagerSheet`), with the same detail.
 @MainActor
 final class TagManagerWindowController: NSWindowController {
 
     static let shared = TagManagerWindowController()
+
+    static let defaultSize = NSSize(width: 900, height: 600)
+    static let minimumSize = NSSize(width: 760, height: 480)
 
     let host = TagManagerHostVC(tags: { TagStore.shared.tags }, committer: TagStore.shared)
     private var observer: NSObjectProtocol?
@@ -19,16 +24,18 @@ final class TagManagerWindowController: NSWindowController {
     private init() {
         let window = UtilityWindow(autosaveName: "PharosTagManagerWindow",
                                    title: String(localized: "Tag Manager"),
-                                   defaultSize: NSSize(width: 900, height: 600),
-                                   minimumSize: NSSize(width: 780, height: 500))
+                                   defaultSize: Self.defaultSize,
+                                   minimumSize: Self.minimumSize)
         super.init(window: window)
         window.contentViewController = host
-        window.setContentSize(NSSize(width: 900, height: 600))
+        // After the assignment: `contentViewController` resizes the window to
+        // the controller's fitting size (lessons, 2026-09-19).
+        window.setContentSize(Self.defaultSize)
         window.center()
         window.setFrameUsingName("PharosTagManagerWindow")
         window.setAccessibilityIdentifier("window.tagManager")
+        host.split.installToolbarIfNeeded(on: window)
         window.shouldClose = { [weak self] in self?.host.confirmClose() ?? true }
-        host.closeWindow = { [weak window] in window?.close() }
         observer = NotificationCenter.default.addObserver(
             forName: TagStore.didChange, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.host.storeChanged() }

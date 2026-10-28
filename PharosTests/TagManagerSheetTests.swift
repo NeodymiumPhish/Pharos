@@ -177,9 +177,20 @@ private func expectInt(_ actual: Int, _ expected: Int, _ name: String) {
 /// own size BELOW `.defaultHigh`, so hosting straight on the content view lets
 /// the window GROW instead of making the content compress, and any overflow
 /// question would be answered by moving the goalposts.
+/// Counts AppKit's constraint-conflict reports. With
+/// NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints on (set in
+/// `runTests`), AppKit calls `visualizeConstraints(_:)` for every conflict,
+/// transient ones included; the unified log is not visible from here.
+private final class SpyWindow: NSWindow {
+    static var conflicts = 0
+    override func visualizeConstraints(_ constraints: [NSLayoutConstraint]?) {
+        if !(constraints ?? []).isEmpty { Self.conflicts += 1 }
+    }
+}
+
 @discardableResult
 private func host(_ sheet: TagManagerSheet, width: CGFloat = 900) -> NSWindow {
-    let window = NSWindow(
+    let window = SpyWindow(
         contentRect: NSRect(x: 0, y: 0, width: width + 300, height: 900),
         styleMask: [.borderless], backing: .buffered, defer: false)
     let root = NSView(frame: NSRect(x: 0, y: 0, width: width + 300, height: 900))
@@ -264,7 +275,7 @@ private func tick(_ box: NSButton, _ on: Bool, _ what: String) {
 /// every assertion below it pass against a sheet with no checklist at all.
 private func tickCapture(_ sheet: TagManagerSheet, _ column: Int, _ on: Bool,
                          _ what: String) {
-    let rows = sheet.captureList.rows
+    let rows = sheet.detail.captureList.rows
     guard rows.indices.contains(column) else {
         failures += 1
         print("FAIL there is no capture row \(column) to tick (\(what))")
@@ -273,7 +284,8 @@ private func tickCapture(_ sheet: TagManagerSheet, _ column: Int, _ on: Bool,
     // `isHiddenOrHasHiddenAncestor`, not `isHidden`: the checklist is hidden by
     // hiding the BOX around it, so asking the list itself would answer "visible"
     // for a checklist nobody can see.
-    guard !sheet.captureList.isHiddenOrHasHiddenAncestor else {
+    guard !sheet.detail.captureList.isHiddenOrHasHiddenAncestor,
+          sheet.detail.captureList.window != nil else {
         failures += 1
         print("FAIL a hidden capture checklist cannot be ticked (\(what))")
         return
@@ -384,7 +396,7 @@ private func rowToolTip(_ sheet: TagManagerSheet, _ row: Int) -> String {
 
 /// The `.update` payloads a save would write, in order.
 private func updates(_ sheet: TagManagerSheet) -> [UpdateTag] {
-    sheet.model.commits().compactMap {
+    sheet.detail.model.commits().compactMap {
         if case .update(let update) = $0 { return update }
         return nil
     }
@@ -583,13 +595,14 @@ private final class GatedCounter {
 // MARK: - The suite
 
 func runTests() {
+    UserDefaults.standard.set(true, forKey: "NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints")
     let committer = RecordingCommitter()
     let sheet = makeSheet(committer)
     host(sheet)
 
     // MARK: 1 — the sidebar lists exactly the visible tags
 
-    expectInt(sheet.tableView.numberOfRows, sheet.model.visibleTagIndices.count,
+    expectInt(sheet.tableView.numberOfRows, sheet.detail.model.visibleTagIndices.count,
               "the sidebar has one row per visible tag")
     expectInt(sheet.tableView.numberOfRows, 3, "which is all three of them")
     expectString(rowText(sheet, 0), "Suspect — 2 rules",
@@ -612,8 +625,8 @@ func runTests() {
     let spaced = makeSheet(RecordingCommitter(), mode: .add(capture: fixtureCapture()))
     host(spaced)
     select(spaced, row: 0)
-    type(spaced.nameField, "Test ")
-    expectString(spaced.nameField.stringValue, "Test ",
+    type(spaced.detail.nameField, "Test ")
+    expectString(spaced.detail.nameField.stringValue, "Test ",
                  "the FIELD keeps exactly what was typed, trailing space "
                  + "included — trimming it here would fight ordinary typing "
                  + "and the analyst could never type 'Test Case'")
@@ -623,7 +636,7 @@ func runTests() {
                  "and the tooltip, which carries the same name, agrees")
     tickCapture(spaced, 0, true, "the address column")
     tickCapture(spaced, 1, true, "the host column")
-    expectString(spaced.statusLabel.stringValue,
+    expectString(spaced.detail.statusLabel.stringValue,
                  "Saving adds 3 rules to \u{201C}Test\u{201D}, one per selected row.",
                  "and the footer names the tag by the name that will be saved, "
                  + "not the raw one with its trailing space")
@@ -633,7 +646,7 @@ func runTests() {
     let bothEnds = makeSheet(RecordingCommitter())
     host(bothEnds)
     select(bothEnds, row: 0)
-    type(bothEnds.nameField, "  Test  ")
+    type(bothEnds.detail.nameField, "  Test  ")
     expectString(rowText(bothEnds, 0), "Test — 2 rules",
                  "leading AND trailing spaces are trimmed, not just the trailing one")
 
@@ -643,38 +656,38 @@ func runTests() {
     let blank = makeSheet(RecordingCommitter())
     host(blank)
     select(blank, row: 0)
-    type(blank.nameField, "   ")
+    type(blank.detail.nameField, "   ")
     expectString(rowText(blank, 0), " — 2 rules",
                  "the sidebar shows the name as empty rather than as "
                  + "'<U+0020\u{00D7}3>' or similar")
-    expectTrue(!blank.saveButton.isEnabled,
+    expectTrue(!blank.detail.saveButton.isEnabled,
                "and Save stays blocked, same as it is for the field alone")
 
     // MARK: 8a — Save is disabled with nothing changed, and says why
 
-    expectTrue(!sheet.saveButton.isEnabled, "a sheet with no edits cannot be saved")
-    expectString(sheet.statusLabel.stringValue, "Nothing has changed yet.",
+    expectTrue(!sheet.detail.saveButton.isEnabled, "a sheet with no edits cannot be saved")
+    expectString(sheet.detail.statusLabel.stringValue, "Nothing has changed yet.",
                  "and says why, rather than presenting a dead button")
 
     // MARK: 2 — selecting a tag fills the identity controls from it
 
     select(sheet, row: 1)
-    expectString(sheet.nameField.stringValue, "Beta", "selecting a tag fills the name")
-    expectInt(sheet.colorControl.selectedSegment, 3, "and its colour")
-    expectString(sheet.noteField.stringValue, "", "and a tag with no note shows an empty field")
-    expectTrue(sheet.nameField.isEnabled && sheet.noteField.isEnabled
-                && sheet.colorControl.isEnabled,
+    expectString(sheet.detail.nameField.stringValue, "Beta", "selecting a tag fills the name")
+    expectInt(sheet.detail.colorPicker.selectedIndex, 3, "and its colour")
+    expectString(sheet.detail.noteField.stringValue, "", "and a tag with no note shows an empty field")
+    expectTrue(sheet.detail.nameField.isEnabled && sheet.detail.noteField.isEnabled
+                && sheet.detail.colorPicker.isEnabled,
                "and the identity controls are live")
 
     select(sheet, row: 0)
-    expectString(sheet.nameField.stringValue, "Suspect", "selecting another tag re-fills the name")
-    expectInt(sheet.colorControl.selectedSegment, 0, "its colour")
-    expectString(sheet.noteField.stringValue, "watch closely", "and its note")
-    expectInt(sheet.grid.groups.count, 2, "and the grid shows that tag's rules")
+    expectString(sheet.detail.nameField.stringValue, "Suspect", "selecting another tag re-fills the name")
+    expectInt(sheet.detail.colorPicker.selectedIndex, 0, "its colour")
+    expectString(sheet.detail.noteField.stringValue, "watch closely", "and its note")
+    expectInt(sheet.detail.grid.groups.count, 2, "and the grid shows that tag's rules")
 
     // MARK: 3 — editing the name updates the MODEL
 
-    type(sheet.nameField, "Suspect Renamed")
+    type(sheet.detail.nameField, "Suspect Renamed")
     let renamed = updates(sheet)
     expectInt(renamed.count, 1, "renaming a tag makes exactly one update commit")
     if renamed.count == 1 {
@@ -683,15 +696,15 @@ func runTests() {
     }
     expectString(rowText(sheet, 0), "Suspect Renamed — 2 rules",
                  "and the sidebar row follows the edit")
-    expectTrue(sheet.saveButton.isEnabled, "Save is now available")
-    expectString(sheet.statusLabel.stringValue, "",
+    expectTrue(sheet.detail.saveButton.isEnabled, "Save is now available")
+    expectString(sheet.detail.statusLabel.stringValue, "",
                  "and nothing is said about why it would not be")
 
     // MARK: 4 — clearing the note commits an empty STRING, never nil
 
     // nil means "leave it alone" in an UpdateTag, so nil could never clear a
     // note that is already there.
-    type(sheet.noteField, "")
+    type(sheet.detail.noteField, "")
     let cleared = updates(sheet)
     expectInt(cleared.count, 1, "clearing the note still makes one update commit")
     if cleared.count == 1 {
@@ -705,10 +718,10 @@ func runTests() {
     // A tag name is an authored label this app then draws in its own voice: a
     // bidi override in it makes every one of those surfaces read as something
     // the tag is not.
-    type(sheet.nameField, "\(bidi)Suspect")
-    expectTrue(!sheet.nameField.stringValue.contains(bidi),
+    type(sheet.detail.nameField, "\(bidi)Suspect")
+    expectTrue(!sheet.detail.nameField.stringValue.contains(bidi),
                "a bidi override typed into the NAME field is taken out of the field itself")
-    expectString(sheet.nameField.stringValue,
+    expectString(sheet.detail.nameField.stringValue,
                  AuthoredLabelSanitizer.sanitized("\(bidi)Suspect"),
                  "leaving exactly what the sanitiser allows")
     let sanitisedName = updates(sheet)
@@ -724,8 +737,8 @@ func runTests() {
     // would save the escape tokens, and sanitising it would destroy a note that
     // legitimately quotes hostile text. It is DISCLOSED instead.
     let hostileNote = "seen as \(bidi)txt.exe"
-    type(sheet.noteField, hostileNote)
-    expectString(sheet.noteField.stringValue, hostileNote,
+    type(sheet.detail.noteField, hostileNote)
+    expectString(sheet.detail.noteField.stringValue, hostileNote,
                  "the NOTE field keeps what was typed, byte for byte")
     let notedCommits = updates(sheet)
     expectInt(notedCommits.count, 1, "and one update commit carries it")
@@ -733,17 +746,17 @@ func runTests() {
         expectString(notedCommits[0].note ?? "<nil>", hostileNote,
                      "byte for byte, into the store")
     }
-    expectTrue(!sheet.noteBadge.isHidden,
+    expectTrue(!sheet.detail.noteBadge.isHidden,
                "and a badge says an invisible character is in there")
-    type(sheet.noteField, "seen as txt.exe")
-    expectTrue(sheet.noteBadge.isHidden,
+    type(sheet.detail.noteField, "seen as txt.exe")
+    expectTrue(sheet.detail.noteBadge.isHidden,
                "the badge lowers again once the override is gone")
 
     // MARK: 7 — a colour change reaches the model
 
     // Otherwise `recolour(tagAt:to:)` is unreachable from the UI.
-    sheet.colorControl.selectedSegment = 4
-    click(sheet.colorControl)
+    sheet.detail.colorPicker.selectedIndex = 4
+    click(sheet.detail.colorPicker)
     let recoloured = updates(sheet)
     expectInt(recoloured.count, 1, "recolouring still describes the tag with one update")
     if recoloured.count == 1 {
@@ -757,23 +770,23 @@ func runTests() {
     // so a re-render there makes the value field unusable. A value edit changes
     // nothing structural: the row already shows what was typed and owns its own
     // error line.
-    guard sheet.grid.groups.count == 2, sheet.grid.groups[0].conditionRows.count == 1 else {
+    guard sheet.detail.grid.groups.count == 2, sheet.detail.grid.groups[0].conditionRows.count == 1 else {
         failures += 1
         print("FAIL the selected tag did not render two rules with a row to type in")
         finish()
         return
     }
-    let fieldBefore = sheet.grid.groups[0].conditionRows[0].valueField
-    let groupBefore = sheet.grid.groups[0]
+    let fieldBefore = sheet.detail.grid.groups[0].conditionRows[0].valueField
+    let groupBefore = sheet.detail.grid.groups[0]
     type(fieldBefore, "10.0.0.99")
-    expectInt(sheet.grid.groups.count, 2, "typing a value leaves the rule count alone")
-    if sheet.grid.groups.count == 2, sheet.grid.groups[0].conditionRows.count == 1 {
-        expectTrue(sheet.grid.groups[0].conditionRows[0].valueField === fieldBefore,
+    expectInt(sheet.detail.grid.groups.count, 2, "typing a value leaves the rule count alone")
+    if sheet.detail.grid.groups.count == 2, sheet.detail.grid.groups[0].conditionRows.count == 1 {
+        expectTrue(sheet.detail.grid.groups[0].conditionRows[0].valueField === fieldBefore,
                    "and the very field being typed in SURVIVES — the grid is not re-rendered")
-        expectTrue(sheet.grid.groups[0] === groupBefore,
+        expectTrue(sheet.detail.grid.groups[0] === groupBefore,
                    "nor is the group around it")
     }
-    let editedRule = sheet.model.commits().compactMap { commit -> UpdateTagRule? in
+    let editedRule = sheet.detail.model.commits().compactMap { commit -> UpdateTagRule? in
         if case .updateRule(let update) = commit { return update }
         return nil
     }
@@ -787,8 +800,8 @@ func runTests() {
 
     // MARK: 14 — adding a RULE does re-render
 
-    sheet.grid.addRuleButton.performClick(nil)
-    expectInt(sheet.grid.groups.count, 3, "adding a rule draws a third group")
+    sheet.detail.grid.addRuleButton.performClick(nil)
+    expectInt(sheet.detail.grid.groups.count, 3, "adding a rule draws a third group")
     // The stored tag has TWO rules. The sidebar says three, because it counts
     // what is being edited — every other surface in this sheet shows the edit
     // in progress, and a sidebar disagreeing with the grid about the same tag
@@ -796,26 +809,26 @@ func runTests() {
     // assertion above typed over the rename.)
     expectString(rowText(sheet, 0), "Suspect — 3 rules",
                  "and the sidebar's rule count follows the EDIT, not the stored tag")
-    expectTrue(!sheet.saveButton.isEnabled,
+    expectTrue(!sheet.detail.saveButton.isEnabled,
                "a rule whose one condition has no value yet holds Save back")
-    expectTrue(sheet.statusLabel.stringValue.contains("value"),
-               "and the reason names the missing value (\(sheet.statusLabel.stringValue.debugDescription))")
+    expectTrue(sheet.detail.statusLabel.stringValue.contains("value"),
+               "and the reason names the missing value (\(sheet.detail.statusLabel.stringValue.debugDescription))")
 
     // Take it away again, and Save comes back.
-    if sheet.grid.groups.count == 3 {
-        sheet.grid.groups[2].deleteRuleButton.performClick(nil)
+    if sheet.detail.grid.groups.count == 3 {
+        sheet.detail.grid.groups[2].deleteRuleButton.performClick(nil)
     }
-    expectInt(sheet.grid.groups.count, 2, "deleting that rule draws two groups again")
-    expectTrue(sheet.saveButton.isEnabled, "and Save is available once more")
+    expectInt(sheet.detail.grid.groups.count, 2, "deleting that rule draws two groups again")
+    expectTrue(sheet.detail.saveButton.isEnabled, "and Save is available once more")
 
     // MARK: 8b — a rule emptied HERE blocks Save, and says which one
 
-    if sheet.grid.groups.count == 2, sheet.grid.groups[0].conditionRows.count == 1 {
-        sheet.grid.groups[0].conditionRows[0].removeButton.performClick(nil)
+    if sheet.detail.grid.groups.count == 2, sheet.detail.grid.groups[0].conditionRows.count == 1 {
+        sheet.detail.grid.groups[0].conditionRows[0].removeButton.performClick(nil)
     }
-    expectTrue(!sheet.saveButton.isEnabled, "a rule stripped of every condition blocks Save")
-    expectTrue(sheet.statusLabel.stringValue.contains("Rule 1"),
-               "and the reason names the rule (\(sheet.statusLabel.stringValue.debugDescription))")
+    expectTrue(!sheet.detail.saveButton.isEnabled, "a rule stripped of every condition blocks Save")
+    expectTrue(sheet.detail.statusLabel.stringValue.contains("Rule 1"),
+               "and the reason names the rule (\(sheet.detail.statusLabel.stringValue.debugDescription))")
 
     // MARK: 9 — Save commits once, and hands over exactly what the model says
 
@@ -824,12 +837,12 @@ func runTests() {
     let savingClosings = countClosings(saving)
     host(saving)
     select(saving, row: 0)
-    type(saving.nameField, "Renamed On Save")
+    type(saving.detail.nameField, "Renamed On Save")
     expectInt(saveCommitter.applied.count, 0,
               "typing commits NOTHING — a per-keystroke write would rebuild every open grid")
-    let expected = saving.model.commits()
-    expectTrue(saving.saveButton.isEnabled, "Save is available for a renamed tag")
-    saving.saveButton.performClick(nil)
+    let expected = saving.detail.model.commits()
+    expectTrue(saving.detail.saveButton.isEnabled, "Save is available for a renamed tag")
+    saving.detail.saveButton.performClick(nil)
     expectInt(saveCommitter.applied.count, 1, "clicking Save commits EXACTLY ONCE")
     if saveCommitter.applied.count == 1 {
         expectTrue(saveCommitter.applied[0] == expected,
@@ -852,14 +865,14 @@ func runTests() {
     let failingClosings = countClosings(failing)
     let failingWindow = host(failing)
     select(failing, row: 0)
-    type(failing.nameField, "Edited But Unsaved")
+    type(failing.detail.nameField, "Edited But Unsaved")
     expectInt(failingWindow.sheets.count, 0, "a fresh sheet has no alert on it")
-    failing.saveButton.performClick(nil)
+    failing.detail.saveButton.performClick(nil)
     expectInt(failingCommitter.applied.count, 1, "the failing save was attempted once")
     expectInt(failingClosings.count, 0, "a save that fails does NOT close the sheet")
     expectInt(failingWindow.sheets.count, 1,
               "it raises an error alert, never a silent no-op")
-    expectString(failing.nameField.stringValue, "Edited But Unsaved",
+    expectString(failing.detail.nameField.stringValue, "Edited But Unsaved",
                  "and the edit is still in the field")
     let survived = updates(failing)
     expectInt(survived.count, 1, "and still in the model, ready to be saved again")
@@ -869,7 +882,7 @@ func runTests() {
     // The SENTENCE the error carries, not the Swift value carrying it. The sheet
     // asks for `localizedDescription`; interpolation would print
     // `StoreFailure()` here, and `rustError("…")` in the app.
-    expectString(failing.statusLabel.stringValue,
+    expectString(failing.detail.statusLabel.stringValue,
                  "Could not save: The core refused the write.",
                  "and the status line reports the error's own words")
 
@@ -881,14 +894,14 @@ func runTests() {
     let beforeCount = adding.tableView.numberOfRows
     adding.newTagButton.performClick(nil)
     expectInt(adding.tableView.numberOfRows, beforeCount + 1, "the sidebar gains a row")
-    expectInt(adding.selectedTagIndex ?? -1, adding.model.tags.count - 1,
+    expectInt(adding.detail.selectedTagIndex ?? -1, adding.detail.model.tags.count - 1,
               "and the new tag is the one selected")
-    expectTrue(adding.nameField.isEnabled && adding.nameField.isEditable,
+    expectTrue(adding.detail.nameField.isEnabled && adding.detail.nameField.isEditable,
                "its name can be typed straight away")
-    expectTrue(adding.grid.addRuleButton.isEnabled, "and a rule can be added to it")
-    expectInt(adding.grid.groups.count, 0, "it starts with no rules")
-    type(adding.nameField, "Fresh Case")
-    let creates = adding.model.commits().compactMap { commit -> CreateTag? in
+    expectTrue(adding.detail.grid.addRuleButton.isEnabled, "and a rule can be added to it")
+    expectInt(adding.detail.grid.groups.count, 0, "it starts with no rules")
+    type(adding.detail.nameField, "Fresh Case")
+    let creates = adding.detail.model.commits().compactMap { commit -> CreateTag? in
         if case .create(let create) = commit { return create }
         return nil
     }
@@ -905,19 +918,19 @@ func runTests() {
     let deleting = makeSheet(deleteCommitter)
     host(deleting)
     select(deleting, row: 0)
-    expectInt(deleting.selectedTagIndex ?? -1, 0, "the first tag is selected")
+    expectInt(deleting.detail.selectedTagIndex ?? -1, 0, "the first tag is selected")
     expectTrue(deleting.deleteTagButton.isEnabled, "and it can be deleted")
     deleting.deleteTagButton.performClick(nil)
     expectInt(deleting.tableView.numberOfRows, 2, "the sidebar loses that row")
-    expectTrue(!deleting.model.visibleTagIndices.contains(0),
+    expectTrue(!deleting.detail.model.visibleTagIndices.contains(0),
                "and the tag leaves the visible set")
-    expectTrue(deleting.selectedTagIndex.map { deleting.model.visibleTagIndices.contains($0) }
+    expectTrue(deleting.detail.selectedTagIndex.map { deleting.detail.model.visibleTagIndices.contains($0) }
                 ?? false,
                "the selection moves to a SURVIVING tag, never to the gap")
-    expectString(deleting.nameField.stringValue, "Beta",
+    expectString(deleting.detail.nameField.stringValue, "Beta",
                  "which is the one that slid into the removed row")
-    expectTrue(deleting.saveButton.isEnabled, "a staged delete is a change, so Save is available")
-    deleting.saveButton.performClick(nil)
+    expectTrue(deleting.detail.saveButton.isEnabled, "a staged delete is a change, so Save is available")
+    deleting.detail.saveButton.performClick(nil)
     expectInt(deleteCommitter.applied.count, 1, "saving commits once")
     if deleteCommitter.applied.count == 1 {
         expectString(deletedTagIds(deleteCommitter.applied[0]).joined(separator: ","), "t1",
@@ -933,14 +946,17 @@ func runTests() {
         emptying.deleteTagButton.performClick(nil)
     }
     expectInt(emptying.tableView.numberOfRows, 0, "every tag can be deleted")
-    expectTrue(emptying.selectedTagIndex == nil, "and nothing is left selected")
-    expectString(emptying.nameField.stringValue, "",
+    expectTrue(emptying.detail.selectedTagIndex == nil, "and nothing is left selected")
+    expectString(emptying.detail.nameField.stringValue, "",
                  "the name field shows no phantom tag")
-    expectTrue(!emptying.nameField.isEnabled && !emptying.noteField.isEnabled
-                && !emptying.colorControl.isEnabled && !emptying.deleteTagButton.isEnabled,
+    expectTrue(!emptying.detail.nameField.isEnabled && !emptying.detail.noteField.isEnabled
+                && !emptying.detail.colorPicker.isEnabled && !emptying.deleteTagButton.isEnabled,
                "the identity controls are dead, because there is nothing to edit")
-    expectInt(emptying.grid.groups.count, 0, "and no rules are drawn for a tag that is not there")
-    expectTrue(!emptying.emptyLabel.isHidden, "the empty sidebar says so in words")
+    expectInt(emptying.detail.grid.groups.count, 0, "and no rules are drawn for a tag that is not there")
+    expectTrue(!emptying.detail.emptyState.isHidden, "the empty sidebar says so in words")
+    expectString(emptying.detail.emptyState.titleText, "No Tags", "under the empty state's title")
+    expectTrue(!emptying.detail.emptyState.actionButtonForTesting.isHidden,
+               "with a New Tag button of its own")
     expectTrue(emptying.newTagButton.isEnabled,
                "and a new tag can still be made, so the sheet is not a dead end")
 
@@ -949,7 +965,7 @@ func runTests() {
     let managing = makeSheet(RecordingCommitter())
     host(managing)
     expectInt(managing.tableView.numberOfRows, 3, "`.manage` lists every tag")
-    expectInt(managing.selectedTagIndex ?? -1, 0, "and preselects the first")
+    expectInt(managing.detail.selectedTagIndex ?? -1, 0, "and preselects the first")
     expectString(managing.titleLabel.stringValue, "Tags",
                  "under the plain heading — nothing is being added or removed")
 
@@ -965,7 +981,7 @@ func runTests() {
     // The heading counts SELECTED ROWS, so it does not move as boxes are
     // ticked: it answers "did the sheet catch the selection I made", and
     // nothing has been ticked here at all.
-    expectTrue(addSheet.model.draftRules.isEmpty,
+    expectTrue(addSheet.detail.model.draftRules.isEmpty,
                "with nothing ticked yet, so the heading is not a count of rules")
 
     // MARK: 17 — `.add` onto an existing tag keeps the draft's PROVENANCE
@@ -978,20 +994,20 @@ func runTests() {
     let joining = makeSheet(joinCommitter, mode: .add(capture: fixtureCapture()))
     host(joining)
     select(joining, row: 0)
-    expectTrue(!joining.saveButton.isEnabled,
+    expectTrue(!joining.detail.saveButton.isEnabled,
                "with nothing ticked there is nothing to add, so Save is held back")
     tickCapture(joining, 0, true, "the address column")
     tickCapture(joining, 1, true, "the host column")
-    expectTrue(joining.saveButton.isEnabled,
+    expectTrue(joining.detail.saveButton.isEnabled,
                "a ticked capture with a tag chosen can be saved without any other edit")
     // Which makes the footer load-bearing: the tag the draft joins is chosen by
     // a SIDEBAR SELECTION, which looks like navigation rather than a decision,
     // and Save is the default button. This line is what makes it a decision.
-    expectString(joining.statusLabel.stringValue,
+    expectString(joining.detail.statusLabel.stringValue,
                  "Saving adds 3 rules to \u{201C}Suspect\u{201D}, one per selected row.",
                  "and the footer names the tag the rows would join, how many, and "
                  + "that three rules from three rows is one each rather than a cross product")
-    joining.saveButton.performClick(nil)
+    joining.detail.saveButton.performClick(nil)
     expectInt(joinCommitter.applied.count, 1, "saving commits once")
     let joined = addedRules(joinCommitter.applied.first ?? [])
     expectInt(joined.count, 1, "with one add-rules command")
@@ -1015,10 +1031,10 @@ func runTests() {
     let born = makeSheet(bornCommitter, mode: .add(capture: fixtureCapture()))
     host(born)
     born.newTagButton.performClick(nil)
-    type(born.nameField, "Fresh Finding")
+    type(born.detail.nameField, "Fresh Finding")
     tickCapture(born, 0, true, "the address column")
     tickCapture(born, 1, true, "the host column")
-    born.saveButton.performClick(nil)
+    born.detail.saveButton.performClick(nil)
     expectInt(bornCommitter.applied.count, 1, "saving commits once")
     let bornCreates = createdTags(bornCommitter.applied.first ?? [])
     expectInt(bornCreates.count, 1, "with one create command")
@@ -1048,14 +1064,14 @@ func runTests() {
 
     // MARK: 20 — `.remove` draws a checkbox per rule, with the named ones TICKED
 
-    expectInt(removing.grid.groups.count, 2, "the selected tag draws both its rules")
-    if removing.grid.groups.count == 2 {
-        expectTrue(!removing.grid.groups[0].selectionBox.isHidden
-                    && !removing.grid.groups[1].selectionBox.isHidden,
+    expectInt(removing.detail.grid.groups.count, 2, "the selected tag draws both its rules")
+    if removing.detail.grid.groups.count == 2 {
+        expectTrue(!removing.detail.grid.groups[0].selectionBox.isHidden
+                    && !removing.detail.grid.groups[1].selectionBox.isHidden,
                    "every rule gets a checkbox")
-        expectTrue(removing.grid.groups[0].selectionBox.state == .on,
+        expectTrue(removing.detail.grid.groups[0].selectionBox.state == .on,
                    "the rule the analyst came here about starts TICKED")
-        expectTrue(removing.grid.groups[1].selectionBox.state == .off,
+        expectTrue(removing.detail.grid.groups[1].selectionBox.state == .off,
                    "and a rule they did not ask about does not")
     }
 
@@ -1065,30 +1081,30 @@ func runTests() {
     // opened with, the boxes on screen are the promise — so the promise is
     // changed BOTH ways before it is read: one more ticked, and the preselected
     // one taken back.
-    if removing.grid.groups.count == 2 {
-        tick(removing.grid.groups[1].selectionBox, true, "rule 2")
-        tick(removing.grid.groups[0].selectionBox, false, "rule 1")
+    if removing.detail.grid.groups.count == 2 {
+        tick(removing.detail.grid.groups[1].selectionBox, true, "rule 2")
+        tick(removing.detail.grid.groups[0].selectionBox, false, "rule 1")
     }
     let removeCommitter = RecordingCommitter()
     let removeSheet = removing
     removeSheet.onClose = nil
-    expectTrue(removeSheet.saveButton.isEnabled,
+    expectTrue(removeSheet.detail.saveButton.isEnabled,
                "a tick is a change, so Save is available")
-    expectTrue(removeSheet.statusLabel.stringValue.contains("1 rule"),
+    expectTrue(removeSheet.detail.statusLabel.stringValue.contains("1 rule"),
                "and the footer says what will go "
-               + "(\(removeSheet.statusLabel.stringValue.debugDescription))")
+               + "(\(removeSheet.detail.statusLabel.stringValue.debugDescription))")
     // A second sheet, driven the same way, so the assertion reads the commits a
     // click actually hands over rather than a recomputation of them.
     let ticking = makeSheet(removeCommitter, mode: .remove(ruleIds: ["r1"]))
     host(ticking)
-    if ticking.grid.groups.count == 2 {
-        tick(ticking.grid.groups[1].selectionBox, true, "rule 2")
-        tick(ticking.grid.groups[0].selectionBox, false, "rule 1")
+    if ticking.detail.grid.groups.count == 2 {
+        tick(ticking.detail.grid.groups[1].selectionBox, true, "rule 2")
+        tick(ticking.detail.grid.groups[0].selectionBox, false, "rule 1")
     } else {
         failures += 1
         print("FAIL the remove sheet did not draw two rules to tick")
     }
-    ticking.saveButton.performClick(nil)
+    ticking.detail.saveButton.performClick(nil)
     expectInt(removeCommitter.applied.count, 1, "saving commits once")
     expectString(deletedRuleIds(removeCommitter.applied.first ?? []).joined(separator: ","),
                  "r2",
@@ -1103,33 +1119,33 @@ func runTests() {
     let unsavedCommitter = RecordingCommitter()
     let unsaved = makeSheet(unsavedCommitter, mode: .remove(ruleIds: ["r1"]))
     host(unsaved)
-    unsaved.grid.addRuleButton.performClick(nil)
-    expectInt(unsaved.grid.groups.count, 3, "the tag gains a rule added this session")
-    if unsaved.grid.groups.count == 3 {
-        expectTrue(unsaved.grid.groups[2].ruleId == nil,
+    unsaved.detail.grid.addRuleButton.performClick(nil)
+    expectInt(unsaved.detail.grid.groups.count, 3, "the tag gains a rule added this session")
+    if unsaved.detail.grid.groups.count == 3 {
+        expectTrue(unsaved.detail.grid.groups[2].ruleId == nil,
                    "which has no id, because it has never been saved")
-        expectTrue(unsaved.grid.groups[2].selectionBox.isHidden,
+        expectTrue(unsaved.detail.grid.groups[2].selectionBox.isHidden,
                    "so it draws NO checkbox — nothing could ever delete it")
-        expectTrue(!unsaved.grid.groups[0].selectionBox.isHidden
-                    && !unsaved.grid.groups[1].selectionBox.isHidden,
+        expectTrue(!unsaved.detail.grid.groups[0].selectionBox.isHidden
+                    && !unsaved.detail.grid.groups[1].selectionBox.isHidden,
                    "while the stored rules beside it still draw theirs")
         // The inset is kept, so hiding the box does not pull the rule's heading
         // left and break the column.
         unsaved.view.layoutSubtreeIfNeeded()
-        let stored = unsaved.grid.groups[0]
-        let fresh = unsaved.grid.groups[2]
+        let stored = unsaved.detail.grid.groups[0]
+        let fresh = unsaved.detail.grid.groups[2]
         expectString("\(Int(stored.titleLabel.convert(NSPoint.zero, to: stored).x))",
                      "\(Int(fresh.titleLabel.convert(NSPoint.zero, to: fresh).x))",
                      "and the heading starts at the same x, so the rules stay aligned")
     }
-    expectString(unsaved.grid.selectedRuleIds.sorted().joined(separator: ","), "r1",
+    expectString(unsaved.detail.grid.selectedRuleIds.sorted().joined(separator: ","), "r1",
                  "and the ticked set is untouched by its arrival")
     // End to end: take the unsaved rule away again, and what a save deletes is
     // still exactly the one tick.
-    if unsaved.grid.groups.count == 3 {
-        unsaved.grid.groups[2].deleteRuleButton.performClick(nil)
+    if unsaved.detail.grid.groups.count == 3 {
+        unsaved.detail.grid.groups[2].deleteRuleButton.performClick(nil)
     }
-    unsaved.saveButton.performClick(nil)
+    unsaved.detail.saveButton.performClick(nil)
     expectInt(unsavedCommitter.applied.count, 1, "saving commits once")
     expectString(deletedRuleIds(unsavedCommitter.applied.first ?? []).joined(separator: ","),
                  "r1",
@@ -1151,33 +1167,33 @@ func runTests() {
               "a removal naming rules in two tags lists BOTH of them")
     expectString(rowText(spanning, 0), "Suspect — 2 rules", "the tag holding r1")
     expectString(rowText(spanning, 1), "Beta — 1 rule", "and the tag holding r3")
-    expectString(spanning.statusLabel.stringValue,
+    expectString(spanning.detail.statusLabel.stringValue,
                  "Saving removes 2 rules from their tags.",
                  "the footer states the WHOLE reach, both tags' ticks included — "
                  + "not only the tag on screen, and in the plural")
     // Look at the other tag, then come back.
     select(spanning, row: 1)
-    if spanning.grid.groups.count == 1 {
-        expectTrue(spanning.grid.groups[0].selectionBox.state == .on,
+    if spanning.detail.grid.groups.count == 1 {
+        expectTrue(spanning.detail.grid.groups[0].selectionBox.state == .on,
                    "the second tag's named rule is ticked when it is looked at")
     } else {
         failures += 1
         print("FAIL the second tag did not draw its one rule")
     }
     select(spanning, row: 0)
-    if spanning.grid.groups.count == 2 {
-        expectTrue(spanning.grid.groups[0].selectionBox.state == .on,
+    if spanning.detail.grid.groups.count == 2 {
+        expectTrue(spanning.detail.grid.groups[0].selectionBox.state == .on,
                    "and the first tag's tick SURVIVED the trip to the other tag")
-        expectTrue(spanning.grid.groups[1].selectionBox.state == .off,
+        expectTrue(spanning.detail.grid.groups[1].selectionBox.state == .off,
                    "while the rule nobody asked about is still untouched")
     } else {
         failures += 1
         print("FAIL the first tag did not draw its two rules")
     }
-    expectString(spanning.statusLabel.stringValue,
+    expectString(spanning.detail.statusLabel.stringValue,
                  "Saving removes 2 rules from their tags.",
                  "and the footer still counts both after the switch")
-    spanning.saveButton.performClick(nil)
+    spanning.detail.saveButton.performClick(nil)
     expectInt(spanCommitter.applied.count, 1, "saving commits once")
     expectString(deletedRuleIds(spanCommitter.applied.first ?? []).joined(separator: ","),
                  "r1,r3",
@@ -1193,22 +1209,22 @@ func runTests() {
     let emptiedCommitter = RecordingCommitter()
     let emptied = makeSheet(emptiedCommitter, mode: .remove(ruleIds: ["r1"]))
     host(emptied)
-    expectTrue(emptied.saveButton.isEnabled,
+    expectTrue(emptied.detail.saveButton.isEnabled,
                "the rule the analyst came here about starts ticked, so Save is live")
-    if emptied.grid.groups.count == 2 {
-        tick(emptied.grid.groups[0].selectionBox, false, "the preselected rule")
+    if emptied.detail.grid.groups.count == 2 {
+        tick(emptied.detail.grid.groups[0].selectionBox, false, "the preselected rule")
     } else {
         failures += 1
         print("FAIL the emptied sheet did not draw two rules to untick")
     }
-    expectTrue(!emptied.saveButton.isEnabled,
+    expectTrue(!emptied.detail.saveButton.isEnabled,
                "unticking the last box takes Save away")
-    expectString(emptied.statusLabel.stringValue, "Nothing has changed yet.",
+    expectString(emptied.detail.statusLabel.stringValue, "Nothing has changed yet.",
                  "and says so in words, never as a count of zero rules")
     // The disabled button is the guard the analyst meets; this is the guard
     // BEHIND it, which is the one an empty payload would have to get past.
-    emptied.saveButton.isEnabled = true
-    emptied.saveButton.performClick(nil)
+    emptied.detail.saveButton.isEnabled = true
+    emptied.detail.saveButton.performClick(nil)
     expectInt(emptiedCommitter.applied.count, 0,
               "an empty payload is refused even if the button is somehow enabled")
 
@@ -1221,21 +1237,21 @@ func runTests() {
     let cancelling = makeSheet(cancelCommitter, mode: .remove(ruleIds: ["r1"]))
     let cancelClosings = countClosings(cancelling)
     host(cancelling)
-    expectTrue(cancelling.saveButton.isEnabled, "there is a ticked rule to remove")
-    cancelling.cancelButton.performClick(nil)
+    expectTrue(cancelling.detail.saveButton.isEnabled, "there is a ticked rule to remove")
+    cancelling.detail.cancelButton.performClick(nil)
     expectInt(cancelCommitter.applied.count, 0, "Cancel removes nothing at all")
     expectInt(cancelClosings.count, 1, "and closes the sheet")
-    expectString(cancelling.cancelButton.keyEquivalent, "\u{1b}",
+    expectString(cancelling.detail.cancelButton.keyEquivalent, "\u{1b}",
                  "Escape is the way out, and it is the same way out")
 
     // MARK: 22 — `.manage` and `.add` draw no checkboxes at all
 
-    expectTrue(managing.grid.groups.allSatisfy { $0.selectionBox.isHidden },
+    expectTrue(managing.detail.grid.groups.allSatisfy { $0.selectionBox.isHidden },
                "`.manage` draws no checkboxes — nothing there is being chosen for deletion")
     select(addSheet, row: 0)
-    expectTrue(!addSheet.grid.groups.isEmpty,
+    expectTrue(!addSheet.detail.grid.groups.isEmpty,
                "the `.add` sheet has rules on screen to check")
-    expectTrue(addSheet.grid.groups.allSatisfy { $0.selectionBox.isHidden },
+    expectTrue(addSheet.detail.grid.groups.allSatisfy { $0.selectionBox.isHidden },
                "and `.add` draws none either")
 
     // MARK: 23 — the footer counts with the REAL matcher, and follows an edit
@@ -1243,28 +1259,28 @@ func runTests() {
     let counting = makeSheet(RecordingCommitter(),
                              columns: countColumns(), loadedRows: countRows())
     host(counting)
-    expectString(counting.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
+    expectString(counting.detail.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
                  "the footer counts the selected tag over the loaded rows")
-    expectString(counting.warningLabel.stringValue, "",
+    expectString(counting.detail.warningLabel.stringValue, "",
                  "one row in ten is not broad, so nothing is said")
-    guard counting.grid.groups.count == 2,
-          counting.grid.groups[0].conditionRows.count == 1 else {
+    guard counting.detail.grid.groups.count == 2,
+          counting.detail.grid.groups[0].conditionRows.count == 1 else {
         failures += 1
         print("FAIL the counted tag did not render a rule with a value to edit")
         finish()
         return
     }
-    type(counting.grid.groups[0].conditionRows[0].valueField, "10.0.0.2")
-    expectString(counting.countLabel.stringValue, "Matches 2 of 10 loaded rows.",
+    type(counting.detail.grid.groups[0].conditionRows[0].valueField, "10.0.0.2")
+    expectString(counting.detail.countLabel.stringValue, "Matches 2 of 10 loaded rows.",
                  "and the count follows an edit")
 
     // MARK: 24 — a broad tag is DISCLOSED, never blocked
 
     // A deliberately broad temporary tag is a legitimate tool, and only the
     // analyst knows which this is.
-    expectString(counting.warningLabel.stringValue, "This tag is broad.",
+    expectString(counting.detail.warningLabel.stringValue, "This tag is broad.",
                  "two rows in ten is over the threshold, so the warning appears")
-    expectTrue(counting.saveButton.isEnabled,
+    expectTrue(counting.detail.saveButton.isEnabled,
                "and a broad tag can still be SAVED — the warning never blocks")
 
     // MARK: 25 — with no result behind the sheet the footer says so
@@ -1273,12 +1289,12 @@ func runTests() {
     // which is a claim about the TAG made from having nothing to compare it to.
     let unbacked = makeSheet(RecordingCommitter())
     host(unbacked)
-    expectString(unbacked.countLabel.stringValue,
+    expectString(unbacked.detail.countLabel.stringValue,
                  "No rows are loaded here, so there is nothing to count against.",
                  "an empty result is stated as a fact about the RESULT")
-    expectTrue(!unbacked.countLabel.stringValue.contains("Matches"),
+    expectTrue(!unbacked.detail.countLabel.stringValue.contains("Matches"),
                "and never as a count of zero, which would be a claim about the tag")
-    expectString(unbacked.warningLabel.stringValue, "",
+    expectString(unbacked.detail.warningLabel.stringValue, "",
                  "and nothing can be called broad against nothing")
 
     // MARK: 26 — a slow count landing after a newer edit is DISCARDED
@@ -1291,21 +1307,21 @@ func runTests() {
         model: TagManagerModel(tags: fixtureTags(), mode: .manage),
         committer: RecordingCommitter(),
         columns: countColumns(), loadedRows: manyRows())
-    gated.countMatches = { counter.count($0, $1, $2) }
+    gated.detail.countMatches = { counter.count($0, $1, $2) }
     host(gated)
     expectInt(counter.callCount, 1, "opening the sheet starts one count")
-    guard gated.grid.groups.count == 2,
-          gated.grid.groups[0].conditionRows.count == 1 else {
+    guard gated.detail.grid.groups.count == 2,
+          gated.detail.grid.groups[0].conditionRows.count == 1 else {
         failures += 1
         print("FAIL the gated sheet did not render a rule with a value to edit")
         finish()
         return
     }
     // The first count is still inside the counting function, holding the gate.
-    type(gated.grid.groups[0].conditionRows[0].valueField, "10.9.0.3")
-    pump(5.0) { gated.countLabel.stringValue.hasPrefix("Matches") }
+    type(gated.detail.grid.groups[0].conditionRows[0].valueField, "10.9.0.3")
+    pump(5.0) { gated.detail.countLabel.stringValue.hasPrefix("Matches") }
     expectInt(counter.callCount, 2, "an edit starts a second count")
-    expectString(gated.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
+    expectString(gated.detail.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
                  "and the SECOND count reaches the footer")
     // Released only now, so the first count returns its answer into a sheet that
     // has already moved on.
@@ -1314,7 +1330,7 @@ func runTests() {
     // And a further turn of the run loop, so its hop back to the main thread is
     // delivered rather than merely queued.
     pump(0.5)
-    expectString(gated.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
+    expectString(gated.detail.countLabel.stringValue, "Matches 22 of 5001 loaded rows.",
                  "the first count, landing afterwards, is DISCARDED rather than "
                  + "overwriting the newer number")
 
@@ -1327,17 +1343,19 @@ func runTests() {
     let listing = makeSheet(RecordingCommitter(), mode: .add(capture: fixtureCapture()),
                             columns: countColumns(), loadedRows: countRows())
     host(listing)
-    expectInt(listing.captureList.rows.count, countColumns().count,
+    expectInt(listing.detail.captureList.rows.count, countColumns().count,
               "`.add` draws one checklist row per result column")
-    expectInt(listing.captureList.rows.count, 2, "which here is two")
-    expectTrue(!listing.captureList.isHiddenOrHasHiddenAncestor,
+    expectInt(listing.detail.captureList.rows.count, 2, "which here is two")
+    expectTrue(!listing.detail.captureList.isHiddenOrHasHiddenAncestor,
                "and the checklist is on screen")
-    expectInt(managing.captureList.rows.count, 0,
+    expectInt(managing.detail.captureList.rows.count, 0,
               "`.manage` draws no checklist — it has no selection to capture from")
-    expectTrue(managing.captureList.isHiddenOrHasHiddenAncestor,
+    // Not built into the form at all outside `.add` — a hidden row would still
+    // draw its separator in the Rules box — so it is in no window.
+    expectTrue(managing.detail.captureList.window == nil,
                "and the space it would take goes with it")
-    expectInt(removing.captureList.rows.count, 0, "`.remove` draws none either")
-    expectTrue(removing.captureList.isHiddenOrHasHiddenAncestor,
+    expectInt(removing.detail.captureList.rows.count, 0, "`.remove` draws none either")
+    expectTrue(removing.detail.captureList.window == nil,
                "and hides its box too")
 
     // MARK: 28 — a row shows the FAMILY, never the column name
@@ -1345,11 +1363,11 @@ func runTests() {
     // A column name never takes part in matching, and a hand-authored condition
     // has no column at all — so a name here would promise a precision the tag
     // does not have.
-    expectString(listing.captureList.rows.map(\.familyLabel.stringValue)
+    expectString(listing.detail.captureList.rows.map(\.familyLabel.stringValue)
                     .joined(separator: "|"),
                  "Address|Text",
                  "each row names the family the condition will be described by")
-    expectTrue(listing.captureList.rows.allSatisfy {
+    expectTrue(listing.detail.captureList.rows.allSatisfy {
                    $0.familyLabel.stringValue != "ip" && $0.familyLabel.stringValue != "host"
                },
                "and never the column's own name")
@@ -1360,7 +1378,7 @@ func runTests() {
                            mode: .add(capture: capture([["198.51.100.4", "one.example"]])),
                            columns: countColumns(), loadedRows: countRows())
     host(single)
-    expectString(single.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
+    expectString(single.detail.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
                  "198.51.100.4|one.example",
                  "one selected row shows its own values, which is what the analyst "
                  + "is actually deciding about")
@@ -1372,7 +1390,7 @@ func runTests() {
 
     // A column constant across the selection is a strong indicator and worth
     // seeing at a glance; that is what the old sheet's distinct count was for.
-    expectString(listing.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
+    expectString(listing.detail.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
                  "3 values|shared.example",
                  "a column the three rows differ on is COUNTED, and one they all "
                  + "share shows the value itself")
@@ -1380,18 +1398,18 @@ func runTests() {
     // MARK: 31 — every box starts UNTICKED
 
     // A tag is a durable artifact and the choice should be deliberate.
-    expectTrue(listing.captureList.rows.allSatisfy { $0.box.state == .off },
+    expectTrue(listing.detail.captureList.rows.allSatisfy { $0.box.state == .off },
                "no capture box starts ticked")
-    expectTrue(listing.model.checkedCaptureColumns.isEmpty,
+    expectTrue(listing.detail.model.checkedCaptureColumns.isEmpty,
                "and the model agrees nothing is ticked")
 
     // MARK: 32 — with nothing ticked, a save writes no rules at all
 
     // Save is held back by the ordinary `noChanges` blocker first...
     select(listing, row: 0)
-    expectTrue(!listing.saveButton.isEnabled,
+    expectTrue(!listing.detail.saveButton.isEnabled,
                "an untouched `.add` sheet cannot be saved")
-    expectString(listing.statusLabel.stringValue, "Nothing has changed yet.",
+    expectString(listing.detail.statusLabel.stringValue, "Nothing has changed yet.",
                  "and says so in the ordinary words, not in a special case")
     // ...and when something ELSE makes the save legal, the untouched checklist
     // still contributes nothing. Asserted through a real save, because that is
@@ -1401,8 +1419,8 @@ func runTests() {
                              columns: countColumns(), loadedRows: countRows())
     host(unticked)
     select(unticked, row: 0)
-    type(unticked.nameField, "Renamed Only")
-    unticked.saveButton.performClick(nil)
+    type(unticked.detail.nameField, "Renamed Only")
+    unticked.detail.saveButton.performClick(nil)
     expectInt(untickedCommitter.applied.count, 1, "the rename alone saves")
     expectInt(addedRules(untickedCommitter.applied.first ?? []).count, 0,
               "and writes NO add-rules command, because nothing was ticked")
@@ -1419,20 +1437,20 @@ func runTests() {
                             columns: countColumns(), loadedRows: countRows())
     host(counted)
     select(counted, row: 0)
-    let countBeforeTick = counted.countLabel.stringValue
+    let countBeforeTick = counted.detail.countLabel.stringValue
     expectString(countBeforeTick, "Matches 1 of 10 loaded rows.",
                  "before any tick the count is the tag's own")
     tickCapture(counted, 0, true, "the address column")
-    expectTrue(counted.countLabel.stringValue != countBeforeTick,
+    expectTrue(counted.detail.countLabel.stringValue != countBeforeTick,
                "ticking a box moves the count "
                + "(\(countBeforeTick.debugDescription) -> "
-               + "\(counted.countLabel.stringValue.debugDescription))")
-    expectString(counted.countLabel.stringValue, "Matches 3 of 10 loaded rows.",
+               + "\(counted.detail.countLabel.stringValue.debugDescription))")
+    expectString(counted.detail.countLabel.stringValue, "Matches 3 of 10 loaded rows.",
                  "to what the tag would reach WITH the captured address")
     // Ticking a SECOND column makes the captured rule strictly narrower — it now
     // needs BOTH values present in one row — and that IS what would be written.
     tickCapture(counted, 1, true, "the host column")
-    expectInt(counted.model.draftRules.first?.conditions.count ?? 0, 2,
+    expectInt(counted.detail.model.draftRules.first?.conditions.count ?? 0, 2,
               "ticking a second column narrows the captured rule to both values")
     // The FOOTER's number FALLS, which is the whole reason this task exists.
     // 10.0.0.2 still touches rows 1 and 2, but only row 1 (10.0.0.2,
@@ -1443,13 +1461,13 @@ func runTests() {
     // claimed by the draft rule's address half — one partial. The old single
     // count (3, unable to fall) is gone: solid drops to 2 while the partial
     // count separately discloses the extra colour in the grid.
-    expectString(counted.countLabel.stringValue, "Matches 2 of 10 loaded rows. 1 partial.",
+    expectString(counted.detail.countLabel.stringValue, "Matches 2 of 10 loaded rows. 1 partial.",
                  "tightening the rule to two conditions makes the claimed count FALL "
                  + "from 3 to 2, with the narrowed-out row reported as 1 partial "
                  + "rather than silently folded back into the total")
     tickCapture(counted, 0, false, "the address column")
     tickCapture(counted, 1, false, "the host column")
-    expectString(counted.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
+    expectString(counted.detail.countLabel.stringValue, "Matches 1 of 10 loaded rows.",
                  "unticking everything returns the count to the tag's own")
 
     // MARK: 34 — a NULL cell contributes no condition
@@ -1461,14 +1479,14 @@ func runTests() {
                            mode: .add(capture: capture([["10.0.0.2", nil]])),
                            columns: countColumns(), loadedRows: countRows())
     host(nulled)
-    expectString(nulled.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
+    expectString(nulled.detail.captureList.rows.map(\.valueLabel.stringValue).joined(separator: "|"),
                  "10.0.0.2|NULL",
                  "a NULL cell says so, rather than drawing an empty row that reads "
                  + "as a rendering fault")
     select(nulled, row: 0)
     tickCapture(nulled, 0, true, "the address column")
     tickCapture(nulled, 1, true, "the NULL host column")
-    nulled.saveButton.performClick(nil)
+    nulled.detail.saveButton.performClick(nil)
     expectInt(nullCommitter.applied.count, 1, "saving commits once")
     let nullAdds = addedRules(nullCommitter.applied.first ?? [])
     expectInt(nullAdds.count, 1, "with one add-rules command")
@@ -1491,16 +1509,16 @@ func runTests() {
                             mode: .add(capture: capture([["10.0.0.2", hostileValue]])),
                             columns: countColumns(), loadedRows: countRows())
     host(hostile)
-    guard hostile.captureList.rows.count == 2 else {
+    guard hostile.detail.captureList.rows.count == 2 else {
         failures += 1
         print("FAIL the hostile-value sheet drew no checklist to read")
         finish()
         return
     }
-    expectString(hostile.captureList.rows[1].valueLabel.stringValue,
+    expectString(hostile.detail.captureList.rows[1].valueLabel.stringValue,
                  DisplayEscape.escaped(hostileValue),
                  "the row shows the escaped value")
-    expectTrue(!hostile.captureList.rows[1].valueLabel.stringValue.contains(bidi),
+    expectTrue(!hostile.detail.captureList.rows[1].valueLabel.stringValue.contains(bidi),
                "so the override itself never reaches the label")
     // The escape is DISPLAY only: what a save writes is the value as it was
     // seen, or the indicator would be corrupt the moment it was filed.
@@ -1511,7 +1529,7 @@ func runTests() {
     host(hostileSaving)
     select(hostileSaving, row: 0)
     tickCapture(hostileSaving, 1, true, "the hostile host column")
-    hostileSaving.saveButton.performClick(nil)
+    hostileSaving.detail.saveButton.performClick(nil)
     let hostileAdds = addedRules(hostileCommitter.applied.first ?? [])
     if let rule = hostileAdds.first?.rules.first, let condition = rule.conditions.first {
         expectString(condition.display, hostileValue,
@@ -1540,7 +1558,7 @@ func runTests() {
         columns: countColumns(), loadedRows: countRows())
     host(wideSheet)
     wideSheet.view.layoutSubtreeIfNeeded()
-    expectInt(wideSheet.captureList.rows.count, 60, "sixty columns draw sixty rows")
+    expectInt(wideSheet.detail.captureList.rows.count, 60, "sixty columns draw sixty rows")
     // ONE selected row, like the wide sheet: the caption is a line longer when
     // several rows are selected, and that alone moves the grid by a dozen
     // points. Holding the row count equal leaves the COLUMN count as the only
@@ -1552,27 +1570,29 @@ func runTests() {
     narrowList.view.layoutSubtreeIfNeeded()
     // The rows are drawn at full height and the VIEWPORT does not grow, which is
     // what "it scrolls" means in measurements rather than in words.
-    expectTrue(wideSheet.captureList.frame.height
-                > wideSheet.captureScroll.contentView.bounds.height,
+    expectTrue(wideSheet.detail.captureList.frame.height
+                > wideSheet.detail.captureScroll.contentView.bounds.height,
                "the rows overflow the checklist's viewport "
-               + "(\(Int(wideSheet.captureList.frame.height))pt of rows in "
-               + "\(Int(wideSheet.captureScroll.contentView.bounds.height))pt), so it scrolls")
-    expectInt(Int(wideSheet.captureScroll.frame.height),
-              Int(narrowList.captureScroll.frame.height),
+               + "(\(Int(wideSheet.detail.captureList.frame.height))pt of rows in "
+               + "\(Int(wideSheet.detail.captureScroll.contentView.bounds.height))pt), so it scrolls")
+    expectInt(Int(wideSheet.detail.captureScroll.frame.height),
+              Int(narrowList.detail.captureScroll.frame.height),
               "and the viewport is the same height beside sixty rows as beside two")
-    // The grid below keeps its floor whatever the checklist holds, because the
-    // checklist's viewport is a fixed height rather than a share of the sheet.
-    expectInt(Int(wideSheet.gridScroll.frame.height),
-              Int(narrowList.gridScroll.frame.height),
+    // The rules grid below is the same height whatever the checklist holds,
+    // because the checklist's viewport is a fixed height rather than a share
+    // of the form — the FORM scrolls, so nothing squeezes the grid.
+    expectInt(Int(wideSheet.detail.grid.frame.height),
+              Int(narrowList.detail.grid.frame.height),
               "so the rules grid is not squeezed by a wide result "
-              + "(\(Int(wideSheet.gridScroll.frame.height))pt vs "
-              + "\(Int(narrowList.gridScroll.frame.height))pt)")
-    expectTrue(wideSheet.gridScroll.frame.height >= 220,
-               "and still has its own floor "
-               + "(\(Int(wideSheet.gridScroll.frame.height))pt)")
+              + "(\(Int(wideSheet.detail.grid.frame.height))pt vs "
+              + "\(Int(narrowList.detail.grid.frame.height))pt)")
+    expectTrue(wideSheet.detail.grid.frame.height >= wideSheet.detail.grid.fittingSize.height - 1,
+               "and is drawn at its full height "
+               + "(\(Int(wideSheet.detail.grid.frame.height))pt of "
+               + "\(Int(wideSheet.detail.grid.fittingSize.height))pt)")
     // Every value must have real width. Zero would draw a blank row, which reads
     // as missing data rather than as a layout fault.
-    let squeezed = wideSheet.captureList.rows.filter { $0.valueLabel.frame.width < 40 }
+    let squeezed = wideSheet.detail.captureList.rows.filter { $0.valueLabel.frame.width < 40 }
     expectInt(squeezed.count, 0,
               "and no value label is squeezed to nothing by the family beside it")
 
@@ -1589,19 +1609,19 @@ func runTests() {
     let dashedOnly = makeSheet(RecordingCommitter(), tags: [dashedOnlyTag],
                                columns: countColumns(), loadedRows: countRows())
     host(dashedOnly)
-    expectString(dashedOnly.countLabel.stringValue, "Matches 0 of 10 loaded rows. 2 partial.",
+    expectString(dashedOnly.detail.countLabel.stringValue, "Matches 0 of 10 loaded rows. 2 partial.",
                  "a solid-claims-nothing tag reports 0, but the '2 partial' sitting "
                  + "right beside it is what keeps the sentence from reading as though "
                  + "the tag touches nothing at all — the ten rows on screen would "
                  + "still show two of them tinted dashed, and the footer names that "
                  + "count instead of going silent about it")
-    expectTrue(!dashedOnly.countLabel.stringValue.contains("nothing"),
+    expectTrue(!dashedOnly.detail.countLabel.stringValue.contains("nothing"),
                "chosen over any 'matches nothing' phrasing, which would be true of "
                + "solid alone but false of what the grid is about to show")
     // Assertion 5: `isBroad` is fed solid + partial, not solid alone. Here
     // that total is 2 of 10 (20%), over the tenth-of-loaded-rows threshold, so
     // the warning fires even though the tag CLAIMS nothing.
-    expectString(dashedOnly.warningLabel.stringValue, "This tag is broad.",
+    expectString(dashedOnly.detail.warningLabel.stringValue, "This tag is broad.",
                  "0 solid + 2 partial is still a fifth of the loaded rows, so the "
                  + "breadth warning is driven by the total that will light up the "
                  + "grid, not by what the tag claims")
@@ -1613,9 +1633,9 @@ func runTests() {
     // `counting`'s selected tag ("Suspect") is single-condition rules only, so
     // every touch it makes is automatically solid — the case this modal will
     // hit on almost every screen.
-    expectTrue(!counting.countLabel.stringValue.contains("partial"),
+    expectTrue(!counting.detail.countLabel.stringValue.contains("partial"),
                "the common case — no partial matches — reads as one plain "
-               + "sentence (\(counting.countLabel.stringValue.debugDescription)), "
+               + "sentence (\(counting.detail.countLabel.stringValue.debugDescription)), "
                + "not noise like '0 partial.'")
 
     // MARK: 39 — every sidebar row carries its full name as a tooltip
@@ -1658,7 +1678,7 @@ func runTests() {
     // And it FOLLOWS a rename. A tooltip left holding the previous name would be
     // worse than none: it would answer the question wrongly.
     select(twins, row: 1)
-    type(twins.nameField, "Renamed")
+    type(twins.detail.nameField, "Renamed")
     expectString(rowToolTip(twins, 1), "Renamed",
                  "a renamed row's tooltip is the new name, not the old one")
 
@@ -1670,10 +1690,10 @@ func runTests() {
     let blankNamed = makeSheet(RecordingCommitter())
     host(blankNamed)
     select(blankNamed, row: 0)
-    type(blankNamed.nameField, "   ")
-    expectTrue(!blankNamed.saveButton.isEnabled,
+    type(blankNamed.detail.nameField, "   ")
+    expectTrue(!blankNamed.detail.saveButton.isEnabled,
                "a name of nothing but spaces cannot be saved")
-    expectString(blankNamed.statusLabel.stringValue,
+    expectString(blankNamed.detail.statusLabel.stringValue,
                  "A tag has no name yet. Every tag needs one.",
                  "and says so in the analyst's terms")
 
@@ -1751,24 +1771,53 @@ func runTests() {
     let vanishingClosings = countClosings(vanishing)
     let vanishingWindow = host(vanishing)
     select(vanishing, row: 0)
-    type(vanishing.nameField, "Renamed Into Nothing")
-    vanishing.saveButton.performClick(nil)
+    type(vanishing.detail.nameField, "Renamed Into Nothing")
+    vanishing.detail.saveButton.performClick(nil)
     expectInt(vanishedCommitter.applied.count, 1, "the save was attempted once")
     expectInt(vanishingClosings.count, 0,
               "a save into a tag deleted elsewhere does NOT close the sheet")
     expectInt(vanishingWindow.sheets.count, 1, "it raises the error alert")
-    expectString(vanishing.nameField.stringValue, "Renamed Into Nothing",
+    expectString(vanishing.detail.nameField.stringValue, "Renamed Into Nothing",
                  "and the edit is still in the field, ready to be saved somewhere")
     let vanishedSurvivors = updates(vanishing)
     expectInt(vanishedSurvivors.count, 1, "and still in the model")
-    expectTrue(vanishing.statusLabel.stringValue.contains("no longer exists"),
+    expectTrue(vanishing.detail.statusLabel.stringValue.contains("no longer exists"),
                "and the status line says what happened "
-               + "(\(vanishing.statusLabel.stringValue.debugDescription))")
+               + "(\(vanishing.detail.statusLabel.stringValue.debugDescription))")
 
     finish()
 }
 
 private func finish() {
+    renderBothAppearances()
+    expectInt(SpyWindow.conflicts, 0, "no constraint conflict was reported by any sheet in this suite")
     print(failures == 0 ? "\nAll TagManagerSheet tests passed." : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// The `.add` and `.remove` sheets draw in Light and in Dark without raising,
+/// and Dark really is dark: the detail's surface differs between the two.
+private func renderBothAppearances() {
+    for mode in [TagManagerModel.Mode.add(capture: fixtureCapture()), .remove(ruleIds: ["r1"])] {
+        let sheet = makeSheet(RecordingCommitter(), mode: mode)
+        host(sheet)
+        select(sheet, row: 0)
+        var corners: [NSColor] = []
+        for appearance in [NSAppearance(named: .aqua)!, NSAppearance(named: .darkAqua)!] {
+            let view = sheet.detail.view
+            view.appearance = appearance
+            view.layoutSubtreeIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                failures += 1
+                print("FAIL the sheet's detail cannot be rendered")
+                continue
+            }
+            appearance.performAsCurrentDrawingAppearance { view.cacheDisplay(in: view.bounds, to: rep) }
+            // The top-left pixel is the surface, above the first section.
+            if let corner = rep.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB) { corners.append(corner) }
+        }
+        expectTrue(corners.count == 2 && corners[0] != corners[1],
+                   "the \(mode == .remove(ruleIds: ["r1"]) ? "remove" : "add") sheet renders in Light and Dark, "
+                   + "and the two surfaces differ")
+    }
 }

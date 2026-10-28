@@ -1,5 +1,6 @@
 #!/bin/bash
-# Standalone test runner for TagManagerSheet. Uses real AppKit through a
+# Standalone test runner for TagManagerSheet and the TagDetailVC it hosts.
+# Uses real AppKit through a
 # headless NSWindow, like scripts/test-tag-rule-grid-view.sh.
 #
 # TagManagerCommitting.swift IS compiled in — do not copy the file list from
@@ -54,6 +55,17 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Views/TagRuleGridView.swift \
   Pharos/Views/Toast.swift \
   Pharos/Sheets/TagManagerSheet.swift \
+  Pharos/Sheets/TagDetailVC.swift \
+  Pharos/Views/TagColorSwatchPicker.swift \
+  Pharos/Views/EmptyStateView.swift \
+  Pharos/Settings/SettingsDetailVC.swift \
+  Pharos/Settings/Furniture/SettingsMetrics.swift \
+  Pharos/Settings/Furniture/SettingsFormDocumentView.swift \
+  Pharos/Settings/Furniture/SettingsGroupBox.swift \
+  Pharos/Settings/Furniture/SettingsRow.swift \
+  Pharos/Settings/Furniture/SettingsSectionHeader.swift \
+  Pharos/Settings/Furniture/SettingsFooterButtonRow.swift \
+  Pharos/Utilities/NSLayoutConstraint+Swap.swift \
   Pharos/Core/TagSampleTest.swift \
   Pharos/Sheets/TagAddValuesSheet.swift \
   Pharos/Core/TagValueImport.swift \
