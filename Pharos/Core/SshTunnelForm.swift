@@ -94,18 +94,46 @@ enum SshTunnelForm {
         }
     }
 
+    /// The port the SSH Port field holds, or `nil` when it is not a whole
+    /// number from 1 to 65535 — the range the field's formatter allows. Outer
+    /// spaces are ignored. `UInt16(_:)` alone is not this rule: it takes "0",
+    /// which no SSH server listens on.
+    static func port(from text: String) -> UInt16? {
+        guard let value = Int(text.trimmingCharacters(in: .whitespaces)),
+              (1...65535).contains(value) else { return nil }
+        return UInt16(value)
+    }
+
+    /// Why Save cannot write the tunnel the form describes, or `nil` when it
+    /// can. A tunnel that is off has nothing to refuse.
+    ///
+    /// `tunnel(from:existing:)` still keeps the stored port while the field
+    /// holds a bad one, so a half-typed port never changes the draft. This
+    /// rule is what stops that fallback from being SAVED in silence: the form
+    /// shows the problem under the field and Save stays off until it is fixed.
+    static func portProblem(_ fields: Fields) -> String? {
+        guard fields.enabled, port(from: fields.port) == nil else { return nil }
+        return String(localized: "Enter a port from 1 to 65535.")
+    }
+
+    /// Whether Save may write the tunnel the form describes (`portProblem`).
+    static func isValidForSave(_ fields: Fields) -> Bool {
+        portProblem(fields) == nil
+    }
+
     /// The tunnel the form describes, or `nil` when the checkbox is off.
     ///
     /// `existing` is the tunnel the draft already holds. It supplies the two
     /// values the form cannot: the secret while the field is masked, and the
-    /// port while the port field holds something that is not a number.
+    /// port while the port field holds something that is not a valid port
+    /// (`port(from:)`). Save refuses that second case (`isValidForSave`).
     static func tunnel(from fields: Fields, existing: SshTunnelConfig?) -> SshTunnelConfig? {
         guard fields.enabled else { return nil }
         let user = fields.user.trimmingCharacters(in: .whitespaces)
         let keyPath = fields.keyPath.trimmingCharacters(in: .whitespaces)
         return SshTunnelConfig(
             host: fields.host,
-            port: UInt16(fields.port) ?? existing?.port ?? 22,
+            port: port(from: fields.port) ?? existing?.port ?? 22,
             // An empty user is not a user named "": it means "let
             // ~/.ssh/config choose", which is a different command line.
             user: user.isEmpty ? nil : user,

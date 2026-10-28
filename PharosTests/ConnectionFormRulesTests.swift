@@ -63,6 +63,46 @@ func runTests() {
     expect(ConnectionFormRules.shouldFetchSchemas(server, fileExists: { _ in false }), "PostgreSQL: always fetch")
     expect(ConnectionFormRules.schemaFetchIdPrefix == "__test_schema_fetch_", "the prefix pharos-core hides and purges")
 
+    // MARK: missingFields — the "Required" captions
+
+    let complete = ConnectionConfig(id: "m", name: "prod", host: "db", port: 5432, database: "app", username: "me")
+    expect(ConnectionFormRules.missingFields(complete).isEmpty, "a complete server record misses nothing")
+    let blankServer = ConnectionConfig(id: "m2", name: "", host: "", port: 5432, database: "", username: "")
+    expect(ConnectionFormRules.missingFields(blankServer) == [.name, .host, .username, .database],
+           "a blank server record misses name, host, username and database, in form order")
+    var spaces = complete
+    spaces.host = " \t "
+    expect(ConnectionFormRules.missingFields(spaces) == [.host], "a host of spaces and tabs is missing")
+    var noUser = complete
+    noUser.username = ""
+    expect(ConnectionFormRules.missingFields(noUser) == [.username], "only the blank field is named (username)")
+    var noDatabase = complete
+    noDatabase.database = ""
+    expect(ConnectionFormRules.missingFields(noDatabase) == [.database], "only the blank field is named (database)")
+    // The password, port, SSL and tunnel are never required.
+    var noPassword = complete
+    noPassword.password = ""
+    expect(ConnectionFormRules.missingFields(noPassword).isEmpty, "a blank password is not missing")
+
+    var duckBlank = ConnectionConfig.duckDB(path: "", id: "d")
+    duckBlank.name = ""
+    expect(ConnectionFormRules.missingFields(duckBlank) == [.name, .databaseFile],
+           "a blank DuckDB record misses its name and its FILE, not a host or a user")
+    var duckMemory = ConnectionConfig.duckDB(path: ConnectionConfig.duckDBInMemoryPath, id: "d2")
+    duckMemory.name = "scratch"
+    expect(ConnectionFormRules.missingFields(duckMemory).isEmpty, "in-memory DuckDB misses nothing")
+    var duckFile = ConnectionConfig.duckDB(path: "/tmp/a.duckdb", id: "d3")
+    duckFile.name = "a"
+    duckFile.host = ""
+    duckFile.username = ""
+    expect(ConnectionFormRules.missingFields(duckFile).isEmpty, "a DuckDB record never needs host or user")
+
+    // isValid is exactly "nothing missing", for every record above.
+    for record in [complete, blankServer, spaces, noUser, noDatabase, noPassword, duckBlank, duckMemory, duckFile] {
+        expect(ConnectionFormRules.isValid(record) == ConnectionFormRules.missingFields(record).isEmpty,
+               "Save and the captions agree (\(record.id))")
+    }
+
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

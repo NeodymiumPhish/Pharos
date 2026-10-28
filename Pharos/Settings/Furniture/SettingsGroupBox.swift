@@ -65,6 +65,14 @@ final class SettingsGroupBox: NSView {
         needsDisplay = true
     }
 
+    /// The separators sit on row boundaries, so they are redrawn whenever the
+    /// rows move — a row shown or hidden moves the ones below it without
+    /// necessarily changing the box's size.
+    override func layout() {
+        super.layout()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let radius = SettingsMetrics.boxCornerRadius
 
@@ -80,7 +88,12 @@ final class SettingsGroupBox: NSView {
             ? NSColor.labelColor.withAlphaComponent(1)
             : SettingsMetrics.borderColor
 
-        let separators = stack.arrangedSubviews.dropFirst()
+        // Visible rows only, and none above the first VISIBLE row. NSStackView
+        // parks a hidden arranged row at the top of the stack (measured
+        // 2026-10-28: y 0 in this box), so a separator drawn for it runs along
+        // the top edge to the full width — past the rounded top-right corner —
+        // and darkens with every hidden row (`test-settings-furniture.sh`, 19).
+        let separators = stack.arrangedSubviews.filter { !$0.isHidden }.dropFirst()
         if !separators.isEmpty {
             ink.setFill()
             let leading = separatorLeadingInset

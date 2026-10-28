@@ -1,91 +1,6 @@
 import AppKit
 import Combine
-import SwiftUI
 import os
-
-// MARK: - List view model
-
-/// Drives the SwiftUI list on the left. Owns the user-facing connection list
-/// state and exposes callbacks for actions that need VC orchestration (add /
-/// delete confirmation / drag-reorder persistence). SwiftUI's `List` +
-/// `.onMove` handles drag-and-drop reordering natively — we just hand it the
-/// data and let it call back when the user finishes a drag.
-@MainActor
-final class ConnectionsListModel: ObservableObject {
-    @Published var connections: [ConnectionConfig] = []
-    @Published var selectedIds: Set<String> = []
-    @Published var pendingStubIds: Set<String> = []
-    @Published var statuses: [String: ConnectionStatus] = [:]
-    /// Connection currently being edited in the right pane and not yet saved.
-    /// Used to render the orange dirty-dot in the corresponding list row.
-    @Published var dirtyConnectionId: String?
-
-    var onMove: ((IndexSet, Int) -> Void)?
-    var onAdd: (() -> Void)?
-    var onDelete: ((Set<String>) -> Void)?
-
-    var selectedId: String? { selectedIds.first }
-
-    func status(for id: String) -> ConnectionStatus { statuses[id] ?? .disconnected }
-    func isStub(_ id: String) -> Bool { pendingStubIds.contains(id) }
-    func isDirty(_ id: String) -> Bool { dirtyConnectionId == id && !pendingStubIds.contains(id) }
-}
-
-// MARK: - SwiftUI list
-
-struct ConnectionsListView: View {
-    @ObservedObject var model: ConnectionsListModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            List(selection: $model.selectedIds) {
-                ForEach(model.connections, id: \.id) { connection in
-                    ConnectionListRow(
-                        connection: connection,
-                        status: model.status(for: connection.id),
-                        isStub: model.isStub(connection.id),
-                        isDirty: model.isDirty(connection.id)
-                    )
-                    .tag(connection.id)
-                }
-                .onMove { source, destination in
-                    model.onMove?(source, destination)
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-
-            Divider()
-
-            HStack(spacing: 4) {
-                Button {
-                    model.onAdd?()
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 22, height: 16)
-                }
-                .help("Add Connection")
-
-                Button {
-                    if !model.selectedIds.isEmpty {
-                        model.onDelete?(model.selectedIds)
-                    }
-                } label: {
-                    Image(systemName: "minus")
-                        .frame(width: 22, height: 16)
-                }
-                .disabled(model.selectedIds.isEmpty)
-                .help(String(localized: "Delete the selected connections. A DuckDB file stays where it is."))
-
-                Spacer()
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-        }
-    }
-}
 
 private extension String {
     /// `self`, or `fallback` when `self` holds nothing. Used where a name is
@@ -94,90 +9,45 @@ private extension String {
     func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self }
 }
 
-private struct ConnectionListRow: View {
-    let connection: ConnectionConfig
-    let status: ConnectionStatus
-    let isStub: Bool
-    let isDirty: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-
-            VStack(alignment: .leading, spacing: 1) {
-                // The placeholder is chosen on the TRIMMED text, not the raw
-                // name: a stored name of nothing but spaces trims to nothing,
-                // and a blank row is less use than "Untitled".
-                Text(DisplayEscape.escapedTrimmed(connection.name).ifEmpty("Untitled"))
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(isStub ? Color.orange : Color.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
-            Spacer(minLength: 4)
-
-            if isDirty {
-                Circle().fill(Color.orange).frame(width: 6, height: 6)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-
-    private var subtitle: String {
-        guard !isStub else { return "Not saved" }
-        // A DuckDB record is a FILE: its path (with ~), or "In-memory".
-        if connection.isDuckDB {
-            return "DuckDB · " + DisplayEscape.escaped(connection.locationDescription)
-        }
-        let base = "\(DisplayEscape.escaped(connection.host)):\(connection.port) · \(DisplayEscape.escaped(connection.database))"
-        // The tunnel is part of WHERE this connection goes, and a bastion's
-        // name is the one thing that tells two otherwise identical records
-        // apart. Escaped like every other stored string shown as a label.
-        return base + SshTunnelForm.viaSuffix(connection.sshTunnel,
-                                              escape: DisplayEscape.escaped)
-    }
-
-    private var statusColor: Color {
-        if isStub { return Color.orange }
-        switch status {
-        case .connected:    return Color.green
-        case .connecting:   return Color.yellow
-        case .error:        return Color.red
-        case .disconnected: return Color(nsColor: .tertiaryLabelColor)
-        }
-    }
-}
-
 // MARK: - View Controller
 
-/// Two-pane connections manager. Left pane: SwiftUI `List` with `.onMove`
-/// drag-reorder and a +/- footer (hosted via NSHostingView). Right pane:
-/// detail form (AppKit) with Save/Revert footer.
+/// The Connections Manager's content: the shared manager shell
+/// (`ManagerSplitViewController`) with every connection in its Glass sidebar
+/// (`ConnectionSidebarRows` → `ManagerSidebarVC`) and the chosen record's form
+/// in the detail. The form is built from the Settings furniture — a section
+/// header and a `SettingsGroupBox` of `SettingsRow`s per section — and Test
+/// Connection, Revert and Save sit in a bar under it.
+///
+/// Hosted by `ConnectionsManagerWindowController`, which closes the window
+/// through `confirmClose(in:then:)`.
 final class ConnectionsManagerVC: NSViewController {
 
     // MARK: - State
 
     private let stateManager = AppStateManager.shared
     private var cancellables = Set<AnyCancellable>()
-    private let listModel = ConnectionsListModel()
 
-    /// Convenience accessors for the model-owned list state.
-    private var connections: [ConnectionConfig] {
-        get { listModel.connections }
-        set { listModel.connections = newValue }
+    /// The list, in order: the saved records, then the stubs not saved yet.
+    /// Every change redraws the sidebar.
+    private var connections: [ConnectionConfig] = [] {
+        didSet { refreshSidebar() }
     }
-    private var pendingStubIds: Set<String> {
-        get { listModel.pendingStubIds }
-        set { listModel.pendingStubIds = newValue }
+    /// Records added by + or by a `postgres://` link and never saved.
+    private var pendingStubIds: Set<String> = [] {
+        didSet { refreshSidebar() }
     }
+    private var statuses: [String: ConnectionStatus] = [:] {
+        didSet { refreshSidebar() }
+    }
+    /// The record being edited and not yet saved: its row shows the unsaved
+    /// dot.
+    private var dirtyConnectionId: String? {
+        didSet { if dirtyConnectionId != oldValue { refreshSidebar() } }
+    }
+
+    /// The record the form shows: the sidebar's selection. It survives a
+    /// filter that hides its row.
+    private var selectedId: String? { sidebar.selectedId }
 
     /// Schema lists fetched by "Test Connection", keyed by connection id.
     ///
@@ -199,9 +69,15 @@ final class ConnectionsManagerVC: NSViewController {
     /// two status updates cannot start the same fetch twice.
     private var liveSchemaFetchesInFlight: Set<String> = []
 
-    private let doneButton = NSButton()
-
-    private var draft: ConnectionConfig?
+    /// The record in the form, as edited. Its NAME is what the sidebar row
+    /// shows for it (`refreshSidebar`), so a rename shows in the list as it is
+    /// typed while `connections` keeps the stored name — and a Revert or a
+    /// Discard needs nothing more than dropping the draft to put it back.
+    private var draft: ConnectionConfig? {
+        didSet {
+            if draft?.id != oldValue?.id || draft?.name != oldValue?.name { refreshSidebar() }
+        }
+    }
     private var draftBaseline: ConnectionConfig?
 
     /// The record whose password arrived in a `postgres://` link. The note
@@ -214,11 +90,22 @@ final class ConnectionsManagerVC: NSViewController {
         return draft != draftBaseline
     }
 
-    // MARK: - Right pane
+    // MARK: - Window furniture
 
-    private let placeholderLabel = NSTextField(labelWithString: "Select a connection or click + to add a new one.")
-    private let detailContent = NSView()
-    private let titleField = NSTextField(labelWithString: "Connection")
+    private let sidebar = ManagerSidebarVC(accessibilityLabel: String(localized: "Connections"))
+    private let toolbarController = ManagerToolbarController(
+        identifier: "PharosConnectionsManagerToolbar",
+        addLabel: String(localized: "New Connection"))
+    private var splitVC: ManagerSplitViewController?
+    /// The detail while a record is selected: the form and its action bar.
+    private lazy var formPane = ConnectionsDetailPaneVC(content: buildFormPane())
+    /// The detail while nothing is selected.
+    private lazy var emptyPane = ConnectionsDetailPaneVC(content: buildEmptyPane())
+    private let emptyState = EmptyStateView()
+
+    // MARK: - Form
+
+    private let titleField = NSTextField(labelWithString: String(localized: "Connection"))
     private let statusBadge = StatusBadge()
 
     private let nameField = NSTextField()
@@ -232,13 +119,14 @@ final class ConnectionsManagerVC: NSViewController {
     /// Choose… button. The row is hidden for every other SSL mode.
     private let sslRootCertField = NSTextField()
     private let sslChooseCertButton = NSButton()
-    private var sslRootCertRow: NSView?
+    private var sslRootCertRow: SettingsRow?
     /// Session ▸ per-connection: read-only, connect at launch, remember the
     /// password, and the connection's own time zone.
-    private let readOnlyCheckbox = NSButton()
-    private let connectOnLaunchCheckbox = NSButton()
+    private let readOnlyCheckbox = NSSwitch()
+    private let connectOnLaunchCheckbox = NSSwitch()
     private let sessionTimeZonePopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
+    private var readOnlyRow: SettingsRow?
 
     /// The engine pop-up (PostgreSQL / DuckDB), and the DuckDB file controls.
     /// The sections and rows are kept so `applyEngineVisibility` can show the
@@ -248,14 +136,22 @@ final class ConnectionsManagerVC: NSViewController {
     private let duckChooseButton = NSButton()
     private let duckNewButton = NSButton()
     private let duckRevealButton = NSButton()
-    private let duckInMemoryCheckbox = NSButton()
+    private let duckInMemoryCheckbox = NSSwitch()
     private var serverSectionView: NSView?
     private var authSectionView: NSView?
     private var sshSectionView: NSView?
     private var duckSectionView: NSView?
-    private var databaseNameRow: NSView?
-    private var timeZoneRow: NSView?
-    private var timeZoneNoteRow: NSView?
+    private var databaseNameRow: SettingsRow?
+    private var timeZoneRow: SettingsRow?
+
+    /// The rows that show a "Required" caption while their field is blank
+    /// (`ConnectionFormRules.missingFields`), each with the caption it carries
+    /// anyway, if any.
+    private var requiredRows: [ConnectionFormRules.RequiredField: (row: SettingsRow, note: String?)] = [:]
+
+    /// Every group box in the form. A box draws the separators between its
+    /// rows, so it is redrawn when a row is shown or hidden.
+    private var boxes: [SettingsGroupBox] = []
 
     // One badge per round-trip field. `nameField` has none — it is an authored
     // label and is sanitised instead — and `portField` has none, because a port
@@ -265,29 +161,27 @@ final class ConnectionsManagerVC: NSViewController {
     private let usernameBadge = HostileTextBadge()
     private let passwordBadge = HostileTextBadge()
 
-    /// Caption under the password field, shown only for a connection opened
-    /// from a link that carried a password. Its row is hidden with it, so the
-    /// form does not keep an empty line when there is nothing to say.
-    private let passwordFromLinkLabel = NSTextField(labelWithString: "")
-    private var passwordFromLinkRow: NSView?
+    /// The Password row. Its caption carries the two notes about the password:
+    /// that it came from a `postgres://` link, and why the Touch ID gate did
+    /// not open. Empty, the row closes up to one line.
+    private var passwordRow: SettingsRow?
+    /// Shown only for a connection opened from a link that carried a password.
+    private var showsPasswordFromLinkNote = false
+    /// The gate's own reporting — the reason an attempt did not succeed.
+    private var passwordAuthNote = ""
 
     /// The Touch ID gate for this record: ask the device owner to authenticate
     /// before connecting, and before the stored password is shown.
-    private let requireAuthCheckbox = NSButton()
+    private let requireAuthCheckbox = NSSwitch()
 
     /// Whether this record's password is kept in the login keychain. Cleared,
     /// the password is asked for instead — `PasswordPromptSheet` — and held in
     /// memory until Pharos quits.
-    private let rememberPasswordCheckbox = NSButton()
+    private let rememberPasswordCheckbox = NSSwitch()
 
     /// Stands beside a masked password field. Pressing it runs the gate; the
     /// real password appears only after the device owner authenticates.
     private let showPasswordButton = NSButton()
-
-    /// Caption under the password field for the gate's own reporting — the
-    /// reason an attempt did not succeed. Its row is hidden when it is empty.
-    private let passwordAuthLabel = NSTextField(labelWithString: "")
-    private var passwordAuthRow: NSView?
 
     /// False while the password field shows the mask rather than the stored
     /// password. It is per SELECTION, not per record: a gated record starts
@@ -296,7 +190,7 @@ final class ConnectionsManagerVC: NSViewController {
     ///
     /// The mask is what makes `syncFormIntoDraft` skip the password — otherwise
     /// a Save from the masked form would write the mask over the stored value.
-    /// The checkbox does NOT drive this: unticking the box must not reveal a
+    /// The switch does NOT drive this: turning it off must not reveal a
     /// password the gate is still holding back.
     private var passwordRevealed = true
 
@@ -306,11 +200,10 @@ final class ConnectionsManagerVC: NSViewController {
 
     // MARK: SSH tunnel controls
     //
-    // Every row below the checkbox is hidden while the checkbox is off, and
-    // the key-file and secret rows follow the authentication pop-up. A hidden
-    // row keeps its constraints, so the form's width never moves.
+    // Every row below the switch is hidden while the switch is off, and the
+    // key-file and secret rows follow the authentication pop-up.
 
-    private let sshEnabledCheckbox = NSButton()
+    private let sshEnabledCheckbox = NSSwitch()
     private let sshHostField = NSTextField()
     private let sshPortField = NSTextField()
     private let sshUserField = NSTextField()
@@ -319,22 +212,23 @@ final class ConnectionsManagerVC: NSViewController {
     private let sshChooseKeyButton = NSButton()
     private let sshSecretField = NSSecureTextField()
     private let sshShowSecretButton = NSButton()
-    private let sshAcceptNewHostKeysCheckbox = NSButton()
-    private let sshRememberSecretCheckbox = NSButton()
+    private let sshAcceptNewHostKeysCheckbox = NSSwitch()
+    private let sshRememberSecretCheckbox = NSSwitch()
     private let sshHostBadge = HostileTextBadge()
     private let sshUserBadge = HostileTextBadge()
 
     /// The rows that appear only when the tunnel is on, in form order.
     private var sshRows: [NSView] = []
     /// The key-file row, shown only for `.keyFile`.
-    private var sshKeyPathRow: NSView?
-    /// The secret row and its label, shown for `.keyFile` and `.password`.
-    /// The label follows the pop-up: a key file takes a PASSPHRASE, a password
-    /// mode takes a PASSWORD, and calling both the same thing would be wrong
-    /// in one of the two.
-    private var sshSecretRow: NSView?
-    private var sshRememberSecretRow: NSView?
-    private let sshSecretLabel = NSTextField(labelWithString: "")
+    private var sshKeyPathRow: SettingsRow?
+    /// The secret row, shown for `.keyFile` and `.password`. Its title follows
+    /// the pop-up: a key file takes a PASSPHRASE, a password mode takes a
+    /// PASSWORD, and calling both the same thing would be wrong in one of the
+    /// two.
+    private var sshSecretRow: SettingsRow?
+    private var sshRememberSecretRow: SettingsRow?
+    /// Its caption says why Save is off while the port is not a port.
+    private var sshPortRow: SettingsRow?
 
     private let testButton = NSButton()
     private let testStatusLabel = NSTextField(labelWithString: "")
@@ -343,109 +237,61 @@ final class ConnectionsManagerVC: NSViewController {
     private let revertButton = NSButton()
     private let saveButton = NSButton()
 
-    /// The form's scroll view. Held so turning the tunnel on can take the user
-    /// to the section it just revealed.
-    private var detailScrollView: NSScrollView?
-
     private enum L {
-        static let listWidth: CGFloat = 240
-        static let formInsetH: CGFloat = 28
-        static let formInsetTop: CGFloat = 18
-        static let formInsetBottom: CGFloat = 20
-        static let labelColumnWidth: CGFloat = 130
-        static let fieldMinWidth: CGFloat = 320
+        /// The narrowest the form may get: with the sidebar at its widest
+        /// (320) this is the window's minimum width (820).
+        static let detailMinimum: CGFloat = 500
+        /// Every text field and pop-up is this wide, so the controls form one
+        /// column down the form: the same leading edge and the same trailing
+        /// edge in every box.
+        static let controlWidth: CGFloat = 320
         static let portWidth: CGFloat = 90
-        static let popupMinWidth: CGFloat = 200
-        static let sectionSpacing: CGFloat = 18
-        static let rowSpacing: CGFloat = 10
         static let badgeGap: CGFloat = 6
         /// The gap under the pinned action bar, and above its separator.
         static let actionBarInsetBottom: CGFloat = 16
         static let actionBarInsetTop: CGFloat = 14
     }
 
-    /// Slightly darker than the right pane's content background, so the left
-    /// pane reads as a sidebar.
-    ///
-    /// The system pair, not two hand-picked greys: `windowBackgroundColor`
-    /// behind `controlBackgroundColor` is the contrast macOS already uses for
-    /// exactly this, and it stays right in both appearances and under Increase
-    /// Contrast without anyone maintaining a number.
-    private static var sidebarBackgroundColor: NSColor { .windowBackgroundColor }
-
     // MARK: - Lifecycle
 
     override func loadView() {
-        // A sheet takes its size from this frame, the way every other sheet in
-        // Pharos/Sheets does. It used to be 860x560, matching TagManagerSheet —
-        // but MEASURED against this form that was always too short: with no SSH
-        // section at all the form wants 633 pt against a 508 pt viewport, so
-        // Test Connection, Revert and Save sat below the fold on a fresh
-        // connection and the user had to scroll to reach Save.
-        //
-        // 720 gives a 668 pt viewport, which holds the whole form with the SSH
-        // section closed — the common case — with room to spare. With the
-        // section open the form wants 848 pt and still scrolls; that is the
-        // right trade, because an advanced section should not make every
-        // connection's window taller.
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 880, height: 720))
-        self.view = root
+        let root = NSView(frame: NSRect(origin: .zero, size: ConnectionsManagerWindowController.defaultSize))
+        view = root
 
-        let split = NSSplitView()
-        split.dividerStyle = .thin
-        split.isVertical = true
-        split.translatesAutoresizingMaskIntoConstraints = false
+        // Built now, so every control and row exists before the first record
+        // is loaded into it.
+        _ = formPane
 
-        let left = buildLeftPane()
-        let right = buildRightPane()
-        split.addArrangedSubview(left)
-        split.addArrangedSubview(right)
-
-        doneButton.title = String(localized: "Done")
-        doneButton.bezelStyle = .rounded
-        // Escape closes the sheet. Save and Revert are per-connection and stay
-        // in the form; this button only dismisses, after the same unsaved-work
-        // prompt a selection change already puts up.
-        doneButton.keyEquivalent = "\u{1b}"
-        doneButton.target = self
-        doneButton.action = #selector(doneTapped)
-        doneButton.setAccessibilityIdentifier("sheet.connections.done")
-        doneButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let footer = NSView()
-        footer.translatesAutoresizingMaskIntoConstraints = false
-        footer.addSubview(doneButton)
-
-        root.addSubview(split)
-        root.addSubview(footer)
+        let split = ManagerSplitViewController(sidebar: sidebar, detail: emptyPane,
+                                               autosaveName: "PharosConnectionsManagerSplit",
+                                               detailMinimum: L.detailMinimum)
+        split.toolbarController = toolbarController
+        addChild(split)
+        split.view.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(split.view)
         NSLayoutConstraint.activate([
-            split.topAnchor.constraint(equalTo: root.topAnchor),
-            split.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            split.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            split.bottomAnchor.constraint(equalTo: footer.topAnchor),
-            left.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
-            left.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
-            right.widthAnchor.constraint(greaterThanOrEqualToConstant: 480),
-
-            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            footer.heightAnchor.constraint(equalToConstant: 52),
-            doneButton.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -20),
-            doneButton.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            split.view.topAnchor.constraint(equalTo: root.topAnchor),
+            split.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            split.view.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            split.view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
-        DispatchQueue.main.async { [weak split] in
-            split?.setPosition(L.listWidth, ofDividerAt: 0)
-        }
+        splitVC = split
     }
 
-    /// Close the sheet, after the same unsaved-work prompt that guards moving
-    /// between connections.
-    @objc private func doneTapped() {
-        guard isDirty, let window = view.window else {
-            dismiss(nil)
-            return
-        }
+    /// Give `window` the manager toolbar (+ and the filter field), once.
+    func installToolbarIfNeeded(on window: NSWindow) {
+        _ = view
+        splitVC?.installToolbarIfNeeded(on: window)
+    }
+
+    /// Whether the window may close now. With unsaved edits it asks — Save,
+    /// Discard or Cancel — on a sheet and returns false; `close` runs once the
+    /// edits are saved or discarded. A Save the form cannot make (a required
+    /// field is blank, the SSH port is not a port) keeps the window open.
+    func confirmClose(in window: NSWindow, then close: @escaping () -> Void) -> Bool {
+        guard isDirty else { return true }
+        // A second ⌘W while the question is up must not queue another.
+        guard window.attachedSheet == nil else { return false }
         let alert = NSAlert()
         let name = (draft?.name.isEmpty == false ? draft?.name : nil) ?? "this connection"
         alert.messageText = DestructiveConfirmationText.unsavedChangesConfirmTitle(name: name)
@@ -457,38 +303,38 @@ final class ConnectionsManagerVC: NSViewController {
             guard let self else { return }
             switch response {
             case .alertFirstButtonReturn:
-                self.saveChangesInternal()
-                self.dismiss(nil)
+                guard self.saveChangesInternal() else { return }
             case .alertSecondButtonReturn:
-                self.dismiss(nil)
+                self.revertChanges()
             default:
-                break
+                return
             }
+            // The next turn: the sheet is still being taken down in this one.
+            DispatchQueue.main.async(execute: close)
         }
+        return false
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Wire the list model's callbacks to VC handlers.
-        listModel.onMove = { [weak self] source, destination in
-            self?.handleMove(from: source, to: destination)
+        sidebar.onSelect = { [weak self] _ in
+            // The next turn, as the old list's selection publisher delivered
+            // it: the unsaved-work prompt is modal, and the table reports a
+            // click from inside its own mouse-down.
+            DispatchQueue.main.async { [weak self] in self?.handleSelectionChange() }
         }
-        listModel.onAdd = { [weak self] in self?.addStub() }
-        listModel.onDelete = { [weak self] ids in self?.deleteSelected(ids: ids) }
-
-        // React to selection changes from the SwiftUI list.
-        listModel.$selectedIds
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.handleSelectionChange() }
-            .store(in: &cancellables)
+        sidebar.onDelete = { [weak self] ids in self?.deleteSelected(ids: Set(ids)) }
+        sidebar.onMove = { [weak self] from, to in
+            self?.handleMove(from: IndexSet(integer: from), to: to)
+        }
+        toolbarController.onAdd = { [weak self] in self?.addStub() }
 
         // Seed initial state, then keep in sync with the global state manager.
         // Saved records only: an opened DuckDB file is not a connection until
         // the user saves it (`ConnectionVisibility`).
-        listModel.connections = ConnectionVisibility.listed(stateManager.connections)
-        listModel.statuses = stateManager.connectionStatuses
+        connections = ConnectionVisibility.listed(stateManager.connections)
+        statuses = stateManager.connectionStatuses
         updateDetailVisibility()
 
         stateManager.$connections
@@ -502,7 +348,7 @@ final class ConnectionsManagerVC: NSViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] statuses in
                 guard let self else { return }
-                self.listModel.statuses = statuses
+                self.statuses = statuses
                 self.refreshStatusBadge()
                 // Connecting in another window is enough to make the picker
                 // usable, so take the list as soon as one is available.
@@ -514,66 +360,57 @@ final class ConnectionsManagerVC: NSViewController {
             .store(in: &cancellables)
     }
 
-    // MARK: - Left pane (SwiftUI host)
+    // MARK: - Sidebar
 
-    private func buildLeftPane() -> NSView {
-        let container = AppearanceBackgroundView()
-        container.colorProvider = { Self.sidebarBackgroundColor }
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        let host = NSHostingView(rootView: ConnectionsListView(model: listModel))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.topAnchor.constraint(equalTo: container.topAnchor),
-            host.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        return container
+    /// Hand the sidebar every row. The record in the form shows its EDITED
+    /// name, so the row follows the name field as the user types.
+    private func refreshSidebar() {
+        var shown = connections
+        if let draft, let index = shown.firstIndex(where: { $0.id == draft.id }) {
+            shown[index].name = draft.name
+        }
+        sidebar.setItems(ConnectionSidebarRows.items(for: shown, statuses: statuses,
+                                                     stubIds: pendingStubIds, dirtyId: dirtyConnectionId))
     }
 
-    // MARK: - Right pane (AppKit form)
+    // MARK: - Empty detail
 
-    private func buildRightPane() -> NSView {
-        let container = AppearanceBackgroundView()
-        container.colorProvider = { .controlBackgroundColor }
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-        placeholderLabel.alignment = .center
-        placeholderLabel.font = .systemFont(ofSize: 13)
-        placeholderLabel.textColor = .secondaryLabelColor
-        container.addSubview(placeholderLabel)
-
-        detailContent.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(detailContent)
-        buildDetailForm(in: detailContent)
-
+    private func buildEmptyPane() -> NSView {
+        let root = SettingsPaneSurfaceView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(emptyState)
         NSLayoutConstraint.activate([
-            placeholderLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            placeholderLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            placeholderLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
-            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24),
-
-            detailContent.topAnchor.constraint(equalTo: container.topAnchor),
-            detailContent.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            detailContent.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            detailContent.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            // The safe area: the pane runs under the toolbar, and the message
+            // is centred in what the user can see.
+            emptyState.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            emptyState.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            emptyState.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            emptyState.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
-
-        return container
+        emptyState.show(symbol: ConnectionTile.symbolName(of: .server),
+                        title: String(localized: "No Connection Selected"),
+                        message: String(localized: "Select a connection or click + to add a new one."))
+        return root
     }
 
-    private func buildDetailForm(in container: NSView) {
+    // MARK: - Form
+
+    /// The form pane: the furniture form in a scroll view, and the action bar
+    /// pinned under it.
+    private func buildFormPane() -> NSView {
         titleField.font = .systemFont(ofSize: 22, weight: .semibold)
         titleField.lineBreakMode = .byTruncatingTail
         titleField.translatesAutoresizingMaskIntoConstraints = false
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         statusBadge.translatesAutoresizingMaskIntoConstraints = false
         statusBadge.setContentHuggingPriority(.required, for: .horizontal)
 
-        let header = NSStackView(views: [titleField, NSView(), statusBadge])
+        let headerSpacer = NSView()
+        headerSpacer.translatesAutoresizingMaskIntoConstraints = false
+        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = NSStackView(views: [titleField, headerSpacer, statusBadge])
         header.orientation = .horizontal
         header.alignment = .firstBaseline
         header.spacing = 12
@@ -584,17 +421,20 @@ final class ConnectionsManagerVC: NSViewController {
         }
         configureField(passwordField)
 
-        nameField.placeholderString = "My Database"
-        hostField.placeholderString = "db.example.com or 10.0.0.5"
+        nameField.placeholderString = String(localized: "My Database")
+        nameField.setAccessibilityIdentifier("connections.name")
+        hostField.placeholderString = String(localized: "db.example.com or 10.0.0.5")
+        hostField.setAccessibilityIdentifier("connections.host")
         portField.placeholderString = "5432"
-        let portFormatter = NumberFormatter()
-        portFormatter.minimum = 1
-        portFormatter.maximum = 65535
-        portFormatter.allowsFloats = false
-        portField.formatter = portFormatter
+        portField.formatter = SettingsControlFactory.numberFormatter(min: 1, max: 65535)
+        portField.alignment = .right
+        portField.setAccessibilityIdentifier("connections.port")
         databaseField.placeholderString = "postgres"
+        databaseField.setAccessibilityIdentifier("connections.database")
         usernameField.placeholderString = "postgres"
-        passwordField.placeholderString = "Optional"
+        usernameField.setAccessibilityIdentifier("connections.username")
+        passwordField.placeholderString = String(localized: "Optional")
+        passwordField.setAccessibilityIdentifier("connections.password")
 
         showPasswordButton.title = String(localized: "Show")
         showPasswordButton.bezelStyle = .rounded
@@ -609,25 +449,10 @@ final class ConnectionsManagerVC: NSViewController {
         // record's password field fills the row exactly as it did before.
         showPasswordButton.isHidden = true
 
-        requireAuthCheckbox.setButtonType(.switch)
-        requireAuthCheckbox.title = String(localized: "Require Touch ID to connect and to show the password")
-        requireAuthCheckbox.target = self
-        requireAuthCheckbox.action = #selector(requireAuthChanged)
-        requireAuthCheckbox.translatesAutoresizingMaskIntoConstraints = false
-        requireAuthCheckbox.setAccessibilityIdentifier("connections.requireAuth")
-        requireAuthCheckbox.toolTip = String(localized:
-            "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was.")
-
-        rememberPasswordCheckbox.setButtonType(.switch)
-        rememberPasswordCheckbox.title = String(localized: "Remember the password in the keychain")
-        rememberPasswordCheckbox.target = self
-        rememberPasswordCheckbox.action = #selector(perConnectionFlagChanged)
-        rememberPasswordCheckbox.setAccessibilityIdentifier("connections.rememberPassword")
-        // What it ACTUALLY does, both ways round. The row was out of this form
-        // until the behaviour existed, because the old one said the opposite of
-        // what happened.
-        rememberPasswordCheckbox.toolTip = String(localized:
-            "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save.")
+        configureSwitch(requireAuthCheckbox, action: #selector(requireAuthChanged),
+                        identifier: "connections.requireAuth")
+        configureSwitch(rememberPasswordCheckbox, action: #selector(perConnectionFlagChanged),
+                        identifier: "connections.rememberPassword")
 
         sslPopup.target = self
         sslPopup.action = #selector(sslPopupChanged)
@@ -636,33 +461,18 @@ final class ConnectionsManagerVC: NSViewController {
         // could, and the index switch below it silently mapped the rest to
         // Prefer.
         sslPopup.addItems(withTitles: SslMode.formOrder.map(\.displayLabel))
-        sslPopup.translatesAutoresizingMaskIntoConstraints = false
+        sslPopup.setAccessibilityIdentifier("connections.sslMode")
 
         configureField(sslRootCertField)
         sslRootCertField.placeholderString = String(localized: "System trust store")
         sslRootCertField.setAccessibilityIdentifier("connections.sslRootCert")
-        sslChooseCertButton.title = String(localized: "Choose…")
-        sslChooseCertButton.bezelStyle = .rounded
-        sslChooseCertButton.target = self
-        sslChooseCertButton.action = #selector(chooseSslRootCert)
-        sslChooseCertButton.setContentHuggingPriority(.required, for: .horizontal)
-        sslChooseCertButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        configureChooseButton(sslChooseCertButton, title: String(localized: "Choose…"),
+                              action: #selector(chooseSslRootCert))
 
-        readOnlyCheckbox.setButtonType(.switch)
-        readOnlyCheckbox.title = String(localized: "Read-only connection")
-        readOnlyCheckbox.target = self
-        readOnlyCheckbox.action = #selector(perConnectionFlagChanged)
-        readOnlyCheckbox.setAccessibilityIdentifier("connections.readOnly")
-        readOnlyCheckbox.toolTip = String(localized:
-            "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens.")
-
-        connectOnLaunchCheckbox.setButtonType(.switch)
-        connectOnLaunchCheckbox.title = String(localized: "Connect when Pharos starts")
-        connectOnLaunchCheckbox.target = self
-        connectOnLaunchCheckbox.action = #selector(perConnectionFlagChanged)
-        connectOnLaunchCheckbox.setAccessibilityIdentifier("connections.connectOnLaunch")
-        connectOnLaunchCheckbox.toolTip = String(localized:
-            "Opens this connection as Pharos starts, once the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together.")
+        configureSwitch(readOnlyCheckbox, action: #selector(perConnectionFlagChanged),
+                        identifier: "connections.readOnly")
+        configureSwitch(connectOnLaunchCheckbox, action: #selector(perConnectionFlagChanged),
+                        identifier: "connections.connectOnLaunch")
 
         sessionTimeZonePopup.target = self
         sessionTimeZonePopup.action = #selector(perConnectionFlagChanged)
@@ -670,19 +480,19 @@ final class ConnectionsManagerVC: NSViewController {
         PopupValueMenu.populate(sessionTimeZonePopup,
                                 sentinel: String(localized: "Use the Settings default"),
                                 values: SessionTimeZone.identifiers)
-        sessionTimeZonePopup.translatesAutoresizingMaskIntoConstraints = false
 
         defaultSchemaPopup.target = self
         defaultSchemaPopup.action = #selector(defaultSchemaChanged)
-        PopupValueMenu.populate(defaultSchemaPopup, sentinel: "Test connection first", values: [])
+        defaultSchemaPopup.setAccessibilityIdentifier("connections.defaultSchema")
+        PopupValueMenu.populate(defaultSchemaPopup, sentinel: String(localized: "Test connection first"), values: [])
         defaultSchemaPopup.isEnabled = false
-        defaultSchemaPopup.translatesAutoresizingMaskIntoConstraints = false
 
-        testButton.title = "Test Connection"
+        testButton.title = String(localized: "Test Connection")
         testButton.bezelStyle = .rounded
         testButton.controlSize = .regular
         testButton.target = self
         testButton.action = #selector(testConnection)
+        testButton.setAccessibilityIdentifier("connections.test")
 
         testSpinner.style = .spinning
         testSpinner.controlSize = .small
@@ -692,27 +502,161 @@ final class ConnectionsManagerVC: NSViewController {
         testStatusLabel.textColor = .secondaryLabelColor
         testStatusLabel.lineBreakMode = .byTruncatingTail
         testStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        testStatusLabel.setAccessibilityIdentifier("connections.testStatus")
 
-
-        revertButton.title = "Revert"
+        revertButton.title = String(localized: "Revert")
         revertButton.bezelStyle = .rounded
         revertButton.target = self
         revertButton.action = #selector(revertChanges)
+        revertButton.setAccessibilityIdentifier("connections.revert")
 
-        saveButton.title = "Save"
+        saveButton.title = String(localized: "Save")
         saveButton.bezelStyle = .rounded
+        // The default button: Return saves, from any field in the form.
         saveButton.keyEquivalent = "\r"
         saveButton.target = self
         saveButton.action = #selector(saveChanges)
+        saveButton.setAccessibilityIdentifier("connections.save")
+
+        enginePopup.target = self
+        enginePopup.action = #selector(engineChanged)
+        enginePopup.addItems(withTitles: DatabaseEngine.allCases.map(\.displayName))
+        enginePopup.setAccessibilityIdentifier("connections.engine")
+
+        configureField(duckPathField)
+        duckPathField.placeholderString = String(localized: "~/Data/sales.duckdb")
+        duckPathField.setAccessibilityIdentifier("connections.duckdbPath")
+        configureChooseButton(duckChooseButton, title: String(localized: "Choose…"), action: #selector(chooseDuckDBFile))
+        configureChooseButton(duckNewButton, title: String(localized: "New…"), action: #selector(newDuckDBFile))
+        configureChooseButton(duckRevealButton, title: String(localized: "Show in Finder"),
+                              action: #selector(revealDuckDBFile))
+        duckChooseButton.toolTip = String(localized: "Open an existing DuckDB database file.")
+        duckNewButton.toolTip = String(localized: "Choose where to create a new database file. Save creates it.")
+        duckRevealButton.toolTip = String(localized: "Show the database file in the Finder.")
+        duckRevealButton.setAccessibilityIdentifier("connections.duckdbReveal")
+        configureSwitch(duckInMemoryCheckbox, action: #selector(duckInMemoryChanged),
+                        identifier: "connections.duckdbInMemory")
+        let duckFileControls = hStack([duckPathField, duckChooseButton, duckNewButton, duckRevealButton])
+
+        // MARK: Connection
+
+        let nameRow = row(String(localized: "Name"), control: sized(nameField))
+        requiredRows[.name] = (nameRow, nil)
+        let generalSection = section(String(localized: "Connection"), rows: [
+            nameRow,
+            row(String(localized: "Engine"), control: sized(enginePopup)),
+        ])
+
+        // MARK: Server
+
+        let hostRow = row(String(localized: "Host"), control: withBadge(hostField, hostBadge), titling: hostField)
+        requiredRows[.host] = (hostRow, nil)
+        let serverSection = section(String(localized: "Server"), rows: [
+            hostRow,
+            row(String(localized: "Port"), control: sized(portField, width: L.portWidth)),
+        ])
+
+        // MARK: Database File
+
+        // Below the title, across the row: a path and three buttons do not
+        // fit the trailing column.
+        let fileNote = String(localized: "Connect opens the file. Save creates a new file; Connect never makes an empty database in place of a file that has gone.")
+        let duckFileRow = row(String(localized: "File"), control: duckFileControls, caption: fileNote,
+                              placement: .below, titling: duckPathField)
+        requiredRows[.databaseFile] = (duckFileRow, fileNote)
+        let inMemoryRow = row(String(localized: "In-memory database"), control: duckInMemoryCheckbox,
+                              caption: String(localized: "An in-memory database's tables are lost when it disconnects or Pharos quits. Pharos asks first, and offers to save them to a file."))
+        setToolTip(String(localized: "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits."),
+                   on: inMemoryRow)
+        let duckSection = section(String(localized: "Database File"), rows: [duckFileRow, inMemoryRow])
+
+        // MARK: Authentication
+
+        let usernameRow = row(String(localized: "Username"), control: withBadge(usernameField, usernameBadge),
+                              titling: usernameField)
+        requiredRows[.username] = (usernameRow, nil)
+        // The field and its Show button travel together, so the badge still
+        // owns the row's trailing edge and the row keeps ONE width whichever
+        // state the gate is in.
+        let passwordControls = hStack([passwordField, showPasswordButton])
+        let passwordRow = row(String(localized: "Password"), control: withBadge(passwordControls, passwordBadge),
+                              titling: passwordField)
+        // `withBadge` linked the badge to the stack it was handed. The warning
+        // is about the FIELD, so say so — a screen reader on the badge must
+        // land on the password field, not on its container.
+        passwordBadge.link(to: passwordField)
+        passwordRow.captionLabel.setAccessibilityIdentifier("connections.passwordNote")
+        self.passwordRow = passwordRow
+
+        let certControls = hStack([sslRootCertField, sslChooseCertButton])
+        let sslCertRow = row(String(localized: "Root Certificate"), control: sized(certControls),
+                             titling: sslRootCertField)
+        // Hidden until a selection loads: the default mode is Prefer, which
+        // uses no certificate, and a row that flashed into view on every open
+        // would be the only row in the form that did.
+        sslCertRow.isHidden = true
+        sslRootCertRow = sslCertRow
+
+        let rememberRow = row(String(localized: "Remember the password in the keychain"),
+                              control: rememberPasswordCheckbox)
+        // What it ACTUALLY does, both ways round. The row was out of this form
+        // until the behaviour existed, because the old one said the opposite
+        // of what happened.
+        setToolTip(String(localized: "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save."),
+                   on: rememberRow)
+        let requireAuthRow = row(String(localized: "Require Touch ID to connect and to show the password"),
+                                 control: requireAuthCheckbox)
+        setToolTip(String(localized: "Asks for Touch ID, an Apple Watch or your login password. The password itself stays in the keychain, where it already was."),
+                   on: requireAuthRow)
+
+        let authSection = section(String(localized: "Authentication"), rows: [
+            usernameRow,
+            passwordRow,
+            row(String(localized: "SSL Mode"), control: sized(sslPopup)),
+            sslCertRow,
+            rememberRow,
+            requireAuthRow,
+        ])
+        let sshSection = buildSshSection()
+
+        // MARK: Database
+
+        let databaseRow = row(String(localized: "Database"), control: withBadge(databaseField, databaseBadge),
+                              titling: databaseField)
+        requiredRows[.database] = (databaseRow, nil)
+        databaseNameRow = databaseRow
+        let dbSection = section(String(localized: "Database"), rows: [
+            databaseRow,
+            row(String(localized: "Default Schema"), control: sized(defaultSchemaPopup)),
+        ])
+        serverSectionView = serverSection
+        duckSectionView = duckSection
+        authSectionView = authSection
+        sshSectionView = sshSection
+
+        // MARK: Session — the per-connection rules, after the database they
+        // apply to.
+
+        let readOnlyRow = row(String(localized: "Read-only connection"), control: readOnlyCheckbox)
+        // The engine's own wording is set by `applyEngineVisibility`.
+        setToolTip(ConnectionFormRules.readOnlyHelp(for: .postgres), on: readOnlyRow)
+        self.readOnlyRow = readOnlyRow
+        let launchRow = row(String(localized: "Connect when Pharos starts"), control: connectOnLaunchCheckbox)
+        setToolTip(String(localized: "Opens this connection as Pharos starts, once the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together."),
+                   on: launchRow)
+        let zoneRow = row(String(localized: "Time Zone"), control: sized(sessionTimeZonePopup),
+                          caption: String(localized: "Applies to connections opened after this change."))
+        timeZoneRow = zoneRow
+        let sessionSection = section(String(localized: "Session"), rows: [readOnlyRow, launchRow, zoneRow])
+
+        let scroll = SettingsFormScroll.makePane(sections: [header, generalSection, serverSection, duckSection,
+                                                            authSection, sshSection, dbSection, sessionSection])
 
         // Test Connection, Revert and Save live in a bar pinned to the bottom
-        // of the pane, OUTSIDE the scroll view — the same place, and the same
-        // reason, as the sheet's own Done button.
-        //
-        // Measured: with no SSH section at all this form wants 633 pt of a
-        // 508 pt viewport, so inside the scroll view Save sat below the fold on
-        // a fresh connection. An action the user must reach to finish the task
-        // must never be something they have to find by scrolling.
+        // of the pane, OUTSIDE the scroll view. An action the user must reach
+        // to finish the task must never be something they have to find by
+        // scrolling: with the SSH section open the form is taller than the
+        // window.
         let actionSpacer = NSView()
         actionSpacer.translatesAutoresizingMaskIntoConstraints = false
         let actionBar = NSStackView(views: [testButton, testSpinner, testStatusLabel,
@@ -725,205 +669,29 @@ final class ConnectionsManagerVC: NSViewController {
         // the message truncates, with the whole of it in the tooltip.
         actionBar.setHuggingPriority(.defaultLow, for: .horizontal)
         let actionSeparator = NSBox.separator()
-        actionSeparator.translatesAutoresizingMaskIntoConstraints = false
 
-        enginePopup.target = self
-        enginePopup.action = #selector(engineChanged)
-        enginePopup.addItems(withTitles: DatabaseEngine.allCases.map(\.displayName))
-        enginePopup.setAccessibilityIdentifier("connections.engine")
-        enginePopup.translatesAutoresizingMaskIntoConstraints = false
-
-        configureField(duckPathField)
-        duckPathField.placeholderString = String(localized: "~/Data/sales.duckdb")
-        duckPathField.setAccessibilityIdentifier("connections.duckdbPath")
-        for (button, title, action) in [(duckChooseButton, String(localized: "Choose…"), #selector(chooseDuckDBFile)),
-                                        (duckNewButton, String(localized: "New…"), #selector(newDuckDBFile)),
-                                        (duckRevealButton, String(localized: "Show in Finder"), #selector(revealDuckDBFile))] {
-            button.title = title
-            button.bezelStyle = .rounded
-            button.target = self
-            button.action = action
-            button.setContentHuggingPriority(.required, for: .horizontal)
-            button.setContentCompressionResistancePriority(.required, for: .horizontal)
-        }
-        duckChooseButton.toolTip = String(localized: "Open an existing DuckDB database file.")
-        duckNewButton.toolTip = String(localized: "Choose where to create a new database file. Save creates it.")
-        duckRevealButton.toolTip = String(localized: "Show the database file in the Finder.")
-        duckRevealButton.setAccessibilityIdentifier("connections.duckdbReveal")
-        duckInMemoryCheckbox.setButtonType(.switch)
-        duckInMemoryCheckbox.title = String(localized: "In-memory database")
-        duckInMemoryCheckbox.target = self
-        duckInMemoryCheckbox.action = #selector(duckInMemoryChanged)
-        duckInMemoryCheckbox.setAccessibilityIdentifier("connections.duckdbInMemory")
-        duckInMemoryCheckbox.toolTip = String(localized:
-            "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits.")
-        let duckFileControls = NSStackView(views: [duckPathField, duckChooseButton, duckNewButton, duckRevealButton])
-        duckFileControls.orientation = .horizontal
-        duckFileControls.alignment = .centerY
-        duckFileControls.distribution = .fill
-        duckFileControls.spacing = 8
-        duckFileControls.translatesAutoresizingMaskIntoConstraints = false
-        duckPathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let generalSection = section(title: String(localized: "Connection"), rows: [
-            row(label: "Name", field: nameField),
-            row(label: String(localized: "Engine"), control: enginePopup),
-        ])
-        let serverSection = section(title: "Server", rows: [
-            row(label: "Host", field: hostField, badge: hostBadge),
-            row(label: "Port", field: portField, fieldFixedWidth: L.portWidth),
-        ])
-        let duckSection = section(title: String(localized: "Database File"), rows: [
-            row(label: String(localized: "File"), field: duckFileControls),
-            row(label: "", control: duckInMemoryCheckbox),
-            noteRow(caption(String(localized: "An in-memory database's tables are lost when it disconnects or Pharos quits. Pharos asks first, and offers to save them to a file."))),
-            noteRow(caption(String(localized: "Connect opens the file. Save creates a new file; Connect never makes an empty database in place of a file that has gone."))),
-        ])
-        serverSectionView = serverSection
-        duckSectionView = duckSection
-        passwordFromLinkLabel.stringValue = String(localized: "Password taken from the link.")
-        passwordFromLinkLabel.font = .systemFont(ofSize: 11)
-        passwordFromLinkLabel.textColor = .secondaryLabelColor
-        passwordFromLinkLabel.setAccessibilityIdentifier("connections.passwordFromLink")
-        let passwordNoteRow = noteRow(passwordFromLinkLabel)
-        passwordNoteRow.isHidden = true
-        passwordFromLinkRow = passwordNoteRow
-
-        passwordAuthLabel.font = .systemFont(ofSize: 11)
-        passwordAuthLabel.textColor = .secondaryLabelColor
-        passwordAuthLabel.setAccessibilityIdentifier("connections.passwordAuthNote")
-        let authNoteRow = noteRow(passwordAuthLabel)
-        authNoteRow.isHidden = true
-        passwordAuthRow = authNoteRow
-
-        // The field and its Show button travel together, so the badge still owns
-        // the row's trailing edge and the row keeps ONE width whichever state
-        // the gate is in.
-        let certControls = NSStackView(views: [sslRootCertField, sslChooseCertButton])
-        certControls.orientation = .horizontal
-        certControls.alignment = .centerY
-        certControls.distribution = .fill
-        certControls.spacing = 8
-        certControls.translatesAutoresizingMaskIntoConstraints = false
-        sslRootCertField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let sslCertRow = row(label: String(localized: "Root Certificate"), field: certControls)
-        // Hidden until a selection loads: the default mode is Prefer, which
-        // uses no certificate, and a row that flashed into view on every open
-        // would be the only row in the form that did.
-        sslCertRow.isHidden = true
-        sslRootCertRow = sslCertRow
-
-        let passwordControls = NSStackView(views: [passwordField, showPasswordButton])
-        passwordControls.orientation = .horizontal
-        passwordControls.alignment = .centerY
-        passwordControls.distribution = .fill
-        passwordControls.spacing = 8
-        passwordControls.translatesAutoresizingMaskIntoConstraints = false
-        passwordField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let authSection = section(title: "Authentication", rows: [
-            row(label: "Username", field: usernameField, badge: usernameBadge),
-            row(label: "Password", field: passwordControls, badge: passwordBadge),
-            passwordNoteRow,
-            authNoteRow,
-            row(label: "SSL Mode", control: sslPopup),
-            sslCertRow,
-            row(label: "", control: rememberPasswordCheckbox),
-            row(label: "", control: requireAuthCheckbox),
-        ])
-        // `row` linked the badge to the stack it was handed. The warning is
-        // about the FIELD, so say so — a screen reader on the badge must land
-        // on the password field, not on its container.
-        passwordBadge.link(to: passwordField)
-        let sshSection = buildSshSection()
-
-        let databaseRow = row(label: "Database", field: databaseField, badge: databaseBadge)
-        databaseNameRow = databaseRow
-        let dbSection = section(title: "Database", rows: [
-            databaseRow,
-            row(label: "Default Schema", control: defaultSchemaPopup),
-        ])
-        authSectionView = authSection
-        sshSectionView = sshSection
-
-        // The per-connection session rules, after the database they apply to.
-        let zoneRow = row(label: String(localized: "Time Zone"), control: sessionTimeZonePopup)
-        let zoneNote = noteRow(caption(String(localized: "Applies to connections opened after this change.")))
-        timeZoneRow = zoneRow
-        timeZoneNoteRow = zoneNote
-        let sessionSection = section(title: String(localized: "Session"), rows: [
-            row(label: "", control: readOnlyCheckbox),
-            row(label: "", control: connectOnLaunchCheckbox),
-            zoneRow,
-            zoneNote,
-        ])
-
-        let main = NSStackView(views: [header, generalSection, serverSection, duckSection, authSection, sshSection,
-                                       dbSection, sessionSection])
-        main.orientation = .vertical
-        main.alignment = .leading
-        main.spacing = L.sectionSpacing
-        main.translatesAutoresizingMaskIntoConstraints = false
-        main.edgeInsets = NSEdgeInsets(top: L.formInsetTop, left: L.formInsetH,
-                                       bottom: L.formInsetBottom, right: L.formInsetH)
-        // Nothing below the form now competes for the pane's height, so the
-        // stack keeps its content height and the scroll view supplies the rest.
-        main.setHuggingPriority(.required, for: .vertical)
-
-        // The form scrolls.
-        //
-        // With the SSH Tunnel section open the form is taller than the sheet,
-        // and the section's height changes with its checkbox — so a taller
-        // window would be wrong for the common case (no tunnel) and a fixed
-        // one would squash the rows. A scroll view is the only answer that is
-        // right in both states. The document view is FLIPPED, or a form
-        // shorter than the sheet would sit against its bottom edge.
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = false
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        let document = ConnectionsFormDocumentView()
-        document.translatesAutoresizingMaskIntoConstraints = false
-        document.addSubview(main)
-        scroll.documentView = document
-        container.addSubview(scroll)
-        container.addSubview(actionSeparator)
-        container.addSubview(actionBar)
-        detailScrollView = scroll
-
+        let root = SettingsPaneSurfaceView()
+        root.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(scroll)
+        root.addSubview(actionSeparator)
+        root.addSubview(actionBar)
         NSLayoutConstraint.activate([
-            actionBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: L.formInsetH),
-            actionBar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -L.formInsetH),
-            actionBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -L.actionBarInsetBottom),
-
-            actionSeparator.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            actionSeparator.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            actionSeparator.bottomAnchor.constraint(equalTo: actionBar.topAnchor,
-                                                    constant: -L.actionBarInsetTop),
-
-            scroll.topAnchor.constraint(equalTo: container.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            // The pane's top, not its safe area: the scroll view insets itself
+            // under the toolbar (`SettingsFormScroll`).
+            scroll.topAnchor.constraint(equalTo: root.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: actionSeparator.topAnchor),
-            // The document takes the clip's width, so nothing ever scrolls
-            // sideways and the rows keep the width they had before.
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
 
-            main.topAnchor.constraint(equalTo: document.topAnchor),
-            main.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            main.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            main.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-            header.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            generalSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            duckSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            serverSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            authSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            sshSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            dbSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
-            sessionSection.widthAnchor.constraint(equalTo: main.widthAnchor, constant: -L.formInsetH * 2),
+            actionSeparator.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            actionSeparator.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            actionSeparator.bottomAnchor.constraint(equalTo: actionBar.topAnchor, constant: -L.actionBarInsetTop),
+
+            actionBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: SettingsMetrics.paneInsetH),
+            actionBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -SettingsMetrics.paneInsetH),
+            actionBar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -L.actionBarInsetBottom),
         ])
+        return root
     }
 
     // MARK: - SSH tunnel section
@@ -934,12 +702,8 @@ final class ConnectionsManagerVC: NSViewController {
     /// server, like the credentials above it, and before the database it
     /// finally opens.
     private func buildSshSection() -> NSView {
-        sshEnabledCheckbox.setButtonType(.switch)
-        sshEnabledCheckbox.title = String(localized: "Connect through an SSH tunnel")
-        sshEnabledCheckbox.target = self
-        sshEnabledCheckbox.action = #selector(sshEnabledChanged)
-        sshEnabledCheckbox.translatesAutoresizingMaskIntoConstraints = false
-        sshEnabledCheckbox.setAccessibilityIdentifier("connections.ssh.enabled")
+        configureSwitch(sshEnabledCheckbox, action: #selector(sshEnabledChanged),
+                        identifier: "connections.ssh.enabled")
 
         for field in [sshHostField, sshPortField, sshUserField, sshKeyPathField] {
             configureField(field)
@@ -948,6 +712,11 @@ final class ConnectionsManagerVC: NSViewController {
         sshHostField.placeholderString = String(localized: "bastion.example.com or a Host from ~/.ssh/config")
         sshHostField.setAccessibilityIdentifier("connections.ssh.host")
         sshPortField.placeholderString = "22"
+        // The same rule as Port: a whole number from 1 to 65535. Mid-edit the
+        // field can still hold anything, so `SshTunnelForm.portProblem` keeps
+        // Save off and says why until it is a port.
+        sshPortField.formatter = SettingsControlFactory.numberFormatter(min: 1, max: 65535)
+        sshPortField.alignment = .right
         sshPortField.setAccessibilityIdentifier("connections.ssh.port")
         sshUserField.placeholderString = String(localized: "From ~/.ssh/config")
         sshUserField.setAccessibilityIdentifier("connections.ssh.user")
@@ -963,17 +732,10 @@ final class ConnectionsManagerVC: NSViewController {
         ])
         sshAuthPopup.target = self
         sshAuthPopup.action = #selector(sshAuthChanged)
-        sshAuthPopup.translatesAutoresizingMaskIntoConstraints = false
         sshAuthPopup.setAccessibilityIdentifier("connections.ssh.auth")
 
-        sshChooseKeyButton.title = String(localized: "Choose…")
-        sshChooseKeyButton.bezelStyle = .rounded
-        sshChooseKeyButton.controlSize = .regular
-        sshChooseKeyButton.target = self
-        sshChooseKeyButton.action = #selector(chooseSshKeyFile)
+        configureChooseButton(sshChooseKeyButton, title: String(localized: "Choose…"), action: #selector(chooseSshKeyFile))
         sshChooseKeyButton.setAccessibilityIdentifier("connections.ssh.chooseKey")
-        sshChooseKeyButton.setContentHuggingPriority(.required, for: .horizontal)
-        sshChooseKeyButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         // The same gate as the database password (D6): one authentication
         // reveals both of a record's secrets, so this button runs the same
@@ -989,78 +751,47 @@ final class ConnectionsManagerVC: NSViewController {
         sshShowSecretButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         sshShowSecretButton.isHidden = true
 
-        sshAcceptNewHostKeysCheckbox.setButtonType(.switch)
-        sshAcceptNewHostKeysCheckbox.title = String(localized: "Accept new host keys")
-        sshAcceptNewHostKeysCheckbox.target = self
-        sshAcceptNewHostKeysCheckbox.action = #selector(fieldEdited)
-        sshAcceptNewHostKeysCheckbox.translatesAutoresizingMaskIntoConstraints = false
-        sshAcceptNewHostKeysCheckbox.setAccessibilityIdentifier("connections.ssh.acceptNewHostKeys")
+        configureSwitch(sshAcceptNewHostKeysCheckbox, action: #selector(fieldEdited),
+                        identifier: "connections.ssh.acceptNewHostKeys")
+        configureSwitch(sshRememberSecretCheckbox, action: #selector(fieldEdited),
+                        identifier: "connections.ssh.rememberSecret")
 
-        sshRememberSecretCheckbox.setButtonType(.switch)
-        sshRememberSecretCheckbox.title = String(localized: "Remember the SSH secret in the keychain")
-        sshRememberSecretCheckbox.target = self
-        sshRememberSecretCheckbox.action = #selector(fieldEdited)
-        sshRememberSecretCheckbox.translatesAutoresizingMaskIntoConstraints = false
-        sshRememberSecretCheckbox.setAccessibilityIdentifier("connections.ssh.rememberSecret")
+        let keyControls = hStack([sshKeyPathField, sshChooseKeyButton])
+        let secretControls = hStack([sshSecretField, sshShowSecretButton])
+
+        let hostRow = row(String(localized: "SSH Host"), control: withBadge(sshHostField, sshHostBadge),
+                          caption: String(localized: "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply."),
+                          titling: sshHostField)
+        let portRow = row(String(localized: "SSH Port"), control: sized(sshPortField, width: L.portWidth))
+        sshPortRow = portRow
+        let userRow = row(String(localized: "SSH User"), control: withBadge(sshUserField, sshUserBadge),
+                          titling: sshUserField)
+        let authRow = row(String(localized: "Authentication"), control: sized(sshAuthPopup))
+        let keyRow = row(String(localized: "Key File"), control: sized(keyControls), titling: sshKeyPathField)
+        // The title is set by `applySshRowVisibility` from the pop-up.
+        let secretRow = row(String(localized: "Passphrase"), control: sized(secretControls), titling: sshSecretField)
+        let rememberSecretRow = row(String(localized: "Remember the SSH secret in the keychain"),
+                                    control: sshRememberSecretCheckbox)
         // What it ACTUALLY does, both ways round, and that it is the TUNNEL's
         // switch — the database password has its own, higher up this form.
-        sshRememberSecretCheckbox.toolTip = String(localized:
-            "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch.")
-
-        let keyControls = NSStackView(views: [sshKeyPathField, sshChooseKeyButton])
-        keyControls.orientation = .horizontal
-        keyControls.alignment = .centerY
-        keyControls.distribution = .fill
-        keyControls.spacing = 8
-        keyControls.translatesAutoresizingMaskIntoConstraints = false
-        sshKeyPathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let secretControls = NSStackView(views: [sshSecretField, sshShowSecretButton])
-        secretControls.orientation = .horizontal
-        secretControls.alignment = .centerY
-        secretControls.distribution = .fill
-        secretControls.spacing = 8
-        secretControls.translatesAutoresizingMaskIntoConstraints = false
-        sshSecretField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        let hostRow = row(label: String(localized: "SSH Host"), field: sshHostField, badge: sshHostBadge)
-        let portRow = row(label: String(localized: "SSH Port"), field: sshPortField,
-                          fieldFixedWidth: L.portWidth)
-        let userRow = row(label: String(localized: "SSH User"), field: sshUserField, badge: sshUserBadge)
-        let authRow = row(label: String(localized: "Authentication"), control: sshAuthPopup)
-        let keyRow = row(label: String(localized: "Key File"), field: keyControls)
-        sshSecretLabel.alignment = .right
-        sshSecretLabel.font = .systemFont(ofSize: 13)
-        sshSecretLabel.textColor = .labelColor
-        let secretRow = row(labelView: sshSecretLabel, field: secretControls)
-        let rememberSecretRow = row(label: "", control: sshRememberSecretCheckbox)
-        let acceptRow = row(label: "", control: sshAcceptNewHostKeysCheckbox)
-        let acceptNote = noteRow(caption(String(localized:
-            "Records an unknown server key on the first connection. A changed key is still refused.")))
-        let configNote = noteRow(caption(String(localized:
-            "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply.")))
+        setToolTip(String(localized: "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch."),
+                   on: rememberSecretRow)
+        let acceptRow = row(String(localized: "Accept new host keys"), control: sshAcceptNewHostKeysCheckbox,
+                            caption: String(localized: "Records an unknown server key on the first connection. A changed key is still refused."))
 
         sshKeyPathRow = keyRow
         sshSecretRow = secretRow
         sshRememberSecretRow = rememberSecretRow
         // The remember switch sits directly under the secret it governs.
-        sshRows = [hostRow, portRow, userRow, authRow, keyRow, secretRow,
-                   rememberSecretRow, acceptRow, acceptNote, configNote]
+        sshRows = [hostRow, portRow, userRow, authRow, keyRow, secretRow, rememberSecretRow, acceptRow]
 
-        let enabledRow = row(label: "", control: sshEnabledCheckbox)
-        return section(title: String(localized: "SSH Tunnel"), rows: [enabledRow] + sshRows)
+        let enabledRow = row(String(localized: "Connect through an SSH tunnel"), control: sshEnabledCheckbox)
+        return section(String(localized: "SSH Tunnel"), rows: [enabledRow] + sshRows)
     }
 
-    private func caption(_ text: String) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = .systemFont(ofSize: 11)
-        label.textColor = .secondaryLabelColor
-        return label
-    }
-
-    /// Show or hide every SSH row for the current checkbox and pop-up.
+    /// Show or hide every SSH row for the current switch and pop-up.
     ///
-    /// One function, called from `populate`, from the checkbox and from the
+    /// One function, called from `populate`, from the switch and from the
     /// pop-up, so the three routes into this state cannot disagree.
     private func applySshRowVisibility() {
         let rules = SshTunnelForm.visibility(enabled: sshEnabledCheckbox.state == .on,
@@ -1069,7 +800,8 @@ final class ConnectionsManagerVC: NSViewController {
         sshKeyPathRow?.isHidden = !rules.keyFileRow
         sshSecretRow?.isHidden = !rules.secretRow
         sshRememberSecretRow?.isHidden = !rules.rememberSecretRow
-        sshSecretLabel.stringValue = rules.secretLabel
+        sshSecretRow?.titleLabel.stringValue = rules.secretLabel
+        rowVisibilityChanged()
     }
 
     private func sshAuthMethodForPopup() -> SshAuthMethod {
@@ -1119,30 +851,56 @@ final class ConnectionsManagerVC: NSViewController {
         }
     }
 
-    /// The tunnel the form currently describes, or `nil` when the checkbox is
+    /// The raw values the SSH Tunnel section's controls hold.
+    private func sshFormFields() -> SshTunnelForm.Fields {
+        SshTunnelForm.Fields(
+            enabled: sshEnabledCheckbox.state == .on,
+            host: sshHostField.stringValue,
+            // The field editor's text while the port is being typed: see
+            // `currentText(of:)`.
+            port: currentText(of: sshPortField),
+            user: sshUserField.stringValue,
+            auth: sshAuthMethodForPopup(),
+            keyPath: sshKeyPathField.stringValue,
+            secret: sshSecretField.stringValue,
+            acceptNewHostKeys: sshAcceptNewHostKeysCheckbox.state == .on,
+            // Cleared, this is a DESTRUCTIVE save: `save_connection` deletes
+            // the `<id>/ssh` item already in the keychain rather than merely
+            // stopping writing new ones. That is the point of the switch, and
+            // it is what the tooltip states.
+            rememberSecret: sshRememberSecretCheckbox.state == .on,
+            secretRevealed: passwordRevealed)
+    }
+
+    /// The tunnel the form currently describes, or `nil` when the switch is
     /// off.
     ///
     /// The secret follows the same rule as the password: a MASKED field holds
     /// the mask, not a secret, so the draft's stored value is kept instead.
     private func sshTunnelFromForm(existing: SshTunnelConfig?) -> SshTunnelConfig? {
-        SshTunnelForm.tunnel(
-            from: SshTunnelForm.Fields(
-                enabled: sshEnabledCheckbox.state == .on,
-                host: sshHostField.stringValue,
-                port: sshPortField.stringValue,
-                user: sshUserField.stringValue,
-                auth: sshAuthMethodForPopup(),
-                keyPath: sshKeyPathField.stringValue,
-                secret: sshSecretField.stringValue,
-                acceptNewHostKeys: sshAcceptNewHostKeysCheckbox.state == .on,
-                // Cleared, this is a DESTRUCTIVE save: `save_connection`
-                // deletes the `<id>/ssh` item already in the keychain rather
-                // than merely stopping writing new ones. That is the point of
-                // the switch, and it is what the tooltip states.
-                rememberSecret: sshRememberSecretCheckbox.state == .on,
-                secretRevealed: passwordRevealed),
-            existing: existing)
+        SshTunnelForm.tunnel(from: sshFormFields(), existing: existing)
     }
+
+    /// Why Save cannot write the tunnel, or nil. Only while the engine shows
+    /// the section: a DuckDB record keeps no tunnel, so a port left behind in
+    /// the hidden field cannot block it.
+    private var sshPortProblem: String? {
+        guard ConnectionFormRules.visibility(for: draft?.engine ?? selectedEngine).sshTunnel else { return nil }
+        return SshTunnelForm.portProblem(sshFormFields())
+    }
+
+    /// What `field` holds right now. While it is being edited this is the
+    /// field editor's text. `stringValue` would run the field's formatter
+    /// (`validateEditing`), and when the formatter refuses the text — "99999"
+    /// in a 1…65535 port field — reading it from `controlTextDidChange` WIPES
+    /// the field as the user types (measured on macOS 27, 2026-10-28). The
+    /// formatter still refuses to let the field go with a bad value; the
+    /// caption says why.
+    private func currentText(of field: NSTextField) -> String {
+        field.currentEditor()?.string ?? field.stringValue
+    }
+
+    // MARK: - Form building helpers
 
     private func configureField(_ field: NSTextField) {
         field.lineBreakMode = .byTruncatingTail
@@ -1155,174 +913,143 @@ final class ConnectionsManagerVC: NSViewController {
         field.translatesAutoresizingMaskIntoConstraints = false
     }
 
-    /// Builds one label-plus-field row. `badge`, when given, stands at the
-    /// trailing edge and discloses an invisible character in a field whose text
-    /// must never be altered.
-    private func row(label: String, field: NSView, fieldFixedWidth: CGFloat? = nil,
-                     badge: HostileTextBadge? = nil) -> NSView {
-        let labelView = NSTextField(labelWithString: label)
-        labelView.alignment = .right
-        labelView.font = .systemFont(ofSize: 13)
-        labelView.textColor = .labelColor
-        return row(labelView: labelView, field: field,
-                   fieldFixedWidth: fieldFixedWidth, badge: badge)
+    /// A switch, as the Settings furniture makes one (`SettingsControlFactory
+    /// .toggle`): its row's title is its label.
+    private func configureSwitch(_ toggle: NSSwitch, action: Selector, identifier: String) {
+        toggle.controlSize = .regular
+        toggle.target = self
+        toggle.action = action
+        toggle.translatesAutoresizingMaskIntoConstraints = false
+        toggle.setAccessibilityIdentifier(identifier)
     }
 
-    /// The same row, for a caller that OWNS its label and needs to change the
-    /// text later — the SSH secret row, whose label follows the authentication
-    /// pop-up.
-    private func row(labelView: NSTextField, field: NSView, fieldFixedWidth: CGFloat? = nil,
-                     badge: HostileTextBadge? = nil) -> NSView {
-        labelView.translatesAutoresizingMaskIntoConstraints = false
-
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(labelView)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(field)
-        // The badge announces the field it warns about, and the field the badge.
-        badge?.link(to: field)
-
-        var constraints: [NSLayoutConstraint] = [
-            labelView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            labelView.widthAnchor.constraint(equalToConstant: L.labelColumnWidth),
-            labelView.firstBaselineAnchor.constraint(equalTo: field.firstBaselineAnchor),
-
-            field.leadingAnchor.constraint(equalTo: labelView.trailingAnchor, constant: 10),
-            field.topAnchor.constraint(equalTo: container.topAnchor),
-            field.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ]
-
-        // The badge owns the container's trailing edge, and the field stops
-        // short of it. A hidden view's constraints still apply, so the badge
-        // holds its slot whether it is shown or not: the field keeps ONE width
-        // and the row never reflows when a badge is raised.
-        if let badge {
-            container.addSubview(badge)
-            constraints.append(badge.trailingAnchor.constraint(equalTo: container.trailingAnchor))
-            constraints.append(badge.centerYAnchor.constraint(equalTo: field.centerYAnchor))
-        }
-
-        if let w = fieldFixedWidth {
-            constraints.append(field.widthAnchor.constraint(equalToConstant: w))
-            // A fixed-width field cannot stretch, so the trailing edge is only
-            // a limit — an equality here would fight the fixed width.
-            if let badge {
-                constraints.append(field.trailingAnchor.constraint(
-                    lessThanOrEqualTo: badge.leadingAnchor, constant: -L.badgeGap))
-            } else {
-                constraints.append(field.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor))
-            }
-        } else {
-            // An equality, not a limit: this pin is what makes the field fill
-            // the row, so a `lessThanOrEqualTo` alone would leave the width
-            // undetermined between its minimum and the trailing edge.
-            if let badge {
-                constraints.append(field.trailingAnchor.constraint(
-                    equalTo: badge.leadingAnchor, constant: -L.badgeGap))
-            } else {
-                constraints.append(field.trailingAnchor.constraint(equalTo: container.trailingAnchor))
-            }
-            constraints.append(field.widthAnchor.constraint(greaterThanOrEqualToConstant: L.fieldMinWidth))
-        }
-        NSLayoutConstraint.activate(constraints)
-        return container
+    private func configureChooseButton(_ button: NSButton, title: String, action: Selector) {
+        button.title = title
+        button.bezelStyle = .rounded
+        button.controlSize = .regular
+        button.target = self
+        button.action = action
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
-    private func row(label: String, control: NSControl) -> NSView {
-        let labelView = NSTextField(labelWithString: label)
-        labelView.alignment = .right
-        labelView.font = .systemFont(ofSize: 13)
-        labelView.textColor = .labelColor
-        labelView.translatesAutoresizingMaskIntoConstraints = false
+    /// A field followed by buttons: the field takes what the buttons leave.
+    private func hStack(_ views: [NSView]) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.distribution = .fill
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        views.first?.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        views.first?.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return stack
+    }
 
+    /// Pins `view` to one width. Every field and pop-up takes the form's
+    /// control width, so the controls line up down the whole form.
+    private func sized(_ view: NSView, width: CGFloat = L.controlWidth) -> NSView {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return view
+    }
+
+    /// `control` with its hostile-text badge after it, the pair as wide as
+    /// any other control. A hidden view keeps its constraints, so the badge
+    /// holds its slot whether it is raised or not: the field keeps ONE width
+    /// and the row never reflows when a badge appears.
+    private func withBadge(_ control: NSView, _ badge: HostileTextBadge) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(labelView)
-        // Here, not at the call site. A control that still translates its
-        // autoresizing mask brings constraints from its ZERO frame, which
-        // outrank the ones below: the control renders as a tiny square at the
-        // container's origin with its title clipped away, and it cannot be
-        // clicked. Every earlier caller happened to set this itself, so the
-        // helper's dependence on them was invisible until one did not.
         control.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(control)
-
+        container.addSubview(badge)
+        // The badge announces the field it warns about, and the field the badge.
+        badge.link(to: control)
         NSLayoutConstraint.activate([
-            labelView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            labelView.widthAnchor.constraint(equalToConstant: L.labelColumnWidth),
-            labelView.firstBaselineAnchor.constraint(equalTo: control.firstBaselineAnchor),
-
-            control.leadingAnchor.constraint(equalTo: labelView.trailingAnchor, constant: 10),
-            control.widthAnchor.constraint(greaterThanOrEqualToConstant: L.popupMinWidth),
+            container.widthAnchor.constraint(equalToConstant: L.controlWidth),
+            control.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             control.topAnchor.constraint(equalTo: container.topAnchor),
             control.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            control.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            control.trailingAnchor.constraint(equalTo: badge.leadingAnchor, constant: -L.badgeGap),
+            badge.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            badge.centerYAnchor.constraint(equalTo: control.centerYAnchor),
         ])
         return container
     }
 
-    /// A caption row: nothing in the label column, the text in the field
-    /// column, so it reads as a footnote to the row above it.
-    private func noteRow(_ label: NSTextField) -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.lineBreakMode = .byTruncatingTail
-        container.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor,
-                                           constant: L.labelColumnWidth + 10),
-            label.topAnchor.constraint(equalTo: container.topAnchor),
-            label.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-        ])
-        return container
+    /// One furniture row: the title leading, the control trailing (or below
+    /// it). `titling` is the control inside a composite — a field beside its
+    /// badge or its button — that VoiceOver should hear the title for; the row
+    /// itself titles only the composite.
+    private func row(_ title: String, control: NSView, caption: String? = nil,
+                     placement: SettingsRow.ControlPlacement = .trailing,
+                     titling inner: NSView? = nil) -> SettingsRow {
+        let row = SettingsRow(title: title, caption: caption, control: control, placement: placement)
+        inner?.setAccessibilityTitleUIElement(row.titleLabel)
+        if let caption, !caption.isEmpty { inner?.setAccessibilityHelp(caption) }
+        return row
     }
 
-    private func section(title: String, rows: [NSView]) -> NSView {
-        let headerLabel = NSTextField(labelWithString: title.uppercased())
-        headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        headerLabel.textColor = .secondaryLabelColor
-        headerLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let separator = NSBox.separator()
-
-        let headerRow = NSStackView(views: [headerLabel, separator])
-        headerRow.orientation = .horizontal
-        headerRow.alignment = .centerY
-        headerRow.spacing = 8
-        separator.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        separator.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let stack = NSStackView()
+    /// One section: the bold header over a box of rows, as the Settings
+    /// panes build theirs (`SettingsFormBuilder`).
+    private func section(_ title: String, rows: [NSView]) -> NSView {
+        let box = SettingsGroupBox(title: title, rows: rows)
+        boxes.append(box)
+        let stack = NSStackView(views: [SettingsSectionHeader.make(title), box])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = L.rowSpacing
+        stack.spacing = SettingsMetrics.headerToBoxGap
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(headerRow)
-        for row in rows { stack.addArrangedSubview(row) }
-        stack.setCustomSpacing(L.rowSpacing + 2, after: headerRow)
-
-        for view in [headerRow] + rows {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            stack.addConstraint(view.leadingAnchor.constraint(equalTo: stack.leadingAnchor))
-            stack.addConstraint(view.trailingAnchor.constraint(equalTo: stack.trailingAnchor))
-        }
+        stack.spanArrangedSubviewsFullWidth()
         return stack
+    }
+
+    /// A tooltip on a row's control AND on its title, so hovering the words
+    /// explains the switch as hovering the old checkbox's title did.
+    private func setToolTip(_ text: String?, on row: SettingsRow?) {
+        row?.control?.toolTip = text
+        row?.titleLabel.toolTip = text
+    }
+
+    /// A row was shown or hidden: each box draws the separators between its
+    /// visible rows, so it redraws.
+    private func rowVisibilityChanged() {
+        for box in boxes { box.needsDisplay = true }
+    }
+
+    /// The "Required" captions, from the draft (`ConnectionFormRules
+    /// .missingFields`), and the SSH port's problem, if any.
+    private func refreshFieldCaptions() {
+        let missing = Set(draft.map(ConnectionFormRules.missingFields) ?? [])
+        for (field, entry) in requiredRows {
+            var lines: [String] = []
+            if missing.contains(field) { lines.append(String(localized: "Required")) }
+            if let note = entry.note { lines.append(note) }
+            let caption = lines.isEmpty ? nil : lines.joined(separator: "\n")
+            if entry.row.caption != caption { entry.row.caption = caption }
+        }
+        let portProblem = sshPortProblem
+        if sshPortRow?.caption != portProblem { sshPortRow?.caption = portProblem }
+    }
+
+    /// The Password row's caption: where the password came from, and why the
+    /// gate refused, each on its own line.
+    private func refreshPasswordCaption() {
+        var lines: [String] = []
+        if showsPasswordFromLinkNote { lines.append(String(localized: "Password taken from the link.")) }
+        if !passwordAuthNote.isEmpty { lines.append(passwordAuthNote) }
+        passwordRow?.caption = lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     // MARK: - External state sync
 
     private func externalConnectionsChanged(_ configs: [ConnectionConfig]) {
-        // Preserve in-flight stubs that aren't yet in the backend.
+        // Preserve in-flight stubs that aren't yet in the backend. The sidebar
+        // keeps its selection by id, so a record still listed stays selected.
         let stubs = connections.filter { pendingStubIds.contains($0.id) }
-        let preservedSelection = listModel.selectedId
         connections = ConnectionVisibility.listed(configs) + stubs
-        if let preservedSelection,
-           connections.contains(where: { $0.id == preservedSelection }) {
-            listModel.selectedIds = [preservedSelection]
-        }
 
         // An UNSAVED edit to the record on screen outlives a republish.
         //
@@ -1345,9 +1072,10 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - Drag reorder
 
     private func handleMove(from source: IndexSet, to destination: Int) {
-        // SwiftUI's `.onMove` provides source indices + destination offset
-        // (the position before which to insert). `Array.move(fromOffsets:toOffset:)`
-        // is the matching Foundation API.
+        // The sidebar reports the source row and the gap it was dropped in,
+        // counted before the move — `Array.move(fromOffsets:toOffset:)`'s
+        // convention. It offers a drag only while no filter hides rows, so the
+        // indices are positions in `connections` itself.
         var updated = connections
         updated.move(fromOffsets: source, toOffset: destination)
         connections = updated
@@ -1360,13 +1088,12 @@ final class ConnectionsManagerVC: NSViewController {
     // MARK: - Selection / detail population
 
     private func handleSelectionChange() {
-        // The selection publisher is delivered on the NEXT run loop turn, so it
-        // can arrive when the form ALREADY shows the record that was selected:
-        // `beginNewConnection` selects a new stub and loads it in one turn.
+        // The sidebar's report is handled on the NEXT run loop turn, so it can
+        // arrive when the form ALREADY shows the record that was selected.
         // The prompt below guards a move AWAY from an edited record; arriving
         // where the form already is, is not that, and prompting there would ask
         // the user to save the record they just asked for.
-        if let selected = listModel.selectedId, selected == draft?.id { return }
+        if let selected = selectedId, selected == draft?.id { return }
 
         // The current selection drives the detail form. If the user has
         // pending edits, prompt before clearing them.
@@ -1387,9 +1114,16 @@ final class ConnectionsManagerVC: NSViewController {
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
         let response = alert.runModal(for: window)
+        // Put the selection back on the record being edited. A Save the form
+        // cannot make (a required field is blank) does this too, rather than
+        // moving on and losing the edits it could not store.
+        let stayOnDraft = { [weak self] in
+            let target = self?.draft?.id
+            DispatchQueue.main.async { [weak self] in self?.sidebar.selectedId = target }
+        }
         switch response {
         case .alertFirstButtonReturn:
-            saveChangesInternal()
+            guard saveChangesInternal() else { stayOnDraft(); return }
             updateDetailVisibility()
         case .alertSecondButtonReturn:
             if let id = draft?.id, pendingStubIds.contains(id) {
@@ -1397,35 +1131,30 @@ final class ConnectionsManagerVC: NSViewController {
                 connections.removeAll { $0.id == id }
             }
             draft = draftBaseline
-            listModel.dirtyConnectionId = nil
+            dirtyConnectionId = nil
             updateDetailVisibility()
         default:
-            // Revert the selection change.
-            let target = draft?.id
-            DispatchQueue.main.async { [weak self] in
-                self?.listModel.selectedIds = target.map { Set([$0]) } ?? []
-            }
+            stayOnDraft()
         }
     }
 
     private func updateDetailVisibility() {
-        let hasSelection = listModel.selectedId != nil
-        detailContent.isHidden = !hasSelection
-        placeholderLabel.isHidden = hasSelection
+        let hasSelection = selectedId != nil
+        splitVC?.setDetail(hasSelection ? formPane : emptyPane)
 
         if hasSelection {
             loadSelectionIntoForm()
         } else {
             draft = nil
             draftBaseline = nil
-            listModel.dirtyConnectionId = nil
+            dirtyConnectionId = nil
             showPasswordFromLinkNote(false)
             updateButtonStates()
         }
     }
 
     private func loadSelectionIntoForm() {
-        guard let id = listModel.selectedId,
+        guard let id = selectedId,
               let config = connections.first(where: { $0.id == id }) else { return }
         draft = config
         // A stub has never been stored, so its baseline is an EMPTY record:
@@ -1438,7 +1167,7 @@ final class ConnectionsManagerVC: NSViewController {
             ? ConnectionConfig(id: id, name: "", host: "", port: config.port,
                                database: "", username: "", engine: config.engine)
             : config
-        listModel.dirtyConnectionId = nil
+        dirtyConnectionId = nil
         showPasswordFromLinkNote(passwordFromLinkId == id)
 
         // A display label, so it is ESCAPED rather than sanitised — matching the
@@ -1447,7 +1176,7 @@ final class ConnectionsManagerVC: NSViewController {
         // that should be able to lie. TRIMMED as well, because the save path
         // trims: an edge space here is a record written before it did.
         titleField.stringValue = DisplayEscape.escapedTrimmed(config.name)
-            .ifEmpty("Untitled Connection")
+            .ifEmpty(String(localized: "Untitled Connection"))
         nameField.stringValue = AuthoredLabelSanitizer.sanitized(config.name)
         enginePopup.selectItem(at: DatabaseEngine.allCases.firstIndex(of: config.engine) ?? 0)
         hostField.stringValue = config.host
@@ -1543,7 +1272,7 @@ final class ConnectionsManagerVC: NSViewController {
     }
 
     private func refreshStatusBadge() {
-        guard let id = listModel.selectedId else {
+        guard let id = selectedId else {
             statusBadge.isHidden = true
             return
         }
@@ -1561,7 +1290,7 @@ final class ConnectionsManagerVC: NSViewController {
         // `SshSecretPrompt` reads it — never for the reader.
         statusBadge.toolTip = stateManager.connectionError(for: id)
             .map { DuckDBOpenError.humanised(SshTunnelAuthError.humanised($0)) }
-        switch listModel.status(for: id) {
+        switch statuses[id] ?? .disconnected {
         case .connected:   statusBadge.apply(state: .connected)
         case .connecting:  statusBadge.apply(state: .connecting)
         case .error:       statusBadge.apply(state: .error)
@@ -1578,7 +1307,8 @@ final class ConnectionsManagerVC: NSViewController {
         // light accent, or turns Increase Contrast on.
         saveButton.contentTintColor = canSave ? .alternateSelectedControlTextColor : nil
         revertButton.isEnabled = isDirty
-        listModel.dirtyConnectionId = isDirty ? draft?.id : nil
+        dirtyConnectionId = isDirty ? draft?.id : nil
+        refreshFieldCaptions()
     }
 
     /// The Test Connection result line.
@@ -1592,9 +1322,14 @@ final class ConnectionsManagerVC: NSViewController {
         testStatusLabel.toolTip = text.isEmpty ? nil : text
     }
 
+    /// Whether Save can write the draft: every required field is filled in
+    /// (`ConnectionFormRules.missingFields`) and the SSH port, when the tunnel
+    /// is on, is a port (`SshTunnelForm.portProblem`). The form shows a
+    /// caption for each problem, so a greyed-out Save always has a reason on
+    /// screen.
     private func isDraftValid() -> Bool {
         guard let d = draft else { return false }
-        return ConnectionFormRules.isValid(d)
+        return ConnectionFormRules.isValid(d) && sshPortProblem == nil
     }
 
     // MARK: - Engine
@@ -1627,14 +1362,15 @@ final class ConnectionsManagerVC: NSViewController {
         databaseNameRow?.isHidden = !v.databaseName
         duckSectionView?.isHidden = !v.databaseFile
         timeZoneRow?.isHidden = !v.timeZone
-        timeZoneNoteRow?.isHidden = !v.timeZone
+        rowVisibilityChanged()
         let inMemory = duckInMemoryCheckbox.state == .on
         duckPathField.isEnabled = !inMemory
         duckChooseButton.isEnabled = !inMemory
         duckNewButton.isEnabled = !inMemory
         duckRevealButton.isEnabled = !inMemory && !duckPathField.stringValue.isEmpty
-        readOnlyCheckbox.toolTip = ConnectionFormRules.readOnlyHelp(for: engine)
-        readOnlyCheckbox.isEnabled = !(engine == .duckdb && inMemory)
+        setToolTip(ConnectionFormRules.readOnlyHelp(for: engine), on: readOnlyRow)
+        // The row, so its title dims with the switch.
+        readOnlyRow?.isEnabled = !(engine == .duckdb && inMemory)
     }
 
     @objc private func duckInMemoryChanged() {
@@ -1728,6 +1464,7 @@ final class ConnectionsManagerVC: NSViewController {
         let index = sslPopup.indexOfSelectedItem
         let mode = SslMode.formOrder.indices.contains(index) ? SslMode.formOrder[index] : .prefer
         sslRootCertRow?.isHidden = !mode.verifiesCertificate
+        rowVisibilityChanged()
     }
 
     @objc private func chooseSslRootCert() {
@@ -1760,7 +1497,7 @@ final class ConnectionsManagerVC: NSViewController {
     /// the field and the field becomes editable; on cancel or refusal nothing
     /// about the field changes and the reason appears as a caption.
     @objc private func revealPassword() {
-        let selectionAtRequest = listModel.selectedId
+        let selectionAtRequest = selectedId
         let name = DisplayEscape.escapedTrimmed(draft?.name ?? "").ifEmpty(String(localized: "this connection"))
         showPasswordButton.isEnabled = false
         Task { @MainActor in
@@ -1770,11 +1507,11 @@ final class ConnectionsManagerVC: NSViewController {
             // The prompt is modal to the app, not to this form. If the selection
             // moved while it was up, the answer belongs to a record that is no
             // longer on screen.
-            guard self.listModel.selectedId == selectionAtRequest else { return }
+            guard self.selectedId == selectionAtRequest else { return }
             switch outcome {
             case .authenticated:
                 self.passwordRevealed = true
-                self.passwordAuthLabel.stringValue = ""
+                self.showPasswordAuthNote("")
                 self.applyPasswordGateState(storedPassword: self.draft?.password ?? "")
             case .cancelled:
                 self.showPasswordAuthNote(String(localized: "Cancelled. The password stays hidden."))
@@ -1830,8 +1567,8 @@ final class ConnectionsManagerVC: NSViewController {
     }
 
     private func showPasswordAuthNote(_ text: String) {
-        passwordAuthLabel.stringValue = text
-        passwordAuthRow?.isHidden = text.isEmpty
+        passwordAuthNote = text
+        refreshPasswordCaption()
     }
     @objc private func defaultSchemaChanged() { syncFormIntoDraft() }
 
@@ -1840,7 +1577,8 @@ final class ConnectionsManagerVC: NSViewController {
         d.name = nameField.stringValue
         d.engine = selectedEngine
         d.host = hostField.stringValue
-        d.port = UInt16(portField.stringValue) ?? d.port
+        // The field editor's text, not `stringValue`: see `currentText(of:)`.
+        d.port = SshTunnelForm.port(from: currentText(of: portField)) ?? d.port
         d.database = d.engine == .duckdb
             ? ConnectionFormRules.duckDBPath(inMemory: duckInMemoryCheckbox.state == .on,
                                              typed: duckPathField.stringValue)
@@ -1907,11 +1645,9 @@ final class ConnectionsManagerVC: NSViewController {
             defaultSchemaPopup.toolTip = nil
         }
 
-        titleField.stringValue = d.name.isEmpty ? "Untitled Connection" : d.name
-        // Update the row's display name in the SwiftUI list.
-        if let idx = connections.firstIndex(where: { $0.id == d.id }) {
-            connections[idx].name = d.name
-        }
+        titleField.stringValue = d.name.isEmpty ? String(localized: "Untitled Connection") : d.name
+        // The sidebar row follows the draft's name (`refreshSidebar`), which
+        // `draft`'s observer has already passed on.
         updateButtonStates()
     }
 
@@ -1919,8 +1655,11 @@ final class ConnectionsManagerVC: NSViewController {
 
     @objc private func saveChanges() { saveChangesInternal() }
 
-    private func saveChangesInternal() {
-        guard var d = draft, isDraftValid() else { NSSound.beep(); return }
+    /// Saves the draft. False, with a beep, when it cannot: a required field
+    /// is blank or the SSH port is not a port (the form says which).
+    @discardableResult
+    private func saveChangesInternal() -> Bool {
+        guard var d = draft, isDraftValid() else { NSSound.beep(); return false }
 
         // The name is an AUTHORED LABEL, so the store receives it COMMITTED —
         // sanitised and trimmed — the same producer a tag name and a workspace
@@ -1939,7 +1678,7 @@ final class ConnectionsManagerVC: NSViewController {
 
         // `isDraftValid` trims with `.whitespaces` only, so a name of nothing
         // but a bidi override passes it and commits to empty.
-        guard !d.name.isEmpty else { NSSound.beep(); return }
+        guard !d.name.isEmpty else { NSSound.beep(); return false }
 
         // The draft, the baseline and the field all take the committed name, so
         // what is on screen is what was saved and the view is not left dirty.
@@ -1950,6 +1689,7 @@ final class ConnectionsManagerVC: NSViewController {
         createDuckDBFileIfNew(d)
         draftBaseline = d
         updateButtonStates()
+        return true
     }
 
     /// A DuckDB record whose file does not exist yet (New…, or a typed path):
@@ -1980,7 +1720,7 @@ final class ConnectionsManagerVC: NSViewController {
         if let id = draft?.id, pendingStubIds.contains(id) {
             pendingStubIds.remove(id)
             connections.removeAll { $0.id == id }
-            listModel.selectedIds = []
+            sidebar.selectedId = nil
             updateDetailVisibility()
             return
         }
@@ -2207,20 +1947,21 @@ final class ConnectionsManagerVC: NSViewController {
             self.passwordFromLinkId = passwordFromLink ? stub.id : nil
             self.pendingStubIds.insert(stub.id)
             self.connections.append(stub)
-            self.listModel.selectedIds = [stub.id]
-            // Load the form NOW rather than waiting for the selection
-            // publisher's next turn, so the fields are filled in before the
-            // window comes forward and the name below is there to select.
+            // Programmatic: the sidebar reports no selection for it, so the
+            // form is loaded here, and the fields are filled in before the
+            // name below is selected.
+            self.sidebar.selectedId = stub.id
             self.updateDetailVisibility()
             self.view.window?.makeFirstResponder(self.nameField)
             self.nameField.selectText(nil)
         }
     }
 
-    /// Shows or hides the "password came from the link" caption and its row.
+    /// Shows or hides the "password came from the link" line of the Password
+    /// row's caption.
     private func showPasswordFromLinkNote(_ visible: Bool) {
-        passwordFromLinkLabel.isHidden = !visible
-        passwordFromLinkRow?.isHidden = !visible
+        showsPasswordFromLinkNote = visible
+        refreshPasswordCaption()
     }
 
     private func deleteSelected(ids: Set<String>) {
@@ -2258,6 +1999,7 @@ final class ConnectionsManagerVC: NSViewController {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn, let self else { return }
+            let selectedBefore = self.selectedId
             for config in selected {
                 if self.pendingStubIds.contains(config.id) {
                     self.pendingStubIds.remove(config.id)
@@ -2270,8 +2012,14 @@ final class ConnectionsManagerVC: NSViewController {
                     self.stateManager.deleteConnection(id: config.id)
                 }
             }
-            self.listModel.selectedIds = []
-            self.updateDetailVisibility()
+            // Only when the record in the form went: the context menu can
+            // delete a row that is not the selected one, and the form's edits
+            // to another record must not go with it. Read before the loop
+            // ran: removing a stub's row has already cleared the selection.
+            if let current = selectedBefore, selected.contains(where: { $0.id == current }) {
+                self.sidebar.selectedId = nil
+                self.updateDetailVisibility()
+            }
         }
     }
 }
@@ -2315,6 +2063,13 @@ extension ConnectionsManagerVC: NSTextFieldDelegate {
 
 // MARK: - Status badge
 
+/// The capsule beside the record's name: Connected, Connecting…, Error,
+/// Disconnected or Not Saved.
+///
+/// Its plate is resolved in `updateLayer()`, never written into the layer
+/// once: a dynamic colour turned into a `CGColor` keeps the appearance it was
+/// read in, which is how the old window's plates stayed light in Dark Mode
+/// (lessons, 2026-09-16).
 private final class StatusBadge: NSView {
 
     enum State {
@@ -2322,11 +2077,11 @@ private final class StatusBadge: NSView {
 
         var text: String {
             switch self {
-            case .connected:   return "Connected"
-            case .connecting:  return "Connecting…"
-            case .error:       return "Error"
-            case .disconnected: return "Disconnected"
-            case .stub:        return "Not Saved"
+            case .connected:   return String(localized: "Connected")
+            case .connecting:  return String(localized: "Connecting…")
+            case .error:       return String(localized: "Error")
+            case .disconnected: return String(localized: "Disconnected")
+            case .stub:        return String(localized: "Not Saved")
             }
         }
         var background: NSColor {
@@ -2350,6 +2105,7 @@ private final class StatusBadge: NSView {
     }
 
     private let label = NSTextField(labelWithString: "")
+    private var state: State = .disconnected
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2357,6 +2113,7 @@ private final class StatusBadge: NSView {
         layer?.cornerRadius = 9
         label.font = .systemFont(ofSize: 11, weight: .semibold)
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.setAccessibilityIdentifier("connections.status")
         addSubview(label)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 20),
@@ -2368,10 +2125,23 @@ private final class StatusBadge: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func apply(state: State) {
-        label.stringValue = state.text
-        label.textColor = state.foreground
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
         layer?.backgroundColor = state.background.cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    func apply(state: State) {
+        self.state = state
+        label.stringValue = state.text
+        // A label's text colour stays dynamic: AppKit resolves it as it draws.
+        label.textColor = state.foreground
+        needsDisplay = true
     }
 }
 
@@ -2403,8 +2173,8 @@ private extension ConnectionsManagerVC {
         let response = alert.runModal(for: window)
         switch response {
         case .alertFirstButtonReturn:
-            if isDraftValid() { saveChangesInternal(); completion(true) }
-            else { NSSound.beep(); completion(false) }
+            // `saveChangesInternal` beeps when it cannot save.
+            completion(saveChangesInternal())
         case .alertSecondButtonReturn:
             if let id = draft?.id, pendingStubIds.contains(id) {
                 pendingStubIds.remove(id)
@@ -2427,58 +2197,21 @@ private extension NSAlert {
     }
 }
 
-// MARK: - Appearance-following background
+// MARK: - Detail pane
 
-/// A view whose layer colour is resolved in `updateLayer()` rather than baked
-/// into the layer once.
-///
-/// `NSColor.cgColor` resolves a dynamic colour against whatever appearance is
-/// current at the moment it is read — and in `loadView()` that is before the
-/// view is in a window at all. Both panes of this window did exactly that, so
-/// their backgrounds froze at launch: AppKit's own controls repainted for Dark
-/// Mode while the two plates behind them stayed light. That is the "light-grey
-/// chrome with dark fields" the user saw, and switching the app's Light/Dark
-/// preference (`ThemeApplier`) could not fix it either.
-///
-/// The rest of the app already does this properly — `VariableListView`,
-/// `ResultTabsPanelVC`, `FilterableHeaderView` all resolve inside
-/// `updateLayer()`. This is the same pattern, with the colour injected.
-final class AppearanceBackgroundView: NSView {
+/// One of the two details the split view shows — the form, or the empty
+/// state — as a view controller around a view built elsewhere.
+private final class ConnectionsDetailPaneVC: NSViewController {
+    private let content: NSView
 
-    /// Read at draw time, never cached.
-    var colorProvider: () -> NSColor = { .windowBackgroundColor } {
-        didSet { needsDisplay = true }
+    init(content: NSView) {
+        self.content = content
+        super.init(nibName: nil, bundle: nil)
     }
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
+    required init?(coder: NSCoder) { fatalError("ConnectionsDetailPaneVC is built in code") }
+
+    override func loadView() {
+        view = content
     }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-    }
-
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.backgroundColor = colorProvider().cgColor
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
-    }
-}
-
-/// The connections form's document view, whose origin is the TOP left.
-///
-/// An `NSScrollView` puts an unflipped document view against the BOTTOM of the
-/// clip when the content is shorter than the clip, so a short form — a
-/// connection with no tunnel — would sit at the foot of the sheet with empty
-/// space above it. Declared here rather than shared, because two other files
-/// already declare a private `FlippedView` of their own.
-private final class ConnectionsFormDocumentView: NSView {
-    override var isFlipped: Bool { true }
 }

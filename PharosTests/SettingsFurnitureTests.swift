@@ -813,6 +813,40 @@ func runTests() {
                     "update() replaces the version line")
     }
 
+    // MARK: 19. A hidden row draws no separator
+    //
+    // NSStackView parks a hidden arranged row at the TOP of the stack
+    // (measured 2026-10-28: its frame converts to y 0 in the box). A separator
+    // drawn for it runs along the top edge to the full width, past the
+    // rounded top-right corner, and every hidden row paints it again — the
+    // Connections Manager hides up to eight rows in one box (the SSH tunnel's).
+    // Outside the rounded plate nothing may be painted.
+
+    do {
+        let host = Host()
+        let rows = (1...5).map { SettingsRow(title: "Row \($0)", control: nil) }
+        let box = SettingsGroupBox(title: "Hide", rows: rows)
+        host.mount(box)
+        rows[2].isHidden = true
+        rows[3].isHidden = true
+        host.layout()
+        expectTrue(frame(of: rows[2], in: box).minY < 1,
+                   "a hidden row sits at the box's top (the cause): y \(frame(of: rows[2], in: box).minY)")
+        if let rendered = render(box, appearance: NSAppearance(named: .aqua)!) {
+            // Inside the 10 pt corner radius, outside the curve.
+            let corner = rendered.pixel(Int(box.bounds.width) - 2, 0)
+            expectTrue(corner != nil && corner!.alphaComponent < 0.01,
+                       "nothing is painted past the rounded top-right corner (alpha \(corner.map { String(format: "%.2f", $0.alphaComponent) } ?? "nil"))")
+            let x = Int(box.bounds.width) - 40
+            let boundary = rendered.pixel(x, Int(frame(of: rows[4], in: box).minY))
+            let inside = rendered.pixel(x, Int(frame(of: rows[4], in: box).minY) + 10)
+            expectTrue(boundary != nil && inside != nil && !channelsWithin(boundary!, inside!, 0.01),
+                       "the separator above the row after the hidden ones is still drawn (\(boundary.map(hex) ?? "nil"))")
+        } else {
+            failures += 1; print("FAIL could not render the hidden-row box")
+        }
+    }
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

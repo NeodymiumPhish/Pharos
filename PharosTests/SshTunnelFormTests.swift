@@ -139,6 +139,37 @@ func runTests() {
     expectEqual(SshTunnelForm.tunnel(from: badPort, existing: stored2222)?.port, 2222,
                 "an unparsable port keeps 2222, it does not reset to 22")
 
+    // 9b. The port rule: a whole number from 1 to 65535, the range the SSH
+    // Port field's formatter allows. Anything else is refused for Save, so the
+    // fallback above can never be SAVED in silence.
+    expectEqual(SshTunnelForm.port(from: "22"), 22, "22 is a port")
+    expectEqual(SshTunnelForm.port(from: "1"), 1, "1 is the lowest port")
+    expectEqual(SshTunnelForm.port(from: "65535"), 65535, "65535 is the highest port")
+    expectEqual(SshTunnelForm.port(from: " 2222 "), 2222, "outer spaces are ignored")
+    for bad in ["", "0", "65536", "99999", "-22", "22.5", "2x", "ssh", "70000000000000000000"] {
+        expect(SshTunnelForm.port(from: bad) == nil, "\"\(bad)\" is not a port")
+    }
+    // "0" parses as a UInt16, so the old `UInt16(_:)` rule took it. The model
+    // now keeps the stored port instead, like any other bad value.
+    let zeroPort = SshTunnelForm.Fields(enabled: true, host: "b", port: "0")
+    expectEqual(SshTunnelForm.tunnel(from: zeroPort, existing: stored2222)?.port, 2222,
+                "a port of 0 keeps the stored port, it does not reach the model")
+    let bigPort = SshTunnelForm.Fields(enabled: true, host: "b", port: "99999")
+    expectEqual(SshTunnelForm.tunnel(from: bigPort, existing: stored2222)?.port, 2222,
+                "a port over 65535 keeps the stored port")
+    expect(!SshTunnelForm.isValidForSave(bigPort), "a tunnel with port 99999 cannot be saved")
+    expect(SshTunnelForm.portProblem(bigPort) == "Enter a port from 1 to 65535.",
+           "the problem names the range")
+    expect(!SshTunnelForm.isValidForSave(zeroPort), "a tunnel with port 0 cannot be saved")
+    expect(!SshTunnelForm.isValidForSave(badPort), "a tunnel with an empty port cannot be saved")
+    let goodPort = SshTunnelForm.Fields(enabled: true, host: "b", port: "2222")
+    expect(SshTunnelForm.isValidForSave(goodPort) && SshTunnelForm.portProblem(goodPort) == nil,
+           "a tunnel with port 2222 can be saved")
+    // A tunnel that is OFF writes no port, so its field cannot block Save.
+    let offWithBadPort = SshTunnelForm.Fields(enabled: false, host: "b", port: "99999")
+    expect(SshTunnelForm.isValidForSave(offWithBadPort) && SshTunnelForm.portProblem(offWithBadPort) == nil,
+           "a bad port in a tunnel that is off does not block Save")
+
     // MARK: Fingerprint
 
     // 10. The fingerprint decides whether a fetched schema list still

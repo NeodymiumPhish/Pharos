@@ -27,17 +27,45 @@ enum ConnectionFormRules {
                           databaseName: server, databaseFile: !server, timeZone: server)
     }
 
-    /// Whether Save can be pressed. A server needs a name, host, database and
-    /// user; a DuckDB record needs a name and a file (or in-memory).
-    static func isValid(_ d: ConnectionConfig) -> Bool {
-        let filled = { (s: String) in !s.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard filled(d.name) else { return false }
+    /// A field Save cannot do without.
+    enum RequiredField: Equatable, CaseIterable {
+        case name
+        /// Server ▸ Host.
+        case host
+        /// Database ▸ Database (a server's database NAME).
+        case database
+        /// Authentication ▸ Username.
+        case username
+        /// Database File ▸ File (a DuckDB path, or in-memory).
+        case databaseFile
+    }
+
+    /// The required fields `d` leaves blank, in form order. A server needs a
+    /// name, host, database and user; a DuckDB record needs a name and a file
+    /// (or in-memory). Blank means empty after trimming spaces and tabs.
+    ///
+    /// The form shows a "Required" caption on each of these, and Save is
+    /// pressable only when there are none (`isValid`), so the two can never
+    /// disagree.
+    static func missingFields(_ d: ConnectionConfig) -> [RequiredField] {
+        let blank = { (s: String) in s.trimmingCharacters(in: .whitespaces).isEmpty }
+        var missing: [RequiredField] = []
+        if blank(d.name) { missing.append(.name) }
         switch d.engine {
         case .postgres:
-            return filled(d.host) && filled(d.database) && filled(d.username)
+            if blank(d.host) { missing.append(.host) }
+            if blank(d.username) { missing.append(.username) }
+            if blank(d.database) { missing.append(.database) }
         case .duckdb:
-            return filled(d.database)
+            if blank(d.database) { missing.append(.databaseFile) }
         }
+        return missing
+    }
+
+    /// Whether Save can be pressed: no required field is blank
+    /// (`missingFields`).
+    static func isValid(_ d: ConnectionConfig) -> Bool {
+        missingFields(d).isEmpty
     }
 
     /// The record as the form saves it for its engine. A DuckDB record keeps
