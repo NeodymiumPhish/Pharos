@@ -244,6 +244,13 @@ final class QueryErrorSheet: NSViewController {
             ? .monospacedSystemFont(ofSize: 12, weight: .regular)
             : .systemFont(ofSize: 12)
         textView.textContainerInset = NSSize(width: 8, height: 8)
+        // An unbounded maxSize, as in Apple's "Putting an NSTextView Object in
+        // an NSScrollView". Left alone, maxSize stayed at the visible size of
+        // the pane, so the view never grew past it and a long query could not
+        // be scrolled to its end.
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                  height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]

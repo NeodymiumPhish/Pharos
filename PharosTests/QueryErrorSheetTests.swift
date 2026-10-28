@@ -161,6 +161,33 @@ func runTests() {
     sheet.doneButton.performClick(nil)
     expectString("\(spy.closed)", "1", "Done asks the owner to close the sheet")
 
+    // MARK: a long query scrolls to its end
+    //
+    // The text view must grow to the full laid-out text, or the scroll view
+    // stops at the pane's visible height and the end of the query is out of
+    // reach. Measured against the layout manager's used rect plus both insets.
+
+    let longSQL = "SELECT *\nFROM public.conn\nWHERE true\n"
+        + (1...40).map { "  AND resp_p BETWEEN \($0 * 100) AND \($0 * 100 + 19)" }.joined(separator: "\n")
+        + "\nLIMIT 10"
+    let tall = QueryErrorSheet(
+        entries: [failure("t", sql: longSQL)], index: 0, tabId: "tab-1", delegate: SpyDelegate()
+    )
+    let tallWindow = host(tall)
+    _ = tallWindow
+    let tallText = tall.sqlTextView
+    if let layout = tallText.layoutManager, let container = tallText.textContainer,
+       let visible = tallText.enclosingScrollView?.contentView.bounds.height {
+        layout.ensureLayout(for: container)
+        let needed = layout.usedRect(for: container).maxY + tallText.textContainerInset.height * 2
+        expectTrue(needed > visible, "the long query is taller than the SQL pane")
+        expectTrue(tallText.frame.height >= needed - 0.5,
+                   "the SQL view grows to the whole query, so its last line can be scrolled to")
+    } else {
+        failures += 1
+        print("FAIL the SQL view sits in a scroll view with a layout manager")
+    }
+
     // MARK: no position
 
     let plainSpy = SpyDelegate()
