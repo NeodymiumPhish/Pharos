@@ -6,6 +6,7 @@ extension NSToolbarItem.Identifier {
     static let pharosFormatSQL = NSToolbarItem.Identifier("PharosFormatSQL")
     static let pharosNewTab = NSToolbarItem.Identifier("PharosNewTab")
     static let pharosSaveQuery = NSToolbarItem.Identifier("PharosSaveQuery")
+    static let pharosConnectionsManager = NSToolbarItem.Identifier("PharosConnectionsManager")
     static let pharosTagManager = NSToolbarItem.Identifier("PharosTagManager")
     static let pharosVariableManager = NSToolbarItem.Identifier("PharosVariableManager")
     /// The grouped navigator selector. Defined by the factory that builds it.
@@ -180,8 +181,14 @@ extension MainToolbarController: NSToolbarDelegate {
                              symbol: "square.and.arrow.down", tip: String(localized: "Save Session… (⌘S)"),
                              action: #selector(ContentViewController.menuSaveQuery(_:)))
 
-        // The two app-wide utility windows. Their actions are the application
+        // The app-wide utility windows. Their actions are the application
         // delegate's, at the end of every responder chain.
+        case .pharosConnectionsManager:
+            return imageItem(itemIdentifier, label: String(localized: "Connections"),
+                             palette: String(localized: "Connections Manager"),
+                             symbol: "cylinder.split.1x2", tip: String(localized: "Manage Connections… (⇧⌘N)"),
+                             action: #selector(AppDelegate.menuShowConnectionsManager(_:)))
+
         case .pharosTagManager:
             return imageItem(itemIdentifier, label: String(localized: "Tags"), palette: String(localized: "Tag Manager"),
                              symbol: "tag", tip: String(localized: "Tag Manager"),
@@ -246,6 +253,7 @@ extension MainToolbarController: NSToolbarDelegate {
             .pharosFormatSQL,
             .pharosNewTab,
             .pharosSaveQuery,
+            .pharosConnectionsManager,
             .pharosTagManager,
             .pharosVariableManager,
             .space,

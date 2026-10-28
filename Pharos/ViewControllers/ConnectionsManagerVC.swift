@@ -636,8 +636,8 @@ final class ConnectionsManagerVC: NSViewController {
         authSectionView = authSection
         sshSectionView = sshSection
 
-        // MARK: Session — the per-connection rules, after the database they
-        // apply to.
+        // MARK: Session — the per-connection rules, at the end of the form.
+        // Database sits under Server (owner's order, 2026-10-28).
 
         let readOnlyRow = row(String(localized: "Read-only connection"), control: readOnlyCheckbox)
         // The engine's own wording is set by `applyEngineVisibility`.
@@ -651,8 +651,8 @@ final class ConnectionsManagerVC: NSViewController {
         timeZoneRow = zoneRow
         let sessionSection = section(String(localized: "Session"), rows: [readOnlyRow, launchRow, zoneRow])
 
-        let scroll = SettingsFormScroll.makePane(sections: [header, generalSection, serverSection, duckSection,
-                                                            authSection, sshSection, dbSection, sessionSection])
+        let scroll = SettingsFormScroll.makePane(sections: [header, generalSection, serverSection, dbSection,
+                                                            duckSection, authSection, sshSection, sessionSection])
 
         // Test Connection, Revert and Save live in a bar pinned to the bottom
         // of the pane, OUTSIDE the scroll view. An action the user must reach

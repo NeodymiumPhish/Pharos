@@ -1151,6 +1151,9 @@
     "Connections" : {
 
     },
+    "Connections Manager" : {
+
+    },
     "Connections per database" : {
 
     },
@@ -2294,6 +2297,9 @@
 
     },
     "Manage Connections…" : {
+
+    },
+    "Manage Connections… (⇧⌘N)" : {
 
     },
     "Manage Tags…" : {
