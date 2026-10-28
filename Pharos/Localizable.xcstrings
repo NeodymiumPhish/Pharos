@@ -10,33 +10,6 @@
     " (more available)" : {
 
     },
-    "Couldn’t read the tables" : {
-
-    },
-    "Couldn’t Read the Schemas" : {
-
-    },
-    "Couldn’t Read the Tables in %@" : {
-
-    },
-    "Reading columns…" : {
-
-    },
-    "Reading partitions…" : {
-
-    },
-    "Reading tables…" : {
-
-    },
-    "Reading the schemas…" : {
-
-    },
-    "Reading the tables in %@…" : {
-      "comment" : "The Database Navigator while a schema's table list loads; the schema's name."
-    },
-    "Reading…" : {
-
-    },
     "—" : {
 
     },
@@ -258,9 +231,6 @@
     },
     "%@+ rows" : {
 
-    },
-    "%lld connection(s)" : {
-      "comment" : "How many connections a variable is linked to."
     },
     "%lld connections" : {
 
@@ -1237,6 +1207,15 @@
 
     },
     "Could not detach “%@”" : {
+
+    },
+    "Couldn’t Read the Schemas" : {
+
+    },
+    "Couldn’t read the tables" : {
+
+    },
+    "Couldn’t Read the Tables in %@" : {
 
     },
     "Couldn't save “%@”" : {
@@ -2420,7 +2399,7 @@
 
     },
     "Name" : {
-
+      "comment" : "Tag Manager: the tag's name."
     },
     "Name and Recently updated are one flat list, with no folder rows — the folder a Session is in is unchanged, only hidden." : {
 
@@ -3235,7 +3214,25 @@
     "Read-only connection" : {
 
     },
+    "Reading columns…" : {
+
+    },
+    "Reading partitions…" : {
+
+    },
     "Reading schemas…" : {
+
+    },
+    "Reading tables…" : {
+
+    },
+    "Reading the schemas…" : {
+
+    },
+    "Reading the tables in %@…" : {
+      "comment" : "The Database Navigator while a schema's table list loads; the schema's name."
+    },
+    "Reading…" : {
 
     },
     "Reads %@." : {
@@ -4042,7 +4039,7 @@
 
     },
     "Tags" : {
-
+      "comment" : "Tag Manager: the sidebar list's VoiceOver name."
     },
     "Test a value" : {
 
