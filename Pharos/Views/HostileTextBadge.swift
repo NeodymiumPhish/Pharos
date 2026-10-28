@@ -38,7 +38,7 @@ final class HostileTextBadge: NSImageView {
     /// directions.
     ///
     /// Called by whoever pairs the two — `TagConditionRowView` does it at
-    /// construction; `ConnectionsManagerVC` and `TagManagerSheet` own their own
+    /// construction; `ConnectionsManagerVC` and `TagDetailVC` own their own
     /// pairings and should call this where they build theirs.
     func link(to field: NSView) {
         setAccessibilityLinkedUIElements([field])

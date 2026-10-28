@@ -317,6 +317,16 @@
         }
       }
     },
+    "%lld not numbers (lines %@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld not numbers (lines %2$@)"
+          }
+        }
+      }
+    },
     "%lld of %lld conditions" : {
       "localizations" : {
         "en" : {
@@ -410,6 +420,9 @@
 
     },
     "1 earlier version of %@" : {
+
+    },
+    "1 not a number (line %lld)" : {
 
     },
     "1 result" : {
@@ -538,7 +551,13 @@
     "A tab that has never been saved is only mentioned while Restore open tabs is off." : {
 
     },
+    "A tag marks the rows whose values match its rules — an address, a CIDR range, a number, a date." : {
+      "comment" : "Tag Manager: the empty state's message."
+    },
     "A TSV export always uses a tab, whatever this says." : {
+
+    },
+    "A variable named %@ already exists. Choose a different name." : {
 
     },
     "A year" : {
@@ -578,9 +597,6 @@
 
     },
     "Add color" : {
-
-    },
-    "Add Connection" : {
 
     },
     "Add Credential" : {
@@ -779,6 +795,9 @@
     },
     "Blank lines between statements" : {
 
+    },
+    "Blue" : {
+      "comment" : "Tag colour name."
     },
     "Boolean display" : {
 
@@ -1017,6 +1036,9 @@
     },
     "Collect performance reports" : {
 
+    },
+    "Colour" : {
+      "comment" : "Tag Manager: the tag's colour."
     },
     "Colour bands per row" : {
 
@@ -1262,13 +1284,25 @@
     "Data lake" : {
 
     },
+    "Database" : {
+
+    },
     "Database File" : {
 
     },
     "Database Navigator" : {
 
     },
+    "Date" : {
+
+    },
+    "Date and time" : {
+
+    },
     "Dates and times" : {
+
+    },
+    "db.example.com or 10.0.0.5" : {
 
     },
     "Debug" : {
@@ -1284,6 +1318,9 @@
 
     },
     "Default port" : {
+
+    },
+    "Default Schema" : {
 
     },
     "Default schema first" : {
@@ -1310,7 +1347,7 @@
     "Delete Card" : {
 
     },
-    "Delete the selected connections. A DuckDB file stays where it is." : {
+    "Delete Variable" : {
 
     },
     "Delete Version" : {
@@ -1362,6 +1399,9 @@
 
     },
     "Disconnect it, or choose a different name." : {
+
+    },
+    "Disconnected" : {
 
     },
     "Disconnecting rolls them back." : {
@@ -1452,6 +1492,9 @@
     "DuckDB's default schema. Test the connection to choose another." : {
 
     },
+    "Duplicate" : {
+
+    },
     "Duplicate Tab" : {
 
     },
@@ -1521,6 +1564,9 @@
     "Enter a new name for this tab. Leave it empty to name the tab after its connection and schema." : {
 
     },
+    "Enter a port from 1 to 65535." : {
+
+    },
     "Enter the password for “%@”." : {
 
     },
@@ -1551,6 +1597,9 @@
 
     },
     "Entries to load" : {
+
+    },
+    "Error" : {
 
     },
     "Errors" : {
@@ -1755,6 +1804,9 @@
     "Fit to content measures the header and a sample of the rows." : {
 
     },
+    "Fixed" : {
+
+    },
     "Fixed width" : {
 
     },
@@ -1824,6 +1876,9 @@
     "GRANT and REVOKE" : {
 
     },
+    "Green" : {
+      "comment" : "Tag colour name."
+    },
     "Grid" : {
 
     },
@@ -1888,6 +1943,9 @@
 
     },
     "Horizontal" : {
+
+    },
+    "Host" : {
 
     },
     "How a NULL is set apart from a real value. Differentiate Without Color keeps the italic face whatever this says." : {
@@ -2074,6 +2132,12 @@
 
     },
     "Italic" : {
+
+    },
+    "Items" : {
+
+    },
+    "Items are" : {
 
     },
     "Its changes are not committed." : {
@@ -2340,6 +2404,12 @@
     "Move up a row" : {
 
     },
+    "My Database" : {
+
+    },
+    "name" : {
+
+    },
     "Name" : {
 
     },
@@ -2386,6 +2456,9 @@
 
     },
     "New Card Here" : {
+
+    },
+    "New Connection" : {
 
     },
     "New Connections" : {
@@ -2436,6 +2509,12 @@
     "New Table from File…" : {
 
     },
+    "New Tag" : {
+      "comment" : "Tag Manager: make a new tag."
+    },
+    "New Variable" : {
+
+    },
     "New Window" : {
 
     },
@@ -2460,6 +2539,9 @@
     "No Connection" : {
 
     },
+    "No Connection Selected" : {
+
+    },
     "No Connections" : {
 
     },
@@ -2482,6 +2564,9 @@
 
     },
     "No Items" : {
+
+    },
+    "No Matches" : {
 
     },
     "no notes" : {
@@ -2520,7 +2605,13 @@
     "No table matches that description. Name a table or column, or choose the schema that holds the data." : {
 
     },
-    "No tags yet. A tag marks the rows whose values match its rules — an address, a CIDR range, a number, a date. Click New Tag to make one." : {
+    "No Tag Selected" : {
+      "comment" : "Tag Manager: tags exist, none is selected."
+    },
+    "No Tags" : {
+      "comment" : "Tag Manager: the empty state's title."
+    },
+    "No value" : {
 
     },
     "No values yet." : {
@@ -2568,6 +2659,15 @@
     "Not run" : {
 
     },
+    "Not saved" : {
+
+    },
+    "Not Saved" : {
+
+    },
+    "Note" : {
+      "comment" : "Tag Manager: the tag's note."
+    },
     "Notes" : {
 
     },
@@ -2586,6 +2686,9 @@
     "Nothing Succeeded Yet" : {
 
     },
+    "Nothing: the value is empty." : {
+
+    },
     "Notifications" : {
 
     },
@@ -2593,6 +2696,9 @@
 
     },
     "Notify when the app is in the background" : {
+
+    },
+    "Now" : {
 
     },
     "NULL" : {
@@ -2608,6 +2714,9 @@
 
     },
     "NULL values" : {
+
+    },
+    "number" : {
 
     },
     "Numbers" : {
@@ -2674,6 +2783,9 @@
 
     },
     "One ASCII character. A quote inside a quoted field is written twice, which is what every CSV reader expects." : {
+
+    },
+    "One item per line" : {
 
     },
     "Only below" : {
@@ -2804,6 +2916,12 @@
     },
     "Opens this connection as Pharos starts, once the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
 
+    },
+    "Optional" : {
+
+    },
+    "Orange" : {
+      "comment" : "Tag colour name."
     },
     "Order objects by" : {
 
@@ -2967,6 +3085,9 @@
     "Plot the Y axis on a logarithmic scale." : {
 
     },
+    "Port" : {
+
+    },
     "Post a notification" : {
 
     },
@@ -3020,6 +3141,9 @@
     },
     "pt" : {
 
+    },
+    "Purple" : {
+      "comment" : "Tag colour name."
     },
     "Puts a restored window back where it was." : {
 
@@ -3123,6 +3247,12 @@
     "Records an unknown server key on the first connection. A changed key is still refused." : {
 
     },
+    "Red" : {
+      "comment" : "Tag colour name."
+    },
+    "Redefined below — this row has no effect." : {
+
+    },
     "Redo" : {
 
     },
@@ -3207,6 +3337,9 @@
     "Rename…" : {
 
     },
+    "Renders as" : {
+
+    },
     "Reopen Closed Tab" : {
 
     },
@@ -3226,6 +3359,9 @@
 
     },
     "Require Touch ID to connect and to show the password" : {
+
+    },
+    "Required" : {
 
     },
     "Reset" : {
@@ -3297,6 +3433,9 @@
     "Reveal Logs in Finder" : {
 
     },
+    "Revert" : {
+      "comment" : "Tag Manager: discard every unsaved edit."
+    },
     "Revert Edit" : {
 
     },
@@ -3367,6 +3506,9 @@
           }
         }
       }
+    },
+    "Rules" : {
+      "comment" : "Tag Manager: the rules section's header."
     },
     "Run" : {
 
@@ -3518,6 +3660,9 @@
     "Security & Privacy" : {
 
     },
+    "Select a connection or click + to add a new one." : {
+
+    },
     "Select a CSV file to import into %@" : {
 
     },
@@ -3549,6 +3694,9 @@
 
     },
     "Series colours" : {
+
+    },
+    "Server" : {
 
     },
     "Server aggregation is on." : {
@@ -3624,6 +3772,9 @@
 
     },
     "Show All Columns" : {
+
+    },
+    "Show Calendar" : {
 
     },
     "Show column type icons" : {
@@ -3770,6 +3921,9 @@
     "SSH User" : {
 
     },
+    "SSL Mode" : {
+
+    },
     "Stable" : {
 
     },
@@ -3869,6 +4023,9 @@
     "Tables joined by INHERITS read as a partitioned table." : {
 
     },
+    "Tag" : {
+      "comment" : "Tag Manager: the identity section's header."
+    },
     "Tag Manager" : {
 
     },
@@ -3879,6 +4036,9 @@
 
     },
     "Test a value — an address, a number, text…" : {
+
+    },
+    "Test Connection" : {
 
     },
     "Test connection first" : {
@@ -4154,6 +4314,9 @@
     "The user guide, in your browser." : {
 
     },
+    "The value is %@." : {
+
+    },
     "the version could not be read" : {
 
     },
@@ -4286,6 +4449,9 @@
     "To keep them, cancel, then choose Commit from the tab's transaction button." : {
 
     },
+    "Today" : {
+
+    },
     "Transaction failed" : {
 
     },
@@ -4310,6 +4476,9 @@
     "Turning this off removes them again." : {
 
     },
+    "Type" : {
+
+    },
     "Typing ( or [ also writes the closer, and Backspace over an empty pair takes both away." : {
 
     },
@@ -4322,7 +4491,13 @@
     "unique index" : {
 
     },
+    "Unsaved changes" : {
+
+    },
     "Untitled" : {
+
+    },
+    "Untitled Connection" : {
 
     },
     "Untitled query" : {
@@ -4330,6 +4505,9 @@
     },
     "Untitled Session" : {
 
+    },
+    "Untitled Tag" : {
+      "comment" : "Tag Manager: a tag with no name yet."
     },
     "Untitled.duckdb" : {
 
@@ -4373,6 +4551,9 @@
     "Used only while the list opens “After a dot, and while typing”. A dot opens it whatever this says." : {
 
     },
+    "Username" : {
+
+    },
     "Uses Settings ▸ Query ▸ Default row limit." : {
 
     },
@@ -4391,6 +4572,9 @@
     "UTF-16 LE" : {
 
     },
+    "value" : {
+
+    },
     "Value" : {
 
     },
@@ -4398,6 +4582,9 @@
 
     },
     "Values, one per line" : {
+
+    },
+    "Variable" : {
 
     },
     "Variable Manager" : {
@@ -4502,6 +4689,9 @@
     "With no scope, this credential applies to every %@ path." : {
 
     },
+    "With time zone" : {
+
+    },
     "Worker threads" : {
 
     },
@@ -4537,6 +4727,9 @@
     },
     "Y" : {
 
+    },
+    "Yellow" : {
+      "comment" : "Tag colour name."
     },
     "You have %lld tabs with unsaved changes." : {
 

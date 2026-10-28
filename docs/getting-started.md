@@ -66,8 +66,8 @@ Connections are chosen **per editor tab** from the **Connection** pop-up button 
 
 ## Creating Your First Connection
 
-1. Press **Cmd+Shift+N** or choose **File > Manage Connections…** to open the Connections Manager sheet
-2. Click the **+** button below the connection list
+1. Press **Cmd+Shift+N** or choose **File > Manage Connections…** to open the Connections Manager window
+2. Click the **+** button in the window's toolbar
 3. Fill in the connection details:
    - **Name** — a friendly label (e.g., "Local Dev")
    - **Host** — the server address

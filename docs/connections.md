@@ -18,20 +18,25 @@ nav_order: 3
 
 ## Overview
 
-Connections are managed in the **Connections Manager** sheet (**Cmd+Shift+N** or **File > Manage Connections…**; **Done** or Escape closes it, and it asks before discarding unsaved edits) and selected **per editor tab** from the **Connection** pop-up button in the tab's [context row](query-editor.md#the-context-row), at the start of the editor's header row. Different tabs can point at different databases at the same time.
+Connections are managed in the **Connections Manager** window (**Cmd+Shift+N** or **File > Manage Connections…**; **Cmd+W** or Escape closes it, and it asks before discarding unsaved edits) and selected **per editor tab** from the **Connection** pop-up button in the tab's [context row](query-editor.md#the-context-row), at the start of the editor's header row. Different tabs can point at different databases at the same time.
 
 ## The Connections Manager
 
-The Connections Manager is a two-pane window:
+The Connections Manager is a window of its own, titled **Connections**. It stays open while you work in other windows, and it remembers its size and place. It has a Liquid Glass **sidebar** on the left and the selected connection's **form** on the right.
 
-- **Left** — the list of saved connections. Each row shows a status dot (green = connected, yellow = connecting, red = error, gray = disconnected), the connection name, and `host:port · database`, followed by `· via <bastion>` when the connection uses an SSH tunnel. Drag rows to reorder. Use **+** to add a connection and **−** to delete the selected one.
-- **Right** — the detail form for the selected connection.
+- **The sidebar** has one row for each saved connection: the engine's symbol (a server, a DuckDB file or an in-memory database), the connection name (**Untitled** while it is empty), and where it goes — `host:port · database`, followed by `· via <bastion>` when the connection uses an SSH tunnel, or `DuckDB · <path>` for a DuckDB file. A connection that was never saved says **Not saved**. At the end of the row, a dot marks unsaved edits, and a status dot shows the state (green = connected, yellow = connecting, red = error, gray = disconnected, orange = not saved).
+- **+** in the toolbar (**New Connection**) adds a connection. The **Filter** field at the right of the toolbar narrows the sidebar to the rows whose name or address contains the text.
+- Drag rows to reorder them. Reordering is off while the filter holds text.
+- To delete a connection, select its row and press the **Delete** key, choose **Edit > Delete**, or right-click the row and choose **Delete**. An alert asks first. A DuckDB file is only removed from Connections; the file stays where it is.
+- **The form** has a box for each section: **Connection**, **Server**, **Database File**, **Authentication**, **SSH Tunnel**, **Database** and **Session**. Only the sections for the connection's engine show. An empty required field says **Required** under it. **Test Connection**, **Revert** and **Save** (Return) sit in a bar at the bottom of the form.
+
+Closing the window with unsaved edits asks first: **Save**, **Discard** or **Cancel**.
 
 | Field | Description | Default |
 |-------|-------------|---------|
 | Name | A display label for this connection | — |
 | Host | Server hostname or IP address | — |
-| Port | PostgreSQL listening port | 5432 |
+| Port | PostgreSQL listening port, 1 to 65535 | 5432 |
 | Database | Database name to connect to | postgres |
 | Username | PostgreSQL role for authentication | — |
 | Password | Password for the role (stored in the Keychain) | — |
@@ -131,7 +136,7 @@ The tunnel opens before the connection pool and closes when you disconnect, when
 | Field | Description | Default |
 |-------|-------------|---------|
 | SSH Host | The bastion, or a `Host` alias from `~/.ssh/config` | — |
-| SSH Port | The SSH server's port | 22 |
+| SSH Port | The SSH server's port, 1 to 65535. Another value shows "Enter a port from 1 to 65535." under the field, and **Save** stays off until you fix it | 22 |
 | SSH User | Leave empty to let `~/.ssh/config` choose | — |
 | Authentication | SSH agent, Private key file, or Password | SSH agent |
 | Key File | The private key, for **Private key file** | — |

@@ -101,7 +101,7 @@ When Pharos connects on its own (at launch, or from a Shortcut), it shows no ale
 
 ## Remove a file from Pharos
 
-In the Connections Manager, select the DuckDB file and click **−**. The alert says **Remove “sales” from Connections?**: the file leaves the Connections Manager and is not saved any more. The file stays where it is, and its tabs, Sessions, history and workspaces keep working, because Pharos keeps its note of the file.
+In the Connections Manager, select the DuckDB file and press the **Delete** key (or right-click its row and choose **Delete**). The alert says **Remove “sales” from Connections?**: the file leaves the Connections Manager and is not saved any more. The file stays where it is, and its tabs, Sessions, history and workspaces keep working, because Pharos keeps its note of the file.
 
 An in-memory database is removed from Pharos: the alert says **Remove “In-memory DuckDB” from Pharos?**, Saved Sessions on it lose their connection, and for an open one its tables are lost.
 
@@ -122,7 +122,7 @@ Pharos closes a DuckDB file a few seconds after the last tab that uses it closes
 
 **File > New In-Memory DuckDB Database** makes a database that lives in memory only, in a new tab: "In-memory DuckDB", then "In-memory DuckDB 2", and so on. It is useful for a quick look at some files.
 
-Its tables are lost when it disconnects or Pharos quits. When it holds tables or views, **File > Disconnect**, **Quit** and **−** in the Connections Manager first ask: **Do you want to save the in-memory database?** with **Save…**, **Don't Save** and **Cancel**. Pharos always asks, whatever **Warn before closing unsaved tabs** says, because the tables have no other copy.
+Its tables are lost when it disconnects or Pharos quits. When it holds tables or views, **File > Disconnect** and **Quit** first ask: **Do you want to save the in-memory database?** with **Save…**, **Don't Save** and **Cancel**. A delete in the Connections Manager says in its alert that the tables are lost. Pharos always asks, whatever **Warn before closing unsaved tabs** says, because the tables have no other copy.
 
 **File > Save In-Memory Database…** copies the database to a new `.duckdb` file at any time, then offers to open the file in a new tab. The tabs on the in-memory database stay as they are. The copy has the tables and views with their data. It leaves out temporary tables, attached PostgreSQL databases and work that other tabs have not committed.
 

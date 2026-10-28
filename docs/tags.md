@@ -44,10 +44,24 @@ In the grid, a row that fully satisfies a rule shows a solid bar; a row that sat
 
 Open it with the **Tag Manager** button in the window toolbar (the tag, at the right of the toolbar), **Window > Tag Manager**, **Edit > Manage Tags…**, **Manage Tags…** in a result grid's right-click menu, or the **Edit** button beside a tag in the [Inspector](inspector.md). It is one window for the whole app, and it opens even when there are no tags yet and no results on screen.
 
-- The list on the left shows every tag. **New Tag** adds one; the trash button deletes the selected tag.
-- On the right: the tag's name, colour and note, then its rules. **Add Rule** adds a rule with one empty condition; pick its type and operator and type the value. **Add Condition** adds another condition to a rule.
-- When results are loaded in the front tab, the manager counts the loaded rows the tag matches.
-- **Save** writes your changes and keeps the window open. **Cancel** closes it without saving. Closing the window with unsaved changes asks first.
+The window has a Liquid Glass **sidebar** on the left and the selected tag's **form** on the right. **Cmd+W** or Escape closes it.
+
+- **The sidebar** has one row for each tag: its colour swatch, its name (**Untitled Tag** while the name is empty), and the number of its rules ("3 rules"). A dot at the end of the row marks a tag with unsaved changes.
+- **+** in the toolbar (**New Tag**) adds a tag. The **Filter** field at the right of the toolbar narrows the sidebar to the tags whose name or rule count contains the text. When there are no tags, the form says **No Tags** and has its own **New Tag** button.
+- To delete a tag, select its row and press the **Delete** key, choose **Edit > Delete**, or right-click the row and choose **Delete**. The tag is only marked: the line above the buttons says what **Save** will delete ("Saving deletes 1 tag and every rule in it."), and **Revert** brings it back.
+
+The form has two boxes:
+
+- **Tag** — the **Name**, the **Colour** (a row of round swatches; the selected one has a ring), and the **Note**.
+- **Rules** — the tag's rules. **Add Rule** adds a rule with one empty condition; pick its type and operator and type the value. **Add Condition** adds another condition to a rule. **Add Values…** is at the foot of the box.
+
+Under the boxes is the **Test a value** field. At the bottom of the form, outside the scrolling area:
+
+- When results are loaded in the front tab, a count of the loaded rows that the tag matches.
+- A line that says what **Save** will do.
+- **Revert**, which discards every unsaved change in the window, and **Save** (Return), which writes the changes to every tag and keeps the window open.
+
+Changes are kept until you press **Save**, also when you select another tag. Closing the window with unsaved changes asks first: **Discard** or **Cancel**.
 
 ### Add Values…
 

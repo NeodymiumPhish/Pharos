@@ -1,6 +1,6 @@
 #!/bin/bash
 # Standalone test runner for QueryErrorSheet. Uses real AppKit through a headless
-# NSWindow, like scripts/test-variable-row-layout.sh.
+# NSWindow, like scripts/test-variable-manager.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/query-error-sheet-tests \

@@ -3,7 +3,7 @@
 // Real AppKit in a window ordered in offscreen at (-20000, -20000), so field
 // editors and the toolbar exist.
 //
-// Covers what scripts/test-variable-row-layout.sh covered for the old list:
+// Covers what the old list's row-layout harness (since removed) covered:
 // what each row says (title, subtitle, warning), plus the settle / prune /
 // collision rules, the toolbar, Delete and Duplicate, the Connections box,
 // the store-republish rule (lessons, 2026-09-16) and constraint conflicts.

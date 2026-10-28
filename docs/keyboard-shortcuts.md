@@ -33,7 +33,7 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 
 | Action | Shortcut |
 |--------|----------|
-| Manage Connections… | Cmd+Shift+N |
+| Manage Connections… (opens the Connections Manager window) | Cmd+Shift+N |
 | Connect | Control+Cmd+K |
 | Refresh Metadata | Cmd+Shift+R |
 | Open… (SQL file) | Cmd+O |
@@ -120,6 +120,17 @@ The app's own **Settings ▸ Shortcuts** pane lists every one of these at run ti
 | Outdent | Shift+Tab |
 | Apply "Format as SQL list" offer | Tab |
 | Dismiss "Format as SQL list" offer | Escape |
+
+## In the Manager Windows
+
+The Connections Manager, the Variable Manager and the Tag Manager are windows of their own.
+
+| Action | Key |
+|--------|-----|
+| Close the window (asks first when there are unsaved edits) | Cmd+W. In the Connections Manager and the Tag Manager, also Escape when no control uses it |
+| Delete the selected row | Delete or Forward Delete (alone or with Cmd), or Edit > Delete |
+| Save (Connections Manager, Tag Manager) | Return |
+| Find a row by its name | Type its first letters in the sidebar |
 
 ## In the Results Grid
 
