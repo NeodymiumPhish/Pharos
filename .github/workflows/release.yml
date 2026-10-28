@@ -1,8 +1,17 @@
 name: Release
 
+# Started by hand on main (gh workflow run release.yml --ref main), not by a
+# tag push: a run's caches belong to its ref, and a tag run can read neither
+# another tag's caches nor save any that the next release can read. On main,
+# every release restores the DuckDB and Rust caches the last one saved. The
+# run makes the tag itself, on the commit it built.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 2.8.000 (empty: the latest tag's patch + 1)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -13,9 +22,43 @@ env:
 jobs:
   build:
     runs-on: macos-26
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # every tag, to find the next version
+
+      - name: Choose the release tag
+        id: tag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Release from main only (this run is on $GITHUB_REF)" >&2; exit 1
+          fi
+          if [ -n "$INPUT_VERSION" ]; then
+            TAG="v${INPUT_VERSION#v}"
+          else
+            # Highest v<major>.<minor>.<patch> by number, not text (v2.7.0
+            # sorts above v2.7.004 in git's version sort); keep the padding.
+            LATEST="$(git tag --list 'v*' | awk -F. '/^v[0-9]+\.[0-9]+\.[0-9]+$/ {
+              split(substr($1, 2) "." $2 "." $3, n, ".")
+              if (!best || n[1] > a || (n[1] == a && (n[2] > b || (n[2] == b && n[3] + 0 > c)))) {
+                a = n[1]; b = n[2]; c = n[3] + 0; best = $0
+              } } END { print best }')"
+            [ -n "$LATEST" ] || { echo "No v<major>.<minor>.<patch> tag to count from" >&2; exit 1; }
+            PATCH="${LATEST##*.}"
+            TAG="$(printf '%s.%0*d' "${LATEST%.*}" "${#PATCH}" $((10#$PATCH + 1)))"
+          fi
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Bad version: $TAG" >&2; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Tag $TAG already exists" >&2; exit 1
+          fi
+          echo "Releasing $TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -56,7 +99,7 @@ jobs:
 
       - name: Stamp version from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Pharos/App/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Pharos/App/Info.plist
           # Cargo needs SemVer, which forbids leading zeros: a v2.7.001 tag
@@ -110,7 +153,7 @@ jobs:
             -volname "Pharos" \
             -srcfolder ./build/Build/Products/Release/Pharos.app \
             -ov -format UDZO \
-            "Pharos-${GITHUB_REF_NAME}.dmg"
+            "Pharos-${TAG}.dmg"
 
       # The shipped binary is stripped; its dSYM turns crash-log addresses
       # back into function names (atos -o Pharos.app.dSYM/... -l <load addr>).
@@ -122,7 +165,7 @@ jobs:
         run: |
           ditto -c -k --keepParent \
             ./build/Build/Products/Release/Pharos.app.dSYM \
-            "Pharos-${GITHUB_REF_NAME}.dSYM.zip"
+            "Pharos-${TAG}.dSYM.zip"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v7
@@ -142,15 +185,21 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ needs.build.outputs.tag }}
     steps:
       - name: Download DMG artifacts
         uses: actions/download-artifact@v8
         with:
           name: dmg
 
+      # The tag does not exist yet: GitHub makes it on the commit the build
+      # job built. A tag made with GITHUB_TOKEN starts no workflow.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
           files: "*.dmg"
           generate_release_notes: true
 
@@ -158,7 +207,7 @@ jobs:
         env:
           HOMEBREW_PAT: ${{ secrets.HOMEBREW_PAT }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           curl -X POST \
             -H "Authorization: token $HOMEBREW_PAT" \
             -H "Accept: application/vnd.github+json" \
