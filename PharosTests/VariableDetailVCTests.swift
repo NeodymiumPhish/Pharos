@@ -573,6 +573,49 @@ private func testGrowingEditor() {
 
 // MARK: - 9. Renders as
 
+/// "Renders as" spans its row and wraps at words. It once hugged its text:
+/// after "42" it was a 16 pt column, so the next value wrapped two characters
+/// to a line ("DA/TE"), and the same hug pulled the Variable Manager window
+/// narrower (scripts/test-variable-manager.sh measures that).
+private func testRendersAsFillsTheRow() {
+    let host = Hosted(QueryVariable(name: "d", value: "42"))
+    defer { host.close() }
+    let label = host.vc.rendersAsLabel
+    func check(_ when: String, maxLines: Int) {
+        host.settle()
+        guard let row = host.vc.rendersAsRow else {
+            expectTrue(false, "Renders as \(when): the row is on show")
+            return
+        }
+        // Alignment rects: a label's frame runs 2 pt past its text each side.
+        let content = row.bounds.width - 2 * SettingsMetrics.rowInsetH
+        let width = label.alignmentRect(forFrame: label.frame).width
+        expectClose(width, content, tolerance: 1, "Renders as \(when): spans the row (\(width) of \(content))")
+        let lineHeight = label.font.map { ceil($0.ascender - $0.descender + $0.leading) } ?? 14
+        let lines = Int((label.frame.height / lineHeight).rounded())
+        expectTrue(lines >= 1 && lines <= maxLines, "Renders as \(when): \(lines) line(s), at most \(maxLines)",
+                   "height \(label.frame.height), line \(lineHeight)")
+    }
+    expectEqual(label.lineBreakMode, .byWordWrapping, "Renders as: wraps at word boundaries")
+    expectEqual(label.stringValue, "42", "Renders as: the short value first")
+    check("after \"42\"", maxLines: 1)
+    host.typeValue("CURRENT_DATE - INTERVAL '30 days' AND a long tail of words that runs past one line")
+    check("then a long value", maxLines: 3)
+
+    let number = Hosted(QueryVariable(name: "n", value: "42", type: .number))
+    defer { number.close() }
+    number.type("4x is not a number at all and the sentence that says so is long", into: number.vc.numberField)
+    number.settle()
+    if let row = number.vc.rendersAsRow {
+        let content = row.bounds.width - 2 * SettingsMetrics.rowInsetH
+        let label = number.vc.rendersAsLabel
+        expectClose(label.alignmentRect(forFrame: label.frame).width, content, tolerance: 1,
+                    "Renders as: the invalid-value sentence spans the row too")
+    } else {
+        expectTrue(false, "Renders as: the Number row is on show")
+    }
+}
+
 private func testRendersAs() {
     let cases: [(QueryVariable, String)] = [
         (QueryVariable(name: "t", value: "O'Brien", type: .text), "'O''Brien'"),
@@ -911,6 +954,7 @@ func runTests() {
     testListEditor()
     testGrowingEditor()
     testRendersAs()
+    testRendersAsFillsTheRow()
     testBool()
     testNameCollision()
     testKeyboard()

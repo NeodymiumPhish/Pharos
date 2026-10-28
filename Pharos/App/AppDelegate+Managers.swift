@@ -1,8 +1,14 @@
 import AppKit
 
-// Window ▸ Tag Manager and Window ▸ Variable Manager, and the toolbar buttons
-// that send the same actions. App-wide: they work with no main window.
+// Window ▸ Tag Manager, Window ▸ Variable Manager, File ▸ Manage
+// Connections…, and the toolbar buttons that send the same actions.
+// App-wide: they work with no main window, and from a manager window, whose
+// responder chain reaches no MainWindowController.
 extension AppDelegate {
+    @MainActor @objc func menuShowConnectionsManager(_ sender: Any?) {
+        ConnectionsManagerWindowController.show()
+    }
+
     @MainActor @objc func menuShowVariableManager(_ sender: Any?) {
         VariableManagerWindowController.shared.show()
     }

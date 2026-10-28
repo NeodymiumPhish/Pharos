@@ -557,6 +557,9 @@
     "A TSV export always uses a tab, whatever this says." : {
 
     },
+    "A variable is a named value that a query uses as {{name}} — text, a number, a date, a list." : {
+      "comment" : "Variable Manager: the empty state's message."
+    },
     "A variable named %@ already exists. Choose a different name." : {
 
     },
@@ -2619,6 +2622,9 @@
     },
     "No Variable Selected" : {
 
+    },
+    "No Variables" : {
+      "comment" : "Variable Manager: the empty state's title."
     },
     "Node" : {
 

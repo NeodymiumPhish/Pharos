@@ -145,9 +145,12 @@ final class ConnectionsManagerVC: NSViewController {
     private var timeZoneRow: SettingsRow?
 
     /// The rows that show a "Required" caption while their field is blank
-    /// (`ConnectionFormRules.missingFields`), each with the caption it carries
-    /// anyway, if any.
-    private var requiredRows: [ConnectionFormRules.RequiredField: (row: SettingsRow, note: String?)] = [:]
+    /// (`ConnectionFormRules.missingFields`). A row's own caption, if it has
+    /// one, stays under the problem (`SettingsRow.captionProblems`).
+    private var requiredRows: [ConnectionFormRules.RequiredField: SettingsRow] = [:]
+    /// The server's Port row, which says when the field holds no port
+    /// (`ConnectionFormRules.portProblem`).
+    private var portRow: SettingsRow?
 
     /// Every group box in the form. A box draws the separators between its
     /// rows, so it is redrawn when a row is shown or hidden.
@@ -541,7 +544,7 @@ final class ConnectionsManagerVC: NSViewController {
         // MARK: Connection
 
         let nameRow = row(String(localized: "Name"), control: sized(nameField))
-        requiredRows[.name] = (nameRow, nil)
+        requiredRows[.name] = nameRow
         let generalSection = section(String(localized: "Connection"), rows: [
             nameRow,
             row(String(localized: "Engine"), control: sized(enginePopup)),
@@ -550,11 +553,10 @@ final class ConnectionsManagerVC: NSViewController {
         // MARK: Server
 
         let hostRow = row(String(localized: "Host"), control: withBadge(hostField, hostBadge), titling: hostField)
-        requiredRows[.host] = (hostRow, nil)
-        let serverSection = section(String(localized: "Server"), rows: [
-            hostRow,
-            row(String(localized: "Port"), control: sized(portField, width: L.portWidth)),
-        ])
+        requiredRows[.host] = hostRow
+        let serverPortRow = row(String(localized: "Port"), control: sized(portField, width: L.portWidth))
+        portRow = serverPortRow
+        let serverSection = section(String(localized: "Server"), rows: [hostRow, serverPortRow])
 
         // MARK: Database File
 
@@ -563,7 +565,7 @@ final class ConnectionsManagerVC: NSViewController {
         let fileNote = String(localized: "Connect opens the file. Save creates a new file; Connect never makes an empty database in place of a file that has gone.")
         let duckFileRow = row(String(localized: "File"), control: duckFileControls, caption: fileNote,
                               placement: .below, titling: duckPathField)
-        requiredRows[.databaseFile] = (duckFileRow, fileNote)
+        requiredRows[.databaseFile] = duckFileRow
         let inMemoryRow = row(String(localized: "In-memory database"), control: duckInMemoryCheckbox,
                               caption: String(localized: "An in-memory database's tables are lost when it disconnects or Pharos quits. Pharos asks first, and offers to save them to a file."))
         setToolTip(String(localized: "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits."),
@@ -574,7 +576,7 @@ final class ConnectionsManagerVC: NSViewController {
 
         let usernameRow = row(String(localized: "Username"), control: withBadge(usernameField, usernameBadge),
                               titling: usernameField)
-        requiredRows[.username] = (usernameRow, nil)
+        requiredRows[.username] = usernameRow
         // The field and its Show button travel together, so the badge still
         // owns the row's trailing edge and the row keeps ONE width whichever
         // state the gate is in.
@@ -623,7 +625,7 @@ final class ConnectionsManagerVC: NSViewController {
 
         let databaseRow = row(String(localized: "Database"), control: withBadge(databaseField, databaseBadge),
                               titling: databaseField)
-        requiredRows[.database] = (databaseRow, nil)
+        requiredRows[.database] = databaseRow
         databaseNameRow = databaseRow
         let dbSection = section(String(localized: "Database"), rows: [
             databaseRow,
@@ -762,6 +764,7 @@ final class ConnectionsManagerVC: NSViewController {
         let hostRow = row(String(localized: "SSH Host"), control: withBadge(sshHostField, sshHostBadge),
                           caption: String(localized: "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply."),
                           titling: sshHostField)
+        requiredRows[.sshHost] = hostRow
         let portRow = row(String(localized: "SSH Port"), control: sized(sshPortField, width: L.portWidth))
         sshPortRow = portRow
         let userRow = row(String(localized: "SSH User"), control: withBadge(sshUserField, sshUserBadge),
@@ -879,6 +882,15 @@ final class ConnectionsManagerVC: NSViewController {
     /// the mask, not a secret, so the draft's stored value is kept instead.
     private func sshTunnelFromForm(existing: SshTunnelConfig?) -> SshTunnelConfig? {
         SshTunnelForm.tunnel(from: sshFormFields(), existing: existing)
+    }
+
+    /// Why Save cannot write the server's Port field, or nil
+    /// (`ConnectionFormRules.portProblem`; none for a DuckDB record). The
+    /// field editor's text, as `syncFormIntoDraft` reads it.
+    private var serverPortProblem: String? {
+        guard draft != nil else { return nil }
+        return ConnectionFormRules.portProblem(engine: draft?.engine ?? selectedEngine,
+                                               portText: currentText(of: portField))
     }
 
     /// Why Save cannot write the tunnel, or nil. Only while the engine shows
@@ -1020,18 +1032,17 @@ final class ConnectionsManagerVC: NSViewController {
     }
 
     /// The "Required" captions, from the draft (`ConnectionFormRules
-    /// .missingFields`), and the SSH port's problem, if any.
+    /// .missingFields`), and each port's problem, if any — in the system red,
+    /// as the Variable Manager shows its errors, over any caption the row
+    /// carries anyway (`SettingsRow.captionProblems`).
     private func refreshFieldCaptions() {
         let missing = Set(draft.map(ConnectionFormRules.missingFields) ?? [])
-        for (field, entry) in requiredRows {
-            var lines: [String] = []
-            if missing.contains(field) { lines.append(String(localized: "Required")) }
-            if let note = entry.note { lines.append(note) }
-            let caption = lines.isEmpty ? nil : lines.joined(separator: "\n")
-            if entry.row.caption != caption { entry.row.caption = caption }
+        let required = String(localized: "Required")
+        for (field, row) in requiredRows {
+            row.captionProblems = missing.contains(field) ? [required] : []
         }
-        let portProblem = sshPortProblem
-        if sshPortRow?.caption != portProblem { sshPortRow?.caption = portProblem }
+        sshPortRow?.captionProblems = sshPortProblem.map { [$0] } ?? []
+        portRow?.captionProblems = serverPortProblem.map { [$0] } ?? []
     }
 
     /// The Password row's caption: where the password came from, and why the
@@ -1323,13 +1334,14 @@ final class ConnectionsManagerVC: NSViewController {
     }
 
     /// Whether Save can write the draft: every required field is filled in
-    /// (`ConnectionFormRules.missingFields`) and the SSH port, when the tunnel
-    /// is on, is a port (`SshTunnelForm.portProblem`). The form shows a
-    /// caption for each problem, so a greyed-out Save always has a reason on
-    /// screen.
+    /// (`ConnectionFormRules.missingFields`, the SSH host among them while
+    /// the tunnel is on), the server's Port is a port
+    /// (`ConnectionFormRules.portProblem`), and so is the SSH port when the
+    /// tunnel is on (`SshTunnelForm.portProblem`). The form shows a caption
+    /// for each problem, so a greyed-out Save always has a reason on screen.
     private func isDraftValid() -> Bool {
         guard let d = draft else { return false }
-        return ConnectionFormRules.isValid(d) && sshPortProblem == nil
+        return ConnectionFormRules.isValid(d) && serverPortProblem == nil && sshPortProblem == nil
     }
 
     // MARK: - Engine

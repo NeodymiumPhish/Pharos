@@ -348,6 +348,78 @@ private func testNoConstraintConflicts() {
     expect(SpyWindow.conflicts - before, 0, "layout: no constraint conflict for any type, at any size")
 }
 
+/// The first + once pulled the window from 860 to 780 pt and the sidebar
+/// from 220 to its 320 maximum: "Renders as" hugged its text, and the row's
+/// unmet span squeezed the form, and the window with it, against the detail's
+/// 460 pt minimum. No form, of any type, may move either.
+@MainActor
+private func testFormKeepsWindowAndSidebarWidths() {
+    let host = Host([])
+    defer { host.close() }
+    func widths() -> (window: CGFloat, sidebar: CGFloat) {
+        host.layout()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        host.layout()
+        return (host.window.frame.width, host.vc.split.splitViewItems[0].viewController.view.frame.width)
+    }
+    let before = widths()
+    expect(before.sidebar, ManagerSplitViewController.sidebarMinimum, "widths: the sidebar opens at 220 pt")
+    host.vc.addVariable()
+    let added = widths()
+    expect(added.window, before.window, "widths: + keeps the window's width")
+    expect(added.sidebar, before.sidebar, "widths: + keeps the sidebar's width")
+    let variables = [
+        QueryVariable(name: "short", value: "42"),
+        QueryVariable(name: "num", value: "4x", type: .number),
+        QueryVariable(name: "day", value: "2026-10-28", type: .date),
+        QueryVariable(name: "today", value: "today", type: .date),
+        QueryVariable(name: "at", value: "2026-10-28 10:00:00 Europe/Paris", type: .timestamptz),
+        QueryVariable(name: "flag", value: "true", type: .bool),
+        QueryVariable(name: "ids", value: "1\n2", type: .numberList),
+        QueryVariable(name: String(repeating: "a_long_variable_name_", count: 6),
+                      value: String(repeating: "a long value ", count: 20), type: .text),
+    ]
+    host.vc.setVariables(variables)
+    for variable in variables {
+        host.click(variable.id)
+        let now = widths()
+        expect(now.window, before.window, "widths: \(variable.type.rawValue) \(variable.value.prefix(12)) keeps the window's width")
+        expect(now.sidebar, before.sidebar, "widths: \(variable.type.rawValue) \(variable.value.prefix(12)) keeps the sidebar's width")
+    }
+}
+
+/// No variables at all: "No Variables" and New Variable, as the Tag Manager
+/// says "No Tags". Variables but none open: "No Variable Selected".
+@MainActor
+private func testEmptyStates() {
+    let host = Host([])
+    defer { host.close() }
+    let empty = host.vc.emptyStateVC.emptyState
+    expectTrue(host.vc.split.detail === host.vc.emptyStateVC, "empty: with no variables the empty state is the detail")
+    expect(empty.titleText, "No Variables", "empty: with none it says No Variables")
+    expectTrue(empty.messageText.contains("{{name}}"), "empty: and says what a variable is (\(empty.messageText))")
+    let button = empty.actionButtonForTesting
+    expectTrue(!button.isHidden, "empty: it offers a button")
+    expect(button.title, "New Variable", "empty: New Variable")
+    button.performClick(nil)
+    host.layout()
+    expect(host.vc.variables.count, 1, "empty: New Variable makes a variable")
+    expectTrue(host.vc.detailVC != nil && host.vc.split.detail === host.vc.detailVC, "empty: and opens its form")
+    if let id = host.vc.variables.first?.id { host.vc.deleteVariable(id) }
+    host.layout()
+    expect(empty.titleText, "No Variables", "empty: deleting the last one says No Variables again")
+    expectTrue(!empty.actionButtonForTesting.isHidden, "empty: with its button")
+
+    host.vc.setVariables([QueryVariable(name: "env", value: "prod")])
+    host.layout()
+    expectTrue(host.vc.split.detail === host.vc.emptyStateVC, "empty: variables but none open → still the empty state")
+    expect(empty.titleText, "No Variable Selected", "empty: which asks for a pick")
+    expectTrue(empty.actionButtonForTesting.isHidden, "empty: with no button")
+    host.vc.setVariables([])
+    host.layout()
+    expect(empty.titleText, "No Variables", "empty: another window deleting them all says No Variables")
+}
+
 @MainActor
 private func testMissingChoice() {
     let view = VariableConnectionsView(frame: NSRect(x: 0, y: 0, width: 400, height: 220))
@@ -377,6 +449,8 @@ func runTests() {
     UserDefaults.standard.set(true, forKey: "NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints")
     MainActor.assumeIsolated {
         testNoConstraintConflicts()
+        testFormKeepsWindowAndSidebarWidths()
+        testEmptyStates()
         testSidebarRows()
         testManagerFlow()
         testCollisionRefusesRowSwitch()

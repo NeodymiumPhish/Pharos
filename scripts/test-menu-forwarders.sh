@@ -29,4 +29,14 @@ for known in $KNOWN; do
         failures=$((failures + 1))
     fi
 done
+# File ▸ Manage Connections… (⇧⌘N) must work from ANY window. A manager
+# window's responder chain reaches no MainWindowController, so an action there
+# left the item disabled while a manager window was key (found 2026-10-28).
+manage=$(grep -o '"Manage Connections…"), action: #selector([A-Za-z]*\.[A-Za-z]*' Pharos/App/MainMenu.swift | sed 's/.*#selector(//' || true)
+if [[ "$manage" == AppDelegate.* ]] && grep -q "func ${manage#AppDelegate.}(" Pharos/App/AppDelegate*.swift; then
+    echo "PASS Manage Connections… targets AppDelegate ($manage)"
+else
+    echo "FAIL Manage Connections… targets '$manage', not an AppDelegate action"
+    failures=$((failures + 1))
+fi
 [ "$failures" -eq 0 ] && echo "ALL PASS" || { echo "$failures FAILURE(S)"; exit 1; }

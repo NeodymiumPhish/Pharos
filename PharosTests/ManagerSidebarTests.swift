@@ -214,6 +214,9 @@ private func runAll() {
     testSelectionColours()
     testSplitView()
     testToolbar()
+    testScrollerAutohides()
+    testLongItemKeepsWidths()
+    testEveryCloseAsksOnce()
 }
 
 // MARK: 1. The row model
@@ -605,7 +608,7 @@ private func testSplitView() {
     expectEqual(side.minimumThickness, 220, "split: sidebar minimum 220")
     expectEqual(side.maximumThickness, 320, "split: sidebar maximum 320")
     expectTrue(!side.canCollapse, "split: the sidebar cannot collapse")
-    expectEqual(side.holdingPriority, .defaultLow + 1, "split: sidebar holds at defaultLow + 1")
+    expectEqual(side.holdingPriority, .defaultLow + 50, "split: sidebar holds at defaultLow + 50, clear of a label's 251 hug")
     expectEqual(detail.holdingPriority, .defaultLow, "split: the detail absorbs a resize")
     expectEqual(detail.minimumThickness, 480, "split: the detail minimum is the caller's")
     expectTrue(!detail.automaticallyAdjustsSafeAreaInsets, "split: the detail does not run under the glass")
@@ -722,5 +725,140 @@ private func testToolbar() {
                            "toolbar: with a \(Int(width)) pt sidebar the filter is a field, not a magnifier (w \(frame.width))")
             }
         }
+    }
+}
+
+// MARK: 12. The scroller shows only when there is something to scroll
+
+@MainActor
+private func testScrollerAutohides() {
+    let host = SidebarHost(items: sample)
+    defer { host.close() }
+    guard let scroll = host.table.enclosingScrollView else {
+        expectTrue(false, "scroller: the table is in a scroll view")
+        return
+    }
+    // Legacy scrollers are what a mouse, or "Show scroll bars: Always",
+    // gives: the style that drew an empty track beside four rows.
+    scroll.scrollerStyle = .legacy
+    func shown() -> Bool {
+        scroll.tile()
+        host.layout()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        return scroll.verticalScroller.map { !$0.isHidden } ?? false
+    }
+    expectTrue(!shown(), "scroller: four rows that fit show no scroller track")
+    host.sidebar.setItems((0..<60).map { item("row\($0)", "Row \($0)", subtitle: "Subtitle \($0)") })
+    expectTrue(shown(), "scroller: sixty rows that do not fit show it")
+    host.sidebar.setItems(sample)
+    expectTrue(!shown(), "scroller: and it goes again when they fit")
+    scroll.scrollerStyle = NSScroller.preferredScrollerStyle
+}
+
+// MARK: 13. A row never resizes the sidebar or the window
+
+@MainActor
+private func testLongItemKeepsWidths() {
+    let sidebar = ManagerSidebarVC(accessibilityLabel: "Things")
+    sidebar.setItems(sample)
+    // A detail like the forms: section headers made with `labelWithString:`
+    // (which hug at 251) held at the detail's full width. Two of them once
+    // pulled the sidebar to its maximum.
+    let detail = NSViewController()
+    let headers = ["Variable", "Value", "Connections"].map { NSTextField(labelWithString: $0) }
+    let stack = NSStackView(views: headers)
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    detail.view = stack
+    for header in headers { header.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+    let empty = NSViewController()
+    empty.view = NSView()
+    let split = ManagerSplitViewController(sidebar: sidebar, detail: empty,
+                                           autosaveName: "PharosManagerTestWidthSplit", detailMinimum: 460)
+    let window = UtilityWindow(autosaveName: "PharosManagerTestWidthWindow", title: "Things",
+                               defaultSize: NSSize(width: 860, height: 560),
+                               minimumSize: NSSize(width: 720, height: 440))
+    window.contentViewController = split
+    window.setContentSize(NSSize(width: 860, height: 560))
+    window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+    window.orderFrontRegardless()
+    defer {
+        window.orderOut(nil)
+        UserDefaults.standard.removeObject(forKey: "NSWindow Frame PharosManagerTestWidthWindow")
+        UserDefaults.standard.removeObject(forKey: "NSSplitView Subview Frames PharosManagerTestWidthSplit")
+    }
+    func widths() -> (window: CGFloat, sidebar: CGFloat) {
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        window.contentView?.layoutSubtreeIfNeeded()
+        return (window.frame.width, split.splitViewItems[0].viewController.view.frame.width)
+    }
+    let before = widths()
+    expectEqual(before.sidebar, ManagerSplitViewController.sidebarMinimum, "widths: the sidebar opens at its 220 pt")
+    split.setDetail(detail)
+    let formShown = widths()
+    expectEqual(formShown.sidebar, before.sidebar, "widths: a form with section headers does not widen the sidebar")
+    expectEqual(formShown.window, before.window, "widths: nor change the window's width")
+    let long = String(repeating: "a_very_long_record_name_", count: 8)
+    sidebar.setItems(sample + [item("long", long, subtitle: "Text · " + long, mono: true,
+                                    trailing: [.warning(tooltip: long), .unsavedDot])])
+    sidebar.selectedId = "long"
+    let after = widths()
+    expectEqual(after.sidebar, before.sidebar, "widths: a long row does not widen the sidebar")
+    expectEqual(after.window, before.window, "widths: nor change the window's width")
+}
+
+// MARK: 14. Every close path asks once
+
+@MainActor
+private func testEveryCloseAsksOnce() {
+    /// The Variable Manager's shape: a delegate that answers windowWillClose
+    /// and not windowShouldClose.
+    final class WillCloseDelegate: NSObject, NSWindowDelegate {
+        var closes = 0
+        func windowWillClose(_ notification: Notification) { closes += 1 }
+    }
+    for withDelegate in [false, true] {
+        let tag = withDelegate ? " (with a windowWillClose delegate)" : ""
+        let window = UtilityWindow(autosaveName: "PharosManagerTestCloseWindow", title: "Things",
+                                   defaultSize: NSSize(width: 400, height: 300),
+                                   minimumSize: NSSize(width: 200, height: 200))
+        let delegate = WillCloseDelegate()
+        if withDelegate { window.delegate = delegate }
+        var asks = 0
+        var answer = false
+        window.shouldClose = { asks += 1; return answer }
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        defer {
+            window.orderOut(nil)
+            UserDefaults.standard.removeObject(forKey: "NSWindow Frame PharosManagerTestCloseWindow")
+        }
+        let closeButton = window.standardWindowButton(.closeButton)
+        let paths: [(String, () -> Void)] = [
+            ("the title-bar close button", { closeButton?.performClick(nil) }),
+            ("⌘W (File ▸ Close Tab, performClose:)", {
+                NSApp.sendAction(#selector(NSWindow.performClose(_:)), to: window, from: nil)
+            }),
+            ("Escape (cancelOperation:)", { window.cancelOperation(nil) }),
+        ]
+        expectTrue(closeButton != nil, "close\(tag): the window has a close button")
+        for (name, close) in paths {
+            answer = false
+            asks = 0
+            close()
+            expectEqual(asks, 1, "close\(tag): \(name) answered No asks exactly once")
+            expectTrue(window.isVisible, "close\(tag): \(name) answered No keeps the window")
+            answer = true
+            asks = 0
+            close()
+            expectEqual(asks, 1, "close\(tag): \(name) answered Yes asks exactly once")
+            expectTrue(!window.isVisible, "close\(tag): \(name) answered Yes closes the window")
+            window.orderFrontRegardless()
+        }
+        if withDelegate { expectEqual(delegate.closes, paths.count, "close\(tag): the delegate still hears windowWillClose") }
+        asks = 0
+        window.close()
+        expectEqual(asks, 0, "close\(tag): close() itself does not ask (a prompt that answered closes with it)")
     }
 }

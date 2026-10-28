@@ -97,8 +97,38 @@ func runTests() {
     duckFile.username = ""
     expect(ConnectionFormRules.missingFields(duckFile).isEmpty, "a DuckDB record never needs host or user")
 
+    // An SSH tunnel that is on needs its SSH host; the SSH user may stay
+    // blank (~/.ssh/config supplies it). A tunnel that is off needs nothing.
+    var tunnelNoHost = complete
+    tunnelNoHost.sshTunnel = SshTunnelConfig(host: " \t ")
+    expect(ConnectionFormRules.missingFields(tunnelNoHost) == [.sshHost], "a tunnel with a blank SSH host misses it")
+    expect(!ConnectionFormRules.isValid(tunnelNoHost), "and Save cannot be pressed")
+    var tunnelNoUser = complete
+    tunnelNoUser.sshTunnel = SshTunnelConfig(host: "bastion", user: nil)
+    expect(ConnectionFormRules.missingFields(tunnelNoUser).isEmpty, "a tunnel with a host and no SSH user misses nothing")
+    var blankWithTunnel = blankServer
+    blankWithTunnel.sshTunnel = SshTunnelConfig(host: "")
+    expect(ConnectionFormRules.missingFields(blankWithTunnel) == [.name, .host, .username, .sshHost, .database],
+           "the SSH host comes in form order, after the user and before the database")
+    var duckWithStaleTunnel = duckMemory
+    duckWithStaleTunnel.sshTunnel = SshTunnelConfig(host: "")
+    expect(ConnectionFormRules.missingFields(duckWithStaleTunnel).isEmpty, "a DuckDB record never needs an SSH host")
+
+    // The server's Port: the SSH Port's rule and words.
+    expect(ConnectionFormRules.portProblem(engine: .postgres, portText: "99999") == "Enter a port from 1 to 65535.",
+           "Port 99999 has a problem, in the SSH Port's words")
+    for bad in ["", "0", "65536", "-1", "54x", " "] {
+        expect(ConnectionFormRules.portProblem(engine: .postgres, portText: bad) != nil, "Port \"\(bad)\" has a problem")
+    }
+    for good in ["1", "5432", " 6543 ", "65535"] {
+        expect(ConnectionFormRules.portProblem(engine: .postgres, portText: good) == nil, "Port \"\(good)\" is a port")
+    }
+    expect(ConnectionFormRules.portProblem(engine: .duckdb, portText: "99999") == nil,
+           "a DuckDB record shows no Port, so a stale one cannot block Save")
+
     // isValid is exactly "nothing missing", for every record above.
-    for record in [complete, blankServer, spaces, noUser, noDatabase, noPassword, duckBlank, duckMemory, duckFile] {
+    for record in [complete, blankServer, spaces, noUser, noDatabase, noPassword, duckBlank, duckMemory, duckFile,
+                   tunnelNoHost, tunnelNoUser, blankWithTunnel, duckWithStaleTunnel] {
         expect(ConnectionFormRules.isValid(record) == ConnectionFormRules.missingFields(record).isEmpty,
                "Save and the captions agree (\(record.id))")
     }

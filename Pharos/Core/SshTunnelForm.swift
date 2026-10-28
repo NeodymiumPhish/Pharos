@@ -104,6 +104,10 @@ enum SshTunnelForm {
         return UInt16(value)
     }
 
+    /// What a port field that holds no port says under it — the SSH Port
+    /// here, and the server's Port (`ConnectionFormRules.portProblem`).
+    static let portRangeProblem = String(localized: "Enter a port from 1 to 65535.")
+
     /// Why Save cannot write the tunnel the form describes, or `nil` when it
     /// can. A tunnel that is off has nothing to refuse.
     ///
@@ -113,12 +117,23 @@ enum SshTunnelForm {
     /// shows the problem under the field and Save stays off until it is fixed.
     static func portProblem(_ fields: Fields) -> String? {
         guard fields.enabled, port(from: fields.port) == nil else { return nil }
-        return String(localized: "Enter a port from 1 to 65535.")
+        return portRangeProblem
     }
 
-    /// Whether Save may write the tunnel the form describes (`portProblem`).
+    /// Whether the tunnel is on and names no SSH host. `ssh` needs a
+    /// destination — a host name, or a Host alias from ~/.ssh/config — so
+    /// such a tunnel cannot connect, and its list row read "… via ". The SSH
+    /// user is NOT required: blank means "let ~/.ssh/config choose"
+    /// (`tunnel(from:existing:)`). Blank is empty after trimming spaces and
+    /// tabs, as for every required field (`ConnectionFormRules`).
+    static func isHostMissing(_ fields: Fields) -> Bool {
+        fields.enabled && fields.host.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Whether Save may write the tunnel the form describes: a host
+    /// (`isHostMissing`) and a port (`portProblem`).
     static func isValidForSave(_ fields: Fields) -> Bool {
-        portProblem(fields) == nil
+        portProblem(fields) == nil && !isHostMissing(fields)
     }
 
     /// The tunnel the form describes, or `nil` when the checkbox is off.
@@ -162,12 +177,13 @@ enum SshTunnelForm {
     }
 
     /// "via <bastion>", for the toolbar tooltip, or `nil` when the connection
-    /// is direct.
+    /// is direct — or names no bastion (a record saved before Save required
+    /// one), which would leave a dangling "via ".
     ///
     /// The host is a stored string shown as a label, so the caller passes the
     /// same escape every other name in those places goes through.
     static func viaPhrase(_ tunnel: SshTunnelConfig?, escape: (String) -> String) -> String? {
-        guard let tunnel else { return nil }
+        guard let tunnel, !tunnel.host.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return "via \(escape(tunnel.host))"
     }
 

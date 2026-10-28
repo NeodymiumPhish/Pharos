@@ -8,6 +8,7 @@ trap 'rm -f "$BIN"' EXIT
 swiftc -o "$BIN" \
   Pharos/Models/Connection.swift \
   Pharos/Core/ConnectionFormRules.swift \
+  Pharos/Core/SshTunnelForm.swift \
   PharosTests/ConnectionFormRulesTests.swift \
   PharosTests/main.swift
 "$BIN"

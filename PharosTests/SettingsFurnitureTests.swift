@@ -227,6 +227,62 @@ func runTests() {
         expectNear(row.iconView!.frame.width, SettingsMetrics.rowIconSize, "the icon view is rowIconSize wide")
     }
 
+    // MARK: 1b. Problem captions: red problem lines over a caption in its own grey
+
+    do {
+        let host = Host()
+        let note = "Pharos runs the system ssh."
+        let row = SettingsRow(title: "SSH Host", caption: note, control: SettingsControlFactory.textField(width: 200))
+        host.mount(row)
+        func colour(at index: Int) -> NSColor? {
+            let text = row.captionLabel.attributedStringValue
+            guard index < text.length else { return nil }
+            return text.attribute(.foregroundColor, at: index, effectiveRange: nil) as? NSColor
+        }
+        func redPixels(_ appearance: NSAppearance) -> Int {
+            host.layout()
+            guard let shot = render(row.captionLabel, appearance: appearance) else { return -1 }
+            var count = 0
+            for y in 0..<shot.rep.pixelsHigh {
+                for x in 0..<shot.rep.pixelsWide {
+                    guard let c = shot.rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { continue }
+                    if c.redComponent > 0.75, c.greenComponent < 0.45, c.blueComponent < 0.45 { count += 1 }
+                }
+            }
+            return count
+        }
+        row.captionProblems = ["Required"]
+        host.layout()
+        expectEqual(row.captionLabel.stringValue, "Required\n" + note, "problems: the problem line first, then the caption")
+        expectTrue(colour(at: 0) == NSColor.systemRed, "problems: the problem is in the system red")
+        expectTrue(colour(at: 9) == NSColor.secondaryLabelColor, "problems: the caption keeps its own grey")
+        expectTrue(!row.captionLabel.isHidden, "problems: the caption label shows")
+        for (name, appearance) in [("light", NSAppearance(named: .aqua)!), ("dark", NSAppearance(named: .darkAqua)!)] {
+            let withProblem = redPixels(appearance)
+            row.captionProblems = []
+            let without = redPixels(appearance)
+            row.captionProblems = ["Required"]
+            expectTrue(withProblem > 20 && without == 0,
+                       "problems (\(name)): drawn red with a problem, and no red without (\(withProblem) / \(without))")
+            row.captionLabel.appearance = nil
+        }
+        row.captionProblems = []
+        host.layout()
+        expectEqual(row.captionLabel.stringValue, note, "problems: cleared → the caption alone")
+        expectTrue(colour(at: 0) == NSColor.secondaryLabelColor, "problems: cleared → no red left behind")
+
+        let bareHost = Host()
+        let bare = SettingsRow(title: "Port", control: SettingsControlFactory.textField(width: 80))
+        bareHost.mount(bare)
+        bare.captionProblems = ["Enter a port from 1 to 65535."]
+        bareHost.layout()
+        expectTrue(!bare.captionLabel.isHidden, "problems: a row with no caption shows its problem")
+        expectEqual(bare.control?.accessibilityHelp(), "Enter a port from 1 to 65535.", "problems: VoiceOver hears the problem")
+        bare.captionProblems = []
+        bareHost.layout()
+        expectTrue(bare.captionLabel.isHidden, "problems: and closes up again when it is fixed")
+    }
+
     // MARK: 2. A long caption wraps instead of widening the box
 
     do {

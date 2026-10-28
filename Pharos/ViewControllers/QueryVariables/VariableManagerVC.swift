@@ -33,7 +33,9 @@ final class VariableManagerVC: NSViewController {
         split.toolbarController = self.toolbarController
         return split
     }()
-    private let emptyStateVC = VariableManagerEmptyStateVC()
+    /// The detail while no variable is open: "No Variables" with New Variable
+    /// while the list is empty, else "No Variable Selected".
+    let emptyStateVC = VariableManagerEmptyStateVC()
     let connectionsView = VariableConnectionsView()
     private(set) var detailVC: VariableDetailVC?
 
@@ -103,6 +105,7 @@ final class VariableManagerVC: NSViewController {
         ])
 
         toolbarController.onAdd = { [weak self] in self?.addVariable() }
+        emptyStateVC.onAdd = { [weak self] in self?.addVariable() }
         sidebar.onSelect = { [weak self] id in self?.userSelected(id.flatMap(UUID.init(uuidString:))) }
         sidebar.onDelete = { [weak self] ids in
             for id in ids.compactMap(UUID.init(uuidString:)) { self?.deleteVariable(id) }
@@ -307,6 +310,7 @@ final class VariableManagerVC: NSViewController {
         let states = rowStates
         sidebar.setItems(variables.map { Self.sidebarItem(for: $0, state: states[$0.id]) })
         sidebar.selectedId = selectedId?.uuidString
+        emptyStateVC.hasVariables = !variables.isEmpty
     }
 
     /// `{{name}}` monospaced ("Untitled" for a blank name), "<Type> ·
@@ -350,13 +354,22 @@ final class VariableManagerVC: NSViewController {
     }
 }
 
-/// The detail while no variable is selected.
-private final class VariableManagerEmptyStateVC: NSViewController {
+/// The detail while no variable is open. With none at all it says so and
+/// offers New Variable, as the Tag Manager's "No Tags" offers New Tag; with
+/// some, it asks for a pick.
+final class VariableManagerEmptyStateVC: NSViewController {
+    /// The New Variable button, shown while there are no variables.
+    var onAdd: (() -> Void)?
+    /// Whether the list holds any variable. The owner keeps it current.
+    var hasVariables = false {
+        didSet { if hasVariables != oldValue, isViewLoaded { applyState() } }
+    }
+    let emptyState = EmptyStateView()
+
     override func loadView() {
         let root = NSView()
-        let empty = EmptyStateView()
-        empty.show(symbol: "curlybraces", title: String(localized: "No Variable Selected"),
-                   message: String(localized: "Select a variable, or click + to add one."))
+        let empty = emptyState
+        applyState()
         empty.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(empty)
         NSLayoutConstraint.activate([
@@ -368,5 +381,20 @@ private final class VariableManagerEmptyStateVC: NSViewController {
             empty.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
         view = root
+    }
+
+    private func applyState() {
+        if hasVariables {
+            emptyState.show(symbol: "curlybraces", title: String(localized: "No Variable Selected"),
+                            message: String(localized: "Select a variable, or click + to add one."))
+        } else {
+            emptyState.show(
+                symbol: "curlybraces",
+                title: String(localized: "No Variables", comment: "Variable Manager: the empty state's title."),
+                message: String(localized: "A variable is a named value that a query uses as {{name}} — text, a number, a date, a list.",
+                                comment: "Variable Manager: the empty state's message."),
+                actionTitle: String(localized: "New Variable"),
+                action: { [weak self] in self?.onAdd?() })
+        }
     }
 }

@@ -31,6 +31,15 @@ final class SettingsRow: NSView {
         didSet { applyCaption() }
     }
 
+    /// Caption lines that report a problem with the control's value —
+    /// "Required", "Enter a port from 1 to 65535." — drawn in the system's
+    /// error colour above `caption`, which keeps the caption's own colour.
+    /// Both colours are dynamic, so each resolves at draw time for the
+    /// appearance in force. Empty shows `caption` alone.
+    var captionProblems: [String] = [] {
+        didSet { if captionProblems != oldValue { applyCaption() } }
+    }
+
     /// Dims the text and disables the control. A control that is not an
     /// `NSControl` (a custom editor, say) is dimmed by alpha instead.
     var isEnabled: Bool = true {
@@ -203,8 +212,23 @@ final class SettingsRow: NSView {
     }
 
     private func applyCaption() {
-        let text = caption ?? ""
-        captionLabel.stringValue = text
+        let problems = captionProblems.joined(separator: "\n")
+        let text = [problems, caption ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
+        if problems.isEmpty {
+            captionLabel.stringValue = text
+        } else {
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byWordWrapping
+            style.alignment = captionLabel.alignment
+            let attributed = NSMutableAttributedString(string: text, attributes: [
+                .font: captionLabel.font ?? .systemFont(ofSize: SettingsMetrics.captionFontSize),
+                .foregroundColor: captionLabel.textColor ?? .secondaryLabelColor,
+                .paragraphStyle: style,
+            ])
+            attributed.addAttribute(.foregroundColor, value: NSColor.systemRed,
+                                    range: NSRange(location: 0, length: (problems as NSString).length))
+            captionLabel.attributedStringValue = attributed
+        }
         let hidden = text.isEmpty
         captionLabel.isHidden = hidden
         let withCaption: [NSLayoutConstraint] = [captionGap, captionBottom]
@@ -218,6 +242,9 @@ final class SettingsRow: NSView {
         titleLabel.textColor = isEnabled ? .labelColor : .tertiaryLabelColor
         captionLabel.textColor = isEnabled ? .secondaryLabelColor : .quaternaryLabelColor
         iconView?.contentTintColor = isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
+        // A caption with problems is attributed text: rebuild it in the new
+        // caption colour.
+        if !captionProblems.isEmpty { applyCaption() }
         if let control = control as? NSControl {
             control.isEnabled = isEnabled
         } else if let control {

@@ -421,16 +421,61 @@ private func testStoreAndClose() {
     h.host.select(tagId: "a")
     expect(h.detail.nameField.stringValue, "Alpha", "select(tagId:): shows that tag")
 
-    // Closing with edits asks; without, it does not.
+    // Closing with edits asks; without, it does not. The window stays open
+    // while the question is up, and only Discard closes it.
+    let realAsk = h.host.askDiscard
     var asked = 0
-    h.host.askDiscard = { asked += 1; return false }
-    expect(h.host.confirmClose(), true, "close: no edits, no question")
+    var askedOn: NSWindow?
+    var reply: ((Bool) -> Void)?
+    var closed = 0
+    h.host.askDiscard = { window, answer in asked += 1; askedOn = window; reply = answer }
+    expect(h.host.confirmClose(in: h.window) { closed += 1 }, true, "close: no edits, no question")
     expect(asked, 0, "close: none asked")
     type(h.detail.nameField, "Alpha Renamed")
-    expect(h.host.confirmClose(), false, "close: edits, and Cancel in the question keeps the window")
+    expect(h.host.confirmClose(in: h.window) { closed += 1 }, false, "close: edits keep the window open while asking")
     expect(asked, 1, "close: the question was asked")
-    h.host.askDiscard = { asked += 1; return true }
-    expect(h.host.confirmClose(), true, "close: Discard lets it close")
+    expectTrue(askedOn === h.window, "close: about this window")
+    reply?(false)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    expect(closed, 0, "close: Cancel keeps the window")
+    _ = h.host.confirmClose(in: h.window) { closed += 1 }
+    reply?(true)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    expect(closed, 1, "close: Discard closes it, once")
+
+    // The real question is a SHEET on the Tag Manager window (HIG, Alerts),
+    // as the Connections window's is — not an app-modal alert. The watchdog
+    // ends an app-modal run so a regression fails here instead of hanging.
+    h.host.askDiscard = realAsk
+    h.window.orderFrontRegardless()
+    let watchdog = Timer(timeInterval: 3, repeats: false) { _ in
+        MainActor.assumeIsolated {
+            guard NSApp.modalWindow != nil else { return }
+            print("FAIL close: the question ran app-modal")
+            failures += 1
+            NSApp.abortModal()
+        }
+    }
+    RunLoop.main.add(watchdog, forMode: .common)
+    expect(h.host.confirmClose(in: h.window) { closed += 1 }, false, "sheet: the window stays open while asking")
+    watchdog.invalidate()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    let sheet = h.window.attachedSheet
+    expectTrue(sheet != nil, "sheet: the question is a sheet on the Tag Manager window")
+    expect(h.host.confirmClose(in: h.window) { closed += 1 }, false, "sheet: a second close while it is up keeps the window")
+    expect(h.window.sheets.count, sheet == nil ? 0 : 1, "sheet: and does not queue a second question")
+    let discard = sheet.flatMap { allSubviews(of: $0.contentView) }?
+        .compactMap { $0 as? NSButton }.first { $0.title == "Discard" }
+    expectTrue(discard != nil, "sheet: it offers Discard")
+    discard?.performClick(nil)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    expect(closed, 2, "sheet: Discard closes the window")
+    expectTrue(h.window.attachedSheet == nil, "sheet: and the sheet is gone")
+}
+
+private func allSubviews(of view: NSView?) -> [NSView] {
+    guard let view else { return [] }
+    return view.subviews.flatMap { [$0] + allSubviews(of: $0) }
 }
 
 @MainActor

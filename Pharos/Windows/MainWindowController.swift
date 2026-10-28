@@ -230,12 +230,6 @@ class MainWindowController: NSWindowController {
             }
         }
     }
-
-    // MARK: - Connection Actions (called from menu bar)
-
-    @objc func showConnectionsManager() {
-        ConnectionsManagerWindowController.show()
-    }
 }
 
 // MARK: - NSWindowDelegate

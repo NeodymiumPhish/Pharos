@@ -41,7 +41,7 @@ enum MainMenu {
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: String(localized: "File"))
 
-        let manageConnections = fileMenu.addItem(withTitle: String(localized: "Manage Connections…"), action: #selector(MainWindowController.showConnectionsManager), keyEquivalent: "N")
+        let manageConnections = fileMenu.addItem(withTitle: String(localized: "Manage Connections…"), action: #selector(AppDelegate.menuShowConnectionsManager(_:)), keyEquivalent: "N")
         manageConnections.keyEquivalentModifierMask = [.command, .shift]
         manageConnections.image = NSImage(systemSymbolName: "cylinder.split.1x2", accessibilityDescription: nil)
 

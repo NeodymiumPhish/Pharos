@@ -35,7 +35,12 @@ final class TagManagerWindowController: NSWindowController {
         window.setFrameUsingName("PharosTagManagerWindow")
         window.setAccessibilityIdentifier("window.tagManager")
         host.split.installToolbarIfNeeded(on: window)
-        window.shouldClose = { [weak self] in self?.host.confirmClose() ?? true }
+        // Closing with unsaved edits asks first. False keeps the window open;
+        // the question closes it itself once the user has answered Discard.
+        window.shouldClose = { [weak self, weak window] in
+            guard let self, let window else { return true }
+            return self.host.confirmClose(in: window) { [weak window] in window?.close() }
+        }
         observer = NotificationCenter.default.addObserver(
             forName: TagStore.didChange, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.host.storeChanged() }

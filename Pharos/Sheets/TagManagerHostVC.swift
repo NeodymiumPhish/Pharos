@@ -15,14 +15,16 @@ final class TagManagerHostVC: NSViewController {
     /// controller needs neither the core nor a window to be tested.
     private let tags: () -> [Tag]
     private let committer: TagManagerCommitting
-    /// The close question; replaceable in the harness, where no alert can run.
-    var askDiscard: () -> Bool = {
+    /// The close question, as a sheet on the window it is about (HIG,
+    /// Alerts), as the Connections window asks its own. `answer(true)` is
+    /// Discard. Replaceable in the harness.
+    var askDiscard: (_ window: NSWindow, _ answer: @escaping (Bool) -> Void) -> Void = { window, answer in
         let alert = NSAlert()
         alert.messageText = String(localized: "Discard your changes to tags?")
         alert.informativeText = String(localized: "The changes you made in the Tag Manager have not been saved.")
         alert.addButton(withTitle: String(localized: "Discard"))
         alert.addButton(withTitle: String(localized: "Cancel"))
-        return alert.runModal() == .alertFirstButtonReturn
+        alert.beginSheetModal(for: window) { answer($0 == .alertFirstButtonReturn) }
     }
 
     let sidebar = ManagerSidebarVC(accessibilityLabel: String(localized: "Tags", comment: "Tag Manager: the sidebar list's VoiceOver name."))
@@ -238,9 +240,19 @@ final class TagManagerHostVC: NSViewController {
         reseed()
     }
 
-    /// The window is closing: unsaved edits ask first.
-    func confirmClose() -> Bool {
+    /// The window is closing: unsaved edits ask first. True closes now.
+    /// False keeps the window open while the question is up; Discard then
+    /// calls `close`, which must close without asking again
+    /// (`NSWindow.close()` does not ask).
+    func confirmClose(in window: NSWindow, then close: @escaping @MainActor () -> Void) -> Bool {
         guard hasEdits else { return true }
-        return askDiscard()
+        // A second ⌘W while the question is up must not queue another.
+        guard window.attachedSheet == nil else { return false }
+        askDiscard(window) { discard in
+            guard discard else { return }
+            // The next turn: the sheet is still being taken down in this one.
+            Task { @MainActor in close() }
+        }
+        return false
     }
 }

@@ -130,6 +130,9 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
         scrollView.contentView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
+        // Legacy scrollers (a mouse, or "Show scroll bars: Always") would
+        // otherwise draw an empty track beside a list that fits.
+        scrollView.autohidesScrollers = true
         scrollView.hasHorizontalScroller = false
         // As in SettingsSidebarVC: the scroll view supplies the titlebar
         // inset itself, so the rows scroll under the toolbar and the

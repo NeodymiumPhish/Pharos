@@ -41,6 +41,14 @@ func runTests() {
     expectEqual(tunnelRow.subtitle, "db.example.com:5432 · app · via bastion.internal",
                 "a tunnel names its bastion after the database")
     expect(tunnelRow.matches("bastion"), "the filter finds a record by its bastion")
+    // A tunnel with no SSH host (saved before Save required one): the row
+    // never ends in a dangling "via ".
+    var hostless = server
+    hostless.sshTunnel = SshTunnelConfig(host: "")
+    let hostlessRow = ConnectionSidebarRows.item(for: hostless, status: .disconnected, isStub: false, isDirty: false)
+    expectEqual(hostlessRow.subtitle, "db.example.com:5432 · app",
+                "a tunnel with a blank SSH host adds no \"via\" to the subtitle")
+    expect(!(hostlessRow.subtitle ?? "").hasSuffix("via "), "no subtitle ends in \"via \"")
     expect(row.matches("example"), "the filter finds a record by its host")
 
     // MARK: DuckDB

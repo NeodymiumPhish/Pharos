@@ -165,6 +165,17 @@ func runTests() {
     let goodPort = SshTunnelForm.Fields(enabled: true, host: "b", port: "2222")
     expect(SshTunnelForm.isValidForSave(goodPort) && SshTunnelForm.portProblem(goodPort) == nil,
            "a tunnel with port 2222 can be saved")
+    // The SSH host is required while the tunnel is on; the user is not.
+    let noHost = SshTunnelForm.Fields(enabled: true, host: "  ", port: "22")
+    expect(SshTunnelForm.isHostMissing(noHost), "a tunnel whose SSH host is blank misses it")
+    expect(!SshTunnelForm.isValidForSave(noHost), "and cannot be saved")
+    let noUser = SshTunnelForm.Fields(enabled: true, host: "bastion", port: "22", user: "")
+    expect(!SshTunnelForm.isHostMissing(noUser) && SshTunnelForm.isValidForSave(noUser),
+           "a tunnel with a host and no SSH user can be saved")
+    let offNoHost = SshTunnelForm.Fields(enabled: false, host: "", port: "22")
+    expect(!SshTunnelForm.isHostMissing(offNoHost) && SshTunnelForm.isValidForSave(offNoHost),
+           "a blank host in a tunnel that is off does not block Save")
+
     // A tunnel that is OFF writes no port, so its field cannot block Save.
     let offWithBadPort = SshTunnelForm.Fields(enabled: false, host: "b", port: "99999")
     expect(SshTunnelForm.isValidForSave(offWithBadPort) && SshTunnelForm.portProblem(offWithBadPort) == nil,
@@ -242,6 +253,15 @@ func runTests() {
            "a direct connection has no tooltip phrase")
     expectEqual(SshTunnelForm.viaSuffix(base, escape: { "<\($0)>" }), " · via <bastion>",
                 "the caller's escape is applied to the host")
+    // A tunnel stored with no host (before Save required one) names no
+    // bastion: no dangling "via ".
+    for blank in ["", "  ", "\t"] {
+        let hostless = SshTunnelConfig(host: blank)
+        expectEqual(SshTunnelForm.viaSuffix(hostless, escape: { $0 }), "",
+                    "a tunnel with host \"\(blank)\" adds nothing to the row")
+        expect(SshTunnelForm.viaPhrase(hostless, escape: { $0 }) == nil,
+               "and has no tooltip phrase")
+    }
 
     print(failures == 0 ? "\nAll tests passed" : "\n\(failures) FAILED")
     exit(failures == 0 ? 0 : 1)

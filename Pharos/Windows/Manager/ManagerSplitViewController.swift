@@ -53,9 +53,13 @@ final class ManagerSplitViewController: NSSplitViewController {
         sidebarItem.minimumThickness = Self.sidebarMinimum
         sidebarItem.maximumThickness = Self.sidebarMaximum
         sidebarItem.canCollapse = false
-        // Low, one step over the detail: the sidebar keeps its width when the
-        // window resizes and the divider still drags (lessons, top entry).
-        sidebarItem.holdingPriority = .defaultLow + 1
+        // Low, so the divider still drags (lessons, top entry), but clear of
+        // the detail's content hugging (the entry's correction): a label made
+        // with `labelWithString:` hugs at 251, and the forms' section headers
+        // span their width, so each pulls the detail narrower at 251. At
+        // `.defaultLow + 1` two headers outvoted the sidebar, which grew to its
+        // 320 pt maximum the moment a form appeared.
+        sidebarItem.holdingPriority = .defaultLow + 50
         sidebarItem.titlebarSeparatorStyle = .none
 
         let detailItem = NSSplitViewItem(viewController: detailContainer)

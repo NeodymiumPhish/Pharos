@@ -201,7 +201,8 @@ final class VariableDetailVC: NSViewController {
         rendersAsLabel.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         rendersAsLabel.isSelectable = true
         rendersAsLabel.maximumNumberOfLines = 6
-        rendersAsLabel.lineBreakMode = .byCharWrapping
+        // Words: a token longer than the line still breaks inside itself.
+        rendersAsLabel.lineBreakMode = .byWordWrapping
         rendersAsLabel.cell?.truncatesLastVisibleLine = true
         rendersAsLabel.setAccessibilityIdentifier("variables.rendersAs")
 
@@ -263,6 +264,13 @@ final class VariableDetailVC: NSViewController {
             // A wrapping label: it must yield its width to the row, not hold
             // its one-line width at the required priority SettingsRow sets.
             rendersAsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            // And it spans the row. SettingsRow's own hugging (defaultHigh)
+            // beats its 749 span, so the label hugged its text: after "42" it
+            // was a 16 pt column (and `preferredMaxLayoutWidth` kept it
+            // there), and the span, unmet, pulled the whole form — and the
+            // window under it — narrower, until the sidebar grew to its
+            // maximum to make up the difference.
+            rendersAsLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
             rendersAsRow = renders
             rows.append(renders)
         }

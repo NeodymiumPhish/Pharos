@@ -36,13 +36,17 @@ enum ConnectionFormRules {
         case database
         /// Authentication ▸ Username.
         case username
+        /// SSH Tunnel ▸ SSH Host, while the tunnel is on
+        /// (`SshTunnelForm.isHostMissing`).
+        case sshHost
         /// Database File ▸ File (a DuckDB path, or in-memory).
         case databaseFile
     }
 
     /// The required fields `d` leaves blank, in form order. A server needs a
-    /// name, host, database and user; a DuckDB record needs a name and a file
-    /// (or in-memory). Blank means empty after trimming spaces and tabs.
+    /// name, host, database and user, and an SSH host while its tunnel is on;
+    /// a DuckDB record needs a name and a file (or in-memory). Blank means
+    /// empty after trimming spaces and tabs.
     ///
     /// The form shows a "Required" caption on each of these, and Save is
     /// pressable only when there are none (`isValid`), so the two can never
@@ -55,6 +59,7 @@ enum ConnectionFormRules {
         case .postgres:
             if blank(d.host) { missing.append(.host) }
             if blank(d.username) { missing.append(.username) }
+            if let tunnel = d.sshTunnel, blank(tunnel.host) { missing.append(.sshHost) }
             if blank(d.database) { missing.append(.database) }
         case .duckdb:
             if blank(d.database) { missing.append(.databaseFile) }
@@ -66,6 +71,16 @@ enum ConnectionFormRules {
     /// (`missingFields`).
     static func isValid(_ d: ConnectionConfig) -> Bool {
         missingFields(d).isEmpty
+    }
+
+    /// Why Save cannot write the server's Port field, or `nil` when it holds
+    /// a port: the SSH Port's rule and words (`SshTunnelForm.port(from:)`), a
+    /// whole number from 1 to 65535. The draft keeps its old port while the
+    /// field holds anything else, so without this "99999" was saved as the
+    /// OLD port in silence. A DuckDB record shows no Port, so it has none.
+    static func portProblem(engine: DatabaseEngine, portText: String) -> String? {
+        guard visibility(for: engine).server, SshTunnelForm.port(from: portText) == nil else { return nil }
+        return SshTunnelForm.portRangeProblem
     }
 
     /// The record as the form saves it for its engine. A DuckDB record keeps
