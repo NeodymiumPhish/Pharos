@@ -21,6 +21,7 @@ swiftc -o "$BIN" \
   Pharos/Core/Cards/CardPersistence.swift \
   Pharos/Models/CardDocument.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Models/Connection.swift \
   PharosTests/CardTextTests.swift \

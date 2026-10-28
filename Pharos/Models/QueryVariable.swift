@@ -8,6 +8,85 @@ import Foundation
 /// saved queries are migrated on decode — see `QueryVariable.init(from:)`.
 enum VariableType: String, Codable, CaseIterable {
     case literal, text, number, bool
+    /// `YYYY-MM-DD`, or the keyword `today`. Renders `DATE '…'` / `CURRENT_DATE`.
+    case date
+    /// `YYYY-MM-DD HH:MM:SS`, or `now`. Renders `TIMESTAMP '…'` / `LOCALTIMESTAMP`.
+    case timestamp
+    /// `YYYY-MM-DD HH:MM:SS <IANA zone id>`, or `now`. Renders `TIMESTAMPTZ '…±HH:MM'`
+    /// / `CURRENT_TIMESTAMP`.
+    case timestamptz
+    /// One item per line. Renders `('a', 'b')`.
+    case textList = "list_text"
+    /// One number per line. Renders `(1, 2.5)`.
+    case numberList = "list_number"
+
+    /// The full name: unique per case, so a list of every case still reads
+    /// unambiguously. A UI that shows one Timestamp and one List entry uses
+    /// `family.displayName` plus `withTimeZone` / `listElement` instead.
+    var displayName: String {
+        switch self {
+        case .literal: return "Literal"
+        case .text: return "Text"
+        case .number: return "Number"
+        case .bool: return "Bool"
+        case .date: return "Date"
+        case .timestamp: return "Timestamp"
+        case .timestamptz: return "Timestamp with Time Zone"
+        case .textList: return "List of Text"
+        case .numberList: return "List of Numbers"
+        }
+    }
+
+    /// The entry a type pop-up shows for this case. Timestamp and its zoned
+    /// variant share one family, as do the two lists.
+    var family: VariableTypeFamily {
+        switch self {
+        case .literal: return .literal
+        case .text: return .text
+        case .number: return .number
+        case .bool: return .bool
+        case .date: return .date
+        case .timestamp, .timestamptz: return .timestamp
+        case .textList, .numberList: return .list
+        }
+    }
+
+    /// True only for `.timestamptz`: the state of a "With time zone" switch.
+    var withTimeZone: Bool { self == .timestamptz }
+
+    /// The element type of a list, `nil` for every non-list case.
+    var listElement: VariableListElement? {
+        switch self {
+        case .textList: return .text
+        case .numberList: return .number
+        default: return nil
+        }
+    }
+
+    var isList: Bool { listElement != nil }
+
+    /// The case a family pop-up plus its sub-option selects. `withTimeZone` is
+    /// read only for `.timestamp`, `listElement` only for `.list`.
+    static func make(
+        family: VariableTypeFamily,
+        withTimeZone: Bool = false,
+        listElement: VariableListElement = .text
+    ) -> VariableType {
+        switch family {
+        case .literal: return .literal
+        case .text: return .text
+        case .number: return .number
+        case .bool: return .bool
+        case .date: return .date
+        case .timestamp: return withTimeZone ? .timestamptz : .timestamp
+        case .list: return listElement == .number ? .numberList : .textList
+        }
+    }
+}
+
+/// One entry of a type pop-up. See `VariableType.family`.
+enum VariableTypeFamily: String, CaseIterable {
+    case literal, text, number, bool, date, timestamp, list
 
     var displayName: String {
         switch self {
@@ -15,6 +94,21 @@ enum VariableType: String, Codable, CaseIterable {
         case .text: return "Text"
         case .number: return "Number"
         case .bool: return "Bool"
+        case .date: return "Date"
+        case .timestamp: return "Timestamp"
+        case .list: return "List"
+        }
+    }
+}
+
+/// What each item of a List variable is. See `VariableType.listElement`.
+enum VariableListElement: String, CaseIterable {
+    case text, number
+
+    var displayName: String {
+        switch self {
+        case .text: return "Text"
+        case .number: return "Number"
         }
     }
 }

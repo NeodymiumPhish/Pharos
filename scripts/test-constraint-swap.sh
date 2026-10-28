@@ -9,6 +9,7 @@ swiftc -o /tmp/pharos-constraint-swap-tests \
   Pharos/ViewControllers/QueryVariables/VariableListView.swift \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Editor/FoldState.swift \

@@ -16,6 +16,7 @@ swiftc -o /tmp/completion-accessibility-tests \
   Pharos/Core/DataFiles.swift \
   Pharos/Editor/VariableCompletion.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \

@@ -53,26 +53,6 @@ enum VariableSubstitutor {
         return tokens
     }
 
-    /// SQL numeric literal: optional sign, integer/decimal (no exponent).
-    ///
-    /// `[0-9]` rather than `\d`: ICU's `\d` matches all of Unicode category Nd, so
-    /// `٤٤٣`, `１２３` and `१२३` used to validate, render bare into the SQL, and be
-    /// lexed by Postgres as identifiers — the user saw `column "٤٤٣" does not
-    /// exist` instead of "not a valid number".
-    ///
-    /// `\A`/`\z` rather than `^`/`$`: ICU's `$` also matches before a single
-    /// trailing line terminator, so `"443\n"` validated and then rendered with the
-    /// newline still attached. `\z` is the hard end of input a reader expects here.
-    private static let numberRegex = try! NSRegularExpression(
-        pattern: #"\A[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)\z"#
-    )
-
-    private static let trueSet: Set<String> = ["true", "t", "1", "yes", "y"]
-    private static let falseSet: Set<String> = ["false", "f", "0", "no", "n"]
-    /// `Bool`'s third value. Only the one spelling — unlike true/false, nothing
-    /// hand-types this: the detail level offers it as a choice.
-    private static let nullSet: Set<String> = ["null"]
-
     /// The three values a `Bool` variable can hold. `rawValue` is the canonical
     /// stored spelling, and also exactly what `format(_:)` renders.
     ///
@@ -88,13 +68,10 @@ enum VariableSubstitutor {
 
     /// Which of `Bool`'s three values `value` means, or `nil` if it means none of
     /// them — an empty value, or something like `"abc"` left behind after the type
-    /// was switched from `Text`. Classified by the same sets `format(_:)` uses.
+    /// was switched from `Text`. Classified by the same sets `format(_:)` uses
+    /// (`VariableValueRules`).
     static func boolChoice(for value: String) -> BoolChoice? {
-        let key = value.trimmingCharacters(in: .whitespaces).lowercased()
-        if trueSet.contains(key) { return .isTrue }
-        if falseSet.contains(key) { return .isFalse }
-        if nullSet.contains(key) { return .isNull }
-        return nil
+        VariableValueRules.boolChoice(for: value)
     }
 
     /// The name part of `tokenRegex`, whole-string: what a `{{name}}` token
@@ -163,7 +140,7 @@ enum VariableSubstitutor {
         /// A `Literal` whose value is empty or whitespace-only: it renders to
         /// nothing, leaving a hole such as `WHERE ip_addr = `.
         case emptyLiteral
-        /// A `Number` or `Bool` whose value fails validation. `reason` is the
+        /// A typed value (Number, Bool, Date, List …) that fails validation. `reason` is the
         /// message `format(_:)` produces, so the panel badge and the pre-flight
         /// guard describe the failure identically.
         case invalidValue(reason: String)
@@ -180,24 +157,13 @@ enum VariableSubstitutor {
     }
 
     /// Whether the substitutor already knows this variable's value cannot
-    /// become working SQL: an empty/whitespace `Literal`, or a `Number`/`Bool`
+    /// become working SQL: an empty/whitespace `Literal`, or any other typed value
     /// that fails the validation `format(_:)` performs. Not exhaustive — a
     /// `Literal` is a raw-SQL escape hatch, so a value like `"'"` or `")"` can
     /// still produce broken SQL and returns `nil` here. Says nothing about
     /// whether any SQL references it — see `rowStates(in:referenced:)`.
     static func problem(for variable: QueryVariable) -> ValueProblem? {
-        switch variable.type {
-        case .literal:
-            return variable.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? .emptyLiteral : nil
-        case .text:
-            // Renders '' — a legal empty string, and plausibly what was meant.
-            return nil
-        case .number, .bool:
-            let formatted = format(variable)
-            guard formatted.value == nil else { return nil }
-            return .invalidValue(reason: formatted.reason ?? "invalid value")
-        }
+        VariableValueRules.validate(variable.value, as: variable.type)
     }
 
     /// What a variables-list row should say about itself. Duplication and failure
@@ -296,32 +262,9 @@ enum VariableSubstitutor {
         return names
     }
 
+    /// The rules live in `VariableValueRules`, shared with the Manager's editors.
     private static func format(_ variable: QueryVariable) -> (value: String?, reason: String?) {
-        let raw = variable.value
-        switch variable.type {
-        case .literal:
-            return (raw, nil)
-        case .text:
-            return ("'" + raw.replacingOccurrences(of: "'", with: "''") + "'", nil)
-        case .number:
-            // Newlines too, not just spaces: a value pasted from a spreadsheet or
-            // a terminal arrives with a trailing line break, and the regex anchors
-            // to the hard end of input, so an untrimmed one would now be rejected
-            // outright rather than silently rendered into the SQL.
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            let ns = trimmed as NSString
-            let ok = numberRegex.firstMatch(in: trimmed, range: NSRange(location: 0, length: ns.length)) != nil
-            if ok { return (trimmed, nil) }
-            return (nil, "not a valid number: \(raw.debugDescription)")
-        case .bool:
-            // Three values, not two: NULL is a Bool value rather than a variable
-            // type of its own. Rendered uppercase because it is a SQL keyword, not
-            // a boolean literal — `true`/`false` stay lowercase.
-            let key = raw.trimmingCharacters(in: .whitespaces).lowercased()
-            if trueSet.contains(key) { return ("true", nil) }
-            if falseSet.contains(key) { return ("false", nil) }
-            if nullSet.contains(key) { return ("NULL", nil) }
-            return (nil, "not a valid boolean: \(raw.debugDescription)")
-        }
+        let rendering = VariableValueRules.render(variable.value, as: variable.type)
+        return (rendering.sql, rendering.reason)
     }
 }

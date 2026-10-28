@@ -182,6 +182,11 @@ final class VariableDetailVC: NSViewController {
         header.distribution = .fill
         nameField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Below the buttons' 750: a long type title ("Timestamp with Time Zone")
+        // at the 180 pt minimum truncates the pop-up once the name is gone,
+        // instead of tying with the buttons (an ambiguous layout).
+        typePopup.setContentCompressionResistancePriority(
+            NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultHigh.rawValue - 1), for: .horizontal)
         header.translatesAutoresizingMaskIntoConstraints = false
 
         // A layer-backed 1pt view, not `NSBox(boxType: .separator)` — the

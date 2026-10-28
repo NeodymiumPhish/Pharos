@@ -12,6 +12,7 @@ swiftc -o /tmp/pharos-card-views-tests \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Models/QueryVariable.swift \
   PharosTests/CardViewsTests.swift \
   PharosTests/main.swift

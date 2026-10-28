@@ -16,6 +16,7 @@ swiftc -o /tmp/variable-manager-tests \
   Pharos/Views/TabConnectionDot.swift \
   Pharos/Views/EmptyStateView.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Editor/FoldState.swift \

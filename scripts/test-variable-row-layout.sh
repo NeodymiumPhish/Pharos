@@ -13,6 +13,7 @@ swiftc -o /tmp/variable-row-layout-tests \
   "Pharos/Utilities/NSLayoutConstraint+Swap.swift" \
   Pharos/ViewControllers/QueryVariables/VariableValueTextView.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Editor/FoldState.swift \

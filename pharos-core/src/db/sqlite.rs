@@ -2316,6 +2316,22 @@ mod query_variable_tests {
         assert_eq!(load_query_variables(&conn).unwrap()[0].kind, "hexadecimal");
     }
 
+    /// The Date, Timestamp and List types (2026-10-28) carry their sub-option
+    /// in the raw string; each one, and its stored value form, round-trips.
+    #[test]
+    fn date_timestamp_and_list_types_round_trip() {
+        let mut conn = db();
+        let vars = vec![
+            variable("a", "d", "2026-10-28", "date"),
+            variable("b", "t", "now", "timestamp"),
+            variable("c", "tz", "2026-10-28 14:30:00 America/New_York", "timestamptz"),
+            variable("d", "names", "a\nb'c", "list_text"),
+            variable("e", "ids", "1\n2.5\n-3", "list_number"),
+        ];
+        save_query_variables(&mut conn, &vars).unwrap();
+        assert_eq!(load_query_variables(&conn).unwrap(), vars);
+    }
+
     /// The JSON keys are the Swift CodingKeys: `type`, not `kind`, and a
     /// missing `value`/`type` takes the defaults.
     #[test]

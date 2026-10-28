@@ -10,6 +10,7 @@ swiftc -o /tmp/query-error-sheet-tests \
   Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableValueRules.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Core/DisplayEscape.swift \

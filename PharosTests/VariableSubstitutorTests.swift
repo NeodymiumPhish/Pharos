@@ -136,7 +136,12 @@ func runTests() {
                      "a bool holding NULL is valid")
 
     // The type set itself: `Null` was removed in favour of a Literal holding NULL.
-    expectTrue(VariableType.allCases.count == 4, "four variable types remain")
+    // Phase 2 of the manager-windows plan added Date, both Timestamps and both
+    // Lists; there is still no Null among them.
+    expectEqualArr(VariableType.allCases.map(\.rawValue),
+                   ["literal", "text", "number", "bool", "date", "timestamp", "timestamptz",
+                    "list_text", "list_number"],
+                   "the nine variable types and their stored raw values")
     expectTrue(VariableType(rawValue: "null") == nil, "there is no null variable type")
 
     // A stored variable may carry `"type": "null"` from an old build. Decoding
@@ -532,6 +537,55 @@ func runTests() {
     // is the safer default for a value that renders as a bare `true`/`false`.
     expectTrue(VariableSubstitutor.problem(for: v("b", "yes\n", .bool)) != nil,
                "a bool with a trailing newline is still rejected")
+
+    // MARK: New types render inside SQL (rules in VariableValueRules)
+
+    expectEqual(VariableSubstitutor.render("WHERE d = {{d}}", with: [v("d", "2026-10-28", .date)]).sql,
+                "WHERE d = DATE '2026-10-28'", "date renders a DATE literal in SQL")
+    expectEqual(VariableSubstitutor.render("WHERE d >= {{d}}", with: [v("d", " Today ", .date)]).sql,
+                "WHERE d >= CURRENT_DATE", "today renders CURRENT_DATE in SQL")
+    expectEqual(VariableSubstitutor.render("WHERE t < {{t}}", with: [v("t", "2026-10-28T14:30:00", .timestamp)]).sql,
+                "WHERE t < TIMESTAMP '2026-10-28 14:30:00'", "timestamp renders a TIMESTAMP literal in SQL")
+    expectEqual(VariableSubstitutor.render("WHERE t < {{t}}", with: [v("t", "NOW", .timestamp)]).sql,
+                "WHERE t < LOCALTIMESTAMP", "now renders LOCALTIMESTAMP for a timestamp")
+    expectEqual(VariableSubstitutor.render("WHERE t < {{t}}",
+                                           with: [v("t", "2026-07-01 09:00:00 America/New_York", .timestamptz)]).sql,
+                "WHERE t < TIMESTAMPTZ '2026-07-01 09:00:00-04:00'", "timestamptz in July renders EDT")
+    expectEqual(VariableSubstitutor.render("WHERE t < {{t}}",
+                                           with: [v("t", "2026-01-15 09:00:00 America/New_York", .timestamptz)]).sql,
+                "WHERE t < TIMESTAMPTZ '2026-01-15 09:00:00-05:00'", "timestamptz in January renders EST")
+    expectEqual(VariableSubstitutor.render("WHERE t < {{t}}", with: [v("t", "now", .timestamptz)]).sql,
+                "WHERE t < CURRENT_TIMESTAMP", "now renders CURRENT_TIMESTAMP for a timestamptz")
+    expectEqual(VariableSubstitutor.render("WHERE n IN {{l}}", with: [v("l", "a\nb'c\n\n", .textList)]).sql,
+                "WHERE n IN ('a', 'b''c')", "text list renders a quoted IN list in SQL")
+    expectEqual(VariableSubstitutor.render("WHERE n IN {{l}}", with: [v("l", "1\r\n2.5\r\n-3", .numberList)]).sql,
+                "WHERE n IN (1, 2.5, -3)", "number list renders a bare IN list in SQL")
+
+    let badDate = VariableSubstitutor.render("d = {{d}}", with: [v("d", "2026-02-30", .date)])
+    expectEqual(badDate.sql, "d = {{d}}", "an impossible date leaves the token verbatim")
+    expectEqualArr(badDate.invalid.map(\.reason), ["not a real calendar date: \"2026-02-30\""],
+                   "an impossible date is collected as invalid with its reason")
+    let emptyList = VariableSubstitutor.render("n IN {{l}}", with: [v("l", "\n  \n", .textList)])
+    expectEqualArr(emptyList.invalid.map(\.reason), ["an empty list"], "an empty list is collected as invalid")
+    expectProblem(VariableSubstitutor.problem(for: v("l", "1\n2\nx", .numberList)),
+                  .invalidValue(reason: "not a valid number list: line 3 is \"x\""),
+                  "problem() names the first bad line of a number list")
+    expectProblem(VariableSubstitutor.problem(for: v("t", "2026-10-28 14:30:00", .timestamptz)),
+                  .invalidValue(reason: "missing a time zone: \"2026-10-28 14:30:00\" (add one such as UTC or America/New_York)"),
+                  "problem() flags a timestamptz without a zone")
+    expectProblemNil(VariableSubstitutor.problem(for: v("d", "today", .date)), "today is a valid date")
+
+    // problem() agrees with render() for the new types too.
+    let newTypeProbes = ["", "today", "now", "2026-10-28", "2026-02-30", "2026-10-28 14:30:00",
+                         "2026-10-28 14:30:00 UTC", "2026-10-28 14:30:00 Mars/Base", "a\nb", "1\n2", "1\nx"]
+    for type in [VariableType.date, .timestamp, .timestamptz, .textList, .numberList] {
+        for value in newTypeProbes {
+            let variable = v("x", value, type)
+            let renderRejects = !VariableSubstitutor.render("q = {{x}}", with: [variable]).invalid.isEmpty
+            expectAgree(VariableSubstitutor.problem(for: variable) != nil, renderRejects,
+                        "problem() agrees with render() for \(type.displayName) \(value.debugDescription)")
+        }
+    }
 
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
