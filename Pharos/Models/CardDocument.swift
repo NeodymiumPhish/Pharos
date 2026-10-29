@@ -402,11 +402,13 @@ struct CardDocument: Equatable, Codable {
     }
 
     /// Remove a card. Returns it with its index, for undo. The document never
-    /// goes empty: deleting the last card leaves one blank draft.
+    /// goes empty: deleting the last card leaves one blank draft. The card's
+    /// results go with it, so the card undo puts back shows "Results removed".
     @discardableResult
     mutating func deleteCard(cardId: String) -> (card: QueryCard, index: Int)? {
         guard let i = index(of: cardId) else { return nil }
-        let removed = cards.remove(at: i)
+        var removed = cards.remove(at: i)
+        if removed.lastRun != nil { removed.resultsRemoved = true }
         if cards.isEmpty { cards = [QueryCard()] }
         if focusedCardId == cardId { focusedCardId = cards[min(i, cards.count - 1)].id }
         if displayedCardId == cardId { displayedCardId = nil }

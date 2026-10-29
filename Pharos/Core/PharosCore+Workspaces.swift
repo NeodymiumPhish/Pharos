@@ -97,6 +97,17 @@ extension PharosCore {
         try scalarResult { id.withCString { pharos_delete_workspace_result($0) } } == "true"
     }
 
+    struct DropCardResultsPayload: Codable { let workspaceId: String; let cardId: String }
+
+    /// A card was deleted: let go of the rows its runs stored in the
+    /// workspace. The history rows stay, as "SQL only". True when any held rows.
+    @discardableResult
+    static func dropWorkspaceCardResults(workspaceId: String, cardId: String) throws -> Bool {
+        try scalarResult(input: DropCardResultsPayload(workspaceId: workspaceId, cardId: cardId)) {
+            pharos_drop_workspace_card_results($0)
+        } == "true"
+    }
+
     struct UpdateResultMetaPayload: Codable { let resultId: String; let customLabel: String?; let colorIndex: Int?; let cardNotes: String? }
 
     /// Change a saved result's display metadata.

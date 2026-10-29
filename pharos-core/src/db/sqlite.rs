@@ -3074,6 +3074,18 @@ pub fn delete_workspace_result(conn: &Connection, result_id: &str) -> SqliteResu
     Ok(n > 0)
 }
 
+/// A query card was deleted: let go of the rows its runs stored in the
+/// workspace. The history rows stay, "SQL only", as the budget leaves them.
+/// Returns how many rows held results.
+pub fn drop_workspace_card_results(conn: &Connection, workspace_id: &str, card_id: &str) -> SqliteResult<usize> {
+    conn.execute(
+        "UPDATE query_history
+            SET result_columns = NULL, result_rows = NULL, result_row_identity = NULL
+          WHERE workspace_id = ?1 AND card_id = ?2 AND result_columns IS NOT NULL",
+        [workspace_id, card_id],
+    )
+}
+
 /// Update a child result's display metadata (custom label, color index, card
 /// notes).
 ///
@@ -4131,6 +4143,46 @@ mod workspace_roundtrip_tests {
         let d0 = dup.results.iter().find(|r| r.line_start.is_some()).expect("the ranged child copied");
         assert_eq!(d0.line_start, Some(4), "line_start copied");
         assert_eq!(d0.line_end, Some(6), "line_end copied");
+
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Deleting a card lets go of the rows of every run it stored, and only
+    /// its: the history rows stay, and another card's rows are untouched.
+    #[test]
+    fn drop_workspace_card_results_clears_only_that_cards_rows() {
+        let dir = temp_db_dir("drop_card_results");
+        let conn = init_database(&dir).expect("init_database");
+
+        let ws = WorkspaceUpsert { cards_json: Default::default(),
+            id: "ws1".to_string(),
+            name: None,
+            name_is_custom: false,
+            connection_id: "c1".to_string(),
+            connection_name: "prod-db".to_string(),
+            editor_text: "SELECT 1".to_string(),
+            variables_json: "[]".to_string(),
+            cursor_position: None,
+        };
+        upsert_workspace(&conn, &ws).expect("upsert_workspace");
+
+        // h1, h2: two runs of card A. h3: card B.
+        for (i, (id, card)) in [("h1", "A"), ("h2", "A"), ("h3", "B")].iter().enumerate() {
+            let h = history_entry(id, "c1", "prod-db", &now_offset(i as i64));
+            save_query_history(&conn, &h, Some(r#"[{"name":"id"}]"#), Some(r#"[[1]]"#), None).expect("save");
+            associate_result_to_workspace(&conn, &ResultAssociation {
+                card_id: Some(card.to_string()),
+                ..assoc(id, "ws1", i as i64, 0, None)
+            }).expect("associate");
+        }
+
+        assert_eq!(drop_workspace_card_results(&conn, "ws1", "A").expect("drop"), 2);
+        let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
+        let held = |id: &str| detail.results.iter().find(|r| r.id == id).expect("row stays").has_results;
+        assert!(!held("h1") && !held("h2"), "the deleted card's rows are let go");
+        assert!(held("h3"), "another card keeps its rows");
+        assert_eq!(drop_workspace_card_results(&conn, "ws1", "A").expect("drop again"), 0);
 
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);

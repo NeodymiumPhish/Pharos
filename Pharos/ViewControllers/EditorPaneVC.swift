@@ -23,6 +23,7 @@ protocol EditorPaneDelegate: AnyObject {
     func editorPane(_ pane: EditorPaneVC, didRequestCancelCard cardId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestRenameCard cardId: String)
     func editorPane(_ pane: EditorPaneVC, didRequestClearResultsOfCard cardId: String)
+    func editorPane(_ pane: EditorPaneVC, didDeleteCard cardId: String, inTab tabId: String)
     func editorPane(_ pane: EditorPaneVC, didEditCard cardId: String)
     /// The card's notes changed (`final` once the user leaves them).
     func editorPane(_ pane: EditorPaneVC, didEditNotesOfCard cardId: String, final: Bool)
@@ -306,6 +307,10 @@ class EditorPaneVC: NSViewController {
         cardStack.onClearResults = { [weak self] id in
             guard let self else { return }
             self.delegate?.editorPane(self, didRequestClearResultsOfCard: id)
+        }
+        cardStack.onCardDeleted = { [weak self] id in
+            guard let self, let tabId = self.cardStack.tabId else { return }
+            self.delegate?.editorPane(self, didDeleteCard: id, inTab: tabId)
         }
         cardStack.onTextEdited = { [weak self] id, _ in
             guard let self, let tabId = self.cardStack.tabId else { return }

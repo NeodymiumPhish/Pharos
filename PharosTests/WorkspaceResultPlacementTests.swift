@@ -12,14 +12,14 @@ private func expect(_ condition: Bool, _ name: String, _ detail: @autoclosure ()
     }
 }
 
-private func meta(_ id: String, order: Int?, sql: String = "select 1", rawSql: String? = nil,
+private func meta(_ id: String, order: Int?, sql: String = "select 1",
                   cardId: String? = nil, hasResults: Bool = true,
                   status: String = QueryHistoryStatus.ok) -> WorkspaceResultMeta {
     var m = WorkspaceResultMeta(
         id: id, sql: sql, resultOrder: order, colorIndex: nil, customLabel: nil,
         rowCount: 1, columnCount: 1, schema: nil, tableNames: nil, hasResults: hasResults,
         executionTimeMs: 1, executedAt: "2026-10-29T00:00:00Z", chartViewStateJson: nil,
-        rawSql: rawSql, lineStart: nil, lineEnd: nil)
+        rawSql: nil, lineStart: nil, lineEnd: nil)
     m.status = status
     m.cardId = cardId
     return m
@@ -66,42 +66,40 @@ private func testNewestWithoutBlobStillSupersedes() {
     expect(kept(metas, doc) == ["new"], "blobless newest still wins", "\(kept(metas, doc))")
 }
 
-private func testDeletedCardFallsBackToSQL() {
-    let doc = document([("a", "select   1"), ("b", "select 2")])
+private func testDeletedCardIsNotMatchedBySQL() {
+    // The card the result names is gone; another card has the same SQL.
+    let doc = document([("a", "select 1")])
+    let metas = [meta("gone", order: 0, sql: "select 1", cardId: "deleted")]
+    expect(WorkspaceResultPlacement.placements(of: metas, in: doc).isEmpty, "deleted card: no placement")
+    expect(kept(metas, doc).isEmpty, "deleted card: no blob")
+}
+
+private func testResultWithoutCardIsNotPlaced() {
+    // Recorded before cards existed: no cardId, even though the SQL matches.
+    let doc = document([("a", "select 1")])
+    let metas = [meta("legacy", order: 0, sql: "select 1")]
+    expect(WorkspaceResultPlacement.placements(of: metas, in: doc).isEmpty, "no cardId: no placement")
+    expect(kept(metas, doc).isEmpty, "no cardId: no blob")
+}
+
+private func testUnplacedNewerRunDoesNotSupersede() {
+    // A newer result with the card's SQL but no card of its own leaves the
+    // card's own result in place.
+    let doc = document([("a", "select 1")])
     let metas = [
-        meta("gone", order: 0, sql: "select 2", cardId: "deleted"),
+        meta("own", order: 0, cardId: "a"),
         meta("legacy", order: 1, sql: "select 1"),
+        meta("gone", order: 2, sql: "select 1", cardId: "deleted"),
     ]
+    expect(kept(metas, doc) == ["own"], "unplaced runs do not supersede", "\(kept(metas, doc))")
+}
+
+private func testPlacementsInResultOrder() {
+    let doc = document([("a", "select 1"), ("b", "select 2")])
+    let metas = [meta("r3", order: 3, cardId: "a"), meta("r1", order: 1, cardId: "b"), meta("r2", order: 2, cardId: "a")]
     let p = WorkspaceResultPlacement.placements(of: metas, in: doc)
-    expect(p.map(\.cardId) == ["b", "a"], "deleted / missing card matched by SQL", "\(p.map(\.cardId))")
-}
-
-private func testSQLMatchUsesRawOrRendered() {
-    let doc = document([("a", "select :x"), ("b", "select 5")])
-    let byRaw = meta("raw", order: 0, sql: "select 3", rawSql: "select :x")
-    let byRendered = meta("rendered", order: 1, sql: "select 5", rawSql: "select :y")
-    let p = WorkspaceResultPlacement.placements(of: [byRaw, byRendered], in: doc)
-    expect(p.map(\.cardId) == ["a", "b"], "raw or rendered SQL", "\(p.map(\.cardId))")
-}
-
-private func testFirstMatchingCard() {
-    let doc = document([("a", "select 1"), ("b", "select 1")])
-    let metas = [meta("r1", order: 0), meta("r2", order: 1)]
-    expect(kept(metas, doc) == ["r2"], "SQL match takes the first card; newer wins", "\(kept(metas, doc))")
-}
-
-private func testUnmatchedResultIsDropped() {
-    let doc = document([("a", "select 1")])
-    let metas = [meta("orphan", order: 0, sql: "select 99", cardId: "deleted")]
-    expect(kept(metas, doc).isEmpty, "no card, no blob")
-    expect(WorkspaceResultPlacement.placements(of: metas, in: doc).isEmpty, "no card, no placement")
-}
-
-private func testSupersededByLegacyMatch() {
-    // An id-matched result superseded by a newer SQL-matched one on the same card.
-    let doc = document([("a", "select 1")])
-    let metas = [meta("byId", order: 0, cardId: "a"), meta("bySQL", order: 1, sql: "select 1", cardId: "deleted")]
-    expect(kept(metas, doc) == ["bySQL"], "mixed matching, newest wins", "\(kept(metas, doc))")
+    expect(p.map(\.meta.id) == ["r1", "r2", "r3"], "placements oldest first", "\(p.map(\.meta.id))")
+    expect(p.map(\.cardId) == ["b", "a", "a"], "placements on the named cards", "\(p.map(\.cardId))")
 }
 
 func runTests() {
@@ -109,10 +107,9 @@ func runTests() {
     testResultOrderNotArrayOrder()
     testFailedRunsAreNotPlaced()
     testNewestWithoutBlobStillSupersedes()
-    testDeletedCardFallsBackToSQL()
-    testSQLMatchUsesRawOrRendered()
-    testFirstMatchingCard()
-    testUnmatchedResultIsDropped()
-    testSupersededByLegacyMatch()
+    testDeletedCardIsNotMatchedBySQL()
+    testResultWithoutCardIsNotPlaced()
+    testUnplacedNewerRunDoesNotSupersede()
+    testPlacementsInResultOrder()
     if failures == 0 { print("\nAll WorkspaceResultPlacement tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

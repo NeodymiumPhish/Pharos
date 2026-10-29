@@ -82,6 +82,8 @@ final class CardStackVC: NSViewController {
     var changeVariableMenu: ((_ name: String) -> NSMenu?)?
     var onRenameRequest: ((_ cardId: String) -> Void)?
     var onClearResults: ((_ cardId: String) -> Void)?
+    /// After the card is out of the document: its results go with it.
+    var onCardDeleted: ((_ cardId: String) -> Void)?
     var onListPasteOffer: ((_ offered: Bool) -> Void)?
     /// After a notes change is in the document (typing, or comments moved
     /// into the notes).
@@ -727,6 +729,7 @@ final class CardStackVC: NSViewController {
         undo?.registerUndo(withTarget: self) { target in
             target.mutate { doc in _ = doc.deleteCard(cardId: newId) }
             target.reload()
+            target.onCardDeleted?(newId)
             target.onStructureEdited?()
         }
         undo?.setActionName(String(localized: "New Card"))
@@ -1055,6 +1058,7 @@ final class CardStackVC: NSViewController {
         mutate { doc in removed = doc.deleteCard(cardId: id) }
         guard let removed else { return }
         reload()
+        onCardDeleted?(id)
         if let focused = document()?.focusedCardId {
             focusCard(focused)
             let undo = editors[focused]?.textView.undoManager ?? view.window?.undoManager

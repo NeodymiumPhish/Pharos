@@ -2347,6 +2347,28 @@ class ContentViewController: NSViewController {
         if lastActiveTabId == tabId, displayedCardId == cardId { showDisplayedResult() } else { refreshCardResultsUI() }
     }
 
+    /// A card was deleted: its results go with it — from memory and from the
+    /// workspace — so the tab neither shows nor reopens rows no card owns.
+    /// Undo brings the card back as "Results removed" (`CardDocument.deleteCard`).
+    func discardResults(ofDeletedCard cardId: String, inTab tabId: String) {
+        guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
+        // `deleteCard` has already stopped displaying the card; whatever the
+        // grid still shows of it (rows, a drill, pending edits) goes now.
+        let wasShown = lastActiveTabId == tabId && tab.document.displayedCardId == nil
+        if wasShown { tearDownDrill(restoreManual: true) }
+        let held = session.resultStore[tabId].result(forCard: cardId) != nil
+        session.resultStore[tabId].results.removeAll { $0.id == cardId }
+        if held { markSessionResultsChanged(tabId: tabId) }
+        if let wsId = tab.workspaceId {
+            do {
+                try PharosCore.dropWorkspaceCardResults(workspaceId: wsId, cardId: cardId)
+            } catch {
+                Log.query.error("dropWorkspaceCardResults failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if wasShown { showDisplayedResult() } else if lastActiveTabId == tabId { refreshCardResultsUI() }
+    }
+
     /// One card's result, whichever editor tab holds it.
     private func result(forCard cardId: String) -> CardResult? {
         session.resultStore.result(forCard: cardId)
@@ -3310,6 +3332,10 @@ extension ContentViewController: EditorPaneDelegate {
         clearResults(ofCard: cardId)
     }
 
+    func editorPane(_ pane: EditorPaneVC, didDeleteCard cardId: String, inTab tabId: String) {
+        discardResults(ofDeletedCard: cardId, inTab: tabId)
+    }
+
     func editorPane(_ pane: EditorPaneVC, didEditCard cardId: String) {
         // The header's "from the SQL before the edit" follows the typing.
         if cardId == displayedCardId { updateResultsHeader() }
@@ -3648,9 +3674,12 @@ extension ContentViewController {
     }
 
     /// Put a workspace's stored results back on their cards, by
-    /// `WorkspaceResultPlacement`: the newest result of a card wins. Cards get
-    /// the run record their state is shown from. `blobs` needs only the
-    /// results that win.
+    /// `WorkspaceResultPlacement`. A result goes back only on the card it
+    /// names (`cardId`), never on another card with the same SQL: that card
+    /// may run against another database or schema. A result whose card is
+    /// gone, or recorded before cards existed, stays in history and goes on no
+    /// card. The newest result of a card wins. Cards get the run record their
+    /// state is shown from. `blobs` needs only the results that win.
     private static func restoreResults(_ metas: [WorkspaceResultMeta], blobs: [String: QueryResult],
                                        into document: inout CardDocument) -> [CardResult] {
         var byCard: [String: CardResult] = [:]
