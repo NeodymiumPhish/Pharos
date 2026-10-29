@@ -3622,8 +3622,9 @@ extension ContentViewController {
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let detail = try? PharosCore.loadWorkspace(id: wsId) else { return }
             // Blobs for the results that have them; the rest are "SQL only".
+            // A result that names no card goes on none (`restoreResults`).
             var blobs: [String: QueryResult] = [:]
-            for meta in detail.results where meta.isSucceeded && meta.hasResults {
+            for meta in detail.results where meta.isSucceeded && meta.hasResults && meta.cardId != nil {
                 if let data = try? PharosCore.getQueryHistoryResult(id: meta.id) {
                     blobs[meta.id] = QueryResult.fromHistory(data, historyEntryId: meta.id, executionTimeMs: UInt64(meta.executionTimeMs))
                 }
@@ -3668,29 +3669,19 @@ extension ContentViewController {
         }
     }
 
-    /// Put a workspace's stored results back on their cards. A result names
-    /// its card (`cardId`); a result recorded before cards existed is matched
-    /// to the first card whose SQL is the SQL it ran. The newest result of a
-    /// card wins. Cards get the run record their state is shown from.
+    /// Put a workspace's stored results back on their cards. A result goes
+    /// back only on the card it names (`cardId`), never on another card with
+    /// the same SQL: that card may run against another database or schema.
+    /// A result whose card is gone, or recorded before cards existed, stays
+    /// in history and goes on no card. The newest result of a card wins.
+    /// Cards get the run record their state is shown from.
     private static func restoreResults(_ metas: [WorkspaceResultMeta], blobs: [String: QueryResult],
                                        into document: inout CardDocument) -> [CardResult] {
         var byCard: [String: CardResult] = [:]
         var order: [String] = []
-        // When the stored cards are these cards, a result whose card is not
-        // among them belongs to a deleted card: it must not land on another
-        // card that has its SQL. Otherwise (results recorded before cards, or
-        // cards rebuilt from the text) a result matches by SQL.
-        let cardsMatch = metas.contains { meta in meta.cardId.map { document.card($0) != nil } ?? false }
         for meta in metas.sorted(by: { ($0.resultOrder ?? 0) < ($1.resultOrder ?? 0) }) where meta.isSucceeded {
             let raw = meta.rawSql ?? meta.sql
-            let named = meta.cardId.flatMap { id in document.card(id) != nil ? id : nil }
-            if named == nil, cardsMatch, meta.cardId != nil { continue }
-            let cardId = named
-                ?? document.cards.first(where: {
-                    CardDocument.normalized($0.sql) == CardDocument.normalized(raw)
-                        || CardDocument.normalized($0.sql) == CardDocument.normalized(meta.sql)
-                })?.id
-            guard let cardId, let i = document.index(of: cardId) else { continue }
+            guard let cardId = meta.cardId, let i = document.index(of: cardId) else { continue }
 
             var cr = CardResult(cardId: cardId, sql: meta.sql, rawSQL: raw)
             cr.executionTimeMs = UInt64(meta.executionTimeMs)
