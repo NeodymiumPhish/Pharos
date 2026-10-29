@@ -18,7 +18,8 @@ enum CardStackItem: Hashable {
 /// out every card's editor at once, and a collection view recycles views,
 /// which would move one card's undo history and caret to another card.
 enum CardStackLayout {
-    /// The rows for `document`. Older locked versions of a query fold into one
+    /// The rows for `document`. Older locked versions of a query (unlocked
+    /// ones too: they are still versions) fold into one
     /// row above its latest version, unless the card is focused or showing its
     /// results. When the user opened a query's versions, an open header row
     /// stands above them instead, so they can be folded again. A filter shows the matching
@@ -35,7 +36,7 @@ enum CardStackLayout {
         for card in document.cards { lastOfLineage[card.lineageId] = card.id }
 
         func isOlderVersion(_ card: QueryCard) -> Bool {
-            card.isLocked && lastOfLineage[card.lineageId] != card.id
+            (card.isLocked || card.isUnlockedVersion == true) && lastOfLineage[card.lineageId] != card.id
         }
         var olderVersions: [String: [String]] = [:]
         for card in document.cards where isOlderVersion(card) {

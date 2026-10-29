@@ -185,6 +185,71 @@ private func testLockedCards() {
     expect(d.focusedCardId == copy, "edit as new: focus moves to the copy")
 }
 
+private func testUnlockedVersions() {
+    // v1 (locked) and v2 of "Q", then an unrelated query below.
+    var (d, a) = doc("SELECT 1")
+    _ = d.rename(cardId: a, name: "Q")
+    _ = d.setNotes(cardId: a, "why")
+    _ = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
+    _ = d.updateSQL(cardId: a, "SELECT 2")
+    guard case let .split(_, v2) = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 2")!, outcome: rows(2)) else {
+        expect(false, "unlock: setup split"); return
+    }
+    let other = d.insertCard(after: v2, sql: "SELECT 9")
+    d.expandedLineages.insert(d.card(a)!.lineageId)
+
+    expect(!d.relockVersion(cardId: v2), "unlock: lock again refuses a card that was never unlocked")
+    expect(!d.unlockVersion(cardId: v2), "unlock: refuses a card that is not locked")
+    expect(d.unlockVersion(cardId: a), "unlock: a locked version opens")
+    expect(d.card(a)?.isLocked == false && d.card(a)?.isUnlockedVersion == true, "unlock: unlocked, marked as a version")
+    expect(d.updateSQL(cardId: a, "SELECT 1 + 1"), "unlock: edits are accepted")
+    expect(d.card(a)?.lastRun?.historyResultId == "h1", "unlock: the results stay until a run")
+
+    // Lock again: the text goes back to the SQL of the results.
+    d.cards[d.index(of: a)!].lastFailureId = "f1"
+    expect(d.relockVersion(cardId: a), "relock: an unlocked version locks again")
+    let relocked = d.card(a)!
+    expect(relocked.isLocked && relocked.isUnlockedVersion == nil && relocked.sql == "SELECT 1",
+           "relock: locked, back to the SQL that ran", "got \(relocked.sql)")
+    expect(relocked.lastFailureId == nil, "relock: a failure goes with the edit")
+
+    // A run of an unchanged unlocked version replaces its results in place.
+    _ = d.unlockVersion(cardId: a)
+    let same = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!
+    expect(d.completeRun(same, outcome: rows(4)) == .replaced(cardId: a), "unlock: a rerun replaces in place")
+    expect(d.card(a)?.isUnlockedVersion == true, "unlock: a rerun leaves it unlocked")
+
+    // A run of an edit: a new query, not a version of "Q".
+    _ = d.updateSQL(cardId: a, "SELECT 3")
+    d.focusedCardId = a
+    let t = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 3")!
+    expect(t.splits, "unlock: an edit splits")
+    guard case let .split(locked, newId) = d.completeRun(t, outcome: rows(3)) else {
+        expect(false, "unlock: effect is .split"); return
+    }
+    let old = d.card(a)!, new = d.card(newId)!
+    expect(locked == a && old.isLocked && old.isUnlockedVersion == nil && old.sql == "SELECT 1",
+           "unlock split: the version locks again with its own SQL")
+    expect(old.lastRun?.historyResultId == "h4", "unlock split: the version keeps its results")
+    expect(new.lineageId == newId && new.version == 1, "unlock split: a new query, version 1",
+           "lineage \(new.lineageId) version \(new.version)")
+    expect(!new.isLocked && new.isUnlockedVersion == nil && new.sql == "SELECT 3" && new.lastRun?.historyResultId == "h3",
+           "unlock split: the new card has the edit and its results")
+    expect(new.name == "Q" && new.notes == "why", "unlock split: same name and notes")
+    expect(d.cards.map(\.id) == [a, v2, newId, other], "unlock split: after the versions of the query, before the next query")
+    expect(d.lineageRange(of: newId) == 2..<3, "unlock split: a block of its own")
+    expect(d.expandedLineages.contains(old.lineageId), "unlock split: the versions stay open")
+    expect(d.focusedCardId == newId, "unlock split: focus moves to the new query")
+    _ = d.rename(cardId: newId, name: "R")
+    expect(d.card(a)?.name == "Q" && d.card(v2)?.name == "Q", "unlock split: renaming the new query leaves the old one")
+
+    // The flag survives a save and a copy.
+    _ = d.unlockVersion(cardId: a)
+    let round = try! JSONDecoder().decode(CardDocument.self, from: JSONEncoder().encode(d))
+    expect(round.card(a)?.isUnlockedVersion == true, "unlock: survives a round trip")
+    expect(d.forReuse().cards[0].isUnlockedVersion == true, "unlock: a copy keeps it")
+}
+
 private func testRenameDeleteRestore() {
     var (d, a) = doc("SELECT 1")
     _ = d.completeRun(d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!, outcome: rows(1))
@@ -501,6 +566,7 @@ func runTests() {
     testTypingDuringARun()
     testDeletedDuringARun()
     testLockedCards()
+    testUnlockedVersions()
     testRenameDeleteRestore()
     testOnlySQLCardsRun()
     testCodableRoundTrip()

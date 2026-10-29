@@ -51,6 +51,11 @@ struct QueryCard: Identifiable, Equatable, Codable {
     /// and cannot change.
     var sql: String
     var isLocked: Bool = false
+    /// A locked version the user opened with its lock: `isLocked` is false,
+    /// so the text can change, and a run of an edit becomes a new query
+    /// (`completeRun`), not a version of this one. Optional for the same
+    /// reason as the notes fields.
+    var isUnlockedVersion: Bool?
     var isCollapsed: Bool = false
     /// Index into the card palette; set at the first successful run.
     var colorIndex: Int?
@@ -443,6 +448,30 @@ struct CardDocument: Equatable, Codable {
         focusedCardId = card.id
     }
 
+    /// Open a locked version for editing (its lock button). Its results stay
+    /// until a run. False for a card that is not locked.
+    @discardableResult
+    mutating func unlockVersion(cardId: String) -> Bool {
+        guard let i = index(of: cardId), cards[i].isLocked else { return false }
+        cards[i].isLocked = false
+        cards[i].isUnlockedVersion = true
+        return true
+    }
+
+    /// Lock an unlocked version again. Its text goes back to the SQL its
+    /// results came from, and a failure goes too, as at a split: the
+    /// version shows its results. False for a card `unlockVersion` did not
+    /// open.
+    @discardableResult
+    mutating func relockVersion(cardId: String) -> Bool {
+        guard let i = index(of: cardId), cards[i].isUnlockedVersion == true else { return false }
+        if let run = cards[i].lastRun { cards[i].sql = run.rawSQL }
+        cards[i].lastFailureId = nil
+        cards[i].isLocked = true
+        cards[i].isUnlockedVersion = nil
+        return true
+    }
+
     /// A new, unlocked, never-run copy of the card's text as the next version
     /// of its query, placed after the query's last version. Returns its id.
     @discardableResult
@@ -494,8 +523,13 @@ struct CardDocument: Equatable, Codable {
                 if cards[i].colorIndex == nil { cards[i].colorIndex = nextColorIndex() }
                 return .replaced(cardId: ticket.cardId)
             }
-            var next = QueryCard(lineageId: cards[i].lineageId, version: nextVersion(of: cards[i].lineageId),
-                                 name: cards[i].name, sql: cards[i].sql, kind: cards[i].kind)
+            // An edit of an unlocked version starts a query of its own, after
+            // the version's query; any other edit is the query's next version.
+            let startsQuery = cards[i].isUnlockedVersion == true
+            var next = startsQuery
+                ? QueryCard(name: cards[i].name, sql: cards[i].sql, kind: cards[i].kind)
+                : QueryCard(lineageId: cards[i].lineageId, version: nextVersion(of: cards[i].lineageId),
+                            name: cards[i].name, sql: cards[i].sql, kind: cards[i].kind)
             next.nameIsSuggested = cards[i].nameIsSuggested
             next.notes = cards[i].notes
             next.isNotesOpen = cards[i].isNotesOpen
@@ -508,11 +542,13 @@ struct CardDocument: Equatable, Codable {
             // locked so that stays true. The failure, if any, was the edit's.
             cards[i].sql = previous.rawSQL
             cards[i].isLocked = true
+            cards[i].isUnlockedVersion = nil
             cards[i].lastFailureId = nil
             cards.insert(next, at: indexAfterLineage(cards[i].lineageId))
             // Older versions fold above the new run, even when the user had
-            // opened them: the new results are what they look at now.
-            expandedLineages.remove(cards[i].lineageId)
+            // opened them: the new results are what they look at now. A new
+            // query stands apart, so the versions stay as the user left them.
+            if !startsQuery { expandedLineages.remove(cards[i].lineageId) }
             if focusedCardId == ticket.cardId { focusedCardId = next.id }
             return .split(lockedCardId: ticket.cardId, newCardId: next.id)
         }
@@ -550,6 +586,7 @@ struct CardDocument: Equatable, Codable {
             idMap[old.id] = c.id
             c.nameIsSuggested = old.nameIsSuggested
             c.isLocked = old.isLocked
+            c.isUnlockedVersion = old.isUnlockedVersion
             c.isCollapsed = old.isCollapsed
             c.cursorPosition = old.cursorPosition
             c.notes = old.notes

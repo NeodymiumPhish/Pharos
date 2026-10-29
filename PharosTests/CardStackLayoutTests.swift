@@ -39,6 +39,12 @@ private func testItems() {
     expect(CardStackLayout.items(d) == [.versionGroup(lineageId: "a", cardIds: ["a1", "a2"], isExpanded: false), .card("a3"), .card("b"), .addCard],
            "items: older locked versions fold into one row above the live version", "got \(CardStackLayout.items(d))")
 
+    var unlocked = versioned()
+    unlocked.cards[1].isLocked = false
+    unlocked.cards[1].isUnlockedVersion = true
+    expect(CardStackLayout.items(unlocked) == CardStackLayout.items(d),
+           "items: an unlocked older version stays in its version row", "got \(CardStackLayout.items(unlocked))")
+
     var expanded = d
     expanded.expandedLineages = ["a"]
     expect(CardStackLayout.items(expanded) == [.versionGroup(lineageId: "a", cardIds: ["a1", "a2"], isExpanded: true),

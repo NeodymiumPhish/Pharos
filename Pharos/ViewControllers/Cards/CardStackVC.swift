@@ -588,6 +588,7 @@ final class CardStackVC: NSViewController {
         h.onRename = { [weak self] in self?.onRenameRequest?(id) }
         h.onToggleCollapse = { [weak self] in self?.toggleCollapsed(id) }
         h.onNotes = { [weak self] in self?.notesButtonClicked(id) }
+        h.onToggleLock = { [weak self] in self?.toggleLock(id) }
         let divider = view.notesDivider
         divider.onDrag = { [weak self, weak view] x in
             guard let self, let view else { return }
@@ -680,7 +681,10 @@ final class CardStackVC: NSViewController {
             item(String(localized: "Keep Comments in Query"), { [weak self] in self?.keepCommentsInQuery(id) })
         }
         if card.isLocked {
+            item(String(localized: "Unlock Version"), { [weak self] in self?.toggleLock(id) })
             item(String(localized: "Edit as New Card"), { [weak self] in self?.editAsNewCard(id) })
+        } else if card.isUnlockedVersion == true {
+            item(String(localized: "Lock Version"), { [weak self] in self?.toggleLock(id) })
         }
         item(String(localized: "Copy SQL"), {
             NSPasteboard.general.clearContents()
@@ -691,7 +695,7 @@ final class CardStackVC: NSViewController {
             item(String(localized: "Clear Results"), { [weak self] in self?.onClearResults?(id) })
         }
         menu.addItem(.separator())
-        item(card.isLocked ? String(localized: "Delete Version") : String(localized: "Delete Card"), { [weak self] in self?.deleteCard(id) })
+        item(card.isLocked || card.isUnlockedVersion == true ? String(localized: "Delete Version") : String(localized: "Delete Card"), { [weak self] in self?.deleteCard(id) })
         return menu
     }
 
@@ -905,6 +909,59 @@ final class CardStackVC: NSViewController {
         mutate { doc in newId = doc.editAsNewCard(from: id) }
         reload(anchor: .card(id))
         if let newId { focusCard(newId) }
+    }
+
+    /// The lock button: open a locked version for editing, or lock an
+    /// unlocked one again. Each is one undo step.
+    func toggleLock(_ id: String) {
+        guard let card = document()?.card(id) else { return }
+        if card.isLocked {
+            unlockVersion(id)
+        } else if card.isUnlockedVersion == true {
+            relockVersion(id)
+        }
+    }
+
+    /// Open a locked version; its editor takes the keyboard. `restoring`, from
+    /// an undo of `relockVersion`, puts the edit back; `manager` is the undo
+    /// manager that undo runs on, so the redo goes there too.
+    private func unlockVersion(_ id: String, restoring edit: CardEdit? = nil, on manager: UndoManager? = nil) {
+        var unlocked = false
+        mutate { doc in unlocked = doc.unlockVersion(cardId: id) }
+        guard unlocked else { return }
+        editors[id]?.textView.isEditable = true
+        reload(anchor: .card(id))
+        focusCard(id)
+        let undo = manager ?? undoManagerForFocus()
+        if let edit, apply(edit, keepingUndoOf: undo) { findTextChanged() }
+        undo?.registerUndo(withTarget: self) { target in target.relockVersion(id, on: undo) }
+        undo?.setActionName(String(localized: "Unlock Version"))
+        scheduleRelayout()
+    }
+
+    /// Lock an unlocked version again. Its text goes back to the SQL of its
+    /// results first, through the editor while it can still change, so an
+    /// undo puts the edit back.
+    private func relockVersion(_ id: String, on manager: UndoManager? = nil) {
+        guard let card = document()?.card(id), card.isUnlockedVersion == true else { return }
+        let undo = manager ?? undoManagerForFocus()
+        var revert: CardEdit?
+        if let ran = card.lastRun?.rawSQL, ran != card.sql {
+            let edit = CardEdit(cardId: id, edits: [TextEdit(range: NSRange(location: 0, length: (card.sql as NSString).length),
+                                                             replacement: ran)],
+                                oldSQL: card.sql, newSQL: ran)
+            if apply(edit, keepingUndoOf: undo) {
+                revert = edit
+                findTextChanged()
+            }
+        }
+        mutate { doc in doc.relockVersion(cardId: id) }
+        editors[id]?.textView.isEditable = false
+        reload(anchor: .card(id))
+        undo?.registerUndo(withTarget: self) { target in
+            target.unlockVersion(id, restoring: revert.map(CardTextEdits.inverse(of:)), on: undo)
+        }
+        undo?.setActionName(String(localized: "Lock Version"))
     }
 
     func toggleCollapsed(_ id: String) {

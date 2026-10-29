@@ -29,6 +29,8 @@ final class CardHeaderView: NSView {
     var onRunReplace: (() -> Void)?
     var onCancel: (() -> Void)?
     var onRename: (() -> Void)?
+    /// The lock button: unlock a locked version, or lock it again.
+    var onToggleLock: (() -> Void)?
     /// The Notes button: open or close the notes, or import comments into
     /// them while the button offers that.
     var onNotes: (() -> Void)?
@@ -38,7 +40,7 @@ final class CardHeaderView: NSView {
     let disclosure = CardDisclosureButton()
     let nameLabel = NSTextField(labelWithString: "")
     private let versionChip = ChipLabel()
-    private let lockImage = NSImageView()
+    let lockButton = NSButton()
     private let badge = ChipLabel()
     let metaLabel = NSTextField(labelWithString: "")
     private let spinner = NSProgressIndicator()
@@ -75,9 +77,12 @@ final class CardHeaderView: NSView {
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
-        lockImage.image = symbol("lock.fill", String(localized: "Locked"))
-        lockImage.contentTintColor = .secondaryLabelColor
-        lockImage.toolTip = String(localized: "Locked: this version keeps the SQL its results came from. Use Edit as New Card to change it.")
+        lockButton.isBordered = false
+        lockButton.imagePosition = .imageOnly
+        lockButton.contentTintColor = .secondaryLabelColor
+        lockButton.target = self
+        lockButton.action = #selector(toggleLock)
+        applyLock(.locked)
 
         metaLabel.font = .systemFont(ofSize: 11)
         metaLabel.textColor = .secondaryLabelColor
@@ -126,7 +131,7 @@ final class CardHeaderView: NSView {
         moreButton.target = self
         moreButton.action = #selector(showMenu)
 
-        let leading = NSStackView(views: [grip, disclosure, nameLabel, versionChip, lockImage, badge, spinner, metaLabel])
+        let leading = NSStackView(views: [grip, disclosure, nameLabel, versionChip, lockButton, badge, spinner, metaLabel])
         leading.orientation = .horizontal
         leading.spacing = 6
         leading.alignment = .centerY
@@ -165,7 +170,8 @@ final class CardHeaderView: NSView {
             : .systemFont(ofSize: 13, weight: .semibold)
         versionChip.isHidden = p.versionChip == nil
         versionChip.set(text: p.versionChip ?? "", tone: .neutral)
-        lockImage.isHidden = !p.isLocked
+        lockButton.isHidden = p.lock == nil
+        if let lock = p.lock { applyLock(lock) }
         if let b = p.badge {
             badge.isHidden = false
             badge.set(text: b.text, tone: b.tone)
@@ -246,6 +252,7 @@ final class CardHeaderView: NSView {
         cancelButton.setAccessibilityIdentifier("\(prefix).cancel")
         notesButton.setAccessibilityIdentifier("\(prefix).notes")
         moreButton.setAccessibilityIdentifier("\(prefix).more")
+        lockButton.setAccessibilityIdentifier("\(prefix).lock")
         grip.setAccessibilityIdentifier("\(prefix).grip")
     }
 
@@ -254,6 +261,22 @@ final class CardHeaderView: NSView {
     @objc private func runReplace() { onRunReplace?() }
     @objc private func cancel() { onCancel?() }
     @objc private func notes() { onNotes?() }
+    @objc private func toggleLock() { onToggleLock?() }
+
+    /// The lock button's symbol, label and help for `lock`. The label names
+    /// what a click does (Apple HIG, Accessibility).
+    private func applyLock(_ lock: CardPresentation.Lock) {
+        switch lock {
+        case .locked:
+            lockButton.image = symbol("lock.fill", String(localized: "Unlock Version"))
+            lockButton.setAccessibilityLabel(String(localized: "Unlock Version"))
+            lockButton.toolTip = String(localized: "Locked: this version keeps the SQL its results came from. Click to unlock it and edit; a run of the edit becomes a new query.")
+        case .unlocked:
+            lockButton.image = symbol("lock.open.fill", String(localized: "Lock Version"))
+            lockButton.setAccessibilityLabel(String(localized: "Lock Version"))
+            lockButton.toolTip = String(localized: "Unlocked: a run of an edit becomes a new query, and this version locks again. Click to lock it again; its SQL goes back to the SQL of its results.")
+        }
+    }
     @objc private func toggleCollapse() { onToggleCollapse?() }
 
     @objc private func showMenu() {

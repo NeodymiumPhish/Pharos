@@ -2338,16 +2338,16 @@
     "Locate…" : {
 
     },
-    "locked" : {
+    "Lock Version" : {
 
     },
-    "Locked" : {
+    "locked" : {
 
     },
     "Locked versions keep the SQL their results came from. %@ not changed." : {
 
     },
-    "Locked: this version keeps the SQL its results came from. Use Edit as New Card to change it." : {
+    "Locked: this version keeps the SQL its results came from. Click to unlock it and edit; a run of the edit becomes a new query." : {
 
     },
     "Log scale" : {
@@ -4663,6 +4663,15 @@
 
     },
     "unique index" : {
+
+    },
+    "Unlock Version" : {
+
+    },
+    "unlocked" : {
+
+    },
+    "Unlocked: a run of an edit becomes a new query, and this version locks again. Click to lock it again; its SQL goes back to the SQL of its results." : {
 
     },
     "Unsaved changes" : {

@@ -415,6 +415,33 @@ private func symbolData(_ name: String) -> Data? {
         .withSymbolConfiguration(.init(pointSize: 12, weight: .medium))?.tiffRepresentation
 }
 
+/// The lock: hidden on a card that is not a version, a button on a version
+/// that says what a click does, and the click reaches it.
+private func testLockButton() {
+    let f = Fixture()
+    let h = f.card.header
+    var toggles = 0
+    h.onToggleLock = { toggles += 1 }
+
+    h.apply(presentation(ranCard()), isCollapsed: false, meta: "")
+    expect(h.lockButton.isHidden, "lock: hidden on a card that is not a version")
+
+    var locked = ranCard()
+    locked.isLocked = true
+    h.apply(presentation(locked, versions: 2), isCollapsed: false, meta: "")
+    expect(!h.lockButton.isHidden && h.lockButton.accessibilityLabel() == "Unlock Version",
+           "lock: a locked version shows a button named for its action", "got \(h.lockButton.accessibilityLabel() ?? "nil")")
+    expect(f.click(h.lockButton) && toggles == 1, "lock: the click reaches the lock button")
+
+    var unlocked = locked
+    unlocked.isLocked = false
+    unlocked.isUnlockedVersion = true
+    h.apply(presentation(unlocked, versions: 2), isCollapsed: false, meta: "")
+    expect(!h.lockButton.isHidden && h.lockButton.accessibilityLabel() == "Lock Version",
+           "lock: an unlocked version shows the open lock")
+    expect(f.click(h.lockButton) && toggles == 2, "lock: the open lock takes clicks too")
+}
+
 private func testNotesButton() {
     let f = Fixture()
     let b = f.card.header.notesButton
@@ -662,6 +689,7 @@ func runTests() {
     testPreview()
     testVersionGroup()
     testNotesButton()
+    testLockButton()
     testNotesLayout()
     testNotesHeight()
     testNotesDivider()

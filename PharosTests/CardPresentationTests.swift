@@ -72,7 +72,15 @@ func runTests() {
     locked.isLocked = true
     locked.version = 1
     let lockedP = make(locked, position: 3, versions: 2)
-    expect(lockedP.isLocked && lockedP.versionChip == "v1", "locked: lock and version chip")
+    expect(lockedP.lock == .locked && lockedP.versionChip == "v1", "locked: lock and version chip")
+    var unlocked = locked
+    unlocked.isLocked = false
+    unlocked.isUnlockedVersion = true
+    let unlockedP = make(unlocked, position: 3, versions: 2)
+    expect(unlockedP.lock == .unlocked, "unlocked version: an open lock")
+    expect(unlockedP.accessibilityLabel == "Card 3, Active users, version 1, unlocked, has results",
+           "accessibility: an unlocked version says so", "got \(unlockedP.accessibilityLabel)")
+    expect(make(ran("SELECT 1")).lock == nil, "no lock on a card that is not a version")
     expect(lockedP.canRun, "locked: a locked card can still run its own SQL")
     expect(make(ran("SELECT 1"), versions: 1).versionChip == nil, "version chip only when the query has versions")
 

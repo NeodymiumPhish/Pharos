@@ -22,6 +22,8 @@ struct CardPresentation: Equatable {
 
     enum Tone: Equatable { case neutral, caution, error }
 
+    enum Lock: Equatable { case locked, unlocked }
+
     struct Badge: Equatable {
         let text: String
         let tone: Tone
@@ -41,7 +43,9 @@ struct CardPresentation: Equatable {
     let titleIsPlaceholder: Bool
     /// "v2", only when the query has more than one version.
     let versionChip: String?
-    let isLocked: Bool
+    /// The lock button: closed on a locked version, open on a version the
+    /// user unlocked, absent on every other card.
+    let lock: Lock?
     let badge: Badge?
     let resultsButton: ResultsButton?
     let canRun: Bool
@@ -103,7 +107,12 @@ struct CardPresentation: Equatable {
         let title = name ?? String(localized: "Untitled query")
         var label = [String(localized: "Card \(position)"), title]
         if lineageCount > 1 { label.append(String(localized: "version \(card.version)")) }
-        if card.isLocked { label.append(String(localized: "locked")) }
+        let lock: Lock? = card.isLocked ? .locked : card.isUnlockedVersion == true ? .unlocked : nil
+        switch lock {
+        case .locked: label.append(String(localized: "locked"))
+        case .unlocked: label.append(String(localized: "unlocked"))
+        case nil: break
+        }
         label.append(stateWords(state))
 
         return CardPresentation(
@@ -111,7 +120,7 @@ struct CardPresentation: Equatable {
             title: title,
             titleIsPlaceholder: name == nil,
             versionChip: lineageCount > 1 ? "v\(card.version)" : nil,
-            isLocked: card.isLocked,
+            lock: lock,
             badge: badge,
             resultsButton: button,
             canRun: state != .running && state != .waiting && state != .notRunnable,
