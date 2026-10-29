@@ -205,8 +205,11 @@ private func testRenameDeleteRestore() {
     guard let removed = d.deleteCard(cardId: b) else { expect(false, "delete: returns the card"); return }
     expect(removed.index == 1 && d.cards.map(\.id) == [a, c], "delete: the card goes, its place is reported")
     expect(d.focusedCardId != b, "delete: focus leaves the deleted card")
+    expect(removed.card.lastRun != nil && removed.card.resultsRemoved,
+           "delete: the card's results go with it")
     d.restoreCard(removed.card, at: removed.index)
     expect(d.cards.map(\.id) == [a, b, c], "restore: undo puts the card back where it was")
+    expect(d.card(b)?.resultsRemoved == true, "restore: the card comes back as Results removed")
 
     // The last card can be deleted; the document keeps one blank draft.
     var single = CardDocument()

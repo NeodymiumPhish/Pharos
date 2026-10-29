@@ -2347,6 +2347,28 @@ class ContentViewController: NSViewController {
         if lastActiveTabId == tabId, displayedCardId == cardId { showDisplayedResult() } else { refreshCardResultsUI() }
     }
 
+    /// A card was deleted: its results go with it — from memory and from the
+    /// workspace — so the tab neither shows nor reopens rows no card owns.
+    /// Undo brings the card back as "Results removed" (`CardDocument.deleteCard`).
+    func discardResults(ofDeletedCard cardId: String, inTab tabId: String) {
+        guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
+        // `deleteCard` has already stopped displaying the card; whatever the
+        // grid still shows of it (rows, a drill, pending edits) goes now.
+        let wasShown = lastActiveTabId == tabId && tab.document.displayedCardId == nil
+        if wasShown { tearDownDrill(restoreManual: true) }
+        let held = session.resultStore[tabId].result(forCard: cardId) != nil
+        session.resultStore[tabId].results.removeAll { $0.id == cardId }
+        if held { markSessionResultsChanged(tabId: tabId) }
+        if let wsId = tab.workspaceId {
+            do {
+                try PharosCore.dropWorkspaceCardResults(workspaceId: wsId, cardId: cardId)
+            } catch {
+                Log.query.error("dropWorkspaceCardResults failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        if wasShown { showDisplayedResult() } else if lastActiveTabId == tabId { refreshCardResultsUI() }
+    }
+
     /// One card's result, whichever editor tab holds it.
     private func result(forCard cardId: String) -> CardResult? {
         session.resultStore.result(forCard: cardId)
@@ -3310,6 +3332,10 @@ extension ContentViewController: EditorPaneDelegate {
         clearResults(ofCard: cardId)
     }
 
+    func editorPane(_ pane: EditorPaneVC, didDeleteCard cardId: String, inTab tabId: String) {
+        discardResults(ofDeletedCard: cardId, inTab: tabId)
+    }
+
     func editorPane(_ pane: EditorPaneVC, didEditCard cardId: String) {
         // The header's "from the SQL before the edit" follows the typing.
         if cardId == displayedCardId { updateResultsHeader() }
@@ -3650,9 +3676,16 @@ extension ContentViewController {
                                        into document: inout CardDocument) -> [CardResult] {
         var byCard: [String: CardResult] = [:]
         var order: [String] = []
+        // When the stored cards are these cards, a result whose card is not
+        // among them belongs to a deleted card: it must not land on another
+        // card that has its SQL. Otherwise (results recorded before cards, or
+        // cards rebuilt from the text) a result matches by SQL.
+        let cardsMatch = metas.contains { meta in meta.cardId.map { document.card($0) != nil } ?? false }
         for meta in metas.sorted(by: { ($0.resultOrder ?? 0) < ($1.resultOrder ?? 0) }) where meta.isSucceeded {
             let raw = meta.rawSql ?? meta.sql
-            let cardId = meta.cardId.flatMap { id in document.card(id) != nil ? id : nil }
+            let named = meta.cardId.flatMap { id in document.card(id) != nil ? id : nil }
+            if named == nil, cardsMatch, meta.cardId != nil { continue }
+            let cardId = named
                 ?? document.cards.first(where: {
                     CardDocument.normalized($0.sql) == CardDocument.normalized(raw)
                         || CardDocument.normalized($0.sql) == CardDocument.normalized(meta.sql)

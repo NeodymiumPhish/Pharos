@@ -50,6 +50,14 @@ pub async fn delete_workspace_result(result_id: String, state: &AppState) -> Res
     sqlite::delete_workspace_result(&db, &result_id).map_err(|e| format!("Failed to delete result: {}", e))
 }
 
+pub async fn drop_workspace_card_results(
+    workspace_id: String, card_id: String, state: &AppState,
+) -> Result<usize, String> {
+    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+    sqlite::drop_workspace_card_results(&db, &workspace_id, &card_id)
+        .map_err(|e| format!("Failed to drop card results: {}", e))
+}
+
 pub async fn update_result_meta(
     result_id: String, custom_label: Option<String>, color_index: Option<i64>, card_notes: Option<String>, state: &AppState,
 ) -> Result<bool, String> {

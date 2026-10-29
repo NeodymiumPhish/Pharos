@@ -875,6 +875,12 @@ void pharos_import_csv(const char *connection_id,
  char *pharos_delete_workspace_result(const char *id);
 
 /**
+ * Drop the stored rows of a deleted card's runs. `json` = {workspaceId, cardId}.
+ * Returns "true" when any row held results.
+ */
+ char *pharos_drop_workspace_card_results(const char *json);
+
+/**
  * Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?, cardNotes?}.
  */
  char *pharos_update_result_meta(const char *json);

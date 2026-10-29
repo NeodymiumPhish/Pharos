@@ -134,6 +134,25 @@ pub extern "C" fn pharos_delete_workspace_result(id: *const c_char) -> *mut c_ch
     })
 }
 
+/// Drop the stored rows of a deleted card's runs. `json` = {workspaceId, cardId}.
+/// Returns "true" when any row held results.
+#[no_mangle]
+pub extern "C" fn pharos_drop_workspace_card_results(json: *const c_char) -> *mut c_char {
+    ffi_sync!({
+        let state = app_state();
+        let rt = runtime();
+        let s = unsafe { c_str_to_string(json) };
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct D { workspace_id: String, card_id: String }
+        let d: D = match serde_json::from_str(&s) { Ok(d) => d, Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()) };
+        match rt.block_on(crate::commands::drop_workspace_card_results(d.workspace_id, d.card_id, state)) {
+            Ok(n) => to_c_string(if n > 0 { "true" } else { "false" }),
+            Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
+        }
+    })
+}
+
 /// Update a result's display metadata. `json` = {resultId, customLabel?, colorIndex?, cardNotes?}.
 #[no_mangle]
 pub extern "C" fn pharos_update_result_meta(json: *const c_char) -> *mut c_char {
