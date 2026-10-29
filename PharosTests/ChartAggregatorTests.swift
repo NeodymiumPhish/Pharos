@@ -272,5 +272,61 @@ func runTests() {
         expect(!bigUnsized.wasSampled, "scatter: unsized 6,000 rows not sampled")
     }
 
+    // Gantt lanes and segments: the open-ports shape. Lane = ip + port,
+    // segment = service + data, Start and End can be the same column.
+    do {
+        let cols = [("ip", "inet"), ("port", "int4"), ("service", "text"), ("data", "text"), ("seen", "timestamptz")]
+        // One raw scan row per observation; 10.0.0.1:80 changes banner and changes back.
+        let rows: [[String?]] = [
+            ["10.0.0.1", "80", "http", "nginx", "2024-01-01 00:00:00+00"],
+            ["10.0.0.1", "80", "http", "nginx", "2024-01-05 00:00:00+00"],
+            ["10.0.0.1", "443", "https", "TLS", "2024-01-02 00:00:00+00"],
+            ["10.0.0.1", "80", "http", "apache", "2024-01-10 00:00:00+00"],
+            ["10.0.0.1", "80", "http", "nginx", "2024-01-20 00:00:00+00"],
+            ["10.0.0.2", "80", nil, "nginx", "2024-01-03 00:00:00+00"],
+            ["10.0.0.1", "80", "http", "nginx", "not a date"],
+        ]
+        func run(_ merge: GanttMerge, segments: Bool = true) -> ChartData {
+            var cfg = ChartConfig(chartType: .gantt)
+            cfg.setColumns([ColumnRef(index: 0, name: "ip"), ColumnRef(index: 1, name: "port")], for: .label)
+            if segments { cfg.setColumns([ColumnRef(index: 2, name: "service"), ColumnRef(index: 3, name: "data")], for: .segment) }
+            cfg.mappings[.start] = ColumnRef(index: 4, name: "seen")
+            cfg.mappings[.end] = ColumnRef(index: 4, name: "seen")
+            cfg.ganttMerge = merge
+            return ChartAggregator.aggregate(makeResult(cols, rows), cfg)
+        }
+        let day = 86_400.0
+        let runs = run(.runs)
+        expect(runs.ganttLanes == ["10.0.0.1 · 80", "10.0.0.1 · 443", "10.0.0.2 · 80"], "gantt: one lane per ip · port, first-seen order")
+        let lane80 = runs.ganttBars.filter { $0.lane == "10.0.0.1 · 80" }
+        expect(lane80.map(\.segment) == ["http · nginx", "http · apache", "http · nginx"], "gantt runs: a value that comes back gets a new bar")
+        expect(lane80.first.map { $0.end - $0.start } == 4 * day, "gantt runs: first nginx run spans Jan 1 → Jan 5")
+        expect(lane80.first?.rowCount == 2, "gantt runs: the run counts its rows")
+        expect(lane80.last.map { $0.end == $0.start } == true, "gantt: same Start/End column gives a zero-length bar")
+        expect(runs.plottedRowCount == 6 && runs.totalLoadedRowCount == 7, "gantt: unparseable time skipped")
+        expect(runs.colorDomainLabels(for: .gantt) == ["http · nginx", "http · apache", "https · TLS", " · nginx"],
+               "gantt: colour domain = distinct segments")
+
+        let span = run(.span)
+        let span80 = span.ganttBars.filter { $0.lane == "10.0.0.1 · 80" }
+        expect(span80.map(\.segment) == ["http · nginx", "http · apache"], "gantt span: one bar per segment value")
+        expect(span80.first.map { $0.end - $0.start } == 19 * day, "gantt span: nginx spans its first to last row")
+        expect(span80.first?.rowCount == 3, "gantt span: counts every row of the value")
+
+        expect(run(.runs, segments: false).ganttBars.count == 6, "gantt runs without segment: one bar per row")
+        expect(run(.span, segments: false).ganttBars.count == 3, "gantt span without segment: one bar per lane")
+        expect(run(.runs).colorDomainLabels(for: .gantt).isEmpty == false && run(.runs, segments: false).colorDomainLabels(for: .gantt).isEmpty,
+               "gantt: no segment column, no colour domain")
+
+        // Drill: the bar is lane AND segment; a null cell drills to blank.
+        let nullBar = runs.ganttBars.first { $0.lane == "10.0.0.2 · 80" }
+        if case .compound(let ks)? = nullBar?.drill, ks.count == 4, case .blank(let r) = ks[2] {
+            expect(r.name == "service", "gantt drill: null service → .blank")
+        } else { expect(false, "gantt drill: compound of lane + segment keys") }
+        if case .compound(let ks)? = nullBar?.laneDrill, ks.count == 2 {
+            expect(true, "gantt lane drill: both label columns")
+        } else { expect(false, "gantt lane drill: both label columns") }
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

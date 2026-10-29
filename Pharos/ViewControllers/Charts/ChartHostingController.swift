@@ -33,11 +33,15 @@ final class ChartHostingController: NSViewController {
 
     override func loadView() { view = NSView() }
 
-    /// Configure (or reconfigure) for a result.
-    func present(result: QueryResult, sql: String, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
+    /// Configure (or reconfigure) for a result. `plotted` is the result narrowed
+    /// to the grid's filters (nil = every row); column kinds and suggestions
+    /// still come from the whole result.
+    func present(result: QueryResult, plotted: QueryResult? = nil, sql: String, initialConfig: ChartConfig?, banner: ChartBannerInfo) {
         cancelSuggestion()
         self.sql = sql
         let vm = ChartViewModel(result: result, columns: result.columns, initialConfig: initialConfig)
+        vm.banner = banner
+        if let plotted { vm.setRows(plotted, banner: banner) }
         vm.onConfigChanged = { [weak self] cfg in
             self?.onConfigChanged?(cfg)
             // A change while server mode is on triggers a (debounced) re-run.
@@ -53,7 +57,6 @@ final class ChartHostingController: NSViewController {
 
         let root = ChartRootView(
             model: vm,
-            bannerInfo: banner,
             onLoadAll: { [weak self] in self?.onLoadAll?() },
             onCopySQL: { [weak self] in self?.onCopySQL?() },
             onRunServerAggregation: { [weak self] in self?.onRunServerAggregation?() }
@@ -61,6 +64,11 @@ final class ChartHostingController: NSViewController {
         let host = NSHostingController(rootView: AnyView(root))
         embed(host)
         self.hosting = host
+    }
+
+    /// Plot new rows for the presented result (the grid's filters changed).
+    func updateRows(_ plotted: QueryResult, banner: ChartBannerInfo) {
+        model?.setRows(plotted, banner: banner)
     }
 
     /// The current config (for persistence on teardown/tab-switch).
@@ -165,7 +173,7 @@ final class ChartHostingController: NSViewController {
         // would clip all but the visible rows).
         if cfg.chartType == .gantt {
             let width = max(onScreen.width, 900)
-            size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(rowCount: data.ganttBars.count) + 64)
+            size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(laneCount: data.ganttLanes.count, legend: cfg.display.showLegend && !data.colorDomainLabels(for: .gantt).isEmpty) + 64)
         }
         return ExportSnapshot(view: AnyView(exportView), size: size, timestamp: timestamp)
     }

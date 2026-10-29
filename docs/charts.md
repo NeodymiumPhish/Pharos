@@ -37,10 +37,10 @@ Seven chart types are available, each with its own set of column roles:
 | Area | Category (X), Value (Y), Series (optional) | Aggregating |
 | Pie | Category (X), Value (Y) | Aggregating; one ring, one slice per category |
 | Scatter | X, Y, Size (optional) | Plots raw points, no aggregation; a Size column scales each point |
-| Gantt | Label, Start, End | Plots raw rows, no aggregation |
+| Gantt | Label, Start, End, Bars by (optional) | One lane per Label value; rows in a lane merge into bars (see [Gantt Charts](#gantt-charts)) |
 | Heatmap | X (columns), Y (rows), Value (color, optional) | Aggregating; no Value column means cell counts |
 
-Column eligibility is type-aware: Value, Y, and Size roles accept numeric columns; X, Start, and End accept numeric or temporal columns; Category, Series, and Label accept any column. A text column whose values all parse as numbers counts as numeric, and one whose values all parse as dates counts as temporal — the pickers, the recommender and the aggregator all read the column the same way.
+Column eligibility is type-aware: Value, Y, and Size roles accept numeric columns; X, Start, and End accept numeric or temporal columns; Category, Series, Label, and Bars by accept any column. A text column whose values all parse as numbers counts as numeric, and one whose values all parse as dates counts as temporal — the pickers, the recommender and the aggregator all read the column the same way.
 
 When you first open Chart view, Pharos applies its top recommendation for the result's columns (see [Suggested Charts](#suggested-charts)). Before, this was always a bar of the first two columns.
 
@@ -68,7 +68,7 @@ Applying a suggestion keeps your server-aggregation setting and legend switch; i
 
 ## Configuration Rail
 
-The rail on the right side of the chart provides all configuration:
+The rail on the right side of the chart provides all configuration. Drag its left edge to make it wider (160 to 420 points); double-click the edge to go back to 160. Pharos keeps the width for every chart.
 
 - **Suggest** — see [Suggested Charts](#suggested-charts).
 - **Chart type** — picker over the seven types.
@@ -79,7 +79,8 @@ The rail on the right side of the chart provides all configuration:
 - **Heatmap per-axis controls** — the heatmap gets independent "X bins" / "Y bins" (or "X time bucket" / "Y time bucket") controls, so each axis can be bucketed separately.
 - **Sort** — shown for bar, line, area, and pie: order points by Query order (default), Category (X label), or Value (Y total), each ascending or descending.
 - **Display** — Legend on or off; Stacked or Grouped bars when a Series is mapped; Log scale for the Y axis (available only when every plotted value is above zero); a chart title; and X and Y axis titles. Empty axis-title fields show the titles Pharos derives — the column name on X, "Sum of revenue", "Average of price" or "Count" on Y — and those are what the chart draws.
-- **Colors** — shown for bar, line, area, pie, and scatter; see [Colors](#colors) below.
+- **Gantt controls** — Merge rows (Runs or Span) and Zoom; see [Gantt Charts](#gantt-charts).
+- **Colors** — shown for bar, line, area, pie, and scatter, and for a gantt with a Bars by column; see [Colors](#colors) below.
 - **Server aggregation** — see below.
 
 ### Reading a Chart
@@ -88,6 +89,29 @@ The rail on the right side of the chart provides all configuration:
 - When a category axis has more than twelve labels, or a label is longer than twelve characters, the labels turn vertical; labels longer than 24 characters are shortened with an ellipsis.
 - Move the pointer over a bar, line or area chart and a callout follows it, naming the category and the value of each series. On a heatmap the callout names the cell. A scatter shows a point's coordinates when you click it.
 - The legend can be hidden from the Display section. A single unnamed series draws no legend.
+
+### Gantt Charts
+
+A gantt draws one **lane** for each distinct Label value, in the order the rows first show it. The lane labels stay fixed at the left when the plot scrolls.
+
+- **Label** and **Bars by** take one or more columns. Use **Add Column** under the picker to add one, and choose "—" in a picker to remove that column. The values of all the columns together make the key, joined with " · " (for example `203.0.113.5 · 443`).
+- **Start** and **End** can be the same column. For example, map a scan's `seen` column to both, and each bar runs from the first to the last observation.
+- **Merge rows** sets how the rows in a lane become bars:
+  - **Runs** (default) — sort the lane by Start, and start a new bar each time the Bars by value changes. A value that comes back later gets a new bar. With no Bars by column, each row is one bar.
+  - **Span** — one bar for each Bars by value, from its earliest Start to its latest End. With no Bars by column, each lane is one bar.
+- **Colors** — each Bars by value has its own color, with a legend under the plot. The legend and the color wells show the first line of each value and stop at the Top-N setting (25), followed by "+N more". Colors repeat after the palette ends.
+- **Hover** over a bar to see the lane, each Bars by column's full value (up to eight lines), Start, End, and the number of rows in the bar.
+- **Zoom** — on a temporal axis with a Time bucket, each bucket unit is at least 12 points wide. When the range is wider than the pane, the plot scrolls horizontally. When there are more lanes than fit, it scrolls vertically. Use the magnifier buttons to halve or double the zoom, **Fit** to show the whole range, and **Auto Width** to go back to the fixed width. A numeric axis or a Time bucket of None always fits.
+- A bar of one instant (Start equals End) is drawn 3 points wide so that you can see it.
+- Selecting more than one lane filters each column on its own. For example, lanes `A · 80` and `B · 443` together also match `A · 443`. One lane or one bar filters exactly.
+
+### Grid Filters
+
+The chart plots only the rows that the grid's filters keep: column filters, the tag funnel, and tagged rows shown with "Show tagged rows". The banner over the chart shows how many rows it plots, for example "Charting 120 of 5,000 loaded rows that match the grid's filters." Change a filter in the grid and the chart follows.
+
+- The chart's own selection ("Filter in Grid") does not narrow the chart. The chart dims the marks you did not select. If the selection replaced one of your filters on a column, your filter still applies to the chart.
+- Find (⌘F) in the grid searches; it does not filter the chart.
+- Server aggregation runs on the database, so grid filters do not apply to it.
 
 ### Top Categories and "Other"
 
@@ -127,7 +151,7 @@ Clicking a chart stages a selection rather than filtering immediately. Selected 
 | Pie | Select a slice | — |
 | Heatmap | Select a cell | Rectangular marquee over cells |
 | Scatter | Show a coordinate callout (no drill) | Marquee brush over an X/Y range |
-| Gantt | Select a row | Drag on the time axis to brush a time window (selects overlapping bars) |
+| Gantt | Click a bar to select its rows (lane and Bars by value); click beside the bars to select the whole lane | Drag across the plot to brush a time window (selects overlapping bars) |
 
 ### Modifier Keys
 
@@ -152,4 +176,4 @@ The export button in the action bar offers chart-specific options while Chart vi
 - **Copy Chart as Image** — PNG on the clipboard
 - **View / Copy Generated SQL** — shown when server aggregation is on
 
-Exports render the chart alone, with no caption or footer. File metadata is limited to generic, non-sensitive fields: PNG exports set `Software` to "Pharos" and a creation timestamp; PDF exports set `Creator` to "Pharos". No connection name, row counts, or SQL are embedded. Gantt exports render at full content height so no rows are clipped.
+Exports render the chart alone, with no caption or footer. File metadata is limited to generic, non-sensitive fields: PNG exports set `Software` to "Pharos" and a creation timestamp; PDF exports set `Creator` to "Pharos". No connection name, row counts, or SQL are embedded. Gantt exports render every lane and the whole time range, with no scrolling, so no bars are clipped.

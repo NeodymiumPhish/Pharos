@@ -47,7 +47,10 @@ final class ChartViewModel: ObservableObject {
     var pushdownUnavailableReason: String?
 
     let columns: [ColumnDef]
-    private let result: QueryResult
+    /// The rows the chart plots: the result, narrowed to the grid's filters.
+    private var result: QueryResult
+    /// The banner above the chart (loaded/filtered counts + load-all).
+    @Published var banner = ChartBannerInfo(shouldShow: false, canLoadAll: false, text: "")
     /// Called (debounced by the host) whenever config changes, for persistence.
     var onConfigChanged: ((ChartConfig) -> Void)?
     /// Called when the chart's staged selection changes (post-merge keys; `[]`
@@ -62,8 +65,9 @@ final class ChartViewModel: ObservableObject {
     /// staged selection (marks no longer refer to the same data).
     var configFingerprint: String {
         let m = config.mappings.map { "\($0.key.rawValue):\($0.value.index)" }.sorted().joined(separator: ",")
+            + config.extraColumns.map { "\($0.key.rawValue)+\($0.value.map { String($0.index) }.joined(separator: "+"))" }.sorted().joined(separator: ",")
         let ab = config.axisBins.map { "\($0.key.rawValue):\($0.value.temporal.rawValue)/\($0.value.numeric.rawValue)" }.sorted().joined(separator: ",")
-        return "\(config.chartType.rawValue)|\(m)|\(config.temporalBin.rawValue)|\(config.numericBin.rawValue)|\(ab)"
+        return "\(config.chartType.rawValue)|\(m)|\(config.temporalBin.rawValue)|\(config.numericBin.rawValue)|\(ab)|\(config.ganttMerge.rawValue)"
     }
 
     init(result: QueryResult, columns: [ColumnDef], initialConfig: ChartConfig?) {
@@ -96,6 +100,14 @@ final class ChartViewModel: ObservableObject {
         if config.serverAggregation && chartTypeSupportsServer { return }
         data = ChartSorter.sorted(ChartAggregator.aggregate(result, resolvedConfig),
                                   by: config.display.sort, chartType: config.chartType)
+    }
+
+    /// Plot a new set of rows (the grid's filters changed). Column kinds,
+    /// recommendations and the config stay as they were for the full result.
+    func setRows(_ result: QueryResult, banner: ChartBannerInfo) {
+        self.result = result
+        self.banner = banner
+        recompute()
     }
 
     /// Inject server-aggregated data (built by `ServerChartDataBuilder`), clearing
@@ -158,8 +170,6 @@ final class ChartViewModel: ObservableObject {
 
 struct ChartRootView: View {
     @ObservedObject var model: ChartViewModel
-    /// Banner info supplied by the host (loaded/total counts + load-all action).
-    let bannerInfo: ChartBannerInfo
     let onLoadAll: () -> Void
     /// Put the current generated push-down SQL on the pasteboard (host-owned).
     var onCopySQL: () -> Void = {}
@@ -177,6 +187,13 @@ struct ChartRootView: View {
     /// user has not cleared "Suggest charts" in Settings ▸ Intelligence.
     private var canAskTheModel: Bool { availability.isAvailable(for: .suggestCharts) }
 
+    /// The rail's width: drag its leading edge; double-click the edge for the default.
+    /// One value for every chart, kept across launches.
+    @AppStorage("chartRailWidth") private var railWidth: Double = ChartRootView.defaultRailWidth
+    @State private var railDragStartWidth: Double?
+    static let defaultRailWidth: Double = 160
+    static let railWidthRange: ClosedRange<Double> = 160...420
+
     var body: some View {
         VStack(spacing: 0) {
             // Server-aggregation banner takes precedence over the client subset
@@ -184,7 +201,7 @@ struct ChartRootView: View {
             // Gate on chartTypeSupportsServer too: gantt renders client-side even
             // with the flag on, so no server banner for it.
             if model.config.serverAggregation && model.chartTypeSupportsServer { serverBanner }
-            else if bannerInfo.shouldShow { banner }
+            else if model.banner.shouldShow { banner }
             HStack(spacing: 0) {
                 ChartCanvas(data: model.data, config: model.resolvedConfig,
                             onSelectionChanged: { keys in model.onSelectionChanged?(keys) },
@@ -193,18 +210,46 @@ struct ChartRootView: View {
                             configFingerprint: model.configFingerprint,
                             globalPalette: globalPalette)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-                configRail.frame(width: 160)
+                railDivider
+                configRail.frame(width: Self.clampedRailWidth(railWidth))
             }
         }
+    }
+
+    /// A divider in a 7 pt grab column (the column itself takes the drag, so
+    /// the canvas and rail beside it cannot). Dragging left widens the rail.
+    private var railDivider: some View {
+        Divider()
+            .frame(width: 7)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .pointerStyle(.columnResize)
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { v in
+                    let start = railDragStartWidth ?? railWidth
+                    railDragStartWidth = start
+                    railWidth = Self.clampedRailWidth(start - v.translation.width)
+                }
+                .onEnded { _ in railDragStartWidth = nil })
+            .onTapGesture(count: 2) { railWidth = Self.defaultRailWidth }
+            .accessibilityElement()
+            .accessibilityLabel("Chart Settings Width")
+            .accessibilityValue("\(Int(railWidth)) points")
+            .accessibilityAdjustableAction { direction in
+                railWidth = Self.clampedRailWidth(railWidth + (direction == .increment ? 20 : -20))
+            }
+    }
+
+    static func clampedRailWidth(_ w: Double) -> Double {
+        min(max(w, railWidthRange.lowerBound), railWidthRange.upperBound)
     }
 
     private var banner: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-            Text(bannerInfo.text)
+            Text(model.banner.text)
             Spacer()
-            if bannerInfo.canLoadAll { Button("Load all rows", action: onLoadAll).buttonStyle(.link) }
+            if model.banner.canLoadAll { Button("Load all rows", action: onLoadAll).buttonStyle(.link) }
         }
         .font(.caption)
         .padding(.horizontal, 10).padding(.vertical, 4)
@@ -283,8 +328,10 @@ struct ChartRootView: View {
 
                 ForEach(rolesForCurrentType(), id: \.self) { role in
                     railLabel(roleLabel(role))
-                    rolePicker(role)
+                    if ChartRoleEligibility.takesManyColumns(role) { multiColumnPicker(role) } else { rolePicker(role) }
                 }
+
+                if model.config.chartType == .gantt { ganttSection }
 
                 if usesAggregation {
                     railLabel("Aggregate")
@@ -398,7 +445,7 @@ struct ChartRootView: View {
     @ViewBuilder private var displaySection: some View {
         railLabel("Display")
         let type = model.config.chartType
-        if type != .gantt && type != .scatter {
+        if type != .scatter && (type != .gantt || model.config.mappings[.segment] != nil) {
             Toggle("Legend", isOn: Binding(
                 get: { model.config.display.showLegend },
                 set: { on in model.updateDisplay { $0.showLegend = on } }))
@@ -477,11 +524,14 @@ struct ChartRootView: View {
         let labels = colorDomainLabels
         if !labels.isEmpty {
             railLabel("Colors")
-            ForEach(Array(labels.enumerated()), id: \.offset) { idx, label in
+            // A gantt can have hundreds of segment values: wells for the Top N only.
+            let shown = model.config.chartType == .gantt ? Array(labels.prefix(max(model.config.display.topNCategories, 1))) : labels
+            ForEach(Array(shown.enumerated()), id: \.offset) { idx, label in
                 HStack(spacing: 6) {
                     ColorPicker("", selection: seriesColorBinding(index: idx, domainCount: labels.count), supportsOpacity: false)
                         .labelsHidden()
                     Text(label).font(.caption).lineLimit(1).truncationMode(.tail)
+                        .help(label)
                     Spacer()
                 }
             }
@@ -556,6 +606,7 @@ struct ChartRootView: View {
         case .category: return "Category (X)"; case .value: return "Value (Y)"; case .series: return "Series (optional)"
         case .x: return "X"; case .y: return "Y"; case .size: return "Size (optional)"
         case .label: return "Label"; case .start: return "Start"; case .end: return "End"
+        case .segment: return "Bars by (optional)"
         }
     }
     private func rolePicker(_ role: ChartColumnRole) -> some View {
@@ -570,6 +621,86 @@ struct ChartRootView: View {
             ForEach(options, id: \.index) { Text($0.name).tag($0.index) }
         }.labelsHidden()
     }
+    /// A role that takes several columns (gantt Label, Bars by): one picker per
+    /// mapped column, "—" removes that column, and "Add Column" appends one. The
+    /// values of every column together make the lane / bar key.
+    @ViewBuilder private func multiColumnPicker(_ role: ChartColumnRole) -> some View {
+        let options = model.eligible(for: role, chartType: model.config.chartType)
+        let mapped = model.config.columns(for: role)
+        ForEach(Array(mapped.enumerated()), id: \.offset) { pos, _ in
+            Picker("", selection: Binding(
+                get: { let refs = model.config.columns(for: role); return pos < refs.count ? refs[pos].index : -1 },
+                set: { idx in model.update { cfg in
+                    var refs = cfg.columns(for: role)
+                    guard pos < refs.count else { return }
+                    if idx < 0 { refs.remove(at: pos) }
+                    else { refs[pos] = ColumnRef(index: idx, name: model.columns[idx].name) }
+                    cfg.setColumns(refs, for: role)
+                } })) {
+                Text("—").tag(-1)
+                ForEach(options, id: \.index) { Text($0.name).tag($0.index) }
+            }.labelsHidden()
+        }
+        let unused = options.filter { o in !mapped.contains { $0.index == o.index } }
+        if mapped.isEmpty {
+            // Nothing mapped yet: one empty picker, like a single-column role.
+            rolePicker(role)
+        } else if !unused.isEmpty {
+            Menu {
+                ForEach(unused, id: \.index) { ref in
+                    Button(ref.name) { model.update { $0.setColumns($0.columns(for: role) + [ref], for: role) } }
+                }
+            } label: {
+                Label("Add Column", systemImage: "plus")
+            }
+            .menuStyle(.borderlessButton).font(.caption).fixedSize()
+            .accessibilityIdentifier("chart.\(role.rawValue).addColumn")
+        }
+    }
+
+    /// Gantt-only controls: how rows become bars, and the horizontal zoom.
+    @ViewBuilder private var ganttSection: some View {
+        railLabel("Merge rows")
+        Picker("", selection: Binding(get: { model.config.ganttMerge },
+                                      set: { m in model.update { $0.ganttMerge = m } })) {
+            ForEach(GanttMerge.allCases, id: \.self) { Text($0.displayName).tag($0) }
+        }
+        .pickerStyle(.segmented).labelsHidden().controlSize(.small)
+        .help("Runs: a new bar each time the Bars by value changes, in Start order. Span: one bar per value, from its first Start to its last End.")
+
+        railLabel("Zoom")
+        let zoom = model.config.display.ganttZoom
+        // Two rows so every label stays legible at the narrowest rail width.
+        HStack(spacing: 4) {
+            Button { model.updateDisplay { $0.ganttZoom = Self.zoomStep(zoom, out: true) } } label: { Image(systemName: "minus.magnifyingglass") }
+                .disabled(zoom == 0)
+                .help("Zoom out")
+                .accessibilityLabel("Zoom Out")
+            Button { model.updateDisplay { $0.ganttZoom = Self.zoomStep(zoom, out: false) } } label: { Image(systemName: "plus.magnifyingglass") }
+                .disabled(zoom >= Self.maxGanttZoom)
+                .help("Zoom in")
+                .accessibilityLabel("Zoom In")
+        }
+        .controlSize(.small)
+        HStack(spacing: 4) {
+            Button("Fit") { model.updateDisplay { $0.ganttZoom = 0 } }
+                .disabled(zoom == 0)
+                .help("Show the whole time range in the pane")
+            Button("Auto Width") { model.updateDisplay { $0.ganttZoom = 1 } }
+                .disabled(zoom == 1)
+                .help("Give each Time Bucket unit a fixed width, and scroll when the range is wider than the pane")
+        }
+        .controlSize(.small)
+    }
+
+    static let maxGanttZoom: Double = 64
+    /// Halve or double the zoom; zooming out past 1/64 is Fit, zooming in from Fit is Auto.
+    static func zoomStep(_ zoom: Double, out: Bool) -> Double {
+        if zoom == 0 { return out ? 0 : 1 }
+        let next = out ? zoom / 2 : zoom * 2
+        return out && next < 1.0 / 64 ? 0 : min(next, maxGanttZoom)
+    }
+
     private func railLabel(_ s: String) -> some View {
         Text(s.uppercased()).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
     }

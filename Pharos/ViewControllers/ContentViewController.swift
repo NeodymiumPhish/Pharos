@@ -160,6 +160,9 @@ class ContentViewController: NSViewController {
     // filter a drill overwrote, so clearing the drill restores it.
     private var drillColumns: [String] = []
     private var displacedFilters: [String: ColumnFilter] = [:]
+    /// The card whose rows the chart host plots (set by `presentChart`), so a
+    /// grid change on another card never reaches this chart.
+    private var chartPresentedCardId: String?
 
     /// The editor: tab bar, SQL editor, variables and result-tabs panels.
     let editorPane: EditorPaneVC
@@ -451,6 +454,9 @@ class ContentViewController: NSViewController {
         resultsVC.onSelectionChanged = { [weak self] selectedIndices in
             self?.scheduleInspectorUpdate(selectedIndices: selectedIndices)
         }
+
+        // The chart plots the rows the grid's filters keep.
+        resultsVC.onDisplayRowsChanged = { [weak self] in self?.refreshChartRowsFromGrid() }
 
         resultsVC.onTagMapChanged = { [weak self] in
             guard let self,
@@ -3875,6 +3881,7 @@ extension ContentViewController {
             chartHost.onCopySQL = nil
             chartHost.onRunServerAggregation = nil
             chartHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
+            chartPresentedCardId = nil
             chartHost.present(
                 result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
                 sql: cardResults[idx].sql,
@@ -3908,7 +3915,10 @@ extension ContentViewController {
         // The reopen "Run…" affordance runs immediately (no debounce).
         chartHost.onRunServerAggregation = { [weak self] in self?.runServerAggregation(debounced: false) }
         chartHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
-        chartHost.present(result: result, sql: cardResults[idx].sql, initialConfig: cfg, banner: bannerInfo(for: idx, result: result))
+        let plotted = chartRows(for: result)
+        chartPresentedCardId = cardResults[idx].id
+        chartHost.present(result: result, plotted: plotted, sql: cardResults[idx].sql, initialConfig: cfg,
+                          banner: bannerInfo(for: idx, result: result, plotted: plotted))
         // Capture the config the host actually used (inference may have filled it).
         cardResults[idx].chartConfig = chartHost.currentConfig
         // Reopen is explicit: even with serverAggregation on we do NOT auto-run
@@ -4287,16 +4297,41 @@ extension ContentViewController {
 
     // MARK: Banner
 
-    private func bannerInfo(for idx: Int, result: QueryResult) -> ChartBannerInfo {
+    private func bannerInfo(for idx: Int, result: QueryResult, plotted: QueryResult?) -> ChartBannerInfo {
         let loaded = result.rows.count
+        let kept = plotted?.rows.count ?? loaded
         let canLoadMore = result.hasMore
         // Total from the source (live/history); fall back to loaded when unknown.
         let total = cardResults[idx].totalRowCountHint ?? loaded
-        let subset = canLoadMore || total > loaded
+        let subset = canLoadMore || total > loaded || kept < loaded
         guard subset else { return ChartBannerInfo(shouldShow: false, canLoadAll: false, text: "") }
-        let ofTotal = total > loaded ? " of \(total)" : ""
-        let text = "Charting \(loaded)\(ofTotal) loaded rows, aggregated client-side."
+        let text = ChartGridFilters.bannerText(kept: kept, loaded: loaded, total: total)
         return ChartBannerInfo(shouldShow: true, canLoadAll: canLoadMore, text: text)
+    }
+
+    // MARK: Grid filters
+
+    /// `result` narrowed to the rows the grid's filters keep (nil = every row).
+    /// The grid always holds the displayed card's rows; a count mismatch means
+    /// it does not yet, and the chart plots every row rather than wrong ones.
+    private func chartRows(for result: QueryResult) -> QueryResult? {
+        guard let fc = resultsVC.columnFilterController, resultsVC.rows.count == result.rows.count else { return nil }
+        let filters = ChartGridFilters.filters(active: fc.activeFilters, drillColumns: drillColumns, displaced: displacedFilters)
+        guard let keep = resultsVC.chartRowIndices(columnFilters: filters) else { return nil }
+        return QueryResult(columns: result.columns, rows: keep.map { result.rows[$0] }, rowCount: keep.count,
+                           executionTimeMs: result.executionTimeMs, hasMore: result.hasMore,
+                           historyEntryId: result.historyEntryId, rowIdentity: result.rowIdentity)
+    }
+
+    /// The grid's rows changed while the chart is on screen (the toolbar's
+    /// filter reset, the "Filtered by Chart" chip, a tag): plot the new set.
+    func refreshChartRowsFromGrid() {
+        guard activeResultViewMode == .chart, !chartHost.view.isHidden,
+              let id = displayedCardId, id == chartPresentedCardId,
+              let idx = cardResults.firstIndex(where: { $0.id == id }),
+              let result = cardResults[idx].queryResult else { return }
+        let plotted = chartRows(for: result)
+        chartHost.updateRows(plotted ?? result, banner: bannerInfo(for: idx, result: result, plotted: plotted))
     }
 
     // MARK: Load all (in-memory)

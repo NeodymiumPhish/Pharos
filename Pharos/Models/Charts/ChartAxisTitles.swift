@@ -34,7 +34,8 @@ enum ChartAxisTitles {
         case .heatmap:
             return Titles(x: m[.x]?.name ?? "", y: m[.y]?.name ?? "")
         case .gantt:
-            return Titles(x: m[.start]?.name ?? "", y: m[.label]?.name ?? "")
+            return Titles(x: m[.start]?.name ?? "",
+                          y: config.columns(for: .label).map(\.name).joined(separator: " · "))
         }
     }
 

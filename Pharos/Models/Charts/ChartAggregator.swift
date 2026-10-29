@@ -219,29 +219,94 @@ enum ChartAggregator {
 
     // MARK: - Gantt
 
+    /// Joins a lane's or segment's column values into one key.
+    static let ganttValueSeparator = " · "
+
     private static func aggregateGantt(_ result: QueryResult, _ config: ChartConfig) -> ChartData {
-        guard let labelRef = config.mappings[.label], let startRef = config.mappings[.start],
-              let endRef = config.mappings[.end],
-              labelRef.index < result.columns.count,
-              startRef.index < result.columns.count,
-              endRef.index < result.columns.count else {
+        let labelRefs = config.columns(for: .label)
+        let segmentRefs = config.columns(for: .segment)
+        guard !labelRefs.isEmpty, let startRef = config.mappings[.start], let endRef = config.mappings[.end],
+              (labelRefs + segmentRefs + [startRef, endRef]).allSatisfy({ $0.index < result.columns.count }) else {
             return .empty(.noColumns)
         }
-        var bars: [GanttBar] = []
-        for row in result.rows {
-            guard labelRef.index < row.count, startRef.index < row.count, endRef.index < row.count,
-                  let start = epoch(from: row[startRef.index]),
-                  let end = epoch(from: row[endRef.index]) else { continue }
-            bars.append(GanttBar(label: row[labelRef.index].displayString, start: start, end: end))
+        let maxIndex = (labelRefs + segmentRefs + [startRef, endRef]).map(\.index).max() ?? 0
+
+        // One observation per usable row, grouped by lane in first-seen order.
+        struct Obs { var bar: GanttBar; var order: Int }
+        var lanes: [String: [Obs]] = [:]
+        var laneOrder: [String] = []
+        for (i, row) in result.rows.enumerated() {
+            guard maxIndex < row.count,
+                  let a = epoch(from: row[startRef.index]),
+                  let b = epoch(from: row[endRef.index]) else { continue }
+            let lane = labelRefs.map { row[$0.index].displayString }.joined(separator: ganttValueSeparator)
+            let segmentValues = segmentRefs.map { row[$0.index].displayString }
+            let laneKeys = labelRefs.map { drillKey($0, row[$0.index]) }
+            let segmentKeys = segmentRefs.map { drillKey($0, row[$0.index]) }
+            let bar = GanttBar(lane: lane,
+                               segment: segmentValues.joined(separator: ganttValueSeparator),
+                               segmentValues: segmentValues,
+                               start: Swift.min(a, b), end: Swift.max(a, b),
+                               laneDrill: compound(laneKeys),
+                               drill: compound(laneKeys + segmentKeys))
+            if lanes[lane] == nil { laneOrder.append(lane) }
+            lanes[lane, default: []].append(Obs(bar: bar, order: i))
         }
-        if bars.isEmpty { return .empty(.allNull) }
+        if laneOrder.isEmpty { return .empty(.allNull) }
+
+        var bars: [GanttBar] = []
+        for lane in laneOrder {
+            let obs = lanes[lane] ?? []
+            switch config.ganttMerge {
+            case .span:
+                // One bar per segment value (per lane with no segment column).
+                var bySegment: [String: GanttBar] = [:]
+                var order: [String] = []
+                for o in obs {
+                    if var b = bySegment[o.bar.segment] {
+                        b.start = Swift.min(b.start, o.bar.start); b.end = Swift.max(b.end, o.bar.end); b.rowCount += 1
+                        bySegment[o.bar.segment] = b
+                    } else {
+                        bySegment[o.bar.segment] = o.bar; order.append(o.bar.segment)
+                    }
+                }
+                bars += order.compactMap { bySegment[$0] }
+            case .runs:
+                // No segment column: one bar per row, as before segments existed.
+                guard !segmentRefs.isEmpty else { bars += obs.map(\.bar); continue }
+                // Start order (row order breaks ties); a change of segment opens a bar.
+                let sorted = obs.sorted { ($0.bar.start, $0.order) < ($1.bar.start, $1.order) }
+                var current: GanttBar? = nil
+                for o in sorted {
+                    if var c = current, c.segment == o.bar.segment {
+                        c.end = Swift.max(c.end, o.bar.end); c.rowCount += 1
+                        current = c
+                    } else {
+                        if let c = current { bars.append(c) }
+                        current = o.bar
+                    }
+                }
+                if let c = current { bars.append(c) }
+            }
+        }
+
         var out = ChartData()
         out.ganttBars = bars
-        out.plottedRowCount = bars.count
+        out.ganttLanes = laneOrder
+        out.plottedRowCount = lanes.values.reduce(0) { $0 + $1.count }
         out.totalLoadedRowCount = result.rows.count
         let startKind = ColumnClassifier.kind(of: startRef.index, in: result)
         out.ganttAxisKind = startKind == .temporal ? .temporal : .numeric
         return out
+    }
+
+    /// The drill key for one cell: its exact value, or the blank mark.
+    private static func drillKey(_ ref: ColumnRef, _ v: AnyCodable) -> DrillKey {
+        v.isNull || v.displayString.isEmpty ? .blank(ref) : .anyOf(ref, [v.displayString])
+    }
+
+    private static func compound(_ keys: [DrillKey]) -> DrillKey? {
+        keys.count > 1 ? .compound(keys) : keys.first
     }
 
     // MARK: - Heatmap

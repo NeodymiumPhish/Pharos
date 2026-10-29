@@ -221,6 +221,7 @@
 		7E8FD92E5F2431805B134DD3 /* DrillCoverage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C0E80717841FF454B8D378 /* DrillCoverage.swift */; };
 		806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */; };
 		8091E2CF161C133F4981B982 /* TabNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FE870093E0771497391C67 /* TabNaming.swift */; };
+		80C41764B1E479A0B974E4D7 /* ChartGridFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 589F4878B3120DDCFA3AD3F8 /* ChartGridFilters.swift */; };
 		8117855BBD15647B1D67E0B1 /* PlanViewVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */; };
 		82639C9F3839B61AE7D03D3E /* ChartSuggestionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */; };
 		828B2F010BDCD568EB6B087E /* ColumnFilterPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D2F8820D55E67F2E98189DB /* ColumnFilterPopoverVC.swift */; };
@@ -582,6 +583,7 @@
 		566DBA916CEA13E04ED593DB /* ChartPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartPalette.swift; sourceTree = "<group>"; };
 		5757A383E8948F38AB9B6545 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
 		580925EDF531F5722145FC92 /* ContentViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewController.swift; sourceTree = "<group>"; };
+		589F4878B3120DDCFA3AD3F8 /* ChartGridFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartGridFilters.swift; sourceTree = "<group>"; };
 		58C0F5CA284EB37AF60EF47A /* ContentViewController+DataFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentViewController+DataFiles.swift"; sourceTree = "<group>"; };
 		58C1F7B48CEC3D3C94486895 /* SchemaPopUpButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaPopUpButton.swift; sourceTree = "<group>"; };
 		58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlIdentifierQuoting.swift; sourceTree = "<group>"; };
@@ -1131,6 +1133,7 @@
 				9A29BED0FAA069BBCB09BB9C /* ChartAxisTitles.swift */,
 				4C25DF8F9813C90CA3567012 /* ChartConfig.swift */,
 				16679621777BEB58D425E66E /* ChartData.swift */,
+				589F4878B3120DDCFA3AD3F8 /* ChartGridFilters.swift */,
 				566DBA916CEA13E04ED593DB /* ChartPalette.swift */,
 				6D30FCEFFB7D70B745C0B226 /* ChartPalette+Color.swift */,
 				8B93B203FA860B0DB8F9364E /* ChartRecommender.swift */,
@@ -1645,6 +1648,7 @@
 				536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */,
 				49FB38D5C5582642FC4B7EDE /* ChartData.swift in Sources */,
 				586DA9FCB49C8ACCD9C59F0D /* ChartExporter.swift in Sources */,
+				80C41764B1E479A0B974E4D7 /* ChartGridFilters.swift in Sources */,
 				3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */,
 				E0EA67613142938E238898C7 /* ChartPalette+Color.swift in Sources */,
 				A74898535E2C756E0E8A8E37 /* ChartPalette.swift in Sources */,

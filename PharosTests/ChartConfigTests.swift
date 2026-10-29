@@ -130,5 +130,32 @@ func runTests() {
     expect(old3.display.barLayout == .stacked, "legacy display with stacked:false still reads as stacked bars")
     expect(!String(decoding: dispData, as: UTF8.self).contains("\"stacked\""), "the retired stacked key is no longer written")
 
+    // Gantt extra columns + merge + zoom: round-trip, old blobs default, validate.
+    do {
+        var g = ChartConfig(chartType: .gantt)
+        let ip = ColumnRef(index: 0, name: "ip"), port = ColumnRef(index: 1, name: "port"), svc = ColumnRef(index: 2, name: "service")
+        g.setColumns([ip, port], for: .label)
+        g.setColumns([svc], for: .segment)
+        g.ganttMerge = .span
+        g.display.ganttZoom = 4
+        let back = try! JSONDecoder().decode(ChartConfig.self, from: try! JSONEncoder().encode(g))
+        expect(back.columns(for: .label) == [ip, port], "gantt label columns round-trip")
+        expect(back.columns(for: .segment) == [svc], "gantt segment column round-trips")
+        expect(back.ganttMerge == .span && back.display.ganttZoom == 4, "gantt merge + zoom round-trip")
+
+        let legacy = #"{"chartType":"gantt","mappings":["label",{"index":0,"name":"ip"}],"display":{"title":"t"}}"#
+        let old = try! JSONDecoder().decode(ChartConfig.self, from: Data(legacy.utf8))
+        expect(old.columns(for: .label) == [ip] && old.extraColumns.isEmpty, "old gantt blob: one label column")
+        expect(old.ganttMerge == .runs && old.display.ganttZoom == 1, "old gantt blob: runs, automatic zoom")
+
+        // The first label column is gone: the first surviving extra takes its place.
+        var v = g
+        v.validate(against: [ColumnDef(name: "addr", dataType: "inet"), ColumnDef(name: "port", dataType: "int4"), ColumnDef(name: "service", dataType: "text")])
+        expect(v.columns(for: .label) == [port], "validate: surviving extra becomes the first label column")
+        expect(v.columns(for: .segment) == [svc], "validate: valid segment kept")
+        v.setColumns([], for: .label)
+        expect(v.mappings[.label] == nil && v.extraColumns[.label] == nil, "setColumns([]) clears the role")
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

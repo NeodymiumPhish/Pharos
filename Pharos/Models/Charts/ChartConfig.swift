@@ -16,6 +16,12 @@ struct ChartConfig: Codable, Equatable {
     /// the domain's order/membership changes between runs an override reattaches
     /// to whatever now sits at that index; the rail's "Reset to palette" clears it.
     var seriesColors: [String] = []
+    /// More columns for a role, after `mappings[role]` (gantt label and
+    /// segment only): the lane / bar key is every column's value together.
+    /// Kept apart from `mappings` so every reader of the first column still works.
+    var extraColumns: [ChartColumnRole: [ColumnRef]] = [:]
+    /// How gantt rows sharing a lane become bars.
+    var ganttMerge: GanttMerge = .runs
 
     init(chartType: ChartType,
          mappings: [ChartColumnRole: ColumnRef] = [:],
@@ -26,7 +32,9 @@ struct ChartConfig: Codable, Equatable {
          serverAggregation: Bool = false,
          lastServerRun: LastServerRun? = nil,
          axisBins: [ChartColumnRole: AxisBin] = [:],
-         seriesColors: [String] = []) {
+         seriesColors: [String] = [],
+         extraColumns: [ChartColumnRole: [ColumnRef]] = [:],
+         ganttMerge: GanttMerge = .runs) {
         self.chartType = chartType
         self.mappings = mappings
         self.aggregation = aggregation
@@ -37,12 +45,14 @@ struct ChartConfig: Codable, Equatable {
         self.lastServerRun = lastServerRun
         self.axisBins = axisBins
         self.seriesColors = seriesColors
+        self.extraColumns = extraColumns
+        self.ganttMerge = ganttMerge
     }
 
     // Tolerant decode: every field decodeIfPresent with a default, so phase-1
     // blobs (no numericBin) still decode and future additions stay compatible.
     enum CodingKeys: String, CodingKey {
-        case chartType, mappings, aggregation, temporalBin, numericBin, display, serverAggregation, lastServerRun, axisBins, seriesColors
+        case chartType, mappings, aggregation, temporalBin, numericBin, display, serverAggregation, lastServerRun, axisBins, seriesColors, extraColumns, ganttMerge
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -56,6 +66,8 @@ struct ChartConfig: Codable, Equatable {
         lastServerRun     = try c.decodeIfPresent(LastServerRun.self, forKey: .lastServerRun) ?? nil
         axisBins    = try c.decodeIfPresent([ChartColumnRole: AxisBin].self, forKey: .axisBins) ?? [:]
         seriesColors = try c.decodeIfPresent([String].self, forKey: .seriesColors) ?? []
+        extraColumns = try c.decodeIfPresent([ChartColumnRole: [ColumnRef]].self, forKey: .extraColumns) ?? [:]
+        ganttMerge  = try c.decodeIfPresent(GanttMerge.self, forKey: .ganttMerge) ?? .runs
     }
 
     /// The effective bin granularity for a role: the per-axis override if set,
@@ -63,6 +75,19 @@ struct ChartConfig: Codable, Equatable {
     /// the aggregator and generator never sprinkle it.
     func resolvedBin(for role: ChartColumnRole) -> AxisBin {
         axisBins[role] ?? AxisBin(temporal: temporalBin, numeric: numericBin)
+    }
+
+    /// Every column mapped to `role`, in order: `mappings[role]`, then its extras.
+    func columns(for role: ChartColumnRole) -> [ColumnRef] {
+        guard let first = mappings[role] else { return [] }
+        return [first] + (extraColumns[role] ?? [])
+    }
+
+    /// Map `refs` to `role`: the first goes to `mappings`, the rest to
+    /// `extraColumns`. Empty clears the role.
+    mutating func setColumns(_ refs: [ColumnRef], for role: ChartColumnRole) {
+        mappings[role] = refs.first
+        extraColumns[role] = refs.count > 1 ? Array(refs.dropFirst()) : nil
     }
 
     /// Build a sensible default config from the result's columns.
@@ -85,6 +110,12 @@ struct ChartConfig: Codable, Equatable {
         for (role, ref) in mappings {
             let stillValid = ref.index < columns.count && columns[ref.index].name == ref.name
             if !stillValid { mappings[role] = nil }
+        }
+        // Extras keep only the columns that still exist; when the first column
+        // went, the first surviving extra takes its place.
+        for role in Array(extraColumns.keys) {
+            let kept = (extraColumns[role] ?? []).filter { $0.index < columns.count && columns[$0.index].name == $0.name }
+            setColumns((mappings[role].map { [$0] } ?? []) + kept, for: role)
         }
     }
 }

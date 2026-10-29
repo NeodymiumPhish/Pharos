@@ -26,11 +26,21 @@ struct HeatmapCell: Identifiable {
     var id: String { x + "\u{1}" + y }   // stable per-cell id for Chart(_:) / ForEach
 }
 
-/// A gantt bar: a labelled lane spanning [start, end] as epoch seconds.
+/// A gantt bar: one span in a lane, [start, end] as epoch seconds (or raw
+/// numbers on a numeric axis). `lane` and `segment` are the combined values of
+/// the label and segment columns ("" when no segment column is mapped);
+/// `segmentValues` keeps each segment column's value apart for the tooltip.
 struct GanttBar {
-    var label: String
+    var lane: String
+    var segment: String = ""
+    var segmentValues: [String] = []
     var start: Double
     var end: Double
+    var rowCount: Int = 1
+    /// The lane's rows (every label column) — the lane tap and lit test.
+    var laneDrill: DrillKey? = nil
+    /// The bar's rows: the lane AND the segment value.
+    var drill: DrillKey? = nil
 }
 
 /// A named series of points (multi-series when a `series` role is mapped).
@@ -43,6 +53,7 @@ struct ChartSeries {
 struct ChartData {
     var series: [ChartSeries] = []
     var ganttBars: [GanttBar] = []
+    var ganttLanes: [String] = []      // lane order: first seen in the rows
     var heatmapCells: [HeatmapCell] = []
     var plottedRowCount: Int = 0
     var totalLoadedRowCount: Int = 0
@@ -63,7 +74,8 @@ extension ChartData {
     /// the chart canvas (scale domain) and the config rail (color wells).
     /// Bar/line/area: one per series ("" → "value"). Pie: each distinct slice
     /// label in first-seen order. Scatter: a single "Points" entry when
-    /// non-empty. Gantt/heatmap: none (not palette-colored).
+    /// non-empty. Gantt: each distinct segment value in first-seen order (none
+    /// without a segment column). Heatmap: none (not palette-colored).
     func colorDomainLabels(for chartType: ChartType) -> [String] {
         switch chartType {
         case .bar, .line, .area:
@@ -73,7 +85,10 @@ extension ChartData {
             return (series.first?.points ?? []).compactMap { seen.insert($0.xLabel).inserted ? $0.xLabel : nil }
         case .scatter:
             return (series.first?.points.isEmpty == false) ? ["Points"] : []
-        case .gantt, .heatmap:
+        case .gantt:
+            var seen = Set<String>()
+            return ganttBars.compactMap { !$0.segment.isEmpty && seen.insert($0.segment).inserted ? $0.segment : nil }
+        case .heatmap:
             return []
         }
     }

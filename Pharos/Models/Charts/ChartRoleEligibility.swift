@@ -14,9 +14,14 @@ enum ChartRoleEligibility {
         case .bar, .line, .area: return [.category, .value, .series]
         case .pie: return [.category, .value]
         case .scatter: return [.x, .y, .size]
-        case .gantt: return [.label, .start, .end]
+        case .gantt: return [.label, .start, .end, .segment]
         case .heatmap: return [.x, .y, .value]
         }
+    }
+
+    /// Whether a role takes more than one column (the values are combined).
+    static func takesManyColumns(_ role: ChartColumnRole) -> Bool {
+        role == .label || role == .segment
     }
 
     /// Whether a column of `kind` may fill `role` on `chartType`.
@@ -30,7 +35,7 @@ enum ChartRoleEligibility {
             return kind == .numeric
         case .x, .start, .end:
             return kind == .numeric || kind == .temporal
-        case .category, .series, .label:
+        case .category, .series, .label, .segment:
             return true
         }
     }

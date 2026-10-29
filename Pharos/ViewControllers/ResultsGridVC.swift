@@ -196,6 +196,8 @@ class ResultsGridVC: NSViewController {
     /// Cancel the running "Load All" snapshot. The owner knows its query id.
     var onCancelLoad: (() -> Void)?
     var onSelectionChanged: ((IndexSet) -> Void)?
+    /// Fired after `displayRows` is rebuilt (a filter, tag, sort or page change).
+    var onDisplayRowsChanged: (() -> Void)?
 
 
     /// Token for the TagStore observer. The BLOCK form of `addObserver` keeps its
@@ -1032,6 +1034,16 @@ class ResultsGridVC: NSViewController {
                     forceShow: (forceShowTags && !matchesByRow.isEmpty)
                         ? DisplayRowPipeline.forceShowAdmitting(taggedRows: Set(matchesByRow.keys))
                         : nil)))
+        onDisplayRowsChanged?()
+    }
+
+    /// The data rows, in query order, that a chart of this result plots: the
+    /// grid's own pipeline (tag funnel, `columnFilters`, force-show) without the
+    /// sort and without Find, which searches rather than filters. Nil when no
+    /// row is filtered out.
+    func chartRowIndices(columnFilters filters: [String: ColumnFilter]) -> [Int]? {
+        ChartGridFilters.rowIndices(rowCount: rows.count, controller: columnFilterController, filters: filters,
+                                    forceShowTagged: forceShowTags && !matchesByRow.isEmpty ? Set(matchesByRow.keys) : nil)
     }
 
     /// Kept as the name the rest of the class already calls. The composition now
