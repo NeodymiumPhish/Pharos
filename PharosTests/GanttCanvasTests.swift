@@ -59,9 +59,11 @@ func runTests() {
     NSApp.setActivationPolicy(.accessory)
     let (data, cfg) = ganttData()
     var selections: [[DrillKey]] = []
+    var legends: [[GanttLegendEntry]] = []
     let w: CGFloat = 600, h: CGFloat = 320
-    let host = NSHostingView(rootView: ChartCanvas(data: data, config: cfg, onSelectionChanged: { selections.append($0) })
-        .frame(width: w, height: h))
+    let host = NSHostingView<AnyView>(rootView: AnyView(ChartCanvas(data: data, config: cfg, onSelectionChanged: { selections.append($0) },
+                                                   onShowGanttLegend: { legends.append($0) })
+        .frame(width: w, height: h)))
     let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w, height: h), styleMask: [.borderless], backing: .buffered, defer: false)
     win.contentView = host
     win.orderFrontRegardless()
@@ -99,6 +101,29 @@ func runTests() {
     }
     let names = selections.last?.flatMap(\.columnRefs).map(\.name) ?? []
     expect(names == ["ip", "port", "service", "data"], "click a bar after scrolling selects its lane and segment (\(names))")
+
+    // The Legend button (top-left corner, above the line titles) sends every value.
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        let e = NSEvent.mouseEvent(with: type, location: NSPoint(x: 30, y: h - 14), modifierFlags: [],
+                                   timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber,
+                                   context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        win.sendEvent(e)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    }
+    expect(legends.last?.count == data.colorDomainLabels(for: .gantt).count && !(legends.last?.isEmpty ?? true),
+           "Legend button sends one entry per Bars by value (\(legends.last?.count ?? -1))")
+
+    // Line per Value: line 1 is the lane header (no bars), so the first bar
+    // sits on line 2.
+    var perCfg = cfg
+    perCfg.display.ganttLayout = .linePerValue
+    // A fresh view: the first one keeps the vertical scroll from the wheel test.
+    let perHost = NSHostingView(rootView: ChartCanvas(data: data, config: perCfg).frame(width: w, height: h))
+    win.contentView = perHost
+    RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+    if let top = barRows(snap(perHost), x: 300).first {
+        expect(top > 24 + 28, "line per value: first bar below the lane header line (y \(top))")
+    } else { expect(false, "line per value: bar drawn") }
 
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

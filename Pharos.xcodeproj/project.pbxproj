@@ -307,6 +307,7 @@
 		A756B0221308FD68F1517648 /* DeviceOwnerGateRecency.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE37572391789DCC448BFA0 /* DeviceOwnerGateRecency.swift */; };
 		A7BA9813B484925A81903D07 /* ConnectionsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = D253EDAEB54B969B765C149C /* ConnectionsSettingsPaneVC.swift */; };
 		A85D406B8C9FD7038E6C901E /* VariableMenuPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA0901EAD7AC81B55DF2E06 /* VariableMenuPreview.swift */; };
+		A909F8974E0A0438F238862A /* GanttRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50B700A8B92A89542F8051A /* GanttRows.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
 		A9D3BA2E569055A93F3AE976 /* SQLDraftSchema+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB3092E3A4D3A16C1986A40 /* SQLDraftSchema+Cache.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
@@ -740,6 +741,7 @@
 		B3CD268ABF6FA13DB82F8E14 /* RecentFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentFile.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
 		B48D9B61A16C095ABF985CD6 /* PharosCore+Workspaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Workspaces.swift"; sourceTree = "<group>"; };
+		B50B700A8B92A89542F8051A /* GanttRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GanttRows.swift; sourceTree = "<group>"; };
 		B54101B9C807A769AD63E25B /* ErrorExplanationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorExplanationView.swift; sourceTree = "<group>"; };
 		B924DFE2722E648667C6764E /* QueryFailureChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryFailureChannel.swift; sourceTree = "<group>"; };
 		B975CA0EA41615AA9E794ED2 /* SQLSegmentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLSegmentParser.swift; sourceTree = "<group>"; };
@@ -1148,6 +1150,7 @@
 				AE65D1FFED97F961F76B57AA /* DrillSqlTranslator.swift */,
 				DD847E740BEC6F542D9BE20D /* DrillSummary.swift */,
 				30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */,
+				B50B700A8B92A89542F8051A /* GanttRows.swift */,
 				096E125694D9A3387A6C7BC8 /* PushdownQuery.swift */,
 				455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */,
 				97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */,
@@ -1740,6 +1743,7 @@
 				EEF7E90C180D68919A33F102 /* FoldState.swift in Sources */,
 				AC268D16658BA812177F4876 /* FoldingLayoutManager.swift in Sources */,
 				EF88431D010EF0A90A3C9E89 /* FontSizeStepper.swift in Sources */,
+				A909F8974E0A0438F238862A /* GanttRows.swift in Sources */,
 				8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */,
 				53756D84E332E30247401A98 /* GeneratedContentLabel.swift in Sources */,
 				AB4FF098324AD58A9D3A42EA /* GeneratedContentLabelView.swift in Sources */,

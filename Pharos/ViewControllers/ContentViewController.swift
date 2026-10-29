@@ -455,6 +455,12 @@ class ContentViewController: NSViewController {
             self?.scheduleInspectorUpdate(selectedIndices: selectedIndices)
         }
 
+        chartHost.onShowGanttLegend = { [weak self] entries in
+            guard let splitVC = self?.parent as? PharosSplitViewController else { return }
+            splitVC.inspectorVC.showGanttLegend(entries)
+            splitVC.showInspector()
+        }
+
         // The chart plots the rows the grid's filters keep.
         resultsVC.onDisplayRowsChanged = { [weak self] in self?.refreshChartRowsFromGrid() }
 

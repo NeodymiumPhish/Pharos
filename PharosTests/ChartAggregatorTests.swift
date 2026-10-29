@@ -328,5 +328,43 @@ func runTests() {
         } else { expect(false, "gantt lane drill: both label columns") }
     }
 
+    // Gantt layout: One Line puts a lane's bars on its line; Line per Value
+    // gives a header line per lane, then one line per value (first-seen).
+    do {
+        let bars = [GanttBar(lane: "a · 80", segment: "http · nginx", segmentValues: ["http", "nginx"], start: 0, end: 10),
+                    GanttBar(lane: "a · 80", segment: "http · apache", segmentValues: ["http", "apache\nline 2"], start: 5, end: 15),
+                    GanttBar(lane: "a · 80", segment: "http · nginx", segmentValues: ["http", "nginx"], start: 20, end: 30),
+                    GanttBar(lane: "b · 22", segment: "ssh · x", segmentValues: ["ssh", "x"], start: 0, end: 5)]
+        let lanes = ["a · 80", "b · 22"]
+        let one = GanttRows.build(bars: bars, lanes: lanes, layout: .oneLine)
+        expect(one.rows.map(\.title) == lanes && one.barRow == [0, 0, 0, 1], "one line: a line per lane, overlapping bars share it")
+        let per = GanttRows.build(bars: bars, lanes: lanes, layout: .linePerValue)
+        expect(per.rows.map(\.title) == ["a · 80", "http · nginx", "http · apache", "b · 22", "ssh · x"],
+               "line per value: header, then each value's first line")
+        expect(per.rows.map(\.isHeader) == [true, false, false, true, false], "line per value: headers marked")
+        expect(per.barRow == [1, 2, 1, 4], "line per value: overlapping values on separate lines, a value's bars share one")
+        let noSeg = bars.map { b -> GanttBar in var c = b; c.segment = ""; c.segmentValues = []; return c }
+        expect(GanttRows.build(bars: noSeg, lanes: lanes, layout: .linePerValue).rows.count == 2,
+               "line per value without Bars by: one line per lane")
+
+        var d = ChartData(); d.ganttBars = bars
+        let legend = GanttLegend.entries(data: d, segmentColumns: ["service", "data"], colors: ["#111111", "#222222", "#333333"])
+        expect(legend.map(\.title) == ["http · nginx", "http · apache", "ssh · x"], "legend: one entry per value, short titles")
+        expect(legend.map(\.hex) == ["#111111", "#222222", "#333333"], "legend: colours in domain order")
+        expect(legend[0].barCount == 2 && legend[1].values.map(\.value) == ["http", "apache\nline 2"],
+               "legend: bar counts and whole values")
+    }
+
+    // Titles: values sharing a first line get the first line where they differ.
+    do {
+        let bars = [GanttBar(lane: "a", segment: "1", segmentValues: ["http", "HTTP/1.1 200 OK\nServer: nginx"], start: 0, end: 1),
+                    GanttBar(lane: "a", segment: "2", segmentValues: ["http", "HTTP/1.1 200 OK\nServer: Apache"], start: 0, end: 1),
+                    GanttBar(lane: "a", segment: "3", segmentValues: ["ssh", "SSH-2.0"], start: 0, end: 1)]
+        let t = GanttRows.titles(bars)
+        expect(t["1"] == "http · HTTP/1.1 200 OK … Server: nginx" && t["2"] == "http · HTTP/1.1 200 OK … Server: Apache",
+               "titles: shared first line gets the first differing line (\(t["1"] ?? "nil"))")
+        expect(t["3"] == "ssh · SSH-2.0", "titles: a unique first line stays short")
+    }
+
     if failures == 0 { print("\nAll tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }

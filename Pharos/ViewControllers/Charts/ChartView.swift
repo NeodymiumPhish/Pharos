@@ -26,6 +26,9 @@ struct ChartCanvas: View {
     /// `config.seriesColors` take precedence. Defaulted so non-updated call
     /// sites still compile.
     var globalPalette: [String] = ChartPalette.defaultHex
+    /// Gantt: show the legend (every Bars by value and its colour) in the
+    /// Inspector. Nil hides the Legend button (export).
+    var onShowGanttLegend: (([GanttLegendEntry]) -> Void)? = nil
 
     private var chartType: ChartType { config.chartType }
     private var temporalBin: TemporalBin { config.temporalBin }
@@ -680,7 +683,6 @@ struct ChartCanvas: View {
     private static let ganttBarHeight: CGFloat = 16
     private static let ganttLanePitch: CGFloat = 28
     private static let ganttAxisHeight: CGFloat = 24
-    private static let ganttLegendHeight: CGFloat = 22
     private static let ganttTickLabelWidth: CGFloat = 72   // est. width of one date label
     private static let ganttPointsPerUnit: CGFloat = 12    // automatic width of one Time Bucket unit
     private static let ganttMinBarWidth: CGFloat = 3       // a one-instant bar stays visible
@@ -756,9 +758,9 @@ struct ChartCanvas: View {
         return min(whole, max(units * secs, 1))
     }
 
-    /// Estimated Y-axis label width: the longest lane, capped.
-    private func ganttLaneLabelWidth(_ lanes: [String]) -> CGFloat {
-        let longest = lanes.map(\.count).max() ?? 0
+    /// Estimated Y-axis label width: the longest line title, capped.
+    private func ganttLaneLabelWidth(_ rows: [GanttRow]) -> CGFloat {
+        let longest = rows.map(\.title.count).max() ?? 0
         return min(CGFloat(longest) * 7 + 12, Self.ganttLaneLabelMaxWidth)
     }
 
@@ -773,12 +775,12 @@ struct ChartCanvas: View {
     private var ganttSegments: [String] { data.colorDomainLabels(for: .gantt) }
     private var ganttLegendVisible: Bool { config.display.showLegend && !ganttSegments.isEmpty }
 
-    /// A short legend / tooltip title for a segment: first line of each value.
-    private func shortSegment(_ bar: GanttBar) -> String {
-        bar.segmentValues.map { v in
-            let line = v.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
-            return line.count > 40 ? String(line.prefix(39)) + "…" : line
-        }.joined(separator: ChartAggregator.ganttValueSeparator)
+    /// The legend the Inspector shows: each segment value with its colour.
+    private var ganttLegendEntries: [GanttLegendEntry] {
+        let segments = ganttSegments
+        return GanttLegend.entries(data: data, segmentColumns: config.columns(for: .segment).map(\.name),
+                                   colors: ChartPalette.resolveHex(override: config.seriesColors, global: globalPalette,
+                                                                   count: segments.count))
     }
 
     private func ganttValueText(_ v: Double) -> String {
@@ -789,53 +791,78 @@ struct ChartCanvas: View {
 
     @ViewBuilder private var ganttChart: some View {
         let bars = data.ganttBars
-        let lanes = data.ganttLanes
+        let layout = GanttRows.build(bars: bars, lanes: data.ganttLanes, layout: config.display.ganttLayout)
         let domain = ganttDomain(bars)
         GeometryReader { geo in
-            let legend: CGFloat = ganttLegendVisible ? Self.ganttLegendHeight : 0
-            let plotWidth = max(geo.size.width - ganttLaneLabelWidth(lanes) - 8, 40)
+            let plotWidth = max(geo.size.width - ganttLaneLabelWidth(layout.rows) - 8, 40)
             let visible = ganttVisibleSeconds(domain: domain, plotWidth: plotWidth)
             let maxLabels = max(Int(plotWidth / Self.ganttTickLabelWidth), 2)
-            let fitLanes = max(Int((geo.size.height - Self.ganttAxisHeight - legend) / Self.ganttLanePitch), 1)
-            let shownLanes = ganttScrollable ? min(lanes.count, fitLanes) : lanes.count
-            let chartHeight = Self.ganttAxisHeight + legend + CGFloat(max(shownLanes, 1)) * Self.ganttLanePitch
+            let fitRows = max(Int((geo.size.height - Self.ganttAxisHeight) / Self.ganttLanePitch), 1)
+            let shownRows = ganttScrollable ? min(layout.rows.count, fitRows) : layout.rows.count
+            let chartHeight = Self.ganttAxisHeight + CGFloat(max(shownRows, 1)) * Self.ganttLanePitch
             let minSpan = visible * Double(Self.ganttMinBarWidth / plotWidth)
-            ganttPlot(bars: bars, lanes: lanes, domain: domain, visible: visible, maxLabels: maxLabels,
-                      shownLanes: shownLanes, minSpan: minSpan)
-                .frame(height: min(chartHeight, ganttScrollable ? geo.size.height : chartHeight))
+            VStack(alignment: .leading, spacing: 6) {
+                ganttPlot(bars: bars, rows: layout.rows, barRow: layout.barRow, domain: domain, visible: visible,
+                          maxLabels: maxLabels, shownRows: shownRows, minSpan: minSpan)
+                    .frame(height: min(chartHeight, ganttScrollable ? geo.size.height : chartHeight))
+                // An export has no Inspector: it lists the legend under the chart.
+                if !ganttScrollable && ganttLegendVisible { ganttExportLegend }
+            }
+                // The Legend button sits in the empty corner above the line titles.
+                .overlay(alignment: .topLeading) {
+                    if ganttLegendVisible, let show = onShowGanttLegend {
+                        Button { show(ganttLegendEntries) } label: { Label("Legend", systemImage: "list.bullet.rectangle") }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                            .help("Show every Bars by value and its colour in the Inspector")
+                            .accessibilityIdentifier("chart.gantt.legend")
+                    }
+                }
         }
     }
 
-    @ViewBuilder private func ganttPlot(bars: [GanttBar], lanes: [String], domain: ClosedRange<Date>, visible: Double,
-                                        maxLabels: Int, shownLanes: Int, minSpan: Double) -> some View {
+    @ViewBuilder private func ganttPlot(bars: [GanttBar], rows: [GanttRow], barRow: [Int], domain: ClosedRange<Date>,
+                                        visible: Double, maxLabels: Int, shownRows: Int, minSpan: Double) -> some View {
         let segments = ganttSegments
         let scrollX = ganttScrollable && visible < domain.upperBound.timeIntervalSince(domain.lowerBound)
-        let scrollY = ganttScrollable && shownLanes < lanes.count
-        let laneIndex = Dictionary(lanes.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let scrollY = ganttScrollable && shownRows < rows.count
         Chart {
+            // A rule above each lane header (Line per Value) groups a lane's lines.
+            ForEach(rows.indices.filter { rows[$0].isHeader && $0 > 0 }, id: \.self) { i in
+                RuleMark(y: .value("Lane", -Double(i))).foregroundStyle(.separator)
+            }
             ForEach(bars.indices, id: \.self) { i in
-                ganttMark(bars[i], lane: laneIndex[bars[i].lane] ?? 0, minSpan: minSpan)
+                ganttMark(bars[i], row: barRow[i], minSpan: minSpan)
                     .foregroundStyle(by: .value("Segment", bars[i].segment))
                     .opacity(ganttBarLit(bars[i]) ? 1 : 0.2)
             }
         }
         .chartXScale(domain: domain)
-        .chartYScale(domain: -Double(max(lanes.count, 1))...0)
+        .chartYScale(domain: -Double(max(rows.count, 1))...0)
         .chartForegroundStyleScale(domain: segments.isEmpty ? [""] : segments,
                                    range: segments.isEmpty ? [Color.accentColor] : resolvedColors(count: segments.count))
         .chartXAxis { AxisMarks(position: .top, values: ganttAxisValues(visibleSeconds: visible, maxLabels: maxLabels)) }
         .chartYAxis {
-            AxisMarks(preset: .extended, position: .leading, values: lanes.indices.map { -Double($0) - 0.5 }) { value in
-                AxisValueLabel(truncatedLane(Self.ganttLane(at: value.as(Double.self), lanes) ?? ""))
+            AxisMarks(preset: .extended, position: .leading, values: rows.indices.map { -Double($0) - 0.5 }) { value in
+                if let i = Self.ganttRow(at: value.as(Double.self), count: rows.count) {
+                    AxisValueLabel {
+                        if rows[i].isHeader {
+                            Text(truncatedLane(rows[i].title)).fontWeight(.semibold)
+                        } else {
+                            Text(truncatedLane(rows[i].title)).foregroundStyle(rows[i].segment == nil ? .primary : .secondary)
+                        }
+                    }
+                }
             }
         }
-        .when(ganttLegendVisible) { $0.chartLegend(position: .bottom, alignment: .leading) { ganttLegend(segments) } }
-        .when(!ganttLegendVisible) { $0.chartLegend(.hidden) }
+        // The legend lives in the Inspector (the Legend button): a column of
+        // long banners would run past the pane.
+        .chartLegend(.hidden)
         .when(scrollX && scrollY) { $0.chartScrollableAxes([.horizontal, .vertical]) }
         .when(scrollX && !scrollY) { $0.chartScrollableAxes(.horizontal) }
         .when(!scrollX && scrollY) { $0.chartScrollableAxes(.vertical) }
         .when(scrollX) { $0.chartXVisibleDomain(length: visible) }
-        .when(scrollY) { $0.chartYVisibleDomain(length: Double(shownLanes)).chartScrollPosition(initialY: 0) }
+        .when(scrollY) { $0.chartYVisibleDomain(length: Double(shownRows)).chartScrollPosition(initialY: 0) }
         // Clicks and drags go through chartGesture and the pointer through
         // onContinuousHover on the chart itself: a hit-testable overlay view
         // takes the scroll-wheel events and stops the chart from scrolling.
@@ -849,7 +876,7 @@ struct ChartCanvas: View {
                 }
                 .onEnded { v in
                     if abs(v.translation.width) < 6 && abs(v.translation.height) < 6 {
-                        ganttTap(v.location, proxy, bars: bars, minSpan: minSpan)
+                        ganttTap(v.location, proxy, bars: bars, rows: rows, barRow: barRow, minSpan: minSpan)
                     } else {
                         ganttBrush(v.startLocation.x, v.location.x, proxy: proxy)
                     }
@@ -862,33 +889,27 @@ struct ChartCanvas: View {
             case .ended: ganttHoverPoint = nil
             }
         }
-        .chartOverlay { proxy in ganttOverlay(proxy, bars: bars, minSpan: minSpan) }
+        .chartOverlay { proxy in ganttOverlay(proxy, bars: bars, rows: rows, barRow: barRow, minSpan: minSpan) }
     }
 
-    /// Legend: a swatch and the short text of each segment value, capped at the
-    /// Top-N setting so a column of long banners cannot fill the pane.
-    @ViewBuilder private func ganttLegend(_ segments: [String]) -> some View {
-        let cap = max(config.display.topNCategories, 1)
-        let colors = resolvedColors(count: segments.count)
-        let shortOf: [String: String] = Dictionary(data.ganttBars.map { ($0.segment, shortSegment($0)) },
-                                                    uniquingKeysWith: { a, _ in a })
-        // A plain row, clipped at the pane edge (a ScrollView renders empty in an export).
-        HStack(spacing: 10) {
-            ForEach(Array(segments.prefix(cap).enumerated()), id: \.offset) { i, seg in
-                HStack(spacing: 4) {
-                    Circle().fill(colors[i]).frame(width: 8, height: 8)
-                    Text(shortOf[seg] ?? seg).lineLimit(1).foregroundStyle(Color.primary)
+    /// The export's legend: one line per value (Top N, then "+N more").
+    @ViewBuilder private var ganttExportLegend: some View {
+        let entries = ganttLegendEntries
+        let shown = entries.prefix(Self.ganttExportLegendCap(config))
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, e in
+                HStack(spacing: 6) {
+                    Circle().fill(ChartPalette.color(fromHex: e.hex)).frame(width: 8, height: 8)
+                    Text(e.title).lineLimit(1)
                 }
-                .fixedSize()
-                .help(seg)
             }
-            if segments.count > cap { Text("+\(segments.count - cap) more").foregroundStyle(Color.secondary).fixedSize() }
+            if entries.count > shown.count { Text("+\(entries.count - shown.count) more").foregroundStyle(.secondary) }
         }
         .font(.caption)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipped()
-        .frame(height: Self.ganttLegendHeight - 6)
     }
+
+    static func ganttExportLegendCap(_ config: ChartConfig) -> Int { max(config.display.topNCategories, 1) }
+    static let ganttExportLegendLine: CGFloat = 16
 
     @ViewBuilder private func ganttCallout(_ bar: GanttBar) -> some View {
         let names = config.columns(for: .segment).map(\.name)
@@ -904,10 +925,10 @@ struct ChartCanvas: View {
         }
     }
 
-    /// One bar: a rectangle centred in its lane, `ganttBarHeight` of the lane pitch.
-    private func ganttMark(_ bar: GanttBar, lane: Int, minSpan: Double) -> some ChartContent {
+    /// One bar: a rectangle centred on its line, `ganttBarHeight` of the line pitch.
+    private func ganttMark(_ bar: GanttBar, row: Int, minSpan: Double) -> some ChartContent {
         let half = Double(Self.ganttBarHeight / Self.ganttLanePitch) / 2
-        let mid = -Double(lane) - 0.5
+        let mid = -Double(row) - 0.5
         return RectangleMark(xStart: .value("Start", Date(timeIntervalSince1970: bar.start)),
                              xEnd: .value("End", Date(timeIntervalSince1970: max(bar.end, bar.start + minSpan))),
                              yStart: .value("Lane", mid + half),
@@ -915,20 +936,22 @@ struct ChartCanvas: View {
             .cornerRadius(3)
     }
 
-    /// The lane at a Y axis value (lane i spans -i-1...-i).
-    static func ganttLane(at y: Double?, _ lanes: [String]) -> String? {
+    /// The line at a Y axis value (line i spans -i-1...-i).
+    static func ganttRow(at y: Double?, count: Int) -> Int? {
         guard let y, y <= 0 else { return nil }
         let i = Int((-y).rounded(.down))
-        return lanes.indices.contains(i) ? lanes[i] : nil
+        return i < count ? i : nil
     }
 
-    /// The bar under a plot point: the lane from Y, then the top-most bar whose
-    /// span (widened to the minimum bar width) holds X.
-    private func ganttBarIndex(at p: CGPoint, _ proxy: ChartProxy, bars: [GanttBar], minSpan: Double) -> (lane: String?, bar: Int?) {
-        guard let lane = Self.ganttLane(at: proxy.value(atY: p.y, as: Double.self), data.ganttLanes) else { return (nil, nil) }
+    /// The bar under a plot point: the line from Y, then the top-most bar on
+    /// that line whose span (widened to the minimum bar width) holds X.
+    private func ganttBarIndex(at p: CGPoint, _ proxy: ChartProxy, bars: [GanttBar], rows: [GanttRow], barRow: [Int],
+                               minSpan: Double) -> (lane: String?, bar: Int?) {
+        guard let row = Self.ganttRow(at: proxy.value(atY: p.y, as: Double.self), count: rows.count) else { return (nil, nil) }
+        let lane = rows[row].lane
         guard let x = proxy.value(atX: p.x, as: Date.self)?.timeIntervalSince1970 else { return (lane, nil) }
         let hit = bars.indices.last { i in
-            bars[i].lane == lane && bars[i].start - minSpan / 2 <= x && x <= max(bars[i].end, bars[i].start + minSpan) + minSpan / 2
+            barRow[i] == row && bars[i].start - minSpan / 2 <= x && x <= max(bars[i].end, bars[i].start + minSpan) + minSpan / 2
         }
         return (lane, hit)
     }
@@ -936,13 +959,15 @@ struct ChartCanvas: View {
     /// Draws only (no hit testing): the brush marquee and the hover callout.
     /// The plot frame's origin moves with the scroll position, so an overlay
     /// point minus that origin is a point in the whole plot, as chartGesture gives.
-    @ViewBuilder private func ganttOverlay(_ proxy: ChartProxy, bars: [GanttBar], minSpan: Double) -> some View {
+    @ViewBuilder private func ganttOverlay(_ proxy: ChartProxy, bars: [GanttBar], rows: [GanttRow], barRow: [Int],
+                                           minSpan: Double) -> some View {
         GeometryReader { geo in
             let origin = proxy.plotFrame.map { geo[$0].origin } ?? .zero
             ZStack(alignment: .topLeading) {
                 marqueeOverlay(origin: origin)
                 if let p = ganttHoverPoint,
-                   let i = ganttBarIndex(at: CGPoint(x: p.x - origin.x, y: p.y - origin.y), proxy, bars: bars, minSpan: minSpan).bar {
+                   let i = ganttBarIndex(at: CGPoint(x: p.x - origin.x, y: p.y - origin.y), proxy, bars: bars,
+                                         rows: rows, barRow: barRow, minSpan: minSpan).bar {
                     // Below-right of the pointer; flipped to stay inside the pane.
                     let right = p.x > geo.size.width / 2, below = p.y < geo.size.height / 2
                     ganttCallout(bars[i])
@@ -958,14 +983,15 @@ struct ChartCanvas: View {
     }
 
     /// Full rendered height of a non-scrolling gantt (for export sizing).
-    static func ganttContentHeight(laneCount: Int, legend: Bool) -> CGFloat {
-        ganttAxisHeight + (legend ? ganttLegendHeight : 0) + CGFloat(max(laneCount, 1)) * ganttLanePitch + 8
+    static func ganttContentHeight(rowCount: Int, legendLines: Int = 0) -> CGFloat {
+        ganttAxisHeight + CGFloat(max(rowCount, 1)) * ganttLanePitch + 8
+            + (legendLines > 0 ? 6 + CGFloat(legendLines) * ganttExportLegendLine : 0)
     }
 
     /// Tap a bar: its rows (lane AND segment). Tap beside the bars: the lane.
     /// Shift extends over lanes in order; ⌘ toggles.
-    private func ganttTap(_ p: CGPoint, _ proxy: ChartProxy, bars: [GanttBar], minSpan: Double) {
-        let hit = ganttBarIndex(at: p, proxy, bars: bars, minSpan: minSpan)
+    private func ganttTap(_ p: CGPoint, _ proxy: ChartProxy, bars: [GanttBar], rows: [GanttRow], barRow: [Int], minSpan: Double) {
+        let hit = ganttBarIndex(at: p, proxy, bars: bars, rows: rows, barRow: barRow, minSpan: minSpan)
         guard let lane = hit.lane else { clearSelection(); return }
         let id = hit.bar.map(Self.ganttBarID) ?? Self.ganttLaneID(lane)
         applyModifier(hitIDs: [id]) {

@@ -79,7 +79,7 @@ The rail on the right side of the chart provides all configuration. Drag its lef
 - **Heatmap per-axis controls** — the heatmap gets independent "X bins" / "Y bins" (or "X time bucket" / "Y time bucket") controls, so each axis can be bucketed separately.
 - **Sort** — shown for bar, line, area, and pie: order points by Query order (default), Category (X label), or Value (Y total), each ascending or descending.
 - **Display** — Legend on or off; Stacked or Grouped bars when a Series is mapped; Log scale for the Y axis (available only when every plotted value is above zero); a chart title; and X and Y axis titles. Empty axis-title fields show the titles Pharos derives — the column name on X, "Sum of revenue", "Average of price" or "Count" on Y — and those are what the chart draws.
-- **Gantt controls** — Merge rows (Runs or Span) and Zoom; see [Gantt Charts](#gantt-charts).
+- **Gantt controls** — Layout, Merge rows (Runs or Span) and Zoom; see [Gantt Charts](#gantt-charts).
 - **Colors** — shown for bar, line, area, pie, and scatter, and for a gantt with a Bars by column; see [Colors](#colors) below.
 - **Server aggregation** — see below.
 
@@ -96,10 +96,14 @@ A gantt draws one **lane** for each distinct Label value, in the order the rows 
 
 - **Label** and **Bars by** take one or more columns. Use **Add Column** under the picker to add one, and choose "—" in a picker to remove that column. The values of all the columns together make the key, joined with " · " (for example `203.0.113.5 · 443`).
 - **Start** and **End** can be the same column. For example, map a scan's `seen` column to both, and each bar runs from the first to the last observation.
-- **Merge rows** sets how the rows in a lane become bars:
-  - **Runs** (default) — sort the lane by Start, and start a new bar each time the Bars by value changes. A value that comes back later gets a new bar. With no Bars by column, each row is one bar.
-  - **Span** — one bar for each Bars by value, from its earliest Start to its latest End. With no Bars by column, each lane is one bar.
-- **Colors** — each Bars by value has its own color, with a legend under the plot. The legend and the color wells show the first line of each value and stop at the Top-N setting (25), followed by "+N more". Colors repeat after the palette ends.
+- **Layout** (shown when a Bars by column is mapped) sets where a lane's bars go:
+  - **One Line** (default) — all of a lane's bars share its line. Bars that overlap in time cover each other.
+  - **Line per Value** — a bold header line for the lane, then one line for each Bars by value under it, so no bar hides another.
+- **Merge rows** sets how several rows with the same lane and value become bars. It changes the chart only when a value has more than one row — for example raw scan rows, one per observation. A query that already groups by the lane and Bars by columns has one row per value, and Runs and Span then draw the same bars.
+  - **Runs** (default) — sort the lane by Start, and start a new bar each time the Bars by value changes. A value that comes back later gets a new bar (A, B, A gives three bars). With no Bars by column, each row is one bar.
+  - **Span** — one bar for each Bars by value, from its earliest Start to its latest End (A, B, A gives one long A bar over B). With no Bars by column, each lane is one bar.
+- **Colors** — each Bars by value has its own color. Click **Legend** (top-left corner of the chart) to list every value in the Inspector: its color, each Bars by column's whole value, and how many bars and rows it has. An exported image lists the legend under the chart, up to the Top-N setting (25), then "+N more". Colors repeat after the palette ends.
+- **Titles** — a value's title is the first line of each Bars by column. When two values start with the same line (for example "HTTP/1.1 200 OK"), the title adds the first line where they differ.
 - **Hover** over a bar to see the lane, each Bars by column's full value (up to eight lines), Start, End, and the number of rows in the bar.
 - **Zoom** — on a temporal axis with a Time bucket, each bucket unit is at least 12 points wide. When the range is wider than the pane, the plot scrolls horizontally. When there are more lanes than fit, it scrolls vertically. Use the magnifier buttons to halve or double the zoom, **Fit** to show the whole range, and **Auto Width** to go back to the fixed width. A numeric axis or a Time bucket of None always fits.
 - A bar of one instant (Start equals End) is drawn 3 points wide so that you can see it.

@@ -11,6 +11,7 @@ swiftc -o /tmp/gantt-canvas-tests \
   Pharos/Models/Charts/ChartConfig.swift \
   Pharos/Models/Charts/ChartData.swift \
   Pharos/Models/Charts/ChartAggregator.swift \
+  Pharos/Models/Charts/GanttRows.swift \
   Pharos/Models/Charts/ChartAxisTitles.swift \
   Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Models/Charts/ChartPalette+Color.swift \

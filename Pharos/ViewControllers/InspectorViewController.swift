@@ -393,6 +393,45 @@ class InspectorViewController: NSViewController {
         }
     }
 
+    /// A gantt's legend: per Bars by value, its colour swatch, each column's
+    /// whole value (selectable), and how many bars and rows carry it. Owned by
+    /// `.results`, like the chart's selection summary.
+    func showGanttLegend(_ entries: [GanttLegendEntry]) {
+        beginDetailSection(title: String(localized: "Legend"),
+                           subtitle: String(localized: "\(entries.count) values"), owner: .results)
+        for entry in entries {
+            let swatch = NSView()
+            swatch.wantsLayer = true
+            swatch.layer?.backgroundColor = NSColor(ChartPalette.color(fromHex: entry.hex)).cgColor
+            swatch.layer?.cornerRadius = 5
+            swatch.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([swatch.widthAnchor.constraint(equalToConstant: 10),
+                                         swatch.heightAnchor.constraint(equalToConstant: 10)])
+            let title = NSTextField(wrappingLabelWithString: DisplayEscape.escaped(entry.title))
+            title.font = .systemFont(ofSize: 12, weight: .semibold)
+            title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            let header = NSStackView(views: [swatch, title])
+            header.orientation = .horizontal
+            header.alignment = .firstBaseline
+            header.spacing = 6
+            stackView.addArrangedSubview(header)
+            header.translatesAutoresizingMaskIntoConstraints = false
+            header.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            stackView.setCustomSpacing(4, after: header)
+            for (column, value) in entry.values { addDetailField(column, value) }
+            let counts = NSTextField(labelWithString: String(localized: "\(entry.barCount) bars, \(entry.rowCount) rows"))
+            counts.font = .systemFont(ofSize: 11)
+            counts.textColor = .secondaryLabelColor
+            stackView.addArrangedSubview(counts)
+            stackView.setCustomSpacing(8, after: counts)
+            let separator = NSBox()
+            separator.boxType = .separator
+            stackView.addArrangedSubview(separator)
+            separator.translatesAutoresizingMaskIntoConstraints = false
+            separator.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        }
+    }
+
     /// Shows a query's raw SQL text as wrapped, monospaced, selectable body
     /// text with the same syntax coloring as the query editor — used when a
     /// workspace-history preview row is selected.

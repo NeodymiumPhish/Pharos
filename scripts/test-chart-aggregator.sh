@@ -11,6 +11,8 @@ swiftc -o /tmp/chart-aggregator-tests \
   Pharos/Models/Charts/DrillKey.swift \
   Pharos/Models/Charts/ChartData.swift \
   Pharos/Models/Charts/ChartAggregator.swift \
+  Pharos/Models/Charts/GanttRows.swift \
+  Pharos/Models/Charts/ChartPalette.swift \
   PharosTests/ChartAggregatorTests.swift \
   PharosTests/main.swift
 /tmp/chart-aggregator-tests

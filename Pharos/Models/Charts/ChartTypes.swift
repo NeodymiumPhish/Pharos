@@ -24,6 +24,19 @@ enum ChartColumnRole: String, Codable, CaseIterable {
     case label, start, end, segment   // gantt
 }
 
+/// How a gantt draws the bars of one lane: all on the lane's line (they may
+/// overlap), or a header line for the lane and one line per Bars by value
+/// under it, so no bar hides another.
+enum GanttLayout: String, Codable, CaseIterable {
+    case oneLine, linePerValue
+    var displayName: String {
+        switch self {
+        case .oneLine: return "One Line"
+        case .linePerValue: return "Line per Value"
+        }
+    }
+}
+
 /// How a gantt lane's rows become bars. `runs` walks the lane in Start order
 /// and opens a new bar each time the segment value changes, so a value that
 /// comes back later gets a bar of its own; `span` draws one bar per segment
@@ -120,10 +133,13 @@ struct ChartDisplayOptions: Codable, Equatable {
     /// Gantt horizontal zoom, relative to the automatic width per time unit:
     /// 1 = automatic, 2 = twice as wide, 0.5 = half. 0 = fit the whole range.
     var ganttZoom: Double = 1
+    /// Gantt bars on the lane's line, or one line per Bars by value.
+    var ganttLayout: GanttLayout = .oneLine
 
     init(title: String = "", showLegend: Bool = true, barLayout: BarLayout = .stacked,
          logScale: Bool = false, xAxisTitle: String = "", yAxisTitle: String = "",
-         topNCategories: Int = 25, sort: ChartSort = .queryOrder, ganttZoom: Double = 1) {
+         topNCategories: Int = 25, sort: ChartSort = .queryOrder, ganttZoom: Double = 1,
+         ganttLayout: GanttLayout = .oneLine) {
         self.title = title
         self.showLegend = showLegend
         self.barLayout = barLayout
@@ -133,6 +149,7 @@ struct ChartDisplayOptions: Codable, Equatable {
         self.topNCategories = topNCategories
         self.sort = sort
         self.ganttZoom = ganttZoom
+        self.ganttLayout = ganttLayout
     }
 
     // Tolerant decode: every field decodeIfPresent with a default, so a persisted
@@ -140,7 +157,7 @@ struct ChartDisplayOptions: Codable, Equatable {
     // synthesized decoder would otherwise throw keyNotFound on the missing key).
     // The retired `stacked` key is ignored on purpose: bars always stacked before
     // it was read, so `.stacked` — the default — keeps every saved chart's look.
-    enum CodingKeys: String, CodingKey { case title, showLegend, barLayout, logScale, xAxisTitle, yAxisTitle, topNCategories, sort, ganttZoom }
+    enum CodingKeys: String, CodingKey { case title, showLegend, barLayout, logScale, xAxisTitle, yAxisTitle, topNCategories, sort, ganttZoom, ganttLayout }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
@@ -152,6 +169,7 @@ struct ChartDisplayOptions: Codable, Equatable {
         topNCategories = try c.decodeIfPresent(Int.self, forKey: .topNCategories) ?? 25
         sort = try c.decodeIfPresent(ChartSort.self, forKey: .sort) ?? .queryOrder
         ganttZoom = try c.decodeIfPresent(Double.self, forKey: .ganttZoom) ?? 1
+        ganttLayout = try c.decodeIfPresent(GanttLayout.self, forKey: .ganttLayout) ?? .oneLine
     }
 }
 

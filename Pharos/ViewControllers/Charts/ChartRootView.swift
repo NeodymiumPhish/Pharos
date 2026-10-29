@@ -30,6 +30,8 @@ final class ChartViewModel: ObservableObject {
     /// Ask the on-device model (host-owned; the rail calls it only when the
     /// model may be used).
     var onSuggest: (() -> Void)?
+    /// Show a gantt's legend in the Inspector (host-owned).
+    var onShowGanttLegend: (([GanttLegendEntry]) -> Void)?
     var onCancelSuggest: (() -> Void)?
 
     // MARK: Server-aggregation (push-down) state
@@ -208,7 +210,8 @@ struct ChartRootView: View {
                             committedKeys: model.committedKeys,
                             clearToken: model.clearToken,
                             configFingerprint: model.configFingerprint,
-                            globalPalette: globalPalette)
+                            globalPalette: globalPalette,
+                            onShowGanttLegend: model.onShowGanttLegend)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 railDivider
                 configRail.frame(width: Self.clampedRailWidth(railWidth))
@@ -660,6 +663,16 @@ struct ChartRootView: View {
 
     /// Gantt-only controls: how rows become bars, and the horizontal zoom.
     @ViewBuilder private var ganttSection: some View {
+        if model.config.mappings[.segment] != nil {
+            railLabel("Layout")
+            Picker("", selection: Binding(get: { model.config.display.ganttLayout },
+                                          set: { l in model.updateDisplay { $0.ganttLayout = l } })) {
+                ForEach(GanttLayout.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }
+            .labelsHidden()
+            .help("One Line: a lane's bars share its line and can overlap. Line per Value: each Bars by value gets its own line under the lane.")
+        }
+
         railLabel("Merge rows")
         Picker("", selection: Binding(get: { model.config.ganttMerge },
                                       set: { m in model.update { $0.ganttMerge = m } })) {

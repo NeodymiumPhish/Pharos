@@ -17,6 +17,8 @@ final class ChartHostingController: NSViewController {
 
     /// Reports a config change (debounced by the caller) for persistence.
     var onConfigChanged: ((ChartConfig) -> Void)?
+    /// Show a gantt's legend in the Inspector.
+    var onShowGanttLegend: (([GanttLegendEntry]) -> Void)?
     /// Requests loading all remaining rows for the current result.
     var onLoadAll: (() -> Void)?
     /// Reports the chart's current staged selection (post-merge keys; `[]` clears).
@@ -48,6 +50,7 @@ final class ChartHostingController: NSViewController {
             if cfg.serverAggregation { self?.onServerConfigChanged?() }
         }
         vm.onSelectionChanged = { [weak self] keys in self?.onSelectionChanged?(keys) }
+        vm.onShowGanttLegend = { [weak self] entries in self?.onShowGanttLegend?(entries) }
         vm.onSuggest = { [weak self] in self?.runSuggestion() }
         vm.onCancelSuggest = { [weak self] in
             self?.cancelSuggestion()
@@ -173,9 +176,19 @@ final class ChartHostingController: NSViewController {
         // would clip all but the visible rows).
         if cfg.chartType == .gantt {
             let width = max(onScreen.width, 900)
-            size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(laneCount: data.ganttLanes.count, legend: cfg.display.showLegend && !data.colorDomainLabels(for: .gantt).isEmpty) + 64)
+            size = CGSize(width: width, height: ChartCanvas.ganttContentHeight(
+                rowCount: GanttRows.build(bars: data.ganttBars, lanes: data.ganttLanes, layout: cfg.display.ganttLayout).rows.count,
+                legendLines: Self.ganttExportLegendLines(data, cfg)) + 64)
         }
         return ExportSnapshot(view: AnyView(exportView), size: size, timestamp: timestamp)
+    }
+
+    /// Lines the export's legend takes: the shown values plus "+N more".
+    private static func ganttExportLegendLines(_ data: ChartData, _ cfg: ChartConfig) -> Int {
+        let count = data.colorDomainLabels(for: .gantt).count
+        guard cfg.display.showLegend, count > 0 else { return 0 }
+        let cap = ChartCanvas.ganttExportLegendCap(cfg)
+        return min(count, cap) + (count > cap ? 1 : 0)
     }
 
     private func embed(_ child: NSHostingController<AnyView>) {
