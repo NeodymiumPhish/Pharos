@@ -428,6 +428,45 @@ private func testInsertAround() {
     expect(d.lineageBlocks.count == 6, "insert: no query split apart")
 }
 
+private func testAppendFillsBlankDraft() {
+    // A new document's only card is a blank draft: the appended card takes its place.
+    var d = CardDocument()
+    let draft = d.cards[0].id
+    let a = d.appendCard(sql: "SELECT * FROM t", name: "t")
+    expect(d.cards.map(\.id) == [a], "append: a blank draft at the end gives its place", "\(d.cards.map(\.id))")
+    expect(d.card(a)?.sql == "SELECT * FROM t" && d.card(a)?.name == "t", "append: SQL and name")
+    expect(d.focusedCardId == a && d.card(draft) == nil, "append: the new card has focus")
+
+    // A card with SQL stays; the new card goes after it.
+    let b = d.appendCard(sql: "SELECT 2")
+    expect(d.cards.map(\.id) == [a, b], "append: a card with SQL stays")
+
+    // Whitespace only is still blank.
+    let blank = d.insertCard(after: b, sql: "  \n\t")
+    let c = d.appendCard(sql: "SELECT 3")
+    expect(d.cards.map(\.id) == [a, b, c] && d.card(blank) == nil, "append: whitespace-only SQL is blank")
+
+    // Only the LAST card is filled: a blank draft in the middle stays.
+    let middle = d.insertCard(after: a)
+    let e = d.appendCard(sql: "SELECT 4")
+    expect(d.cards.map(\.id) == [a, middle, b, c, e], "append: a blank draft in the middle stays", "\(d.cards.map(\.id))")
+
+    // Notes, a failed run or a locked card are not blank.
+    let noted = d.insertCard(after: e)
+    _ = d.setNotes(cardId: noted, "remember this")
+    let f = d.appendCard(sql: "SELECT 5")
+    expect(d.card(noted) != nil && d.cards.last?.id == f, "append: a card with notes stays")
+
+    let failed = d.insertCard(after: f)
+    if let i = d.index(of: failed) { d.cards[i].lastFailureId = "x" }
+    let g = d.appendCard(sql: "SELECT 6")
+    expect(d.card(failed) != nil && d.cards.last?.id == g, "append: a card with a failure stays")
+
+    let psql = d.insertCard(after: g, sql: "", kind: .psqlMeta)
+    let h = d.appendCard(sql: "SELECT 7")
+    expect(d.card(psql) != nil && d.cards.last?.id == h, "append: a non-SQL card stays")
+}
+
 private func testMinBodyHeight() {
     let old = #"{"cards":[{"id":"c1","lineageId":"c1","version":1,"sql":"SELECT 1","nameIsSuggested":false,"isLocked":false,"isCollapsed":false,"resultsRemoved":false,"cursorPosition":0,"kind":"sql"}],"focusedCardId":"c1","expandedLineages":[]}"#
     let decoded = try? JSONDecoder().decode(CardDocument.self, from: Data(old.utf8))
@@ -449,6 +488,7 @@ private func testMinBodyHeight() {
 func runTests() {
     testOrder()
     testInsertAround()
+    testAppendFillsBlankDraft()
     testMinBodyHeight()
     testForReuse()
     testNewDocument()

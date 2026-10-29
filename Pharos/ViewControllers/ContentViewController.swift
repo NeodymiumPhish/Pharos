@@ -1663,11 +1663,15 @@ class ContentViewController: NSViewController {
 
     /// Add a card holding SQL the user did not type in the card stack — a
     /// browse action, a drill-down, a selection — and run it. After
-    /// `after`, or at the end.
+    /// `after`, or at the end, in place of a blank draft there.
     func runGeneratedCard(sql: String, name: String?, inTab tabId: String, after: String? = nil) {
         var newId = ""
         session.updateTab(id: tabId) { tab in
-            newId = tab.document.insertCard(after: after ?? tab.document.cards.last?.id, sql: sql, name: name)
+            if let after {
+                newId = tab.document.insertCard(after: after, sql: sql, name: name)
+            } else {
+                newId = tab.document.appendCard(sql: sql, name: name)
+            }
         }
         if editorPane.showsTab(tabId) {
             editorPane.reloadCards(anchor: newId)
@@ -4611,7 +4615,8 @@ extension ContentViewController {
         guard let sql = notification.userInfo?["sql"] as? String,
               let resultName = notification.userInfo?["resultName"] as? String,
               let tabId = session.activeTabId else { return }
-        // A browse action is a new named card at the end of the active tab.
+        // A browse action is a new named card at the end of the active tab,
+        // in place of a blank draft there.
         runGeneratedCard(sql: sql, name: resultName, inTab: tabId)
     }
 

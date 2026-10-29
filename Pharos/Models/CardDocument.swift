@@ -89,6 +89,12 @@ struct QueryCard: Identifiable, Equatable, Codable {
 
     var showsNotes: Bool { isNotesOpen ?? false }
 
+    /// A card the user has put nothing in: no SQL, no notes, never run.
+    var isBlankDraft: Bool {
+        kind == .sql && !isLocked && lastRun == nil && lastFailureId == nil && !hasNotes
+            && sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     init(id: String = UUID().uuidString, lineageId: String? = nil, version: Int = 1,
          name: String? = nil, sql: String = "", kind: QueryCardKind = .sql) {
         self.id = id
@@ -194,6 +200,18 @@ struct CardDocument: Equatable, Codable {
         cards.insert(card, at: at)
         focusedCardId = card.id
         return card.id
+    }
+
+    /// Add a card at the end and give it focus. A blank draft at the end
+    /// gives its place to it, so the new card never leaves an empty one above
+    /// it. Returns its id.
+    @discardableResult
+    mutating func appendCard(sql: String, name: String? = nil) -> String {
+        if let last = cards.last, last.isBlankDraft {
+            cards.removeLast()
+            if displayedCardId == last.id { displayedCardId = nil }
+        }
+        return insertCard(after: nil, sql: sql, name: name)
     }
 
     /// Insert a card before `cardId`'s query (before its first version, so a
