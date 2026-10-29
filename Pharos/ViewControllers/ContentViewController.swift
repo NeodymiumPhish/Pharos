@@ -3590,14 +3590,22 @@ extension ContentViewController {
             return
         }
 
-        // Loading the workspace detail and fetching every cached result blob
+        // Loading the workspace detail and fetching the cached result blobs
         // (each a gzip+JSON FFI round-trip) is expensive for a long session —
         // do it off the main thread so reopening doesn't hitch the UI.
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let detail = try? PharosCore.loadWorkspace(id: wsId) else { return }
-            // Blobs for the results that have them; the rest are "SQL only".
+            // Session restore hands over the session row's copy, which is
+            // newer than the workspace's. Decoded once, here: a document split
+            // from text gets fresh card ids, and the blobs are chosen by card.
+            let decoded = sessionText.map { CardPersistence.decode(json: sessionCardsJson, text: $0) }
+                ?? CardPersistence.decode(json: detail.cardsJson, text: detail.editorText)
+            // Blobs only for the results that will stay on a card — a newer
+            // run of the same card replaces the rest. Results without a blob
+            // are "SQL only".
+            let kept = WorkspaceResultPlacement.keptResultIds(of: detail.results, in: decoded)
             var blobs: [String: QueryResult] = [:]
-            for meta in detail.results where meta.isSucceeded && meta.hasResults {
+            for meta in detail.results where meta.hasResults && kept.contains(meta.id) {
                 if let data = try? PharosCore.getQueryHistoryResult(id: meta.id) {
                     blobs[meta.id] = QueryResult.fromHistory(data, historyEntryId: meta.id, executionTimeMs: UInt64(meta.executionTimeMs))
                 }
@@ -3614,10 +3622,7 @@ extension ContentViewController {
                     return
                 }
 
-                // Session restore hands over the session row's copy, which
-                // is newer than the workspace's.
-                var document = sessionText.map { CardPersistence.decode(json: sessionCardsJson, text: $0) }
-                    ?? CardPersistence.decode(json: detail.cardsJson, text: detail.editorText)
+                var document = decoded
                 let results = Self.restoreResults(detail.results, blobs: loaded, into: &document)
                 let focus = focusResultId.flatMap { fid in results.first(where: { $0.historyResultId == fid }) } ?? results.last
                 document.displayedCardId = focus?.id
@@ -3642,22 +3647,18 @@ extension ContentViewController {
         }
     }
 
-    /// Put a workspace's stored results back on their cards. A result names
-    /// its card (`cardId`); a result recorded before cards existed is matched
-    /// to the first card whose SQL is the SQL it ran. The newest result of a
-    /// card wins. Cards get the run record their state is shown from.
+    /// Put a workspace's stored results back on their cards, by
+    /// `WorkspaceResultPlacement`: the newest result of a card wins. Cards get
+    /// the run record their state is shown from. `blobs` needs only the
+    /// results that win.
     private static func restoreResults(_ metas: [WorkspaceResultMeta], blobs: [String: QueryResult],
                                        into document: inout CardDocument) -> [CardResult] {
         var byCard: [String: CardResult] = [:]
         var order: [String] = []
-        for meta in metas.sorted(by: { ($0.resultOrder ?? 0) < ($1.resultOrder ?? 0) }) where meta.isSucceeded {
+        for placement in WorkspaceResultPlacement.placements(of: metas, in: document) {
+            let meta = placement.meta, cardId = placement.cardId
             let raw = meta.rawSql ?? meta.sql
-            let cardId = meta.cardId.flatMap { id in document.card(id) != nil ? id : nil }
-                ?? document.cards.first(where: {
-                    CardDocument.normalized($0.sql) == CardDocument.normalized(raw)
-                        || CardDocument.normalized($0.sql) == CardDocument.normalized(meta.sql)
-                })?.id
-            guard let cardId, let i = document.index(of: cardId) else { continue }
+            guard let i = document.index(of: cardId) else { continue }
 
             var cr = CardResult(cardId: cardId, sql: meta.sql, rawSQL: raw)
             cr.executionTimeMs = UInt64(meta.executionTimeMs)

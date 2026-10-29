@@ -276,6 +276,7 @@
 		9967BAFA59CCCAF598DCEFC7 /* ResultsCopyExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B3B88F55D243A6995DF409 /* ResultsCopyExport.swift */; };
 		9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87AC310E071D54672B86BAFE /* InspectorOwnership.swift */; };
 		9AE71289A521676F9BA0B679 /* CardResultEviction.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2D980BDF7D79B8243A59CF1 /* CardResultEviction.swift */; };
+		BE42F728DCB2AB88FBE5494D /* WorkspaceResultPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6552A7C3321B03D82CFD763C /* WorkspaceResultPlacement.swift */; };
 		9BB5505F41658A1ACEC0099F /* NSStackView+SpanFullWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA9AAC55E373DEEE80AB263 /* NSStackView+SpanFullWidth.swift */; };
 		9C75698AFD4443F5F35DEAA9 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
@@ -814,6 +815,7 @@
 		E1FE870093E0771497391C67 /* TabNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabNaming.swift; sourceTree = "<group>"; };
 		E2286D19137325E548E4A8E9 /* SQLDraftFixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraftFixer.swift; sourceTree = "<group>"; };
 		E2D980BDF7D79B8243A59CF1 /* CardResultEviction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardResultEviction.swift; sourceTree = "<group>"; };
+		6552A7C3321B03D82CFD763C /* WorkspaceResultPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceResultPlacement.swift; sourceTree = "<group>"; };
 		E397BE99DB86FEB206E33A74 /* NotificationsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsPaneVC.swift; sourceTree = "<group>"; };
 		E4311EDED11A8F88404CCD7A /* KeywordCasing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeywordCasing.swift; sourceTree = "<group>"; };
 		E46AFACD95D022C934A3AD80 /* LaunchConnectPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchConnectPolicy.swift; sourceTree = "<group>"; };
@@ -1000,6 +1002,7 @@
 				E0E5D48E1CE429915CDFF074 /* CardStackLayout.swift */,
 				5A3F52F5A8BBD4A0790BDB8D /* CardTextSearch.swift */,
 				19AF62FA8AF8FDA0C1116884 /* SessionSnapshot.swift */,
+				6552A7C3321B03D82CFD763C /* WorkspaceResultPlacement.swift */,
 			);
 			path = Cards;
 			sourceTree = "<group>";
@@ -1625,6 +1628,7 @@
 				98509C9E2D20CFB85C51DBE3 /* CardPresentation.swift in Sources */,
 				9E0A3B53E9A9954935E00204 /* CardResult.swift in Sources */,
 				9AE71289A521676F9BA0B679 /* CardResultEviction.swift in Sources */,
+				BE42F728DCB2AB88FBE5494D /* WorkspaceResultPlacement.swift in Sources */,
 				6602FFABB3AFAEFB01AE006D /* CardResultStore.swift in Sources */,
 				1573220283AD141ECC613ECC /* CardResultsHeaderView.swift in Sources */,
 				0E0E85D8C94B0DAB137B60BB /* CardRunAvailability.swift in Sources */,
