@@ -984,6 +984,8 @@ class InspectorViewController: NSViewController {
         label.usesSingleLineMode = false
         label.cell?.wraps = true
         label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        // Drag selects part of the value; double-click still copies all of it.
+        label.isSelectable = true
 
         guard let value else {
             // Key missing from dict entirely — treat as NULL
@@ -1166,82 +1168,6 @@ class InspectorViewController: NSViewController {
                 }
             }
             return agg
-        }
-    }
-}
-
-// MARK: - CopyableValueLabel
-
-private class CopyableValueLabel: NSTextField {
-    /// The RAW value, for the pasteboard. Deliberately not the same string as
-    /// `stringValue`, which its setter escapes for display: an analyst pastes
-    /// indicators out of this pane into other systems, so the copy must be the
-    /// bytes the database returned, not the `<U+XXXX>` rendering of them.
-    /// The one place it is READ for display — the context-menu title — escapes
-    /// it at that point instead.
-    var copyableValue: String = ""
-    private var savedAttributedString: NSAttributedString?
-    private var restoreTimer: Timer?
-
-    override func layout() {
-        if preferredMaxLayoutWidth != bounds.width {
-            preferredMaxLayoutWidth = bounds.width
-        }
-        super.layout()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
-            copyToPasteboard()
-            showCopiedFeedback()
-        } else {
-            super.mouseDown(with: event)
-        }
-    }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu()
-        // Truncate the RAW value first, then escape — escaping first and cutting
-        // at 50 would slice a `<U+202E>` token in half and print the debris.
-        // The menu title is display, so it is escaped; `copyValue` still puts
-        // the raw `copyableValue` on the pasteboard.
-        let clipped = copyableValue.count > 50
-            ? String(copyableValue.prefix(50)) + "\u{2026}"
-            : copyableValue
-        let display = DisplayEscape.escaped(clipped)
-        let item = NSMenuItem(title: "Copy \"\(display)\"", action: #selector(copyValue), keyEquivalent: "")
-        item.target = self
-        menu.addItem(item)
-        return menu
-    }
-
-    @objc private func copyValue() {
-        copyToPasteboard()
-        showCopiedFeedback()
-    }
-
-    private func copyToPasteboard() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(copyableValue, forType: .string)
-    }
-
-    private func showCopiedFeedback() {
-        restoreTimer?.invalidate()
-        savedAttributedString = attributedStringValue
-
-        let feedback = NSMutableAttributedString(
-            string: "\u{2713} Copied",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.systemGreen,
-            ]
-        )
-        attributedStringValue = feedback
-
-        restoreTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
-            guard let self, let saved = self.savedAttributedString else { return }
-            self.attributedStringValue = saved
-            self.savedAttributedString = nil
         }
     }
 }
