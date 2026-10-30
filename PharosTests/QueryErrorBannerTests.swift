@@ -76,6 +76,21 @@ func runTests() {
     expectString(banner.messageText, "syntax error at or near \"slect\"", "the newer failure replaces the older")
     expectTrue(banner.failureId == "f2", "and the bar points at the newer entry")
 
+    // MARK: a multi-line engine message reads as one line
+
+    let duckdb = "Catalog Error: Table with name open_ports_raw does not exist!\n"
+        + "Did you mean \"open_ports\"?\n\nLINE 13:   open_ports_raw\n           ^^^^^^^^^^^^^^"
+    banner.show(failure("f3", message: duckdb))
+    expectString(banner.messageText,
+                 "Catalog Error: Table with name open_ports_raw does not exist! "
+                    + "Did you mean \"open_ports\"? LINE 13:   open_ports_raw",
+                 "line breaks become spaces and the caret line goes, with no <U+000A> tokens")
+    expectString(banner.toolTip ?? "", duckdb, "the tooltip keeps the engine's line breaks")
+    expectString(QueryErrorBanner.oneLine("a\r\nb\rc"), "a b c", "CRLF and CR join like LF")
+    expectTrue(banner.messageText.contains("<U+") == false, "no escape token for an ordinary break")
+    banner.show(failure("f4", message: "bad\u{2028}name"))
+    expectString(banner.messageText, "bad<U+2028>name", "a line separator is still disclosed")
+
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)
 }

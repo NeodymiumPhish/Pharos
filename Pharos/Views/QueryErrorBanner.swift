@@ -131,12 +131,14 @@ final class QueryErrorBanner: NSView {
         failureId = failure.id
         tabId = failure.tabId
 
-        let message = DisplayEscape.escaped(failure.message)
+        let message = DisplayEscape.escaped(Self.oneLine(failure.message))
         messageLabel.stringValue = message
         // Truncated to one line on screen; the whole of it is a hover away, and
-        // "Details…" has it in full besides.
-        toolTip = message
-        messageLabel.toolTip = message
+        // "Details…" has it in full besides. The tooltip keeps the engine's own
+        // line breaks, so a caret line still sits under the text it points at.
+        let fullMessage = DisplayEscape.escapedMultiline(failure.message)
+        toolTip = fullMessage
+        messageLabel.toolTip = fullMessage
 
         let label = "Query error: \(message)"
         setAccessibilityLabel(label)
@@ -151,6 +153,21 @@ final class QueryErrorBanner: NSView {
                 .announcement: label,
                 .priority: NSAccessibilityPriorityLevel.high.rawValue,
             ])
+    }
+
+    /// The message as one line. Engines format a message over several lines —
+    /// DuckDB sends `Did you mean …?` and a `LINE 13:` excerpt with a `^^^`
+    /// caret line under it — and `escaped` would draw each break as a
+    /// `<U+000A>` token. Those breaks are the engine's formatting, not data, so
+    /// they become one space. A caret line means nothing without the line
+    /// above it, so it goes. Only LF and CR are joined: U+2028 and the other
+    /// line breakers stay for `escaped` to disclose.
+    static func oneLine(_ message: String) -> String {
+        message
+            .split(whereSeparator: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { line in !line.isEmpty && !line.allSatisfy { $0 == "^" || $0 == " " } }
+            .joined(separator: " ")
     }
 
     /// Take the bar off screen. It keeps no failure afterwards, so a stale
