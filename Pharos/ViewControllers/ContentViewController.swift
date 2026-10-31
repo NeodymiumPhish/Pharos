@@ -1726,6 +1726,8 @@ class ContentViewController: NSViewController {
         catalogChangedTabs.remove(tabId)
         guard stateManager.status(for: connectionId) == .connected else { return }
         stateManager.refreshMetadata(connectionId: connectionId)
+        // An ATTACH or DETACH changes what the attached schemas' rows say.
+        Task { await DuckDBAttachments.shared.reload(connectionId) }
     }
 
     /// Note a successful DuckDB run whose SQL changes the catalog. Not for

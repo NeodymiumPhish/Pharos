@@ -79,7 +79,7 @@ enum InMemoryDatabases {
         panel.allowedContentTypes = [DuckDBFiles.contentType]
         panel.nameFieldStringValue = DataFiles.identifier(from: record.name, fallback: "database") + ".duckdb"
         panel.prompt = String(localized: "Save")
-        panel.message = String(localized: "The copy has the tables and views and their data. It leaves out temporary tables, attached PostgreSQL databases and work not yet committed in other tabs.")
+        panel.message = String(localized: "The copy has the tables and views and their data. It leaves out temporary tables, attached databases and work not yet committed in other tabs.")
         let guardDelegate = DuckDBNewPanelDelegate()
         panel.delegate = guardDelegate
         let completion: (NSApplication.ModalResponse) -> Void = { response in

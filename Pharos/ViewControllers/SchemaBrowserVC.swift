@@ -1178,6 +1178,17 @@ extension SchemaBrowserVC: SchemaDataSourceDelegate {
         NotificationCenter.default.post(name: .newTableFromFileRequested, object: nil,
                                         userInfo: ["url": url, "schema": schema])
     }
+
+    func schemaDataSourceCanAttachDatabaseFile(_ url: URL) -> Bool {
+        guard let connectionId, engine(for: connectionId) == .duckdb,
+              stateManager.status(for: connectionId) == .connected else { return false }
+        return DuckDBAttachRules.isDatabaseFile(url)
+    }
+
+    func schemaDataSourceDidDropDatabaseFile(_ url: URL) {
+        guard let connectionId else { return }
+        presentAsSheet(AttachDatabaseSheet(duckConnectionId: connectionId, file: url))
+    }
 }
 
 // MARK: - SchemaContextMenuDelegate

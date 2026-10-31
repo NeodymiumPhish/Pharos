@@ -360,6 +360,7 @@ pub async fn execute_query(request: SessionRunRequest, state: &AppState) -> Resu
     let report = finish(&mut guard, &session, state).await;
     drop(guard);
     let rows = outcome.map_err(RunStop::message)?;
+    super::duck_attach::after_card_sql(&t.connection_id, &request.sql, state).await?;
     let execution_time_ms = start.elapsed().as_millis() as u64;
     let row_count = rows.rows.len();
     let history_entry_id = if request.aux {
@@ -409,6 +410,7 @@ pub async fn execute_statement(request: SessionRunRequest, state: &AppState) -> 
     let report = finish(&mut guard, &session, state).await;
     drop(guard);
     let rows_affected = outcome.map_err(RunStop::message)?;
+    super::duck_attach::after_card_sql(&t.connection_id, &request.sql, state).await?;
     let execution_time_ms = start.elapsed().as_millis() as u64;
     let history_entry_id = if request.aux {
         None

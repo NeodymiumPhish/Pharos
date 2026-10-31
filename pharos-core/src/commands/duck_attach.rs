@@ -774,6 +774,82 @@ pub async fn detach_all_for(pg_id: &str, state: &AppState) {
     }
 }
 
+// MARK: - Cards
+
+/// A card ran `sql` on the DuckDB database of `duck_id`, and it succeeded.
+/// After an ATTACH, rule G1 holds for every file attached there: a database
+/// that breaks it is detached again and the card gets the reason. After a
+/// DETACH, a remembered attach that is gone while its source is there is
+/// forgotten, as Detach in the navigator would. (A card's own ATTACH is not
+/// remembered: only Attach Database… remembers.)
+pub async fn after_card_sql(duck_id: &str, sql: &str, state: &AppState) -> Result<(), String> {
+    let words: Vec<String> = crate::db::duckdb::exec::statements(sql)
+        .iter()
+        .map(|s| crate::db::duckdb::exec::first_word(s))
+        .collect();
+    let attached = words.iter().any(|w| w == "ATTACH");
+    let detached = words.iter().any(|w| w == "DETACH");
+    if !attached && !detached {
+        return Ok(());
+    }
+    let instance = state.require_duck(duck_id)?;
+    if detached {
+        forget_detached(duck_id, &instance, state).await;
+    }
+    if attached {
+        check_attached_files(&instance, state).await?;
+    }
+    Ok(())
+}
+
+/// G1 for each database FILE attached to `instance` (not a URL, not
+/// PostgreSQL). The first that breaks it is detached; its reason returned.
+async fn check_attached_files(instance: &Arc<DuckDbInstance>, state: &AppState) -> Result<(), String> {
+    let files: Vec<(String, String, bool)> = instance
+        .with_connection(|c| {
+            let mut stmt = c
+                .prepare(
+                    "SELECT database_name, path, readonly FROM duckdb_databases() \
+                     WHERE path IS NOT NULL AND path <> '' AND path NOT LIKE '%://%' \
+                       AND database_name <> current_database()",
+                )
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        })
+        .await?;
+    for (alias, path, read_only) in files {
+        if let Err(message) = check_file_holders_except(state, &path, read_only, Some((instance, &alias))).await {
+            let quoted = format!("\"{}\"", alias.replace('"', "\"\""));
+            let _ = instance
+                .with_connection(move |c| c.execute_batch(&format!("DETACH DATABASE IF EXISTS {}", quoted)).map_err(|e| e.to_string()))
+                .await;
+            return Err(format!("{} Pharos detached {} again.", message, alias));
+        }
+    }
+    Ok(())
+}
+
+/// Forget the remembered attaches of `duck_id` that are not attached while
+/// their source is there (the file exists; the connection is connected).
+async fn forget_detached(duck_id: &str, instance: &Arc<DuckDbInstance>, state: &AppState) {
+    let Ok(names) = taken_aliases(instance).await else { return };
+    let db = state.metadata_db.lock().unwrap_or_else(|e| e.into_inner());
+    let rows = sqlite::load_duck_attachments(&db, duck_id).unwrap_or_default();
+    for row in rows.into_iter().filter(|r| !names.contains(&r.alias)) {
+        let available = match (&row.pg_connection_id, &row.file_path) {
+            (Some(pg), _) => state.get_pool(pg).is_some(),
+            (None, Some(path)) => std::path::Path::new(path).exists(),
+            (None, None) => true,
+        };
+        if available {
+            let _ = sqlite::delete_duck_attachment(&db, duck_id, &row.alias);
+        }
+    }
+}
+
 // MARK: - List
 
 /// The databases attached to the DuckDB database of `duck_id` — by Pharos or
@@ -1126,6 +1202,45 @@ mod tests {
         connect(&rt, &state, &home);
         assert!(count(&rt, &state, "home", "SELECT count(*) FROM sales.main.t").is_err(), "not attached again");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_card_attach_that_breaks_g1_is_detached_and_a_card_detach_forgets() {
+        let dir = temp_dir();
+        let sales = make_db(&dir, "sales.duckdb", 3);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let state = file_state();
+        let home = duck_record(&state, "home", ":memory:", false);
+        connect(&rt, &state, &home);
+        let instance = state.require_duck("home").unwrap();
+        let run = |sql: String| {
+            rt.block_on(instance.with_connection(move |c| c.execute_batch(&sql).map_err(|e| e.to_string()))).unwrap()
+        };
+        assert_eq!(rt.block_on(after_card_sql("home", "SELECT 1", &state)), Ok(()), "no ATTACH, no check");
+
+        // The file is open read-write in another tab; a card attaches it.
+        let writer = duck_record(&state, "Sales", &sales, false);
+        connect(&rt, &state, &writer);
+        let attach = format!("ATTACH '{}' AS s (READ_ONLY)", sales);
+        run(attach.clone());
+        let e = rt.block_on(after_card_sql("home", &attach, &state)).unwrap_err();
+        assert!(e.contains("with write access") && e.ends_with("Pharos detached s again."), "{e}");
+        assert!(count(&rt, &state, "home", "SELECT count(*) FROM s.main.t").is_err(), "detached");
+        rt.block_on(crate::commands::duck::disconnect("Sales", &state));
+        run(attach.clone());
+        assert_eq!(rt.block_on(after_card_sql("home", &attach, &state)), Ok(()), "nobody else holds it now");
+        run("DETACH s".to_string());
+
+        // A card DETACH of a remembered attach forgets it.
+        rt.block_on(attach_fn(&state, "home", &sales));
+        run("DETACH sales".to_string());
+        rt.block_on(after_card_sql("home", "DETACH sales", &state)).unwrap();
+        assert!(rt.block_on(list("home", &state)).unwrap().is_empty(), "forgotten, not waiting");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    async fn attach_fn(state: &AppState, duck: &str, path: &str) -> AttachmentInfo {
+        attach(duck.into(), AttachSource::File(path.into()), None, true, state).await.unwrap()
     }
 
     #[test]
