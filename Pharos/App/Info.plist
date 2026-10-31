@@ -109,6 +109,19 @@
                 <string>postgresql</string>
             </array>
         </dict>
+        <!-- pharos://duckdb/attach?url=<http(s) URL>&name=<alias>: a web
+             page's DuckDB file, attached read-only over HTTP after the user
+             confirms (DuckDBLinkParser). -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.pharos.client.link</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>pharos</string>
+            </array>
+        </dict>
     </array>
     <key>NSUserActivityTypes</key>
     <array>

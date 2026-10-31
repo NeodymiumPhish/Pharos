@@ -479,6 +479,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 openConnectionLink(url)
                 continue
             }
+            // A DuckDB database a web page serves over HTTP: attached
+            // read-only in a new in-memory tab, after the user confirms.
+            if url.scheme?.lowercased() == DuckDBLinkParser.scheme {
+                openDuckDBLink(url)
+                continue
+            }
             let conforms: Bool
             if let type = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
                 conforms = type.conforms(to: textType)

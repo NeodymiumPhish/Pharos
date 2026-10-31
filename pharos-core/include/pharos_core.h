@@ -245,6 +245,19 @@ void pharos_duck_attach_postgres(const char *duck_connection_id,
                                  void *context);
 
 /**
+ * Attach the DuckDB database file at `url` (http/https) to an open DuckDB
+ * database, read-only, as `alias` (`commands::duck_attach::attach_remote`):
+ * the `pharos://duckdb/attach` link. No card or history entry shows it.
+ * Returns the alias as a JSON string via callback.
+ */
+
+void pharos_duck_attach_remote(const char *duck_connection_id,
+                               const char *url,
+                               const char *alias,
+                               AsyncCallback callback,
+                               void *context);
+
+/**
  * Detach a PostgreSQL connection Pharos attached to a DuckDB database.
  * Returns `null` via callback.
  */

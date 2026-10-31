@@ -259,6 +259,32 @@ pub extern "C" fn pharos_duck_attach_postgres(
     });
 }
 
+/// Attach the DuckDB database file at `url` (http/https) to an open DuckDB
+/// database, read-only, as `alias` (`commands::duck_attach::attach_remote`):
+/// the `pharos://duckdb/attach` link. No card or history entry shows it.
+/// Returns the alias as a JSON string via callback.
+#[no_mangle]
+pub extern "C" fn pharos_duck_attach_remote(
+    duck_connection_id: *const c_char,
+    url: *const c_char,
+    alias: *const c_char,
+    callback: AsyncCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let duck_id = unsafe { c_str_to_string(duck_connection_id) };
+    let url = unsafe { c_str_to_string(url) };
+    let alias = unsafe { c_str_to_string(alias) };
+    let ctx = context as usize;
+
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::duck_attach::attach_remote(duck_id, url, alias, state).await {
+            Ok(alias) => callback_ok(callback, ctx, &serde_json::to_string(&alias).unwrap_or_default()),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Detach a PostgreSQL connection Pharos attached to a DuckDB database.
 /// Returns `null` via callback.
 #[no_mangle]
