@@ -269,6 +269,7 @@
 		94BEDEAAA1B0DDD7FFD7DE34 /* PharosCore+ModelFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0545483DE63C69CAFE2604F /* PharosCore+ModelFeedback.swift */; };
 		94D9056A0BA23965F5B58D3E /* SettingsPaneRegistry+Factories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3CAF3E2DBC07E5EB977E87 /* SettingsPaneRegistry+Factories.swift */; };
 		957CD0996F5E107AED6FC01D /* VariableValuePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51B7E42D0E3720183013836 /* VariableValuePreview.swift */; };
+		958E7B8AFAB2CFDDE9461874 /* DuckDBLinkParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01061CEE8689D1E9B759B255 /* DuckDBLinkParser.swift */; };
 		95A33984D8A036AFD8CA4EB6 /* AppearanceSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAAA38815EB77E7D80DE74B /* AppearanceSettingsPaneVC.swift */; };
 		96C02805986F1C25170AB28A /* TagManagerCommitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F92E5CA3CD3F9F34190FFD0 /* TagManagerCommitting.swift */; };
 		96F8B81C319801D4E045CF43 /* ResultsTagController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99F4997A1B526AF0B5B07BB2 /* ResultsTagController.swift */; };
@@ -448,6 +449,7 @@
 		0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagCopyScope.swift; sourceTree = "<group>"; };
 		0050C55A0C9DA511EC8AC149 /* VariableCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableCompletion.swift; sourceTree = "<group>"; };
 		0069EE2EC87C536275B40B69 /* SchemaDraftFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaDraftFacts.swift; sourceTree = "<group>"; };
+		01061CEE8689D1E9B759B255 /* DuckDBLinkParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuckDBLinkParser.swift; sourceTree = "<group>"; };
 		0182FE7779F9D5E0C098F576 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		02A96A71AC4D54E03F4A8B52 /* SettingsSidebarVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarVC.swift; sourceTree = "<group>"; };
@@ -952,6 +954,7 @@
 				13897D85C05525947FD11603 /* ColumnIdentifier.swift */,
 				282A36163CC5BDB9DCB7C6BC /* ConnectionURLParser.swift */,
 				A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */,
+				01061CEE8689D1E9B759B255 /* DuckDBLinkParser.swift */,
 				78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */,
 				EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */,
 				A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */,
@@ -1712,6 +1715,7 @@
 				3DCBD8AB9F46D4D240F5799E /* DuckDBCloseRule.swift in Sources */,
 				A46A3B90BA65BDA041A0E874 /* DuckDBCloudSecretsEditor.swift in Sources */,
 				8BA5D322E3AAE0EE87353DA2 /* DuckDBFiles.swift in Sources */,
+				958E7B8AFAB2CFDDE9461874 /* DuckDBLinkParser.swift in Sources */,
 				834A89BB88BF7F87A3247D2D /* DuckDBVocabularyCache.swift in Sources */,
 				806C7A8EAF5436650E98D70A /* DurationText.swift in Sources */,
 				3E29C8CBCB83D4D5A595A604 /* EditorPaneVC+TabContext.swift in Sources */,

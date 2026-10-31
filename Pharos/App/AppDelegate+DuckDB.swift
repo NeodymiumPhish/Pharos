@@ -211,6 +211,73 @@ extension AppDelegate {
         NSApp.activate()
     }
 
+    /// `pharos://duckdb/attach?url=…&name=…` (`DuckDBLinkParser`): a NEW
+    /// in-memory database in a new tab, with the remote file attached
+    /// READ_ONLY by pharos-core (no card, no history entry) and the tab's
+    /// schema set to its `main`, so the navigator lists its tables and
+    /// unqualified names find them. Nothing is downloaded; DuckDB's httpfs
+    /// reads the file in place.
+    ///
+    /// Any web page can open a `pharos://` link, so Pharos asks first and
+    /// shows where the file is. Nothing runs and no record is made until the
+    /// user clicks Attach.
+    @MainActor
+    func openDuckDBLink(_ url: URL) {
+        showMainWindow()
+        // The link comes from the browser, which stays frontmost: without
+        // this the alert opens behind it and the click seems to do nothing.
+        NSApp.activate()
+        guard let link = DuckDBLinkParser.parse(url) else {
+            Log.ui.error("Unreadable DuckDB link")
+            let alert = NSAlert()
+            alert.messageText = String(localized: "Pharos could not read this DuckDB link.")
+            alert.informativeText = DisplayEscape.escaped(url.absoluteString)
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: String(localized: "OK"))
+            alert.runModal()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Attach \(DisplayEscape.escaped(link.fileName)) from \(DisplayEscape.escaped(link.host))?")
+        alert.informativeText = String(localized: "Pharos attaches the database read-only as \(link.alias) in a new in-memory database. DuckDB reads the file from this address while you run queries.\n\n\(DisplayEscape.escaped(link.databaseURL.absoluteString))")
+        alert.addButton(withTitle: String(localized: "Attach"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let manager = AppStateManager.shared
+        let record = ConnectionConfig.duckDB(path: ConnectionConfig.duckDBInMemoryPath,
+                                             name: DuckDBFiles.uniqueInMemoryName(in: manager.connections))
+        manager.saveConnection(record)
+        let tab = QueryTab(name: record.name, connectionId: record.id, schemaName: record.effectiveDefaultSchema)
+        let controller = frontmostWindowController.map { openTab(tab, beside: $0) } ?? openItem(tab)
+        let session = controller.session
+        let tabId = tab.id
+        WhenConnected.run(connectionId: record.id) {
+            Task { @MainActor in
+                do {
+                    let alias = try await PharosCore.duckAttachRemote(
+                        duckConnectionId: record.id, url: link.databaseURL.absoluteString, alias: link.alias)
+                    // The attached database's own `main`, as the schema
+                    // pop-up would set it (`EditorPaneVC.setTabSchema`).
+                    let schema = "\(alias).main"
+                    session.updateTab(id: tabId) { $0.schemaName = schema }
+                    if session.activeTabId == tabId { session.activeSchema = schema }
+                    manager.refreshMetadata(connectionId: record.id)
+                } catch {
+                    Log.ui.error("Attach from a DuckDB link failed")
+                    let failed = NSAlert()
+                    failed.messageText = String(localized: "Pharos could not attach \(DisplayEscape.escaped(link.fileName)).")
+                    failed.informativeText = DisplayEscape.escaped(error.localizedDescription)
+                    failed.alertStyle = .warning
+                    failed.addButton(withTitle: String(localized: "OK"))
+                    failed.runModal()
+                }
+            }
+        }
+        manager.useConnection(record.id, forTabId: tabId, in: session)
+        NSApp.activate()
+    }
+
     /// Put a connection in a tab and connect it.
     ///
     /// A DuckDB file is a document: a tab that already shows it comes forward

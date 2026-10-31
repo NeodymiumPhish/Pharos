@@ -268,6 +268,28 @@ The Database Navigator then shows the PostgreSQL schemas as `name.schema`, after
 - The attach lasts while the PostgreSQL connection stays connected. When you disconnect it, Pharos detaches it from DuckDB. To detach it sooner, right-click one of its schemas and choose **Detach**.
 - `verify-ca` and `verify-full` use the connection's SSL root certificate, or the certificates that macOS ships (`/etc/ssl/cert.pem`) when the connection has none. Certificates you added to the Keychain are not used.
 
+## Open a database from a web link
+
+A web page can give a link that opens a DuckDB database file in Pharos with no download. The page must serve the file over `http://` or `https://` and answer `HEAD` and `Range` requests. The link has this format:
+
+```
+pharos://duckdb/attach?url=<the file's URL, percent-encoded>&name=<alias>
+```
+
+When you click the link:
+
+1. Pharos shows the file name, the host and the full URL, and asks you to confirm. Click **Attach** to continue, or **Cancel** to stop.
+2. Pharos opens a new in-memory database in a new tab.
+3. Pharos attaches the file with `ATTACH '<url>' AS "<alias>" (READ_ONLY)`. This statement runs in the background: it adds no card and no query history entry.
+4. The tab's schema changes to `alias.main`. The Database Navigator shows the tables of the file, and the schema pop-up shows `alias.main`.
+
+Because the tab's schema is `alias.main`, a table name with no prefix finds the file's tables, for example `SELECT * FROM pdns`. The full name also works: `SELECT * FROM t7091.main.pdns`. If the attach fails, Pharos shows the DuckDB error in an alert.
+
+- The attached database is always read-only.
+- Pharos accepts only `http` and `https` URLs, with no user name or password in the URL.
+- `name` becomes a DuckDB identifier: lower-case letters, digits and `_`. With no `name`, Pharos uses the file name without its extension.
+- DuckDB reads the file from the server while you run queries. When the server stops or removes the file, the queries fail. To keep the data, download the file from the web page and open it with **File > Open DuckDB Database…**.
+
 ## Cloud storage (S3, R2, GCS)
 
 To read `s3://`, `r2://` or `gcs://` paths, add a credential in **Settings > Connections > DuckDB > Cloud storage credentials**:

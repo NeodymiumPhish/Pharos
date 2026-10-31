@@ -227,6 +227,48 @@ pub async fn attach_postgres(
     Ok(AttachmentInfo { alias, pg_id, pg_name: config.name, read_only })
 }
 
+/// `ATTACH '<url>' AS "<alias>" (READ_ONLY)` for a DuckDB database file a web
+/// page serves over HTTP (`pharos://duckdb/attach`). httpfs reads it in place
+/// with Range requests; DuckDB attaches such a file read-only only. The URL
+/// must be `http(s)://`, with no user, password or control characters.
+pub fn remote_attach_sql(url: &str, alias: &str) -> Result<String, String> {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+        .ok_or_else(|| "Only an http:// or https:// database can be attached from a link.".to_string())?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return Err("The link's database address needs a host and no user name or password.".to_string());
+    }
+    if url.chars().any(char::is_control) {
+        return Err("The link's database address has a control character.".to_string());
+    }
+    validate_alias(alias)?;
+    Ok(format!("ATTACH {} AS \"{}\" (READ_ONLY)", literal(url), alias))
+}
+
+/// Attach the DuckDB database at `url` to the DuckDB database of `duck_id`,
+/// read-only, as `alias`. It runs here, so no card and no history entry shows
+/// it; the front end reloads the navigator after. Returns the alias.
+pub async fn attach_remote(duck_id: String, url: String, alias: String, state: &AppState) -> Result<String, String> {
+    let instance = state.require_duck(&duck_id)?;
+    let attach = remote_attach_sql(&url, &alias)?;
+    let alias_c = alias.clone();
+    instance
+        .with_connection(move |c| {
+            let taken: bool = c
+                .query_row("SELECT count(*) > 0 FROM duckdb_databases() WHERE database_name = ?", [&alias_c], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+            if taken {
+                return Err(format!("A database named \"{}\" is already attached.", alias_c));
+            }
+            c.execute_batch(&attach).map_err(|e| e.to_string())
+        })
+        .await?;
+    Ok(alias)
+}
+
 /// DETACH and drop the secret on one instance.
 async fn detach_on(instance: Arc<DuckDbInstance>, alias: String, secret: String) -> Result<(), String> {
     instance
@@ -456,5 +498,131 @@ mod tests {
         rt.block_on(crate::commands::duck::connect(duck, &state)).unwrap();
         let err = rt.block_on(attach_postgres("duck-x".into(), "pg-off".into(), None, true, &state)).unwrap_err();
         assert!(err.contains("Connect \"Local PG\" first"), "{err}");
+    }
+
+    #[test]
+    fn remote_attach_sql_is_read_only_and_quoted() {
+        assert_eq!(
+            remote_attach_sql("http://127.0.0.1:8765/db/0a1b/t7091.duckdb", "t7091").unwrap(),
+            "ATTACH 'http://127.0.0.1:8765/db/0a1b/t7091.duckdb' AS \"t7091\" (READ_ONLY)"
+        );
+        assert_eq!(
+            remote_attach_sql("https://h.example/a'b.duckdb", "a_b").unwrap(),
+            "ATTACH 'https://h.example/a''b.duckdb' AS \"a_b\" (READ_ONLY)"
+        );
+    }
+
+    #[test]
+    fn remote_attach_sql_refuses_other_addresses() {
+        for url in [
+            "file:///etc/passwd",
+            "/tmp/x.duckdb",
+            "s3://bucket/x.duckdb",
+            "http:///x.duckdb",
+            "http://u:p@h/x.duckdb",
+            "http://h/x\n.duckdb",
+        ] {
+            assert!(remote_attach_sql(url, "x").is_err(), "{url}");
+        }
+        assert!(remote_attach_sql("http://h/x.duckdb", "main").is_err(), "reserved alias");
+        assert!(remote_attach_sql("http://h/x.duckdb", "X\"; DROP").is_err(), "alias not an identifier");
+    }
+
+    /// Serve one file over HTTP/1.1 with HEAD and Range, as the Recon to
+    /// DuckDB app does: just enough for httpfs. Returns the port.
+    fn serve_file(path: std::path::PathBuf) -> u16 {
+        use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut request = String::new();
+                    if reader.read_line(&mut request).is_err() {
+                        return;
+                    }
+                    let mut range = None;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                            break;
+                        }
+                        if let Some(v) = line.to_ascii_lowercase().strip_prefix("range: bytes=") {
+                            let (a, b) = v.trim().split_once('-').unwrap();
+                            range = Some((a.parse::<u64>().unwrap(), b.parse::<u64>().ok()));
+                        }
+                    }
+                    let mut file = std::fs::File::open(&path).unwrap();
+                    let size = file.metadata().unwrap().len();
+                    let (start, end) = match range {
+                        Some((a, b)) => (a, b.unwrap_or(size - 1).min(size - 1)),
+                        None => (0, size - 1),
+                    };
+                    let status = if range.is_some() { "206 Partial Content" } else { "200 OK" };
+                    let mut head = format!(
+                        "HTTP/1.1 {status}\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nConnection: close\r\n",
+                        end - start + 1
+                    );
+                    if range.is_some() {
+                        head += &format!("Content-Range: bytes {start}-{end}/{size}\r\n");
+                    }
+                    head += "\r\n";
+                    let _ = stream.write_all(head.as_bytes());
+                    if request.starts_with("GET") {
+                        let mut body = vec![0; (end - start + 1) as usize];
+                        file.seek(SeekFrom::Start(start)).unwrap();
+                        file.read_exact(&mut body).unwrap();
+                        let _ = stream.write_all(&body);
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn attach_remote_reads_a_database_over_http() {
+        let path = std::env::temp_dir().join(format!("pharos-remote-{}.duckdb", uuid::Uuid::new_v4()));
+        {
+            let c = duckdb::Connection::open(&path).unwrap();
+            c.execute_batch("CREATE TABLE pdns AS SELECT range AS id FROM range(1000); CHECKPOINT;").unwrap();
+        }
+        let url = format!("http://127.0.0.1:{}/db/x/remote.duckdb", serve_file(path.clone()));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let state = AppState::new(rusqlite::Connection::open_in_memory().unwrap());
+        let duck = ConnectionConfig { id: "duck-r".into(), engine: Engine::Duckdb, database: ":memory:".into(), ..pg("duck") };
+        state.set_config(duck.clone());
+        rt.block_on(crate::commands::duck::connect(duck, &state)).unwrap();
+
+        let alias = rt.block_on(attach_remote("duck-r".into(), url.clone(), "remote".into(), &state)).unwrap();
+        assert_eq!(alias, "remote");
+        let instance = state.require_duck("duck-r").unwrap();
+        let (n, read_only): (i64, bool) = rt
+            .block_on(instance.with_connection(|c| {
+                let n = c.query_row("SELECT count(*) FROM remote.main.pdns", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+                let ro = c
+                    .query_row("SELECT readonly FROM duckdb_databases() WHERE database_name = 'remote'", [], |r| r.get(0))
+                    .map_err(|e| e.to_string())?;
+                Ok((n, ro))
+            }))
+            .unwrap();
+        assert_eq!(n, 1000);
+        assert!(read_only, "attached read-only");
+        // The tab's schema `remote.main` (duck_session::schema_sql) finds its
+        // tables with no prefix.
+        let unqualified: i64 = rt
+            .block_on(instance.with_connection(|c| {
+                c.execute_batch("SET search_path = 'remote.main,main'").map_err(|e| e.to_string())?;
+                c.query_row("SELECT count(*) FROM pdns", [], |r| r.get(0)).map_err(|e| e.to_string())
+            }))
+            .unwrap();
+        assert_eq!(unqualified, 1000);
+        let again = rt.block_on(attach_remote("duck-r".into(), url, "remote".into(), &state)).unwrap_err();
+        assert!(again.contains("already attached"), "{again}");
+        let _ = std::fs::remove_file(path);
     }
 }

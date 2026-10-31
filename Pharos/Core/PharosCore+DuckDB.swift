@@ -48,6 +48,21 @@ extension PharosCore {
         }
     }
 
+    /// Attach the DuckDB database file at `url` (http/https) read-only as
+    /// `alias`, outside every card and history path (`pharos://duckdb/attach`).
+    /// Returns the alias.
+    static func duckAttachRemote(duckConnectionId: String, url: String, alias: String) async throws -> String {
+        try await withAsyncCallback { callback, context in
+            duckConnectionId.withCString { d in
+                url.withCString { u in
+                    alias.withCString { a in
+                        pharos_duck_attach_remote(d, u, a, callback, context)
+                    }
+                }
+            }
+        }
+    }
+
     /// How many tables and views of its own an in-memory DuckDB database
     /// holds: what Disconnect, Quit or Delete would lose (F7).
     static func duckUserTableCount(connectionId: String) async throws -> UInt64 {
