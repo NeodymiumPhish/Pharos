@@ -170,6 +170,9 @@ pub struct AppState {
     /// PostgreSQL connections attached to DuckDB databases
     /// (`commands::duck_attach`).
     pub pg_attachments: Mutex<Vec<crate::commands::duck_attach::PgAttachment>>,
+    /// Remembered attaches a DuckDB connect could not restore, by DuckDB
+    /// connection id, until the front end takes them (`duck_attach::restore`).
+    pub attach_restore_failures: Mutex<HashMap<String, Vec<String>>>,
     /// Each editor tab's own DuckDB connection, by tab id
     /// (`commands::duck_session`).
     pub duck_sessions: Mutex<HashMap<String, Arc<crate::commands::duck_session::DuckSession>>>,
@@ -214,6 +217,7 @@ impl AppState {
             duck_dbs: Mutex::new(HashMap::new()),
             duck_sessions: Mutex::new(HashMap::new()),
             pg_attachments: Mutex::new(Vec::new()),
+            attach_restore_failures: Mutex::new(HashMap::new()),
             duck_read_only_once: Mutex::new(HashSet::new()),
             duck_closing: Mutex::new(HashMap::new()),
             duck_create_once: Mutex::new(HashSet::new()),
@@ -501,6 +505,13 @@ impl AppState {
     pub fn remove_duck(&self, connection_id: &str) -> Option<Arc<DuckDbInstance>> {
         let mut dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
         dbs.remove(connection_id)
+    }
+
+    /// Every connected DuckDB record with its instance. Records on one file
+    /// share an instance, so an instance can appear more than once.
+    pub fn duck_entries(&self) -> Vec<(String, Arc<DuckDbInstance>)> {
+        let dbs = self.duck_dbs.lock().unwrap_or_else(|e| e.into_inner());
+        dbs.iter().map(|(id, d)| (id.clone(), d.clone())).collect()
     }
 
     /// Every open DuckDB database, for shutdown.

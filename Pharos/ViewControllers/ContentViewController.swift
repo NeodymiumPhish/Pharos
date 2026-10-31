@@ -5005,17 +5005,17 @@ extension ContentViewController {
         }
     }
 
-    /// Query ▸ Attach PostgreSQL Connection…: on a connected DuckDB tab.
-    @objc func menuAttachPostgres(_: Any?) {
-        guard let id = canAttachPostgresConnectionId else { return }
-        presentAsSheet(AttachPostgresSheet(duckConnectionId: id))
+    /// Query ▸ Attach Database…: on a connected DuckDB tab.
+    @objc func menuAttachDatabase(_: Any?) {
+        guard let id = canAttachDatabaseConnectionId else { return }
+        presentAsSheet(AttachDatabaseSheet(duckConnectionId: id))
     }
 
-    /// The tab's DuckDB connection when it can attach a PostgreSQL connection.
-    var canAttachPostgresConnectionId: String? {
+    /// The tab's DuckDB connection when it can attach another database.
+    var canAttachDatabaseConnectionId: String? {
         guard let id = session.activeTab?.connectionId, stateManager.status(for: id) == .connected,
               let config = stateManager.connections.first(where: { $0.id == id }),
-              config.engine.capabilities.attachPostgres else { return nil }
+              config.engine.capabilities.attachDatabases else { return nil }
         return id
     }
 
@@ -5366,7 +5366,7 @@ extension ContentViewController: NSMenuItemValidation {
         if menuItem.action == #selector(menuShowInFinder(_:)) { return duckDBFileRecord != nil }
         if menuItem.action == #selector(menuSaveAsConnection(_:)) { return notSavedRecord != nil }
         if menuItem.action == #selector(menuSaveInMemoryDatabase(_:)) { return inMemoryRecord != nil }
-        if menuItem.action == #selector(menuAttachPostgres(_:)) { return canAttachPostgresConnectionId != nil }
+        if menuItem.action == #selector(menuAttachDatabase(_:)) { return canAttachDatabaseConnectionId != nil }
         if menuItem.action == #selector(menuInsertFileReference(_:)) { return isDuckDBTab }
         if menuItem.action == #selector(menuNewTableFromFile(_:)) { return canMakeTableFromFile }
         if menuItem.action == #selector(menuCommitTransaction(_:)) || menuItem.action == #selector(menuRollBackTransaction(_:)) {

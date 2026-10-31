@@ -206,6 +206,9 @@ class SchemaBrowserVC: NSViewController {
         // A row's stop button (D9).
         NotificationCenter.default.addObserver(self, selector: #selector(stopRequested(_:)),
                                                name: .tableJobStopRequested, object: nil)
+        // DuckDB: an attached schema's row says where it comes from.
+        NotificationCenter.default.addObserver(self, selector: #selector(attachmentsChanged(_:)),
+                                               name: DuckDBAttachments.listDidChange, object: nil)
 
         // Refresh the tree when a setting that changes its SHAPE changes:
         // "Show Leaf Partitions" adds or removes the Partitions group, and
@@ -324,6 +327,7 @@ class SchemaBrowserVC: NSViewController {
                     // Only update display if this connection is still active
                     guard self.connectionId == connectionId else { return }
                     self.unfilteredRootNodes = schemaNodes
+                    self.applyAttachmentSources()
                     // Through rebuildDisplayTree, NOT by assigning rootNodes
                     // directly. A schema may already be pinned: the sidebar
                     // pins it as soon as the connection reports its schema,
@@ -734,6 +738,29 @@ class SchemaBrowserVC: NSViewController {
     }
 
     /// Rebuild the display tree from unfiltered data, applying schema filter then text filter.
+    /// DuckDB: give each attached schema row its source, from the list
+    /// `DuckDBAttachments` keeps. Asks for the list when it has none yet.
+    private func applyAttachmentSources() {
+        guard let connectionId else { return }
+        var missing = false
+        for node in unfilteredRootNodes {
+            guard case let .schema(info) = node.kind, info.attachedDatabase != nil else { continue }
+            let attachment = DuckDBAttachments.shared.attachment(ofSchema: info.name, connectionId: connectionId)
+            if attachment == nil { missing = true }
+            node.sourceSubtitle = attachment.map(DuckDBAttachRules.subtitle(for:))
+            node.sourceTooltip = attachment.flatMap { $0.path ?? $0.pgName }
+        }
+        if missing, !DuckDBAttachments.shared.hasList(for: connectionId) {
+            Task { await DuckDBAttachments.shared.reload(connectionId) }
+        }
+    }
+
+    @objc private func attachmentsChanged(_ note: Notification) {
+        guard let id = note.userInfo?["connectionId"] as? String, id == connectionId else { return }
+        applyAttachmentSources()
+        reloadPreservingSelection { self.rebuildDisplayTree() }
+    }
+
     private func rebuildDisplayTree() {
         // Step 1: Apply schema filter (flatten when single schema selected)
         var nodes: [SchemaTreeNode]
@@ -837,6 +864,8 @@ class SchemaBrowserVC: NSViewController {
             if matchingChildren.isEmpty && !titleMatches { return nil }
             let filtered = SchemaTreeNode(node.kind, parent: node.parent)
             filtered.isLoaded = node.isLoaded
+            filtered.sourceSubtitle = node.sourceSubtitle
+            filtered.sourceTooltip = node.sourceTooltip
             for child in matchingChildren { filtered.addChild(child) }
             if !filtered.children.isEmpty {
                 expandList.append(filtered)

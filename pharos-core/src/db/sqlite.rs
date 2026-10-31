@@ -596,6 +596,23 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
             last_opened_at TEXT NOT NULL
         );
 
+        -- The databases a DuckDB record attaches each time it opens (Query ▸
+        -- Attach Database…; `commands::duck_attach`). One row per alias. `kind`
+        -- is DuckDB's database type ("postgres", "duckdb", "sqlite"); a
+        -- PostgreSQL row names its connection, a file row its normalized path.
+        -- No password is kept here. No foreign keys: `delete_connection`
+        -- removes the rows of a deleted record on either side.
+        CREATE TABLE IF NOT EXISTS duck_attachments (
+            duck_connection_id TEXT NOT NULL,
+            alias TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            pg_connection_id TEXT,
+            file_path TEXT,
+            read_only INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (duck_connection_id, alias)
+        );
+
         -- Thumbs up / thumbs down on what the on-device model wrote. One row
         -- per press, so a user who changes their mind leaves two rows and the
         -- later one wins by `created_at`.
@@ -1243,6 +1260,10 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
 /// Delete a connection configuration from the database
 pub fn delete_connection(conn: &Connection, connection_id: &str) -> SqliteResult<()> {
     conn.execute("DELETE FROM connections WHERE id = ?1", [connection_id])?;
+    conn.execute(
+        "DELETE FROM duck_attachments WHERE duck_connection_id = ?1 OR pg_connection_id = ?1",
+        [connection_id],
+    )?;
     Ok(())
 }
 
@@ -2152,6 +2173,86 @@ pub fn save_session(conn: &mut Connection, session: &Session) -> SqliteResult<()
         }
     }
     tx.commit()?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// DuckDB attaches to restore (`duck_attachments`)
+// ---------------------------------------------------------------------------
+
+/// One database a DuckDB record attaches each time it opens.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DuckAttachmentRow {
+    pub duck_connection_id: String,
+    pub alias: String,
+    /// DuckDB's database type: "postgres", "duckdb" or "sqlite".
+    pub kind: String,
+    pub pg_connection_id: Option<String>,
+    pub file_path: Option<String>,
+    pub read_only: bool,
+}
+
+const DUCK_ATTACHMENT_COLUMNS: &str = "duck_connection_id, alias, kind, pg_connection_id, file_path, read_only";
+
+fn duck_attachment_row(row: &rusqlite::Row) -> SqliteResult<DuckAttachmentRow> {
+    Ok(DuckAttachmentRow {
+        duck_connection_id: row.get(0)?,
+        alias: row.get(1)?,
+        kind: row.get(2)?,
+        pg_connection_id: row.get(3)?,
+        file_path: row.get(4)?,
+        read_only: row.get(5)?,
+    })
+}
+
+/// The attaches of one DuckDB record, in the order the user made them.
+pub fn load_duck_attachments(conn: &Connection, duck_connection_id: &str) -> SqliteResult<Vec<DuckAttachmentRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM duck_attachments WHERE duck_connection_id = ?1 ORDER BY position, alias",
+        DUCK_ATTACHMENT_COLUMNS
+    ))?;
+    let rows = stmt.query_map([duck_connection_id], duck_attachment_row)?;
+    rows.collect()
+}
+
+/// Every attach of one PostgreSQL connection, on any DuckDB record.
+pub fn load_duck_attachments_for_pg(conn: &Connection, pg_connection_id: &str) -> SqliteResult<Vec<DuckAttachmentRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {} FROM duck_attachments WHERE pg_connection_id = ?1 ORDER BY duck_connection_id, position",
+        DUCK_ATTACHMENT_COLUMNS
+    ))?;
+    let rows = stmt.query_map([pg_connection_id], duck_attachment_row)?;
+    rows.collect()
+}
+
+/// Remember an attach. A row with the same alias is replaced in place (it
+/// keeps its position); a new one goes last.
+pub fn save_duck_attachment(conn: &Connection, row: &DuckAttachmentRow) -> SqliteResult<()> {
+    conn.execute(
+        "INSERT INTO duck_attachments (duck_connection_id, alias, kind, pg_connection_id, file_path, read_only, position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6,
+                 (SELECT COALESCE(MAX(position) + 1, 0) FROM duck_attachments WHERE duck_connection_id = ?1))
+         ON CONFLICT(duck_connection_id, alias) DO UPDATE SET kind = excluded.kind,
+             pg_connection_id = excluded.pg_connection_id, file_path = excluded.file_path,
+             read_only = excluded.read_only",
+        rusqlite::params![
+            &row.duck_connection_id,
+            &row.alias,
+            &row.kind,
+            &row.pg_connection_id,
+            &row.file_path,
+            row.read_only
+        ],
+    )?;
+    Ok(())
+}
+
+/// Forget an attach (Detach). No row is not an error.
+pub fn delete_duck_attachment(conn: &Connection, duck_connection_id: &str, alias: &str) -> SqliteResult<()> {
+    conn.execute(
+        "DELETE FROM duck_attachments WHERE duck_connection_id = ?1 AND alias = ?2",
+        [duck_connection_id, alias],
+    )?;
     Ok(())
 }
 
@@ -6359,5 +6460,59 @@ mod store_vacuum_tests {
         old.write_all(text.as_bytes()).unwrap();
         assert_eq!(decompress_or_passthrough(old.finish().unwrap()).unwrap(), text);
         assert_eq!(decompress_or_passthrough(compress_data(&text).unwrap()).unwrap(), text);
+    }
+}
+
+#[cfg(test)]
+mod duck_attachment_tests {
+    use super::*;
+
+    fn row(duck: &str, alias: &str, pg: Option<&str>, file: Option<&str>) -> DuckAttachmentRow {
+        DuckAttachmentRow {
+            duck_connection_id: duck.into(),
+            alias: alias.into(),
+            kind: if pg.is_some() { "postgres" } else { "duckdb" }.into(),
+            pg_connection_id: pg.map(Into::into),
+            file_path: file.map(Into::into),
+            read_only: true,
+        }
+    }
+
+    #[test]
+    fn save_load_replace_and_forget() {
+        let dir = std::env::temp_dir().join(format!("pharos_test_duck_attach_{}", uuid::Uuid::new_v4()));
+        let conn = init_database(&dir).expect("init_database");
+        save_duck_attachment(&conn, &row("d1", "live", Some("pg1"), None)).unwrap();
+        save_duck_attachment(&conn, &row("d1", "sales", None, Some("/a/sales.duckdb"))).unwrap();
+        save_duck_attachment(&conn, &row("d2", "live", Some("pg1"), None)).unwrap();
+        let aliases: Vec<String> = load_duck_attachments(&conn, "d1").unwrap().into_iter().map(|r| r.alias).collect();
+        assert_eq!(aliases, ["live", "sales"], "the order the user made them");
+
+        // The same alias again replaces the row and keeps its place.
+        save_duck_attachment(&conn, &DuckAttachmentRow { read_only: false, ..row("d1", "live", Some("pg1"), None) }).unwrap();
+        let back = load_duck_attachments(&conn, "d1").unwrap();
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].alias, "live");
+        assert!(!back[0].read_only);
+
+        assert_eq!(load_duck_attachments_for_pg(&conn, "pg1").unwrap().len(), 2);
+        delete_duck_attachment(&conn, "d1", "sales").unwrap();
+        assert_eq!(load_duck_attachments(&conn, "d1").unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deleting_either_record_forgets_its_rows() {
+        let dir = std::env::temp_dir().join(format!("pharos_test_duck_attach_del_{}", uuid::Uuid::new_v4()));
+        let conn = init_database(&dir).expect("init_database");
+        save_duck_attachment(&conn, &row("d1", "live", Some("pg1"), None)).unwrap();
+        save_duck_attachment(&conn, &row("d1", "sales", None, Some("/a/s.duckdb"))).unwrap();
+        save_duck_attachment(&conn, &row("d2", "live", Some("pg1"), None)).unwrap();
+        delete_connection(&conn, "pg1").unwrap();
+        assert_eq!(load_duck_attachments(&conn, "d1").unwrap().len(), 1, "the PostgreSQL rows go");
+        assert!(load_duck_attachments(&conn, "d2").unwrap().is_empty());
+        delete_connection(&conn, "d1").unwrap();
+        assert!(load_duck_attachments(&conn, "d1").unwrap().is_empty(), "the DuckDB record's rows go");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

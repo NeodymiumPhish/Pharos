@@ -609,19 +609,20 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func contextAttachPostgres(_: Any?) {
+    @objc private func contextAttachDatabase(_: Any?) {
         guard let id = delegate?.contextConnectionId else { return }
-        delegate?.contextMenuPresentSheet(AttachPostgresSheet(duckConnectionId: id))
+        delegate?.contextMenuPresentSheet(AttachDatabaseSheet(duckConnectionId: id))
     }
 
     /// Detach an attached database (one Pharos attached, or one the user
-    /// attached with SQL) from the DuckDB database.
+    /// attached with SQL) from the DuckDB database. Pharos forgets it, so the
+    /// database does not attach it again when it next opens.
     @objc private func contextDetachDatabase(_ sender: NSMenuItem) {
         guard let id = delegate?.contextConnectionId, let db = sender.representedObject as? String else { return }
         Task { @MainActor in
             do {
                 try await PharosCore.duckDetach(duckConnectionId: id, alias: db)
-                DuckDBAttachments.shared.didDetach(duckConnectionId: id)
+                DuckDBAttachments.shared.didChange(duckConnectionId: id)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = String(localized: "Could not detach “\(db)”")
@@ -744,13 +745,13 @@ class SchemaContextMenu: NSObject, NSMenuDelegate {
 
             if isDuckDB {
                 menu.addItem(.separator())
-                // The file's own schemas only: an attached PostgreSQL
-                // database is not where a table from a file goes.
+                // The file's own schemas only: an attached database is not
+                // where a table from a file goes.
                 if let schema = node.schemaName, DuckDBAttachRules.attachedDatabase(ofSchema: schema) == nil {
                     addNewTableItem(to: menu, schema: schema)
                 }
-                let attach = NSMenuItem(title: String(localized: "Attach PostgreSQL Connection…"),
-                                        action: #selector(contextAttachPostgres), keyEquivalent: "")
+                let attach = NSMenuItem(title: String(localized: "Attach Database…"),
+                                        action: #selector(contextAttachDatabase), keyEquivalent: "")
                 attach.target = self
                 menu.addItem(attach)
                 if let db = node.schemaName.flatMap(DuckDBAttachRules.attachedDatabase(ofSchema:)) {

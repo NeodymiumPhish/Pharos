@@ -210,7 +210,6 @@
 		78B803929071123E9E002E24 /* VariableConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 698A54A54D0C66711552AFEF /* VariableConnectionsView.swift */; };
 		78E8EBAAFCBD2AE20B621135 /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20973E948617F8AF21A804FE /* Toast.swift */; };
 		791DFD71C76A7DBEA6C8BA58 /* CardPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CEEB8796DC2B8361BC29CF /* CardPersistence.swift */; };
-		795FADEB64B07B9887E4E664 /* AttachPostgresSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D49A7883D57D3969DE869EF /* AttachPostgresSheet.swift */; };
 		7A33E40CC68795515D1A946F /* SchemaDraftFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0069EE2EC87C536275B40B69 /* SchemaDraftFacts.swift */; };
 		7B0EBAB5C93A48B9E7BE444C /* QuickLookItemBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC0387D201E65BB04093EBEA /* QuickLookItemBuilder.swift */; };
 		7B96EA478077991B282BD62D /* ExportImportSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC013254D67DAF57E03E4AA6 /* ExportImportSettingsPaneVC.swift */; };
@@ -351,6 +350,7 @@
 		BDD0B35D5CC9DF83EB996451 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F15F6D530ED4B08BF8F19F /* Log.swift */; };
 		BE1B3B13E8594784CDDA5A12 /* ErrorExplanationPrompt+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924134701A5DCF2C9E7981E0 /* ErrorExplanationPrompt+Cache.swift */; };
 		BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */; };
+		BE87D256E01F62F5EA1D0E56 /* AttachDatabaseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */; };
 		C04A7D87CA7ABF614B9F4706 /* AppDelegate+DockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */; };
 		C09D4BB119BB9E4BAE7941C1 /* ServerChartDataBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */; };
 		C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A457DB103F34236A49AF1C /* InspectorColumnRowView.swift */; };
@@ -647,7 +647,6 @@
 		7B832E30AFF53EE26EA14F13 /* ConnectionFormRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFormRules.swift; sourceTree = "<group>"; };
 		7BE7B34EE17E4997F6314065 /* SettingsEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEffects.swift; sourceTree = "<group>"; };
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
-		7D49A7883D57D3969DE869EF /* AttachPostgresSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachPostgresSheet.swift; sourceTree = "<group>"; };
 		7DEC3690225F794408E62D29 /* ChartAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartAggregator.swift; sourceTree = "<group>"; };
 		7E1A79C0687366CE6000F5A3 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		7F3C560169FD08DB0ABC0375 /* PharosCore+TabSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TabSession.swift"; sourceTree = "<group>"; };
@@ -682,6 +681,7 @@
 		9389401FF1FEE1ACFA9432A0 /* SettingsSplitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSplitViewController.swift; sourceTree = "<group>"; };
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
 		9540FC762F792920A98F2CAB /* ModelFeedbackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelFeedbackStore.swift; sourceTree = "<group>"; };
+		95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachDatabaseSheet.swift; sourceTree = "<group>"; };
 		976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosEntities.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
@@ -1166,7 +1166,7 @@
 		8ED98EA5EBB73F5BFD44F68D /* Sheets */ = {
 			isa = PBXGroup;
 			children = (
-				7D49A7883D57D3969DE869EF /* AttachPostgresSheet.swift */,
+				95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */,
 				FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */,
 				20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */,
 				080E74E651B82BE21F196DDC /* ImportDataSheet.swift */,
@@ -1627,7 +1627,7 @@
 				47B86FA148892E5014AFBD23 /* AppInfo.swift in Sources */,
 				65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */,
 				95A33984D8A036AFD8CA4EB6 /* AppearanceSettingsPaneVC.swift in Sources */,
-				795FADEB64B07B9887E4E664 /* AttachPostgresSheet.swift in Sources */,
+				BE87D256E01F62F5EA1D0E56 /* AttachDatabaseSheet.swift in Sources */,
 				EB024138B8243B0BC5FF4CDD /* AuthoredLabelSanitizer.swift in Sources */,
 				6542D77ED87980EB583419A1 /* AuthoredLabelTextField.swift in Sources */,
 				FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */,

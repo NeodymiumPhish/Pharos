@@ -37,6 +37,10 @@ class SchemaTreeNode: NSObject {
     /// Why reading this node's children failed (a schema whose tables could
     /// not be read). Its `.loading` row then says so, with no spinner.
     var loadError: String?
+    /// DuckDB: where an attached database's schema comes from
+    /// ("PostgreSQL · Live Analysis · Read-only"), and its file or URL.
+    var sourceSubtitle: String?
+    var sourceTooltip: String?
 
     init(_ kind: Kind, parent: SchemaTreeNode? = nil) {
         self.kind = kind
@@ -133,6 +137,8 @@ class SchemaTreeNode: NSObject {
         case .partition(let info):
             return PartitionDisplay.boundSummary(info.partitionBound)
                 .map(DisplayEscape.escaped) ?? " "
+        case .schema:
+            return sourceSubtitle.map(DisplayEscape.escaped)
         default:
             return nil
         }
@@ -147,6 +153,7 @@ class SchemaTreeNode: NSObject {
         let info: TableInfo
         switch kind {
         case .table(let i), .view(let i), .partition(let i): info = i
+        case .schema: return sourceTooltip
         default: return nil
         }
         var parts: [String] = []

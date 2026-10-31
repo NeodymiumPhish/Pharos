@@ -225,10 +225,11 @@ enum MainMenu {
                           action: #selector(ContentViewController.menuRollBackTransaction(_:)), keyEquivalent: "")
 
         queryMenu.addItem(.separator())
-        // DuckDB: query a saved PostgreSQL connection's tables from DuckDB.
-        let attachPG = queryMenu.addItem(withTitle: String(localized: "Attach PostgreSQL Connection…"),
-                                         action: #selector(ContentViewController.menuAttachPostgres(_:)), keyEquivalent: "")
-        attachPG.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+        // DuckDB: query a saved PostgreSQL connection's tables, or another
+        // DuckDB or SQLite file's, from DuckDB.
+        let attachDB = queryMenu.addItem(withTitle: String(localized: "Attach Database…"),
+                                         action: #selector(ContentViewController.menuAttachDatabase(_:)), keyEquivalent: "")
+        attachDB.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
         // DuckDB: put a CSV, JSON, Parquet or Excel file's path in the card.
         let insertFile = queryMenu.addItem(withTitle: String(localized: "Insert File Reference…"),
                                            action: #selector(ContentViewController.menuInsertFileReference(_:)), keyEquivalent: "")
