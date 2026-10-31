@@ -1,9 +1,12 @@
 use std::ffi::CString;
 use std::os::raw::c_char;
+use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::PgPool;
 use tokio::runtime::Runtime;
+
+use crate::db::duckdb::DuckDbInstance;
 
 use super::*;
 
@@ -143,13 +146,7 @@ pub extern "C" fn pharos_shutdown() {
     // DuckDB databases close (and checkpoint) when the last connection of an
     // instance drops. The tab sessions went above; the instances go here, off
     // the runtime, inside the same budget.
-    let ducks = state.take_all_ducks();
-    if !ducks.is_empty() {
-        let _ = runtime.block_on(tokio::time::timeout(
-            SHUTDOWN_TOTAL_BUDGET,
-            tokio::task::spawn_blocking(move || drop(ducks)),
-        ));
-    }
+    close_duck_instances(runtime, state.take_all_ducks(), SHUTDOWN_TOTAL_BUDGET);
 
     // Drain the pool map so dropped pools are released even on timeout.
     let pools: Vec<PgPool> = {
@@ -175,6 +172,21 @@ pub extern "C" fn pharos_shutdown() {
             futures::future::join_all(tunnels.into_iter().map(|t| t.close())).await;
         })
         .await
+    });
+}
+
+/// Drop the DuckDB instances on a blocking thread, inside `budget`: each
+/// closes (and checkpoints) when its last connection goes.
+///
+/// The caller is a Swift thread, outside the runtime: `spawn_blocking` and
+/// `timeout` need the runtime's context, so both are made INSIDE the
+/// `block_on` future, never as its arguments.
+fn close_duck_instances(runtime: &Runtime, ducks: Vec<Arc<DuckDbInstance>>, budget: Duration) {
+    if ducks.is_empty() {
+        return;
+    }
+    let _ = runtime.block_on(async move {
+        tokio::time::timeout(budget, tokio::task::spawn_blocking(move || drop(ducks))).await
     });
 }
 
@@ -279,5 +291,24 @@ mod log_level_tests {
     fn trace_and_off_are_not_offered() {
         assert_eq!(parse_log_level("trace"), None);
         assert_eq!(parse_log_level("off"), None);
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+    use crate::db::duckdb::{OpenOptions, IN_MEMORY};
+
+    /// `pharos_shutdown` runs on a Swift thread, outside the runtime. Closing
+    /// the DuckDB databases there aborted the app on Quit (spawn_blocking
+    /// outside a runtime context panics, and the panic aborts).
+    #[test]
+    fn duckdb_instances_close_from_a_thread_outside_the_runtime() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        let options = OpenOptions { threads: None, memory_limit: None };
+        let db = Arc::new(DuckDbInstance::open(IN_MEMORY, false, &options).unwrap());
+        let weak = Arc::downgrade(&db);
+        close_duck_instances(&runtime, vec![db], Duration::from_secs(4));
+        assert_eq!(weak.strong_count(), 0, "the instance is dropped");
     }
 }

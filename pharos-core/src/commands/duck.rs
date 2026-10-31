@@ -73,6 +73,7 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
             return Ok(info(&config, ConnectionStatus::Error, Some(READ_ONLY_MISMATCH.to_string()), None));
         }
         state.add_duck(config.id.clone(), existing);
+        super::duck_attach::restore(&config.id, state).await;
         return Ok(info(&config, ConnectionStatus::Connected, None, Some(0)));
     }
     // A missing file is created only when the user asked for a new database
@@ -81,6 +82,11 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
     // an empty database in its place would look like lost data.
     if path != IN_MEMORY && !create && !std::path::Path::new(&path).exists() {
         return Ok(info(&config, ConnectionStatus::Error, Some(missing_file_message(&path)), None));
+    }
+    // Another DuckDB database in this process may have the file attached:
+    // DuckDB's lock does not stop a second instance here (rule G1).
+    if let Err(message) = super::duck_attach::check_file_holders(state, &path, read_only).await {
+        return Ok(info(&config, ConnectionStatus::Error, Some(message), None));
     }
     let options = OpenOptions::from_settings(&state.settings().connections);
     let start = Instant::now();
@@ -92,6 +98,9 @@ pub async fn connect(config: ConnectionConfig, state: &AppState) -> Result<Conne
             // Cloud storage credentials from Settings (D12), before any card.
             super::duck_cloud::apply(state, &instance);
             state.add_duck(config.id.clone(), Arc::new(instance));
+            // The remembered attaches, before any tab sets a search path
+            // that names one.
+            super::duck_attach::restore(&config.id, state).await;
             Ok(info(&config, ConnectionStatus::Connected, None, Some(start.elapsed().as_millis() as u64)))
         }
         Err(message) => Ok(info(&config, ConnectionStatus::Error, Some(message), None)),

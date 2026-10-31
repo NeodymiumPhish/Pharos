@@ -20,6 +20,12 @@ protocol SchemaDataSourceDelegate: AnyObject {
     func schemaDataSourceSchemaRow(named schema: String) -> SchemaTreeNode?
     /// A data file was dropped to make a new table in `schema`.
     func schemaDataSourceDidDropFile(_ url: URL, newTableIn schema: String)
+    /// Whether `url` is a database file this connection can attach (a
+    /// connected DuckDB database; a DuckDB or SQLite file).
+    func schemaDataSourceCanAttachDatabaseFile(_ url: URL) -> Bool
+    /// A database file was dropped: the receiver opens Attach Database with
+    /// it chosen.
+    func schemaDataSourceDidDropDatabaseFile(_ url: URL)
     /// `node` was double-clicked. The receiver owns Settings ▸ Navigator ▸
     /// On double-click and returns `true` when it ran the chosen action.
     /// `false` — the setting is "Expand or collapse", or the row is not an
@@ -89,6 +95,15 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
         return node
     }
 
+    /// The single file on `pasteboard`, if the delegate can attach it.
+    private func attachableDatabaseURL(from pasteboard: NSPasteboard) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
+              urls.count == 1, let url = urls.first,
+              delegate?.schemaDataSourceCanAttachDatabaseFile(url) == true else { return nil }
+        return url
+    }
+
     /// One dropped file that DuckDB reads in place (CSV, JSON, Parquet,
     /// Excel), for New Table from File….
     static func dataFileURL(from pasteboard: NSPasteboard) -> URL? {
@@ -100,10 +115,15 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
 
     /// A CSV dropped ON a table imports into it (the import sheet); any other
     /// data file, or one dropped on a schema or the background, makes a new
-    /// table (DuckDB only).
+    /// table (DuckDB only). A DuckDB or SQLite database file, dropped
+    /// anywhere, opens Attach Database (the whole outline highlights).
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         guard delegate?.schemaDataSourceConnectionId != nil else { return [] }
+        if attachableDatabaseURL(from: info.draggingPasteboard) != nil {
+            outlineView.setDropItem(nil, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            return .link
+        }
         if let node = Self.acceptsDrop(item), index == NSOutlineViewDropOnItemIndex,
            Self.importableFileURL(from: info.draggingPasteboard) != nil {
             // Drop ON the table, never between rows: the tree has no order to
@@ -127,6 +147,10 @@ class SchemaDataSource: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
         guard delegate?.schemaDataSourceConnectionId != nil else { return false }
+        if let url = attachableDatabaseURL(from: info.draggingPasteboard) {
+            delegate?.schemaDataSourceDidDropDatabaseFile(url)
+            return true
+        }
         if let node = Self.acceptsDrop(item), let url = Self.importableFileURL(from: info.draggingPasteboard) {
             delegate?.schemaDataSourceDidDropFile(url, onTable: node)
             return true

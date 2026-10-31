@@ -9,14 +9,27 @@ struct DuckDBVocabulary: Decodable, Equatable {
     let functions: [String]
 }
 
-/// A PostgreSQL connection attached to a DuckDB database
-/// (`pharos-core` `duck_attach::AttachmentInfo`, camelCase).
-struct DuckDBAttachment: Decodable, Equatable {
-    /// The DuckDB database name: its schemas show as `alias.schema`.
+/// What Query ▸ Attach Database… attaches (`duck_attach::AttachSource`).
+enum DuckDBAttachSource: Equatable {
+    /// A saved PostgreSQL connection, by id. It must be connected.
+    case postgres(String)
+    /// A DuckDB or SQLite database file.
+    case file(String)
+
+    fileprivate var ffi: (kind: String, value: String) {
+        switch self {
+        case .postgres(let id): return ("postgres", id)
+        case .file(let path): return ("file", path)
+        }
+    }
+}
+
+/// What a PostgreSQL connect restored on one DuckDB database
+/// (`duck_attach::RestoreOutcome`, camelCase).
+struct DuckDBRestoreOutcome: Decodable, Equatable {
+    let duckConnectionId: String
     let alias: String
-    let pgId: String
-    let pgName: String
-    let readOnly: Bool
+    let error: String?
 }
 
 extension PharosCore {
@@ -32,16 +45,21 @@ extension PharosCore {
         }
     }
 
-    /// Attach a CONNECTED PostgreSQL connection to an open DuckDB database.
-    /// The password goes into a temporary DuckDB secret, never into SQL text
-    /// or history. `alias` empty = a default from the connection's name.
-    static func duckAttachPostgres(duckConnectionId: String, pgConnectionId: String, alias: String,
-                                   readOnly: Bool) async throws -> DuckDBAttachment {
-        try await withAsyncCallback { callback, context in
+    /// Attach a database to an open DuckDB database and remember it, so the
+    /// database attaches it again each time it opens. A PostgreSQL source must
+    /// be CONNECTED; its password goes into a temporary DuckDB secret, never
+    /// into SQL text or history. `alias` empty = a default from the source's
+    /// name.
+    static func duckAttach(duckConnectionId: String, source: DuckDBAttachSource, alias: String,
+                           readOnly: Bool) async throws -> DuckDBAttachment {
+        let (kind, value) = source.ffi
+        return try await withAsyncCallback { callback, context in
             duckConnectionId.withCString { d in
-                pgConnectionId.withCString { p in
-                    alias.withCString { a in
-                        pharos_duck_attach_postgres(d, p, a, readOnly, callback, context)
+                kind.withCString { k in
+                    value.withCString { v in
+                        alias.withCString { a in
+                            pharos_duck_attach(d, k, v, a, readOnly, callback, context)
+                        }
                     }
                 }
             }
@@ -80,7 +98,8 @@ extension PharosCore {
         }
     }
 
-    /// Detach a PostgreSQL connection Pharos attached.
+    /// Detach a database and forget it: the DuckDB database does not attach
+    /// it again on its next open.
     static func duckDetach(duckConnectionId: String, alias: String) async throws {
         let _: EmptyResult = try await withAsyncCallback { callback, context in
             duckConnectionId.withCString { d in
@@ -89,10 +108,27 @@ extension PharosCore {
         }
     }
 
-    /// The PostgreSQL connections attached to a DuckDB database.
+    /// The databases attached to a DuckDB database, then its remembered
+    /// attaches that are not attached now.
     static func duckAttachments(duckConnectionId: String) async throws -> [DuckDBAttachment] {
         try await withAsyncCallback { callback, context in
             duckConnectionId.withCString { d in pharos_duck_attachments(d, callback, context) }
+        }
+    }
+
+    /// A PostgreSQL connection has just connected: attach it to each
+    /// connected DuckDB database that remembers it.
+    static func duckRestoreAttachments(forPostgres pgConnectionId: String) async throws -> [DuckDBRestoreOutcome] {
+        try await withAsyncCallback { callback, context in
+            pgConnectionId.withCString { p in pharos_duck_restore_for_pg(p, callback, context) }
+        }
+    }
+
+    /// The remembered attaches the last connect of a DuckDB database could
+    /// not restore ("alias: message"), once.
+    static func duckTakeRestoreFailures(duckConnectionId: String) async throws -> [String] {
+        try await withAsyncCallback { callback, context in
+            duckConnectionId.withCString { d in pharos_duck_take_restore_failures(d, callback, context) }
         }
     }
 

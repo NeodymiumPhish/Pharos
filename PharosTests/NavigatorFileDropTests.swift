@@ -53,6 +53,10 @@ private final class Delegate: SchemaDataSourceDelegate {
     func schemaDataSourceSchemaRow(named schema: String) -> SchemaTreeNode? { pinned == nil ? schemaRow : nil }
     func schemaDataSourceDidDropFile(_ url: URL, newTableIn schema: String) { created.append((url, schema)) }
     func schemaDataSourceDidDoubleClick(_ node: SchemaTreeNode) -> Bool { false }
+    var attachable: Set<String> = []
+    var attached: [URL] = []
+    func schemaDataSourceCanAttachDatabaseFile(_ url: URL) -> Bool { attachable.contains(url.lastPathComponent) }
+    func schemaDataSourceDidDropDatabaseFile(_ url: URL) { attached.append(url) }
 }
 
 private func table(_ name: String, schema: String) -> SchemaTreeNode {
@@ -101,6 +105,18 @@ private func runDropTests() {
     expect(validate([parquet], on: attached) == [], "an attached database's schema refuses the drop")
     expect(!accept([parquet], on: attached), "and takes nothing")
     expect(validate([sql], on: nil) == [], "a SQL file is no data file")
+
+    // A database file the delegate can attach: anywhere, the whole outline.
+    let duckFile = dir.appendingPathComponent("other.duckdb")
+    FileManager.default.createFile(atPath: duckFile.path, contents: Data())
+    expect(validate([duckFile], on: events) == [], "a database file the delegate cannot attach is refused")
+    delegate.attachable = ["other.duckdb"]
+    expect(validate([duckFile], on: events) == .link, "a database file on a table is an attach")
+    expect(validate([duckFile], on: attached, index: 0) == .link, "and on an attached schema")
+    expect(accept([duckFile], on: nil) && delegate.attached.last == duckFile && delegate.imported.count == 1,
+           "the drop opens Attach Database, not an import")
+    expect(validate([duckFile, csv], on: nil) == [], "a database file with another file is refused")
+    delegate.attachable = []
     expect(validate([csv, parquet], on: nil) == [], "several files at once are refused")
     delegate.refuse = ["main"]
     expect(validate([parquet], on: nil) == [], "a read-only connection (the delegate names no schema) refuses")

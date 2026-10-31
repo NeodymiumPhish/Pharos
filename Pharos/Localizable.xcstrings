@@ -730,12 +730,6 @@
         }
       }
     },
-    "Attach PostgreSQL Connection" : {
-
-    },
-    "Attach PostgreSQL Connection…" : {
-
-    },
     "Attaching…" : {
 
     },
@@ -1440,9 +1434,6 @@
 
     },
     "DuckDB %@ with the icu, inet, fts, excel, sqlite, postgres, httpfs, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation." : {
-
-    },
-    "DuckDB can then query and join its tables as name.schema.table. It stays attached while the connection stays connected." : {
 
     },
     "DuckDB file · %@ · %@" : {
@@ -4095,9 +4086,6 @@
     "The connection was removed. Untick it to remove the link." : {
 
     },
-    "The copy has the tables and views and their data. It leaves out temporary tables, attached PostgreSQL databases and work not yet committed in other tabs." : {
-
-    },
     "The database was not saved." : {
 
     },
@@ -4333,9 +4321,6 @@
 
     },
     "There is no query history to clear." : {
-
-    },
-    "There is no saved PostgreSQL connection. Add one in Manage Connections…" : {
 
     },
     "There is nothing to chart in this result." : {
@@ -4970,6 +4955,9 @@
     "“%@” is in use by another app." : {
 
     },
+    "“%@” is not a DuckDB or SQLite database." : {
+
+    },
     "“%@” is open in Pharos." : {
 
     },
@@ -4987,6 +4975,42 @@
 
     },
     "⌘↩ runs" : {
+
+    },
+    "Attach Database" : {
+
+    },
+    "Attach Database…" : {
+
+    },
+    "Attached as %@" : {
+
+    },
+    "Choose a database file, or add a PostgreSQL connection in Manage Connections…" : {
+
+    },
+    "Choose a DuckDB or SQLite database to attach." : {
+
+    },
+    "Choose File…" : {
+
+    },
+    "DuckDB Files" : {
+
+    },
+    "It stays attached while the connection is connected." : {
+
+    },
+    "Open in another tab" : {
+
+    },
+    "Pharos could not attach again:" : {
+
+    },
+    "Query and join its tables as name.schema.table. Pharos attaches it again each time this database opens." : {
+
+    },
+    "The copy has the tables and views and their data. It leaves out temporary tables, attached databases and work not yet committed in other tabs." : {
 
     }
   },

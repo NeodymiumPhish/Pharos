@@ -221,11 +221,11 @@ enum DatabaseEngine: String, Codable, CaseIterable {
         case .postgres:
             return EngineCapabilities(
                 serverConnection: true, partitions: true, automaticAnalyze: true,
-                parquetExport: false, attachPostgres: false)
+                parquetExport: false, attachDatabases: false)
         case .duckdb:
             return EngineCapabilities(
                 serverConnection: false, partitions: false, automaticAnalyze: false,
-                parquetExport: true, attachPostgres: true)
+                parquetExport: true, attachDatabases: true)
         }
     }
 }
@@ -241,8 +241,9 @@ struct EngineCapabilities: Equatable {
     let automaticAnalyze: Bool
     /// Export ▸ Parquet.
     let parquetExport: Bool
-    /// Query ▸ Attach PostgreSQL Connection… (DuckDB's postgres_scanner).
-    let attachPostgres: Bool
+    /// Query ▸ Attach Database… (a PostgreSQL connection through DuckDB's
+    /// postgres_scanner, or a DuckDB or SQLite file).
+    let attachDatabases: Bool
 }
 
 /// A DuckDB open failure the app can act on.

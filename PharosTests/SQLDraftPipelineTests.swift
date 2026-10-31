@@ -151,6 +151,9 @@ private func testResolve() {
                 "a unique name anywhere")
     expect(catalog.resolve(schema: "hr", table: "orders", searchPath: []) == nil, "the wrong schema")
     expect(catalog.resolve(schema: nil, table: "nope", searchPath: ["sales"]) == nil, "an unknown name")
+    expectEqual(catalog.resolve(schema: "mydb.sales", table: "orders", searchPath: [])?.key, orders,
+                "db.schema.table: the schema's last part when the catalog has no dotted schema")
+    expect(catalog.resolve(schema: "mydb.hr", table: "orders", searchPath: []) == nil, "the last part must still match")
 }
 
 // MARK: - Ranker

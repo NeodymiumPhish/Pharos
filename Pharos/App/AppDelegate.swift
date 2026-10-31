@@ -21,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // that writes `~/Library/Logs/Pharos/pharos-crash-*.log`. It existed
         // since the crash logger was written but nothing installed it.
         CrashLogger.install()
+        // Remembered DuckDB attaches follow their connections (restore and
+        // detach); the navigator shows where an attached schema comes from.
+        DuckDBAttachments.shared.startObserving()
 
         // NOTE: `setenv("RUST_LOG", "warn", 0)` used to sit here. It has gone
         // on purpose. `pharos_init` now builds env_logger wide open and caps

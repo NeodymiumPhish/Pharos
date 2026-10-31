@@ -124,7 +124,7 @@ Pharos closes a DuckDB file a few seconds after the last tab that uses it closes
 
 Its tables are lost when it disconnects or Pharos quits. When it holds tables or views, **File > Disconnect** and **Quit** first ask: **Do you want to save the in-memory database?** with **Save…**, **Don't Save** and **Cancel**. A delete in the Connections Manager says in its alert that the tables are lost. Pharos always asks, whatever **Warn before closing unsaved tabs** says, because the tables have no other copy.
 
-**File > Save In-Memory Database…** copies the database to a new `.duckdb` file at any time, then offers to open the file in a new tab. The tabs on the in-memory database stay as they are. The copy has the tables and views with their data. It leaves out temporary tables, attached PostgreSQL databases and work that other tabs have not committed.
+**File > Save In-Memory Database…** copies the database to a new `.duckdb` file at any time, then offers to open the file in a new tab. The tabs on the in-memory database stay as they are. The copy has the tables and views with their data. It leaves out temporary tables, attached databases and work that other tabs have not committed.
 
 ## Query files in place
 
@@ -222,9 +222,9 @@ These DuckDB extensions are built into Pharos. You do not install or load them; 
 | `inet` | The `INET` type (IPv4 and IPv6 addresses and networks), `host()`, `<<=` and `>>=` |
 | `fts` | Full-text search: `PRAGMA create_fts_index`, `match_bm25` |
 | `excel` | `read_xlsx`, `COPY … TO '/Users/you/x.xlsx'`, Excel number formats |
-| `sqlite_scanner` | `ATTACH '/Users/you/file.sqlite' (TYPE sqlite)`, `sqlite_scan` |
+| `sqlite_scanner` | `ATTACH '/Users/you/file.sqlite' (TYPE sqlite)`, `sqlite_scan` (see **Attach a database**) |
 | `httpfs` | `read_csv`, `read_parquet` and `read_json` over `https://`, `s3://`, `gcs://` and `r2://` |
-| `postgres_scanner` | `ATTACH` a PostgreSQL database, `postgres_query` (see **Attach a PostgreSQL connection**) |
+| `postgres_scanner` | `ATTACH` a PostgreSQL database, `postgres_query` (see **Attach a database**) |
 | `autocomplete` | `sql_auto_complete` |
 
 `SELECT * FROM duckdb_extensions()` shows these with the install path `(BUILT-IN)`.
@@ -250,23 +250,41 @@ On a DuckDB view row in the Database Navigator, choose **View Definition…** (o
 
 A `CREATE TEMP TABLE` belongs to the tab that ran it: each tab has its own connection, and other tabs cannot see it. The Database Navigator does not list temporary tables. To list a tab's temporary tables, run `SHOW ALL TABLES` in a card of that tab.
 
-## Attach a PostgreSQL connection
+## Attach a database
 
-You can query and join the tables of a saved PostgreSQL connection from a DuckDB tab.
+You can query, join and compare the tables of other databases from a DuckDB tab: a saved PostgreSQL connection, another DuckDB file or a SQLite file.
 
 1. Open a DuckDB tab and connect it.
-2. Choose **Query > Attach PostgreSQL Connection…**, or right-click a schema in the Database Navigator and choose **Attach PostgreSQL Connection…**.
-3. Choose the connection. If it is not connected, Pharos connects it first (Touch ID and the password prompt work as usual).
-4. Optional: type a name for the attached database. The default comes from the connection's name, for example `live_analysis`.
-5. Keep **Read-only** on unless you want DuckDB to write to the PostgreSQL database. A read-only connection always attaches read-only.
-6. Click **Attach**.
+2. Choose **Query > Attach Database…**, or right-click a schema in the Database Navigator and choose **Attach Database…**. You can also drag a DuckDB or SQLite file from the Finder onto the Database Navigator.
+3. In **Database**, choose a PostgreSQL connection, a DuckDB file, or **Choose File…**. A choice that is not available shows the reason, for example "Attached as sales" or "Open in another tab".
+4. Optional: type a name for the attached database. The default comes from the connection's name or the file's name, for example `live_analysis` or `sales_2024`. If the default name is in use, Pharos adds `_2`, `_3` and so on.
+5. Keep **Read-only** on unless you want DuckDB to write to the attached database. A read-only connection always attaches read-only.
+6. Click **Attach**. If the PostgreSQL connection is not connected, Pharos connects it first (Touch ID and the password prompt work as usual).
 
-The Database Navigator then shows the PostgreSQL schemas as `name.schema`, after the DuckDB file's own schemas. As on a PostgreSQL connection, it hides `pg_toast` and the temporary schemas unless system schemas are shown. The tables of an attached PostgreSQL database show no row count, because DuckDB does not get a count from PostgreSQL. When the tab shows one schema only, the attached schemas follow its tables. Query them as `name.schema.table`, for example `SELECT * FROM live_analysis.public.events e JOIN read_csv('events.csv') c USING (id)`.
+The Database Navigator then shows the attached schemas as `name.schema`, after the DuckDB file's own schemas. A DuckDB file's schema is `name.main`. Each attached schema row says where it comes from, for example "PostgreSQL · Live Analysis · Read-only" or "sales.duckdb · Read-only". When the tab shows one schema only, the attached schemas follow its tables. Query them as `name.schema.table`, for example:
 
-- Pharos gives DuckDB the password in a temporary secret. The password is not in any SQL text, in query history or on disk.
+```sql
+SELECT * FROM live_analysis.public.events e JOIN sales.main.orders o USING (customer_id)
+```
+
+Pharos remembers each attach that you make with **Attach Database…**. Each time the DuckDB database opens, Pharos attaches the files again. It attaches a PostgreSQL connection again when that connection is connected, or later when you connect it. Pharos never connects a PostgreSQL connection for this on its own, so no password prompt comes up. If Pharos cannot attach a database again (for example, the file moved), it shows a message and tries again at the next open. To stop it, right-click one of the database's schemas and choose **Detach**. An ATTACH that you type in a card is not remembered.
+
+- Pharos gives DuckDB a PostgreSQL password in a temporary secret. The password is not in any SQL text, in query history or on disk.
 - A connection that uses an SSH tunnel attaches through that tunnel.
-- The attach lasts while the PostgreSQL connection stays connected. When you disconnect it, Pharos detaches it from DuckDB. To detach it sooner, right-click one of its schemas and choose **Detach**.
+- When you disconnect a PostgreSQL connection, Pharos detaches it from DuckDB and attaches it again when you connect it.
+- As on a PostgreSQL connection, the navigator hides `pg_toast` and the temporary schemas of an attached PostgreSQL database unless system schemas are shown. Its tables show no row count, because DuckDB does not get a count from PostgreSQL.
 - `verify-ca` and `verify-full` use the connection's SSL root certificate, or the certificates that macOS ships (`/etc/ssl/cert.pem`) when the connection has none. Certificates you added to the Keychain are not used.
+- DuckDB writes to one attached database in a transaction. To copy rows from one database to another, use one statement per target database.
+
+### One writer per file
+
+DuckDB's file lock does not stop a second open of the same file inside Pharos. Thus Pharos lets more than one tab or attach use a file only when all of them are read-only:
+
+- You cannot attach a file that a tab has open with write access. Close its tabs first, or open that connection read-only.
+- You cannot attach a file with write access while a tab or another attach uses it. Turn on **Read-only**.
+- You cannot open a file in a tab while another database has it attached with write access. Detach it there first.
+
+An ATTACH that you type in a card follows the same rule: if it breaks the rule, Pharos detaches the database again and the card shows the reason.
 
 ## Open a database from a web link
 

@@ -231,18 +231,22 @@ void pharos_duckdb_save_in_memory(const char *connection_id,
  char *pharos_query_progress(const char *query_id);
 
 /**
- * Attach a connected PostgreSQL connection to an open DuckDB database
- * (`commands::duck_attach`). `alias` empty = a default from the connection's
- * name. The password goes into a temporary DuckDB secret, never into SQL a
- * user sees or history keeps. Returns `AttachmentInfo` JSON via callback.
+ * Attach a database to an open DuckDB database and remember it
+ * (`commands::duck_attach::attach`, Query ▸ Attach Database…). `kind` is
+ * `"postgres"` (`source` = a CONNECTED PostgreSQL connection's id; the
+ * password goes into a temporary DuckDB secret, never into SQL a user sees
+ * or history keeps) or `"file"` (`source` = a DuckDB or SQLite file's path).
+ * `alias` empty = a default from the source's name. Returns
+ * `AttachmentInfo` JSON via callback.
  */
 
-void pharos_duck_attach_postgres(const char *duck_connection_id,
-                                 const char *pg_connection_id,
-                                 const char *alias,
-                                 bool read_only,
-                                 AsyncCallback callback,
-                                 void *context);
+void pharos_duck_attach(const char *duck_connection_id,
+                        const char *kind,
+                        const char *source,
+                        const char *alias,
+                        bool read_only,
+                        AsyncCallback callback,
+                        void *context);
 
 /**
  * Attach the DuckDB database file at `url` (http/https) to an open DuckDB
@@ -258,8 +262,8 @@ void pharos_duck_attach_remote(const char *duck_connection_id,
                                void *context);
 
 /**
- * Detach a PostgreSQL connection Pharos attached to a DuckDB database.
- * Returns `null` via callback.
+ * Detach a database from a DuckDB database and forget it (it is not
+ * attached again on the next open). Returns `null` via callback.
  */
 
 void pharos_duck_detach(const char *duck_connection_id,
@@ -268,13 +272,32 @@ void pharos_duck_detach(const char *duck_connection_id,
                         void *context);
 
 /**
- * The PostgreSQL connections attached to a DuckDB database:
- * `[AttachmentInfo]` JSON via callback.
+ * The databases attached to a DuckDB database, then its remembered attaches
+ * that are not attached now: `[AttachmentInfo]` JSON via callback.
  */
 
 void pharos_duck_attachments(const char *duck_connection_id,
                              AsyncCallback callback,
                              void *context);
+
+/**
+ * A PostgreSQL connection has just connected: attach it to each connected
+ * DuckDB database that remembers it (`duck_attach::restore_for_pg`).
+ * Returns `[RestoreOutcome]` JSON via callback.
+ */
+
+void pharos_duck_restore_for_pg(const char *pg_connection_id,
+                                AsyncCallback callback,
+                                void *context);
+
+/**
+ * The remembered attaches a DuckDB connect could not restore, once:
+ * `["alias: message"]` JSON via callback.
+ */
+
+void pharos_duck_take_restore_failures(const char *duck_connection_id,
+                                       AsyncCallback callback,
+                                       void *context);
 
 /**
  * Initialize the Rust runtime, SQLite database, and credential cache.
