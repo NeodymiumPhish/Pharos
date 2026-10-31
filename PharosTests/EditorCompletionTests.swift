@@ -236,6 +236,79 @@ private func testResolver() {
     expectEqual(SQLCompletionProvider.initials(of: "user_created_id"), "uci", "initials: first letters of the words")
 }
 
+// MARK: - Resolver: DuckDB attached databases
+
+/// A DuckDB tab with two attached databases: PostgreSQL `live` (schemas
+/// `public`, `sales`) and DuckDB file `sales` (schema `main`). The catalog
+/// names each attached schema with a dot.
+private func makeAttachedEnv() -> CompletionResolver.Environment {
+    var c = CompletionResolver.Catalog()
+    c.schemas = ["main", "live.public", "live.sales", "sales.main"]
+    c.tables = [
+        "main": [.init(name: "local_t", isView: false)],
+        "live.public": [.init(name: "events", isView: false), .init(name: "users", isView: false)],
+        "live.sales": [.init(name: "deals", isView: false)],
+        "sales.main": [.init(name: "t", isView: false)],
+    ]
+    c.columns = [
+        "main.local_t": [.init(name: "id", type: "INTEGER", isPrimaryKey: false)],
+        "live.public.events": [.init(name: "event_id", type: "bigint", isPrimaryKey: true), .init(name: "kind", type: "text", isPrimaryKey: false)],
+        "live.public.users": [.init(name: "id", type: "integer", isPrimaryKey: true)],
+        "sales.main.t": [.init(name: "amount", type: "DOUBLE", isPrimaryKey: false)],
+    ]
+    var e = CompletionResolver.Environment(catalog: c, currentSchema: nil)
+    e.homeSchema = "main"
+    return e
+}
+
+private func testAttachedDatabases() {
+    typealias Ref = SQLStatementScope.TableRef
+    let duck = makeAttachedEnv()
+
+    // Table references keep every part before the table as the schema.
+    let scope = SQLStatementScope.analyze("SELECT * FROM live.public.events e JOIN sales.main.t s ON ", caret: 58)
+    expectEqual(scope.tables.map(\.schema), ["live.public", "sales.main"], "attached: a three-part name's schema is its first two parts")
+    expectEqual(CompletionResolver.resolve(Ref(schema: "live.public", table: "events", alias: "e"), in: duck),
+                .init(schema: "live.public", table: "events", qualifier: "e"), "attached: resolve a dotted schema")
+
+    // 1. `live.public.` → the tables of catalog schema `live.public`.
+    expectEqual(inserts(rows("SELECT * FROM live.public.|", duck)), ["events", "users"], "attached: database.schema. → its tables")
+    // 2. `live.public.events.` → the columns of that table.
+    expectEqual(inserts(rows("SELECT live.public.events.|", duck)), ["event_id", "kind"], "attached: database.schema.table. → its columns")
+    // 3. `live.` → the schemas under that database.
+    let databaseRows = rows("SELECT * FROM live.|", duck)
+    expectEqual(inserts(databaseRows), ["public", "sales"], "attached: database. → its schemas, without the prefix")
+    expectTrue(databaseRows.allSatisfy { $0.kind == .schema }, "attached: database. rows have the schema kind")
+    expectEqual(inserts(rows("SELECT * FROM sales.|", duck)), ["main"], "attached: a DuckDB file database. → main")
+    // 4. An alias of a three-part name → that table's columns.
+    expectEqual(inserts(rows("SELECT * FROM live.public.events e JOIN sales.main.t s ON e.|", duck)), ["event_id", "kind"],
+                "attached: alias of database.schema.table → its columns")
+    expectEqual(inserts(rows("SELECT | FROM live.public.events e JOIN sales.main.t s", duck)).prefix(4).map { $0 },
+                ["*", "e.event_id", "e.kind", "s.amount"], "attached: select list → both tables' columns, alias-qualified")
+    expectEqual(CompletionResolver.referencedSchemas(scope, in: duck), ["live.public", "sales.main", "main"],
+                "attached: referenced schemas are the dotted catalog names")
+
+    // FROM inserts another schema's table with its whole dotted schema.
+    expectTrue(inserts(rows("SELECT * FROM |", duck)).contains("live.public.events"), "attached: from → live.public.events, qualified")
+
+    // PostgreSQL: `db.schema.table` falls back to the schema's last part.
+    let pg = env()
+    expectEqual(CompletionResolver.resolve(Ref(schema: "mydb.public", table: "users", alias: nil), in: pg)?.schema, "public",
+                "postgres: db.schema.table resolves schema by its last part")
+    expectEqual(inserts(rows("SELECT * FROM mydb.public.users u WHERE u.|")), ["id", "email", "user_created_id"],
+                "postgres: alias of db.schema.table → its columns")
+    expectEqual(inserts(rows("SELECT mydb.public.users.|")), ["id", "email", "user_created_id"],
+                "postgres: db.schema.table. → its columns")
+    expectEqual(CompletionResolver.referencedSchemas(SQLStatementScope.analyze("SELECT * FROM mydb.audit.log WHERE ", caret: 35), in: pg),
+                ["audit", "public"], "postgres: db.schema.table loads the schema by its last part")
+
+    // Regressions: one- and two-part names are unchanged.
+    expectEqual(inserts(rows("SELECT public.users.|")), ["id", "email", "user_created_id"], "regression: schema.table. → columns")
+    expectEqual(inserts(rows("SELECT * FROM audit.|")), ["log"], "regression: schema. → tables")
+    expectEqual(inserts(rows("SELECT * FROM audit.log l WHERE l.|")), ["id"], "regression: alias of schema.table → columns")
+    expectEqual(rows("SELECT * FROM nothing.|"), [], "regression: an unknown qualifier → no rows")
+}
+
 // MARK: - Typed into the real editor
 
 /// Mirrors SQLEditorController's delegate extension, and counts triggers.
@@ -742,6 +815,7 @@ func runTests() {
     testItems()
     testBracePairing()
     testResolver()
+    testAttachedDatabases()
     testTypedIntoEditor()
     testSharedProvider()
     testTokenRule()

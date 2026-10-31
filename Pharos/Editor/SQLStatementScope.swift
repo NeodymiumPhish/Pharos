@@ -15,6 +15,9 @@ struct SQLStatementScope: Equatable {
 
     /// A table the statement reads or writes.
     struct TableRef: Equatable {
+        /// Every part before the table, joined with dots: `live.public` for
+        /// `live.public.events`, which is how the catalog names a DuckDB
+        /// attached database's schema.
         let schema: String?
         let table: String
         let alias: String?
@@ -293,7 +296,7 @@ struct SQLStatementScope: Equatable {
                         alias = tokens[j].text
                         j += 1
                     }
-                    let ref = TableRef(schema: parts.count > 1 ? parts[parts.count - 2] : nil,
+                    let ref = TableRef(schema: parts.count > 1 ? parts.dropLast().joined(separator: ".") : nil,
                                        table: parts[parts.count - 1], alias: alias)
                     tables.append(ref)
                     if isTarget, target == nil { target = ref }
@@ -354,7 +357,9 @@ struct SQLStatementScope: Equatable {
                 guard k >= 1, before[k - 1].isPunct(".") else { break }
                 k -= 2
             }
-            return parts.isEmpty ? .none : .member(qualifier: parts.suffix(2).joined(separator: "."))
+            // Every part: `live.public.events.` names a table in an
+            // attached database, whose catalog schema is `live.public`.
+            return parts.isEmpty ? .none : .member(qualifier: parts.joined(separator: "."))
         }
 
         // The tokens at the caret's depth, and the paren that encloses it.

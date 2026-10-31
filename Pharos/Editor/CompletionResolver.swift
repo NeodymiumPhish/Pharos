@@ -35,6 +35,28 @@ enum CompletionResolver {
             return schemas.first { $0.lowercased() == lower } ?? tables.keys.first { $0.lowercased() == lower }
         }
 
+        /// The schema a dotted qualifier names. A DuckDB attached database's
+        /// schema is one catalog name (`live.public`); PostgreSQL's
+        /// `db.schema` names only `schema`. The whole name wins, then its
+        /// last part.
+        func schema(qualifiedBy name: String) -> String? {
+            if let real = schema(matching: name) { return real }
+            guard let dot = name.lastIndex(of: ".") else { return nil }
+            return schema(matching: String(name[name.index(after: dot)...]))
+        }
+
+        /// The schemas of an attached database, without its prefix: `public`
+        /// and `sales` for `live`, from `live.public` and `live.sales`.
+        func schemas(inDatabase database: String) -> [String] {
+            let prefix = database.lowercased() + "."
+            var out: [String] = []
+            for schema in schemas + tables.keys.sorted() where schema.lowercased().hasPrefix(prefix) {
+                let name = String(schema.dropFirst(prefix.count))
+                if !name.isEmpty, !out.contains(name) { out.append(name) }
+            }
+            return out
+        }
+
         func table(_ name: String, in schema: String) -> Table? {
             let lower = name.lowercased()
             return tables[schema]?.first { $0.name.lowercased() == lower }
@@ -92,7 +114,7 @@ enum CompletionResolver {
     static func resolve(_ ref: SQLStatementScope.TableRef, in env: Environment) -> ResolvedTable? {
         let catalog = env.catalog
         if let schema = ref.schema {
-            guard let real = catalog.schema(matching: schema), let table = catalog.table(ref.table, in: real) else { return nil }
+            guard let real = catalog.schema(qualifiedBy: schema), let table = catalog.table(ref.table, in: real) else { return nil }
             return ResolvedTable(schema: real, table: table.name, qualifier: ref.qualifier)
         }
         for schema in env.searchPath {
@@ -112,7 +134,7 @@ enum CompletionResolver {
     static func referencedSchemas(_ scope: SQLStatementScope, in env: Environment) -> [String] {
         var out: [String] = []
         for ref in scope.tables {
-            let schema = ref.schema.flatMap { env.catalog.schema(matching: $0) } ?? resolve(ref, in: env)?.schema
+            let schema = ref.schema.flatMap { env.catalog.schema(qualifiedBy: $0) } ?? resolve(ref, in: env)?.schema
             if let schema, !out.contains(schema) { out.append(schema) }
         }
         for schema in env.searchPath where !out.contains(schema) { out.append(schema) }
@@ -258,14 +280,21 @@ enum CompletionResolver {
     }
 
     /// `qualifier.` — an alias or table in scope gives its columns, a schema
-    /// its tables, a bare table (by the search path) its columns, and
-    /// `schema.table` its columns.
+    /// its tables, an attached database its schemas, a bare table (by the
+    /// search path) its columns, and `schema.table` its columns. A dotted
+    /// qualifier is a DuckDB attached schema (`live.public`) when the
+    /// catalog has it, else `schema.table` — the schema itself dotted
+    /// (`live.public.events`) or PostgreSQL's `db.schema.table`.
     private static func members(of qualifier: String, scope: SQLStatementScope, env: Environment) -> [Row] {
         let parts = qualifier.split(separator: ".").map(String.init)
         let catalog = env.catalog
-        if parts.count == 2 {
-            guard let schema = catalog.schema(matching: parts[0]), let table = catalog.table(parts[1], in: schema) else { return [] }
-            return catalog.columns(of: table.name, in: schema).map { columnRow($0, qualifier: nil) }
+        if parts.count >= 2 {
+            if let schema = catalog.schema(matching: qualifier) {
+                return (catalog.tables[schema] ?? []).map { tableRow($0, schema: schema, qualified: false) }
+            }
+            let ref = SQLStatementScope.TableRef(schema: parts.dropLast().joined(separator: "."), table: parts[parts.count - 1], alias: nil)
+            guard let resolved = resolve(ref, in: env) else { return [] }
+            return catalog.columns(of: resolved.table, in: resolved.schema).map { columnRow($0, qualifier: nil) }
         }
         let name = qualifier.lowercased()
         // An alias or table in scope. `FROM sales.|` also lands here, with
@@ -278,6 +307,10 @@ enum CompletionResolver {
         }
         if let schema = catalog.schema(matching: qualifier) {
             return (catalog.tables[schema] ?? []).map { tableRow($0, schema: schema, qualified: false) }
+        }
+        let attached = catalog.schemas(inDatabase: qualifier)
+        if !attached.isEmpty {
+            return attached.map { Row(label: $0, detail: "schema", insertText: $0, kind: .schema) }
         }
         if let resolved = resolve(.init(schema: nil, table: qualifier, alias: nil), in: env) {
             return catalog.columns(of: resolved.table, in: resolved.schema).map { columnRow($0, qualifier: nil) }

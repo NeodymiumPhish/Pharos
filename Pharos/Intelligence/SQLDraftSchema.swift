@@ -154,7 +154,14 @@ struct DraftCatalog: Sendable, Equatable {
             let s = schema.lowercased()
             return tables.first { $0.key.schema.lowercased() == s && $0.key.name.lowercased() == lower }
         }
-        if let schema { return find(in: schema) }
+        if let schema {
+            if let hit = find(in: schema) { return hit }
+            // `db.schema.table` on PostgreSQL: the catalog has `schema` only.
+            // An attached DuckDB schema (`live.public`) is in it whole.
+            guard !schemas.contains(where: { $0.lowercased() == schema.lowercased() }),
+                  let dot = schema.lastIndex(of: ".") else { return nil }
+            return find(in: String(schema[schema.index(after: dot)...]))
+        }
         for schema in searchPath { if let hit = find(in: schema) { return hit } }
         let hits = tables.filter { $0.key.name.lowercased() == lower }
         return hits.count == 1 ? hits[0] : nil
