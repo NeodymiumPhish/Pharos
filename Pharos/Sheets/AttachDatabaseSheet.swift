@@ -77,7 +77,7 @@ final class AttachDatabaseSheet: NSViewController {
         attachments = DuckDBAttachments.shared.attachments(for: duckConnectionId)
         sourcePopup.menu?.autoenablesItems = false
         sourcePopup.target = self
-        sourcePopup.action = #selector(sourceChanged)
+        sourcePopup.action = #selector(sourcePicked)
         sourcePopup.setAccessibilityIdentifier("sheet.attachdb.source")
         rebuildSourceMenu()
 
@@ -234,7 +234,17 @@ final class AttachDatabaseSheet: NSViewController {
         sourcePopup.selectedItem?.representedObject as? Choice
     }
 
-    @objc private func sourceChanged() {
+    /// The user picked an item: Choose File… opens the panel. Never from
+    /// `sourceChanged`, which also runs when the sheet loads.
+    @objc private func sourcePicked() {
+        if selectedChoice?.isChooseFile == true {
+            chooseFile()
+        } else {
+            sourceChanged()
+        }
+    }
+
+    private func sourceChanged() {
         switch selectedChoice {
         case .postgres(let c):
             previousChoice = sourcePopup.indexOfSelectedItem
@@ -252,9 +262,7 @@ final class AttachDatabaseSheet: NSViewController {
             readOnlyCheckbox.isEnabled = true
             attachButton.isEnabled = attachTask == nil
             show("")
-        case .chooseFile:
-            chooseFile()
-        case nil:
+        case .chooseFile, nil:
             attachButton.isEnabled = false
             show(String(localized: "Choose a database file, or add a PostgreSQL connection in Manage Connections…"))
         }
