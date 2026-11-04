@@ -1205,7 +1205,8 @@ class ResultsGridVC: NSViewController {
         let columnDefs = columns
         let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
 
-        guard rows.count > Self.matchAsyncThreshold else {
+        guard rows.count > Self.matchAsyncThreshold
+                || TagRuleMatcher.holdsHeavyJSON(columns: columnDefs, rows: textRows) else {
             applyTagMap(TagRuleMatcher.match(columns: columnDefs, rows: textRows, index: index))
             return
         }

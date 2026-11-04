@@ -185,6 +185,10 @@ enum TagInspectorModel {
             if let key = TagValueNormalizer.key(text: rowText[index], family: family) {
                 keys.insert(key)
             }
+            if TagValueNormalizer.isJSONFamily(family) {
+                keys.formUnion(TagValueNormalizer.jsonLeafKeys(
+                    text: rowText[index], families: Set(TagValueNormalizer.everyFamily)))
+            }
         }
         return keys
     }

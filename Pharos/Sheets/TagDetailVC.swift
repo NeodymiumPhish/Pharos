@@ -826,7 +826,8 @@ final class TagDetailVC: NSViewController, NSTextFieldDelegate {
         let columns = self.columns
         let count = countMatches
 
-        guard rows.count > Self.asyncCountThreshold else {
+        guard rows.count > Self.asyncCountThreshold
+                || TagRuleMatcher.holdsHeavyJSON(columns: columns, rows: rows) else {
             let counts = count(preview, columns, rows)
             show(solid: counts.solid, partial: counts.partial, loaded: rows.count)
             return

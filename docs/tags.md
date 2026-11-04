@@ -38,6 +38,17 @@ A condition has a **type** and an **operator**, and it is compared only with cel
 
 Text compares without regard to case. A CIDR range also matches addresses held in text columns.
 
+A `json` or `jsonb` column is read value by value, and each value in the document counts as a cell of its own:
+
+| Value in the document | Compared with conditions of type |
+|---|---|
+| String | Text. Also Address, UUID, or Date & time, when all of the string is one |
+| Number | Number and Text |
+| `true`, `false` | Text |
+| `null` | None |
+
+Object keys are not values, and they do not match. As in a text column, **is** compares the whole value: `acme` does not match `"Acme Corp"`, and the pattern `*acme*` does. Only JSON columns are read this way: JSON text in a text column is one value.
+
 In the grid, a row that fully satisfies a rule shows a solid bar; a row that satisfies only some conditions of a rule shows a dashed one.
 
 ## The Tag Manager

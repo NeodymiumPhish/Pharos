@@ -271,6 +271,194 @@ func runTests() {
     expectEqual(emptyCounts.solid, 0, "no rows means no solid claims")
     expectEqual(emptyCounts.partial, 0, "no rows means no partial touches either")
 
+    // MARK: JSON columns — each value inside the document is a cell of its own.
+    //
+    // The bug these pin: a `text` rule was never offered a `json` or `jsonb`
+    // column at all, because the column's family is `type:jsonb`, so a value
+    // visibly present in the document drew no tag.
+    func jsonMatches(_ rule: TagRule, _ document: String?, type: String = "jsonb") -> [Int: [TagRowMatch]] {
+        TagRuleMatcher.match(columns: [ColumnDef(name: "doc", dataType: type)], rows: [[document]],
+                             index: TagRuleMatcher.buildIndex([tag("json", [rule])]))
+    }
+    func jsonHit(_ rule: TagRule, _ document: String?, type: String = "jsonb") -> Bool {
+        jsonMatches(rule, document, type: type)[0]?.first?.state == .solid
+    }
+    func jsonText(_ text: String) -> TagRule { tuple("j", [value("text", text)]) }
+    let analysis = jsonText("Quarterly-Review")
+
+    // 1. The reported defect, on every spelling of the type.
+    let reported = #"{"project": {"labels": ["other", "quarterly-review"]}, "n": 1}"#
+    expectEqual(jsonHit(analysis, reported), true, "a text rule matches a nested string in jsonb")
+    expectEqual(jsonHit(analysis, reported, type: "JSONB"), true, "sqlx's JSONB spelling")
+    expectEqual(jsonHit(analysis, reported, type: "json"), true, "a json column")
+    expectEqual(jsonHit(analysis, reported, type: "JSON"), true, "sqlx's and DuckDB's JSON spelling")
+    expectEqual(jsonHit(analysis, #""quarterly-review""#), true, "a document that is one bare string")
+    expectEqual(jsonMatches(analysis, reported)[0]?.first?.matchedColumns, [0],
+                "the JSON column is the matched column, so the cell tints")
+
+    // 2. Only the JSON column of a mixed result tints, and a rule can be
+    //    completed across a plain column and a JSON value.
+    let jsonMixed = [ColumnDef(name: "id", dataType: "int4"), ColumnDef(name: "a", dataType: "jsonb"),
+                 ColumnDef(name: "name", dataType: "text"), ColumnDef(name: "b", dataType: "json")]
+    let jsonMixedRows: [[String?]] = [
+        ["1", #"{"x": "quarterly-review"}"#, "acme", #"{"y": "unrelated"}"#],
+        ["2", #"{"x": "unrelated"}"#, "other", #"["quarterly-review"]"#],
+        ["3", #"{"x": "unrelated"}"#, "other", #"{"y": "unrelated"}"#],
+    ]
+    let jsonMixedResult = TagRuleMatcher.match(columns: jsonMixed, rows: jsonMixedRows,
+                                           index: TagRuleMatcher.buildIndex([tag("json", [analysis])]))
+    expectEqual(jsonMixedResult[0]?.first?.matchedColumns, [1], "the first JSON column alone tints")
+    expectEqual(jsonMixedResult[1]?.first?.matchedColumns, [3], "the second JSON column alone tints")
+    expectEqual(jsonMixedResult[2] == nil, true, "a row with no match stays untagged")
+
+    let across = tuple("across", [value("text", "acme"), value("text", "quarterly-review")])
+    let acrossResult = TagRuleMatcher.match(columns: jsonMixed, rows: jsonMixedRows,
+                                            index: TagRuleMatcher.buildIndex([tag("json", [across])]))
+    expectEqual(acrossResult[0]?.first?.state, .solid, "a rule completes across a column and a JSON value")
+    expectEqual(acrossResult[0]?.first?.matchedColumns, [1, 2], "both cells of that rule tint")
+    expectEqual(acrossResult[1]?.first?.state, .dashed, "one condition of two is a partial match")
+    let inOneCell = tuple("cell", [value("text", "alpha"), value("text", "beta")])
+    expectEqual(jsonHit(inOneCell, #"{"a": "alpha", "b": ["beta"]}"#), true,
+                "two values of one document complete one rule")
+
+    // 3. A value is compared whole, as a text cell is. Substrings need a pattern.
+    expectEqual(jsonHit(jsonText("acme"), #"{"a": "Acme Corp"}"#), false, "is: part of a value is no match")
+    let pattern = tuple("g", [cond(.glob, "text", "*acme*")])
+    expectEqual(jsonHit(pattern, #"{"a": "Acme Corp"}"#), true, "matches: a pattern reaches inside a value")
+    expectEqual(jsonHit(pattern, #"{"acme": "unrelated"}"#), false, "a pattern does not read keys")
+
+    // 4. Names are not values: the same rule as column names.
+    expectEqual(jsonHit(jsonText("project"), #"{"project": 1}"#), false, "an object key never matches")
+    expectEqual(jsonHit(jsonText("project"), #"{"a" : {"project" : "x"}}"#), false, "a nested key never matches")
+    expectEqual(jsonHit(jsonText("project"), #"{"project": "project"}"#), true, "the same text as a value does")
+
+    // 5. A JSON null is the absence of a value, like a SQL NULL.
+    expectEqual(jsonHit(jsonText("null"), #"{"a": null}"#), false, "a JSON null never matches")
+    expectEqual(jsonHit(jsonText("null"), #"{"a": "null"}"#), true, "the string null is a value")
+    expectEqual(jsonHit(analysis, nil), false, "a SQL NULL in a JSON column matches nothing")
+
+    // 6. Scalars other than strings are offered as the text they read as.
+    expectEqual(jsonHit(jsonText("12345"), #"{"id": 12345}"#), true, "a text rule matches a JSON number")
+    expectEqual(jsonHit(jsonText("true"), #"{"ok": true}"#), true, "a text rule matches a JSON boolean")
+    expectEqual(jsonHit(jsonText("false"), #"{"ok": true}"#), false, "the other boolean does not")
+
+    // 7. Escapes decode before the comparison.
+    expectEqual(jsonHit(jsonText("say \"hi\""), #"["say \"hi\"\n"]"#), true, "a quote and a newline escape")
+    expectEqual(jsonHit(jsonText("café"), #"["café"]"#), true, "a unicode escape")
+    expectEqual(jsonHit(jsonText("café"), #"["café"]"#), true, "raw UTF-8")
+    expectEqual(jsonHit(jsonText("🎉"), #"["🎉"]"#), true, "a surrogate pair")
+    expectEqual(jsonHit(jsonText("a/b\\c"), #"["a\/b\\c"]"#), true, "solidus and backslash escapes")
+    expectEqual(jsonHit(jsonText("x"), #"["\ud83c", "x"]"#, type: "json"), true,
+                "a lone surrogate, legal in a json column, does not lose the other values")
+
+    // 8. Numbers: compared as numbers, and never rounded.
+    let price = tuple("n", [value("numeric", "1.50")])
+    expectEqual(jsonHit(price, #"{"p": 1.5}"#), true, "numeric: 1.5 is 1.50")
+    expectEqual(jsonHit(price, #"{"p": 1.50e0}"#), true, "numeric: an exponent form")
+    expectEqual(jsonHit(price, #"{"p": "1.50"}"#), false,
+                "numeric: a string is not a number, as a text column is not (a weak filter)")
+    let wide = tuple("w", [value("numeric", "12345678901234567890123")])
+    expectEqual(jsonHit(wide, #"[12345678901234567890123]"#), true, "a number beyond Int64 matches itself")
+    expectEqual(jsonHit(wide, #"[12345678901234567890124]"#), false, "no false match by rounding")
+    let over = tuple("c", [cond(.greaterThan, "numeric", "100")])
+    expectEqual(jsonHit(over, #"{"a": 5, "b": [101]}"#), true, "a comparator tests number values")
+    expectEqual(jsonHit(over, #"{"a": 5, "b": "101"}"#), false, "a comparator ignores numeric-looking strings")
+
+    // 9. Strings that are unmistakably another type also answer that type.
+    let host = tuple("a", [value("address", "10.2.3.4")])
+    expectEqual(jsonHit(host, #"{"ip": "10.2.3.4"}"#), true, "address: exact")
+    expectEqual(jsonHit(host, #"{"ip": "10.2.3.5"}"#), false, "address: another address")
+    expectEqual(jsonHit(host, #"{"ip": "host 10.2.3.4"}"#), false, "address: prose holding one is no address")
+    let range = tuple("r", [cond(.cidr, "address", "10.2.0.0/16")])
+    expectEqual(jsonHit(range, #"{"ip": "10.2.3.4"}"#), true, "address: a CIDR range")
+    let id = tuple("u", [value("uuid", "A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11")])
+    expectEqual(jsonHit(id, #"["a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"]"#), true, "uuid: any case")
+    expectEqual(jsonHit(id, #"["a0eebc999c0b4ef8bb6d6bb9bd380a11"]"#), true, "uuid: no dashes")
+    expectEqual(jsonHit(id, #"["a0eebc99"]"#), false, "uuid: a part of one is no uuid")
+    let when = tuple("t", [value("temporal", "2026-08-13 12:34:56+00")])
+    expectEqual(jsonHit(when, #"["2026-08-13T12:34:56Z"]"#), true, "temporal: ISO 8601 UTC")
+    expectEqual(jsonHit(when, #"["2026-08-13T13:34:56+01:00"]"#), true, "temporal: another zone, the same instant")
+    expectEqual(jsonHit(when, #"["2026-08-13"]"#), false, "temporal: another instant")
+    expectEqual(jsonHit(when, #"["next 2026-08-13T12:34:56Z"]"#), false, "temporal: prose holding one")
+    expectEqual(jsonHit(when, #"["2026-08-13T12:34:56Z was next"]"#), false, "temporal: prose after one")
+    let after = tuple("ta", [cond(.greaterThan, "temporal", "2026-01-01")])
+    expectEqual(jsonHit(after, #"{"at": "2026-08-13T12:34:56Z"}"#), true, "temporal: a comparator")
+    expectEqual(jsonHit(after, #"{"at": "2025-08-13T12:34:56Z"}"#), false, "temporal: a comparator, before")
+
+    // 10. A rule captured from a whole JSON cell still matches that whole cell.
+    let whole = tuple("d", [value("type:jsonb", #"{"a": 1}"#)])
+    expectEqual(jsonHit(whole, #"{"a": 1}"#), true, "a captured document matches byte for byte")
+    expectEqual(jsonHit(whole, #"{"a": 2}"#), false, "another document does not")
+    expectEqual(jsonHit(whole, #"{"a": 1}"#, type: "json"), false, "the two JSON types stay separate families")
+
+    // 11. Only JSON columns are read as JSON. A text column keeps its contract.
+    let textColumn = TagRuleMatcher.match(columns: [ColumnDef(name: "t", dataType: "text")],
+                                          rows: [[#"{"a": "quarterly-review"}"#]],
+                                          index: TagRuleMatcher.buildIndex([tag("json", [analysis])]))
+    expectEqual(textColumn.isEmpty, true, "a text column holding JSON text is one value")
+
+    // 12. A document this code cannot read matches nothing, and nothing crashes.
+    for broken in [#"["quarterly-review"#, #"["quarterly-review", tru]"#, #"["quarterly-review", @]"#,
+                   #"["quarterly-review", "\q"]"#, #"["quarterly-review", "\u12"]"#, #"["quarterly-review", 1.2.3]"#, ""] {
+        expectEqual(jsonHit(analysis, broken), false, "malformed: \(broken)")
+    }
+    let deep = String(repeating: "[", count: 200_000) + #""quarterly-review""#
+        + String(repeating: "]", count: 200_000)
+    expectEqual(jsonHit(analysis, deep), true, "deep nesting does not overflow the stack")
+
+    // 13. A short row, and a column that no rule could answer.
+    let shortRow = TagRuleMatcher.match(columns: jsonMixed, rows: [["1"]],
+                                        index: TagRuleMatcher.buildIndex([tag("json", [analysis])]))
+    expectEqual(shortRow.isEmpty, true, "a row narrower than the columns is safe")
+    let counts = TagRuleMatcher.matchCounts(tag: tag("json", [analysis]), columns: jsonMixed, rows: jsonMixedRows)
+    expectEqual(counts.solid, 2, "the Tag Manager's count agrees with the grid")
+
+    // 14. Large documents leave the main thread; ordinary results do not.
+    let bigDocument = String(repeating: "x", count: 70_000)
+    expectEqual(TagRuleMatcher.holdsHeavyJSON(columns: jsonMixed, rows: jsonMixedRows), false,
+                "small documents stay on the main thread")
+    expectEqual(TagRuleMatcher.holdsHeavyJSON(
+        columns: jsonMixed, rows: [["1", #"["\#(bigDocument)"]"#, "x", nil]]), true,
+                "one large document leaves it")
+    expectEqual(TagRuleMatcher.holdsHeavyJSON(
+        columns: [ColumnDef(name: "t", dataType: "text")], rows: [[bigDocument]]), false,
+                "a large text cell is not parsed, so the row threshold still decides")
+
+    // 15. Without a pattern, a document keeps only its hits, and the verdicts are
+    //     the same with a pattern present.
+    let withPattern = TagRuleMatcher.buildIndex([tag("json", [analysis, tuple("g2", [cond(.glob, "text", "*never*")])])])
+    expectEqual(TagRuleMatcher.match(columns: jsonMixed, rows: jsonMixedRows, index: withPattern)[0]?.first?.matchedColumns,
+                [1], "an exact rule still hits a JSON value on the pattern path")
+
+    // 16. The scanner reads what a JSON parser reads.
+    let samples = [
+        #"{"a":"x","b":[1,2.5,-3e2,true,false,null,{"c":"y z"}],"d":{"e":"\tA"}}"#,
+        #"  [ "s" , { "k" : "v" } , [ ] , { } , 0 ]  "#,
+        #""bare""#, "42", "true", "null", "{}", "[]",
+    ]
+    for sample in samples {
+        let parsed = try! JSONSerialization.jsonObject(with: Data(sample.utf8), options: .fragmentsAllowed)
+        func leaves(_ node: Any) -> [String] {
+            switch node {
+            case let text as String: return ["text:" + TagValueNormalizer.normalize(text, family: "text")]
+            case let number as NSNumber where CFGetTypeID(number) == CFBooleanGetTypeID():
+                return ["text:" + (number.boolValue ? "true" : "false")]
+            case let number as NSNumber:
+                return ["numeric:" + TagValueNormalizer.normalize("\(number)", family: "numeric")]
+            case let array as [Any]: return array.flatMap(leaves)
+            case let object as [String: Any]: return object.values.flatMap(leaves)
+            default: return []
+            }
+        }
+        let scanned = TagValueNormalizer.jsonLeafKeys(text: sample, families: ["text", "numeric"])
+            .filter { key in
+                // A number's text twin has no counterpart in the parser's view.
+                key.family == "numeric" || !TagValueNormalizer.isNumericText(key.value)
+            }
+            .map { "\($0.family):\($0.value)" }
+        expectEqual(Set(scanned), Set(leaves(parsed)), "scanner vs JSONSerialization: \(sample)")
+    }
+
     print(failures == 0 ? "\nAll matcher checks passed" : "\n\(failures) FAILED")
     if failures > 0 { exit(1) }
 }

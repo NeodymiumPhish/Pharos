@@ -49,6 +49,10 @@ enum TagValueNormalizer {
     /// An unlisted type keeps its own name as its family, so two different
     /// exotic types never compare equal just because their text matches.
     ///
+    /// A JSON column keeps its own family too, for a rule captured from a whole
+    /// document. The values INSIDE a document are keyed apart, by
+    /// `jsonLeafKeys`.
+    ///
     /// Two known gaps, both deliberate. A boolean lands in `type:bool` from
     /// sqlx and `type:boolean` from `information_schema`, so the two spellings
     /// do not share a family — harmless today, because every value that reaches
@@ -128,6 +132,276 @@ enum TagValueNormalizer {
     static let everyFamily: [String] = [
         addressFamily, textFamily, numericFamily, temporalFamily, uuidFamily,
     ]
+
+    // MARK: JSON
+
+    /// Does this family hold a JSON document, whose values `jsonLeafKeys` reads?
+    static func isJSONFamily(_ family: String) -> Bool {
+        family == "\(typePrefix)json" || family == "\(typePrefix)jsonb"
+    }
+
+    /// One probe key per value inside a JSON document: each leaf is treated as a
+    /// cell of its own, so a rule reaches into `json` and `jsonb` columns.
+    ///
+    /// JSON has no column type to supply a family, so the leaf's own shape does:
+    ///
+    ///  - A string is `text`. It is also `address`, `uuid` or `temporal` when ALL
+    ///    of it parses as one, because JSON has no other way to spell those. All
+    ///    three are strong filters: prose fails to parse.
+    ///  - A string is never `numeric`, for the reason `TagPredicate.tests` gives
+    ///    for text columns: plenty of prose is digits.
+    ///  - A number is `numeric`, and `text` as well, because `{"id": 42}` and
+    ///    `{"id": "42"}` are one producer's choice and the digits are on screen.
+    ///  - A boolean is `text`.
+    ///  - A `null` is the absence of a value, like a SQL NULL: no key.
+    ///  - An object key is a name, and names take no part in matching.
+    ///
+    /// A document this cannot read gives no keys rather than the part read so
+    /// far. A partly read document would satisfy some conditions of a rule and
+    /// hide others, and neither can be explained in the grid.
+    ///
+    /// - Parameter families: only these are keyed. The caller passes the families
+    ///   its rules use, which is what keeps `DateFormatter` and `inet_pton` off
+    ///   every string of every document when no rule could use the answer.
+    static func jsonLeafKeys(text: String?, families: Set<String>) -> [TagValueKey] {
+        guard var document = text else { return [] }
+        var keys = Set<TagValueKey>()
+        let readable = document.withUTF8 { bytes in
+            scanJSONLeaves(bytes) { leaf in
+                switch leaf {
+                case .string(let value):
+                    insertStringKeys(value, families: families, into: &keys)
+                case .number(let token):
+                    if families.contains(numericFamily) {
+                        keys.insert(TagValueKey(family: numericFamily,
+                                                value: normalize(token, family: numericFamily)))
+                    }
+                    if families.contains(textFamily) {
+                        keys.insert(TagValueKey(family: textFamily,
+                                                value: normalize(token, family: textFamily)))
+                    }
+                case .boolean(let word):
+                    if families.contains(textFamily) {
+                        keys.insert(TagValueKey(family: textFamily, value: word))
+                    }
+                }
+            }
+        }
+        return readable ? Array(keys) : []
+    }
+
+    private static func insertStringKeys(_ value: String, families: Set<String>,
+                                         into keys: inout Set<TagValueKey>) {
+        if families.contains(textFamily) {
+            keys.insert(TagValueKey(family: textFamily, value: normalize(value, family: textFamily)))
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if families.contains(addressFamily), let canonical = CIDRRange.canonical(trimmed) {
+            keys.insert(TagValueKey(family: addressFamily, value: canonical))
+        }
+        if families.contains(uuidFamily) {
+            let hex = normalize(trimmed, family: uuidFamily)
+            if hex.utf8.count == 32, hex.utf8.allSatisfy({ hexDigit($0) != nil }) {
+                keys.insert(TagValueKey(family: uuidFamily, value: hex))
+            }
+        }
+        if families.contains(temporalFamily), startsWithDate(trimmed),
+           let canonical = canonicalTimestamp(trimmed) {
+            keys.insert(TagValueKey(family: temporalFamily, value: canonical))
+        }
+    }
+
+    /// Does this text begin `dddd-dd-dd`? Every form `canonicalTimestamp` parses
+    /// does, and this answers for most strings without five `DateFormatter`
+    /// attempts.
+    private static func startsWithDate(_ text: String) -> Bool {
+        var count = 0
+        for byte in text.utf8.prefix(10) {
+            let isDigit = byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")
+            guard count == 4 || count == 7 ? byte == UInt8(ascii: "-") : isDigit else { return false }
+            count += 1
+        }
+        return count == 10
+    }
+
+    private enum JSONLeaf {
+        case string(String)
+        /// The number's text as written. `Double` would round a wide integer, and
+        /// two different identifiers would then match each other.
+        case number(String)
+        case boolean(String)
+    }
+
+    /// Walk a document's leaves, or return false when it cannot be read.
+    ///
+    /// A byte walk rather than `JSONSerialization`, for three reasons. The parser
+    /// turns numbers into `NSNumber`, and the exact text is lost. It fails a whole
+    /// document on a lone surrogate, which PostgreSQL's `json` type stores. It
+    /// also keeps only the last of two equal keys, which `json` also stores, so a
+    /// value shown in the grid would not match.
+    ///
+    /// The walk checks tokens, not grammar: the server has already validated the
+    /// document. It is iterative, so nesting depth cannot overflow the stack.
+    private static func scanJSONLeaves(_ bytes: UnsafeBufferPointer<UInt8>,
+                                       visit: (JSONLeaf) -> Void) -> Bool {
+        var i = 0
+        while i < bytes.count {
+            switch bytes[i] {
+            case UInt8(ascii: " "), UInt8(ascii: "\n"), UInt8(ascii: "\r"), UInt8(ascii: "\t"),
+                 UInt8(ascii: "{"), UInt8(ascii: "}"), UInt8(ascii: "["), UInt8(ascii: "]"),
+                 UInt8(ascii: ","), UInt8(ascii: ":"):
+                i += 1
+
+            case UInt8(ascii: "\""):
+                guard let (end, hasEscape) = jsonStringEnd(bytes, from: i + 1) else { return false }
+                var next = end + 1
+                while next < bytes.count, isJSONWhitespace(bytes[next]) { next += 1 }
+                // A string followed by a colon is always an object key.
+                if next < bytes.count, bytes[next] == UInt8(ascii: ":") {
+                    i = next + 1
+                    continue
+                }
+                let body = UnsafeBufferPointer(rebasing: bytes[(i + 1)..<end])
+                if hasEscape {
+                    guard let value = decodeJSONEscapes(body) else { return false }
+                    visit(.string(value))
+                } else {
+                    visit(.string(String(decoding: body, as: UTF8.self)))
+                }
+                i = end + 1
+
+            case UInt8(ascii: "t"):
+                guard jsonLiteral("true", in: bytes, at: i) else { return false }
+                visit(.boolean("true"))
+                i += 4
+
+            case UInt8(ascii: "f"):
+                guard jsonLiteral("false", in: bytes, at: i) else { return false }
+                visit(.boolean("false"))
+                i += 5
+
+            case UInt8(ascii: "n"):
+                guard jsonLiteral("null", in: bytes, at: i) else { return false }
+                i += 4
+
+            case UInt8(ascii: "-"), UInt8(ascii: "0")...UInt8(ascii: "9"):
+                var end = i + 1
+                while end < bytes.count, isJSONNumberByte(bytes[end]) { end += 1 }
+                let token = String(decoding: UnsafeBufferPointer(rebasing: bytes[i..<end]), as: UTF8.self)
+                guard isNumericText(token) else { return false }
+                visit(.number(token))
+                i = end
+
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func isJSONWhitespace(_ byte: UInt8) -> Bool {
+        byte == UInt8(ascii: " ") || byte == UInt8(ascii: "\n")
+            || byte == UInt8(ascii: "\r") || byte == UInt8(ascii: "\t")
+    }
+
+    private static func isJSONNumberByte(_ byte: UInt8) -> Bool {
+        switch byte {
+        case UInt8(ascii: "0")...UInt8(ascii: "9"), UInt8(ascii: "+"), UInt8(ascii: "-"),
+             UInt8(ascii: "."), UInt8(ascii: "e"), UInt8(ascii: "E"):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func jsonLiteral(_ word: StaticString, in bytes: UnsafeBufferPointer<UInt8>,
+                                    at start: Int) -> Bool {
+        let count = word.utf8CodeUnitCount
+        guard start + count <= bytes.count else { return false }
+        return word.withUTF8Buffer { literal in
+            (0..<count).allSatisfy { bytes[start + $0] == literal[$0] }
+        }
+    }
+
+    /// The index of a string's closing quote, or nil when it has none.
+    private static func jsonStringEnd(_ bytes: UnsafeBufferPointer<UInt8>, from start: Int)
+        -> (end: Int, hasEscape: Bool)? {
+        var i = start
+        var hasEscape = false
+        while i < bytes.count {
+            switch bytes[i] {
+            case UInt8(ascii: "\""):
+                return (i, hasEscape)
+            case UInt8(ascii: "\\"):
+                hasEscape = true
+                i += 2
+            default:
+                i += 1
+            }
+        }
+        return nil
+    }
+
+    /// A string's text with its escapes decoded, or nil for an invalid escape. A
+    /// lone surrogate becomes U+FFFD: it has no text of its own to compare, and
+    /// the rest of the document is still readable.
+    private static func decodeJSONEscapes(_ body: UnsafeBufferPointer<UInt8>) -> String? {
+        var out: [UInt8] = []
+        out.reserveCapacity(body.count)
+        var i = 0
+        while i < body.count {
+            let byte = body[i]
+            i += 1
+            guard byte == UInt8(ascii: "\\") else {
+                out.append(byte)
+                continue
+            }
+            guard i < body.count else { return nil }
+            let escape = body[i]
+            i += 1
+            switch escape {
+            case UInt8(ascii: "\""), UInt8(ascii: "\\"), UInt8(ascii: "/"): out.append(escape)
+            case UInt8(ascii: "b"): out.append(0x08)
+            case UInt8(ascii: "f"): out.append(0x0C)
+            case UInt8(ascii: "n"): out.append(0x0A)
+            case UInt8(ascii: "r"): out.append(0x0D)
+            case UInt8(ascii: "t"): out.append(0x09)
+            case UInt8(ascii: "u"):
+                guard var unit = hexUnit(body, at: i) else { return nil }
+                i += 4
+                if (0xD800...0xDBFF).contains(unit), i + 6 <= body.count,
+                   body[i] == UInt8(ascii: "\\"), body[i + 1] == UInt8(ascii: "u"),
+                   let low = hexUnit(body, at: i + 2), (0xDC00...0xDFFF).contains(low) {
+                    unit = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00)
+                    i += 6
+                }
+                let scalar = Unicode.Scalar(unit) ?? "\u{FFFD}"
+                out.append(contentsOf: String(scalar).utf8)
+            default:
+                return nil
+            }
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
+
+    private static func hexUnit(_ bytes: UnsafeBufferPointer<UInt8>, at start: Int) -> UInt32? {
+        guard start + 4 <= bytes.count else { return nil }
+        var unit: UInt32 = 0
+        for i in start..<(start + 4) {
+            guard let digit = hexDigit(bytes[i]) else { return nil }
+            unit = unit << 4 | digit
+        }
+        return unit
+    }
+
+    private static func hexDigit(_ byte: UInt8) -> UInt32? {
+        switch byte {
+        case UInt8(ascii: "0")...UInt8(ascii: "9"): return UInt32(byte - UInt8(ascii: "0"))
+        case UInt8(ascii: "a")...UInt8(ascii: "f"): return UInt32(byte - UInt8(ascii: "a")) + 10
+        case UInt8(ascii: "A")...UInt8(ascii: "F"): return UInt32(byte - UInt8(ascii: "A")) + 10
+        default: return nil
+        }
+    }
 
     // MARK: Comparable forms
 

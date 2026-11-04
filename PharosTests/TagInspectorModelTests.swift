@@ -423,6 +423,22 @@ func runTests() {
                     "the matching form is escaped too — unescaped it could misrender exactly as the captured text could")
     }
 
+    // MARK: - JSON: a value inside a document is present in the row
+
+    // The Inspector rebuilds the matcher's probe keys. Without the document's
+    // values among them it would mark a matched JSON value as absent.
+    do {
+        let t = tag("t1", "Analysis", tuples: [
+            tuple("u1", [value("text", "quarterly-review"), value("text", "absent")]),
+        ])
+        let entries = TagInspectorModel.entries(
+            matches: [match("t1", .dashed, matchedRuleIds: ["u1"], solidRuleIds: [])],
+            tags: [t], columns: [col("doc", "jsonb")],
+            rowText: [#"{"labels": ["Quarterly-Review"], "absent": 1}"#])
+        expectEqual(entries.first?.values.map(\.isMatched), [true, false],
+                    "a JSON value is marked matched, and an object key is not a value")
+    }
+
     if failures == 0 {
         print("\nAll TagInspectorModel tests passed.")
     } else {

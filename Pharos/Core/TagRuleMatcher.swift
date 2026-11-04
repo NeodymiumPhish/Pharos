@@ -156,21 +156,38 @@ enum TagRuleMatcher {
         // One classification for the whole result. nil means "no condition
         // could ever answer this column", and that cell is never normalized —
         // the cheapest way to skip a wide result's uninteresting columns.
-        let families: [String?] = columns.map {
-            let family = TagValueNormalizer.family(forDataType: $0.dataType)
-            return index.families.contains(family) || index.patternFamilies.contains(family)
-                ? family : nil
-        }
-        guard families.contains(where: { $0 != nil }) else { return [:] }
+        let columnFamilies = columns.map { TagValueNormalizer.family(forDataType: $0.dataType) }
+        let wanted = index.families.union(index.patternFamilies)
+        let families: [String?] = columnFamilies.map { wanted.contains($0) ? $0 : nil }
+
+        // A JSON column is read a second way, value by value, and its own family
+        // above still answers a rule captured from a whole document. Parsing is
+        // the costly part, so it happens only when a rule could use a value, and
+        // once per cell: `expand` and the row loop share the answer.
+        let jsonColumns = wanted.isDisjoint(with: TagValueNormalizer.everyFamily)
+            ? [] : columnFamilies.indices.filter { TagValueNormalizer.isJSONFamily(columnFamilies[$0]) }
+        guard !jsonColumns.isEmpty || families.contains(where: { $0 != nil }) else { return [:] }
 
         // The preparation pass runs ONLY when a pattern exists. Without one this
         // takes the path it always has and allocates nothing new, so a user who
         // authors no condition cannot be regressed.
         let expanded = !index.patterns.isEmpty
+
+        // Without a pattern only an exact hit can use a key, so a document keeps
+        // those alone. Its other values would otherwise stay in memory for the
+        // whole row walk.
+        let jsonKeys: [[[TagValueKey]]] = jsonColumns.isEmpty ? [] : rows.map { row in
+            jsonColumns.map { column in
+                guard column < row.count else { return [] }
+                let keys = TagValueNormalizer.jsonLeafKeys(text: row[column], families: wanted)
+                return expanded ? keys : keys.filter { index.slots[$0] != nil }
+            }
+        }
+
         var cellKeys: [[TagValueKey?]] = []
         var overlay: [TagValueKey: [Index.Slot]] = [:]
         if expanded {
-            (cellKeys, overlay) = expand(families: families, rows: rows, index: index)
+            (cellKeys, overlay) = expand(families: families, rows: rows, jsonKeys: jsonKeys, index: index)
         }
 
         var out: [Int: [TagRowMatch]] = [:]
@@ -180,6 +197,20 @@ enum TagRuleMatcher {
             var satisfied: [Int: Set<Int>] = [:]
             var matchedColumns: [Int: Set<Int>] = [:]
             var touched: [Int: Set<Int>] = [:]
+
+            // Two probes, both O(1). Each returns EVERY slot holding this
+            // value — including two slots of one rule, which is the design's
+            // rule that presence, not multiplicity, satisfies a slot.
+            func probe(_ key: TagValueKey, column: Int) {
+                if let hits = index.slots[key] {
+                    record(hits, column: column, satisfied: &satisfied,
+                           matchedColumns: &matchedColumns, touched: &touched)
+                }
+                if expanded, let hits = overlay[key] {
+                    record(hits, column: column, satisfied: &satisfied,
+                           matchedColumns: &matchedColumns, touched: &touched)
+                }
+            }
 
             for (column, family) in families.enumerated() {
                 guard let family else { continue }
@@ -194,16 +225,11 @@ enum TagRuleMatcher {
                     key = TagValueNormalizer.key(text: row[column], family: family)
                 }
                 guard let key else { continue }
-                // Two probes, both O(1). Each returns EVERY slot holding this
-                // value — including two slots of one rule, which is the design's
-                // rule that presence, not multiplicity, satisfies a slot.
-                if let hits = index.slots[key] {
-                    record(hits, column: column, satisfied: &satisfied,
-                           matchedColumns: &matchedColumns, touched: &touched)
-                }
-                if expanded, let hits = overlay[key] {
-                    record(hits, column: column, satisfied: &satisfied,
-                           matchedColumns: &matchedColumns, touched: &touched)
+                probe(key, column: column)
+            }
+            for (position, column) in jsonColumns.enumerated() {
+                for key in jsonKeys[rowIndex][position] {
+                    probe(key, column: column)
                 }
             }
             guard !touched.isEmpty else { continue }
@@ -225,6 +251,33 @@ enum TagRuleMatcher {
         }
         return out
     }
+
+    /// Should this result match off the main thread, whatever its row count?
+    ///
+    /// Row count measures the work of a result of ordinary cells, and a JSON cell
+    /// is not one: it is parsed, and it can hold many megabytes. So the callers'
+    /// row thresholds do not protect a short result of large documents.
+    ///
+    /// Stops counting at the limit, so its own cost has a small bound.
+    static func holdsHeavyJSON(columns: [ColumnDef], rows: [[String?]]) -> Bool {
+        let jsonColumns = columns.indices.filter {
+            TagValueNormalizer.isJSONFamily(TagValueNormalizer.family(forDataType: columns[$0].dataType))
+        }
+        guard !jsonColumns.isEmpty else { return false }
+        var bytes = 0
+        for row in rows {
+            for column in jsonColumns where column < row.count {
+                bytes += row[column]?.utf8.count ?? 0
+            }
+            if bytes > heavyJSONBytes { return true }
+        }
+        return false
+    }
+
+    /// Measured on sample documents: reading this much takes about 1.5 ms for
+    /// most rules, and about 60 ms for a date rule when one value in five is a
+    /// timestamp, because each timestamp goes through `DateFormatter`.
+    private static let heavyJSONBytes = 64 * 1024
 
     /// Fold one probe's hits into the row's tallies.
     ///
@@ -252,7 +305,8 @@ enum TagRuleMatcher {
     ///
     /// Normalizing each distinct text once instead of each cell is the second
     /// saving: the cache this builds is what the row loop reads.
-    private static func expand(families: [String?], rows: [[String?]], index: Index)
+    private static func expand(families: [String?], rows: [[String?]], jsonKeys: [[[TagValueKey]]],
+                               index: Index)
         -> (cellKeys: [[TagValueKey?]], overlay: [TagValueKey: [Index.Slot]]) {
         var cellKeys = [[TagValueKey?]](repeating: [], count: rows.count)
         var distinct = Set<TagValueKey>()
@@ -266,6 +320,9 @@ enum TagRuleMatcher {
                 distinct.insert(key)
             }
             cellKeys[rowIndex] = keys
+        }
+        for rowKeys in jsonKeys {
+            for keys in rowKeys { distinct.formUnion(keys) }
         }
 
         var overlay: [TagValueKey: [Index.Slot]] = [:]
