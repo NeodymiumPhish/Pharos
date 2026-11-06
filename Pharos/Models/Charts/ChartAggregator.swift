@@ -222,6 +222,14 @@ enum ChartAggregator {
 
     // MARK: - Gantt
 
+    /// The most Gantt bars drawn. Each bar is a mark and each lane a label
+    /// in one SwiftUI layout pass. Measured on a 60,000-lane result: 5,000
+    /// bars held the main thread ~8 s, 1,000 bars ~7.8 s, 250 bars 2.8 s —
+    /// against ~2.0 s for a 200-row chart, the cost of opening any chart. A
+    /// chart of more lanes cannot be read anyway; the view says how many are
+    /// left out.
+    static let ganttBarCap = 250
+
     /// Joins a lane's or segment's column values into one key.
     static let ganttValueSeparator = " · "
 
@@ -295,10 +303,32 @@ enum ChartAggregator {
             }
         }
 
+        // Each bar is one mark in a SwiftUI ForEach: a bar per row of a large
+        // result put 60,000 marks into one layout pass, which held the main
+        // thread for minutes at ~2 GB (measured). Keep whole lanes, in their
+        // order, up to `ganttBarCap` bars, and say how many lanes are left out.
+        var keptLanes = laneOrder
+        if bars.count > ganttBarCap {
+            var perLane: [String: Int] = [:]
+            for bar in bars { perLane[bar.lane, default: 0] += 1 }
+            var total = 0
+            keptLanes = []
+            for lane in laneOrder {
+                let n = perLane[lane] ?? 0
+                if total + n > ganttBarCap && !keptLanes.isEmpty { break }
+                keptLanes.append(lane)
+                total += n
+            }
+            let kept = Set(keptLanes)
+            bars = bars.filter { kept.contains($0.lane) }
+        }
+
         var out = ChartData()
         out.ganttBars = bars
-        out.ganttLanes = laneOrder
-        out.plottedRowCount = lanes.values.reduce(0) { $0 + $1.count }
+        out.ganttLanes = keptLanes
+        out.wasTruncated = keptLanes.count < laneOrder.count
+        out.otherBucketCount = laneOrder.count - keptLanes.count
+        out.plottedRowCount = keptLanes.reduce(0) { $0 + (lanes[$1]?.count ?? 0) }
         out.totalLoadedRowCount = result.rows.rowCount
         let startKind = ColumnClassifier.kind(of: startRef.index, in: result)
         out.ganttAxisKind = startKind == .temporal ? .temporal : .numeric

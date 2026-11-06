@@ -3567,6 +3567,9 @@
     "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote." : {
 
     },
+    "Showing the first %lld lanes. %lld more lanes are not drawn; filter the results to chart them." : {
+
+    },
     "SQL" : {
 
     },

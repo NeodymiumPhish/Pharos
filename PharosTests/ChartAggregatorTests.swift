@@ -99,6 +99,17 @@ func runTests() {
     expect(gout.ganttBars.count == 2, "gantt: two bars")
     expect(gout.ganttBars[0].end > gout.ganttBars[0].start, "gantt: end after start")
 
+    // --- gantt: a lane per row of a large result is capped at whole lanes ---
+    let manyRows: [[String?]] = (0..<6_000).map { ["task \($0)", "2024-01-01 00:00:00", "2024-01-02 00:00:00"] }
+    let manyLanes = makeResult([("task", "text"), ("s", "timestamp"), ("e", "timestamp")], manyRows)
+    let capped = ChartAggregator.aggregate(manyLanes, gcfg)
+    expect(capped.ganttBars.count == ChartAggregator.ganttBarCap, "gantt: bars capped at ganttBarCap")
+    expect(capped.ganttLanes.count == ChartAggregator.ganttBarCap, "gantt: whole lanes kept")
+    expect(capped.wasTruncated && capped.otherBucketCount == 6_000 - ChartAggregator.ganttBarCap, "gantt: the left-out lanes are counted")
+    expect(capped.ganttLanes.first == "task 0", "gantt: lanes keep their first-seen order")
+    expect(capped.plottedRowCount == ChartAggregator.ganttBarCap, "gantt: plotted rows are the kept lanes' rows")
+    expect(!gout.wasTruncated, "gantt: a small result is not capped")
+
     // --- degenerate: value column all null ---
     let nullish = makeResult([("m", "text"), ("v", "numeric")], [["Jan", nil], ["Feb", nil]])
     let nout = ChartAggregator.aggregate(nullish, cfg)

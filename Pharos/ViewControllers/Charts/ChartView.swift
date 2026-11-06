@@ -184,7 +184,17 @@ struct ChartCanvas: View {
             categoryChart { pt, _ in AreaMark(x: .value("Category", pt.xLabel), y: .value("Value", pt.y)) }
         case .pie:     pieChart
         case .scatter: scatterChart
-        case .gantt:   ganttChart
+        case .gantt:
+            VStack(alignment: .leading, spacing: 4) {
+                if data.wasTruncated {
+                    // A capped chart says so: lanes past the cap are not drawn.
+                    Text("Showing the first \(data.ganttLanes.count) lanes. \(data.otherBucketCount) more lanes are not drawn; filter the results to chart them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("chart.gantt.truncated")
+                }
+                ganttChart
+            }
         case .heatmap: heatmapChart
         }
     }
