@@ -2226,6 +2226,12 @@
     "Loaded the first %@ rows (Settings ▸ Query ▸ Load All limit). The result is larger." : {
 
     },
+    "Loading Results…" : {
+
+    },
+    "Loading results…" : {
+
+    },
     "Loading…" : {
 
     },
@@ -3209,6 +3215,9 @@
 
     },
     "Reading the schemas…" : {
+
+    },
+    "Reading the stored rows of this card." : {
 
     },
     "Reading the tables in %@…" : {

@@ -325,8 +325,27 @@ private func testSessionRename() {
 
 // MARK: - entry point
 
+/// A reopened workspace or Session puts stored results on its cards with no
+/// rows read: such a result is loadable and counts as a result.
+private func testStoredResultStates() {
+    var stub = CardResult(cardId: "c1", sql: "select 1", rawSQL: "select 1")
+    expectTrue(!stub.hasResult && !stub.isLoadable, "stored: a bare result has nothing to show")
+    stub.storedSource = .history(id: "h1")
+    expectTrue(stub.isLoadable, "stored: a stored source with no rows is loadable")
+    expectTrue(stub.hasResult, "stored: and it counts as a result (View Results)")
+    expectTrue(!stub.hasPayload, "stored: but holds no rows")
+    stub.queryResult = QueryResult(columns: [ColumnDef(name: "a", dataType: "text")], rows: ResultTable(rows: [["x"]]),
+                                   rowCount: 1, executionTimeMs: 1, hasMore: false, historyEntryId: "h1")
+    expectTrue(!stub.isLoadable && stub.hasResult && stub.hasPayload, "stored: once read, it is an ordinary result")
+    var session = CardResult(cardId: "c2", sql: "s", rawSQL: "s")
+    session.storedSource = .session(resultId: "r1", hasMore: true)
+    expectTrue(session.isLoadable, "stored: a Session source is loadable too")
+    expect(session.storedSource, .session(resultId: "r1", hasMore: true), "stored: the Session source keeps hasMore")
+}
+
 func runTests() {
     MainActor.assumeIsolated {
+        testStoredResultStates()
         testEnsureMakesTheOneTab()
         testEnsureIsHeldBackDuringRestore()
         testEnsureIsHeldBackWhileATabIsOnItsWay()

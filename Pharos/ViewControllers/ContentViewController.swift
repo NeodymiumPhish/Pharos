@@ -2297,6 +2297,11 @@ class ContentViewController: NSViewController {
                 resultsVC.showResult(result, restoring: r.gridState)
             } else if let exec = r.executeResult {
                 resultsVC.showExecuteResult(exec)
+            } else if r.isLoadable {
+                // A reopened workspace or Session: the rows are stored, and
+                // are read now that the card is shown.
+                resultsVC.showLoadingStoredResult()
+                loadStoredRows(cardId: r.id)
             } else {
                 // A plan only, a restored "SQL only" result, or one the
                 // limit let go: nothing of the last result may stay on screen.
@@ -2311,6 +2316,74 @@ class ContentViewController: NSViewController {
         syncChartToggleToActiveTab()
         applyResultBanner(from: displayedResult)
         refreshCardResultsUI()
+    }
+
+    // MARK: - Stored results (lazy restore)
+
+    /// Cards whose stored rows are being read now, and from which source. By
+    /// source, not card alone: a relaunch opens the workspace (history rows)
+    /// and the Session restore then points the card at the Session's rows; a
+    /// load of the history rows still running must not block that one.
+    private var loadingStoredCards: [String: StoredResultSource] = [:]
+
+    /// Read a card's stored rows (`CardResult.storedSource`) off the main
+    /// thread and put them on its result. A reopened workspace or Session
+    /// reads only the rows of the cards the user shows, not all of them up
+    /// front. The rows land only on the same stored result: a run, a Clear
+    /// Results or another restore meanwhile keeps its own state.
+    private func loadStoredRows(cardId: String) {
+        guard let held = session.resultStore.result(forCard: cardId),
+              held.isLoadable, let source = held.storedSource,
+              loadingStoredCards[cardId] != source else { return }
+        loadingStoredCards[cardId] = source
+        let executionTimeMs = held.executionTimeMs
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let loaded: QueryResult?
+            switch source {
+            case .history(let id):
+                loaded = (try? PharosCore.getQueryHistoryResult(id: id)).map {
+                    QueryResult.fromHistory($0, historyEntryId: id, executionTimeMs: executionTimeMs)
+                }
+            case .session(let resultId, let hasMore):
+                loaded = (try? PharosCore.getSavedQueryResult(id: resultId)).flatMap { $0 }.map {
+                    QueryResult.fromSavedSession($0, hasMore: hasMore, executionTimeMs: executionTimeMs)
+                }
+            }
+            await MainActor.run { [weak self] in
+                self?.storedRowsLoaded(cardId: cardId, source: source, result: loaded)
+            }
+        }
+    }
+
+    private func storedRowsLoaded(cardId: String, source: StoredResultSource, result: QueryResult?) {
+        if loadingStoredCards[cardId] == source { loadingStoredCards[cardId] = nil }
+        guard let tabId = session.resultStore.editorTabId(forCard: cardId) else { return }
+        var landed = false
+        session.resultStore.mutateResult(cardId: cardId) { r in
+            guard r.storedSource == source, !r.hasPayload else { return }
+            if let result {
+                r.queryResult = result
+                if r.totalRowCountHint == nil, !result.hasMore { r.totalRowCountHint = result.rowCount }
+            } else {
+                // The stored rows are gone (history cleared or pruned): the
+                // card says Results removed, and runs again.
+                r.storedSource = nil
+            }
+            landed = true
+        }
+        guard landed else { return }
+        if result == nil {
+            session.updateTab(id: tabId) { tab in
+                if let i = tab.document.index(of: cardId) { tab.document.cards[i].resultsRemoved = true }
+            }
+        } else {
+            ResultMemoryManager.shared.scheduleCheck()
+        }
+        if displayedCardId == cardId, lastActiveTabId == tabId {
+            showDisplayedResult()
+        } else {
+            refreshCardResultsUI()
+        }
     }
 
     // MARK: - The result limit (Settings ▸ Results)
@@ -2504,6 +2577,7 @@ class ContentViewController: NSViewController {
 
     /// "1,420 rows · 45 ms · ran 2 min ago", or why there are none.
     private func resultsMeta(for card: QueryCard, result: CardResult?) -> String {
+        if let result, result.isLoadable { return String(localized: "Loading results…") }
         guard let result, result.hasPayload || result.plan != nil else {
             return card.lastRun != nil
                 ? String(localized: "Results removed — run the card again")
@@ -3394,7 +3468,9 @@ extension ContentViewController: EditorPaneDelegate {
             st.activity = .waiting
         }
         let held = session.resultStore[tabId].result(forCard: card.id)
-        st.resultInMemory = held?.hasPayload == true
+        // A stored result (a reopened workspace or Session) counts: View
+        // Results reads its rows.
+        st.resultInMemory = held?.hasResult == true
         st.isDisplayed = tab.document.displayedCardId == card.id
         if card.lastRun != nil, card.kind == .sql {
             let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: tab.connectionId)).sql
@@ -3672,17 +3748,10 @@ extension ContentViewController {
             // from text gets fresh card ids, and the blobs are chosen by card.
             let decoded = sessionText.map { CardPersistence.decode(json: sessionCardsJson, text: $0) }
                 ?? CardPersistence.decode(json: detail.cardsJson, text: detail.editorText)
-            // Blobs only for the results that will stay on a card — a newer
-            // run of the same card replaces the rest. Results without a blob
-            // are "SQL only".
-            let kept = WorkspaceResultPlacement.keptResultIds(of: detail.results, in: decoded)
-            var blobs: [String: QueryResult] = [:]
-            for meta in detail.results where meta.hasResults && kept.contains(meta.id) {
-                if let data = try? PharosCore.getQueryHistoryResult(id: meta.id) {
-                    blobs[meta.id] = QueryResult.fromHistory(data, historyEntryId: meta.id, executionTimeMs: UInt64(meta.executionTimeMs))
-                }
-            }
-            let loaded = blobs
+            // No rows are read here: each card's result points at its stored
+            // rows, which load when the card is shown (`loadStoredRows`). A
+            // workspace of large results opened only after every blob was
+            // gunzipped and decoded, and held them all.
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -3695,7 +3764,7 @@ extension ContentViewController {
                 }
 
                 var document = decoded
-                let results = Self.restoreResults(detail.results, blobs: loaded, into: &document)
+                let results = Self.restoreResults(detail.results, into: &document)
                 ResultMemoryManager.shared.scheduleCheck()
                 let focus = focusResultId.flatMap { fid in results.first(where: { $0.historyResultId == fid }) } ?? results.last
                 document.displayedCardId = focus?.id
@@ -3726,8 +3795,9 @@ extension ContentViewController {
     /// may run against another database or schema. A result whose card is
     /// gone, or recorded before cards existed, stays in history and goes on no
     /// card. The newest result of a card wins. Cards get the run record their
-    /// state is shown from. `blobs` needs only the results that win.
-    private static func restoreResults(_ metas: [WorkspaceResultMeta], blobs: [String: QueryResult],
+    /// state is shown from. The rows stay stored: each result points at them
+    /// (`storedSource`) and they load when the card is shown.
+    private static func restoreResults(_ metas: [WorkspaceResultMeta],
                                        into document: inout CardDocument) -> [CardResult] {
         var byCard: [String: CardResult] = [:]
         var order: [String] = []
@@ -3747,7 +3817,7 @@ extension ContentViewController {
                 cr.chartConfig = state.chartConfig
                 cr.resultViewMode = state.viewMode
             }
-            cr.queryResult = blobs[meta.id]
+            cr.storedSource = meta.hasResults ? .history(id: meta.id) : nil
 
             let card = document.cards[i]
             if card.lastRun == nil || card.lastRun?.historyResultId != meta.id {
@@ -3761,7 +3831,8 @@ extension ContentViewController {
             if document.cards[i].name == nil, let label = meta.customLabel, !label.isEmpty {
                 document.cards[i].name = label
             }
-            document.cards[i].resultsRemoved = cr.queryResult == nil
+            // A result with no stored rows is "SQL only": run it again.
+            document.cards[i].resultsRemoved = !meta.hasResults
             if byCard[cardId] == nil { order.append(cardId) }
             byCard[cardId] = cr
         }
@@ -5105,10 +5176,11 @@ extension ContentViewController {
         delegate.openTab(copy, beside: controller)
     }
 
-    /// The cards with results in memory, in stack order: what ⌥⌘] cycles.
+    /// The cards with results, in memory or stored, in stack order: what ⌥⌘]
+    /// cycles (showing a stored one reads its rows).
     private var cardsWithResults: [String] {
         guard let doc = session.activeTab?.document else { return [] }
-        let held = Set(cardResults.filter(\.hasPayload).map(\.id))
+        let held = Set(cardResults.filter(\.hasResult).map(\.id))
         return doc.cards.map(\.id).filter(held.contains)
     }
 

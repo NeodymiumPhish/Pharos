@@ -61,6 +61,29 @@ private func testPlanKeepsStoredResultsNotInMemory() {
            "got \(plan.keep)")
 }
 
+/// A reopened Session's results that were never shown hold no rows: the save
+/// keeps the stored rows, at their card's place (the displayed card first). A
+/// stored result this Session does not have (a workspace's) is staged.
+private func testPlanKeepsStoredOnlyResultsInPlace() {
+    var d = doc(3, ran: [0, 1, 2])
+    let ids = d.cards.map(\.id)
+    let runs = d.cards.map { $0.lastRun!.runId }
+    d.displayedCardId = ids[2]
+    let held = [
+        SessionSnapshot.Held(cardId: ids[0], timestamp: t0, rowsStoredOnly: true),
+        SessionSnapshot.Held(cardId: ids[1], timestamp: t0.addingTimeInterval(1)),
+        SessionSnapshot.Held(cardId: ids[2], timestamp: t0, rowsStoredOnly: true),
+    ]
+    let plan = SessionSnapshot.plan(document: d, held: held, storedRunIds: [runs[0], runs[2]])
+    expect(plan.keep == [KeepSavedQueryResult(runId: runs[2], priority: 0), KeepSavedQueryResult(runId: runs[0], priority: 2)],
+           "stored only: kept in place, the displayed card first", "got \(plan.keep)")
+    expect(plan.stage.map(\.cardId) == [ids[1]] && plan.stage.first?.priority == 1,
+           "stored only: the result in memory is staged between them", "got \(plan.stage)")
+    let other = SessionSnapshot.plan(document: d, held: held, storedRunIds: [])
+    expect(other.keep.isEmpty && other.stage.map(\.cardId) == [ids[2], ids[1], ids[0]],
+           "stored only: rows another store holds (a workspace, another Session) are staged", "got \(other.stage)")
+}
+
 private func testPlanSkipsCardsWithoutARun() {
     let d = doc(2, ran: [1])
     let held = [SessionSnapshot.Held(cardId: d.cards[0].id, timestamp: t0)]
@@ -100,6 +123,7 @@ private func testCaption() {
 func runTests() {
     testPlanOrdersDisplayedThenNewest()
     testPlanKeepsStoredResultsNotInMemory()
+    testPlanKeepsStoredOnlyResultsInPlace()
     testPlanSkipsCardsWithoutARun()
     testMatchByRunId()
     testLegacySessionHasNoRuns()

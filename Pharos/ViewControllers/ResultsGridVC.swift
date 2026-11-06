@@ -850,6 +850,18 @@ class ResultsGridVC: NSViewController {
         )
     }
 
+    /// The card has a stored result whose rows are being read (a reopened
+    /// workspace or Session loads a card's rows when it is shown).
+    func showLoadingStoredResult() {
+        clear()
+        emptyState.show(
+            symbol: "tray.and.arrow.down",
+            title: String(localized: "Loading Results…"),
+            message: String(localized: "Reading the stored rows of this card.")
+        )
+        statusLabel.stringValue = String(localized: "Loading results…")
+    }
+
     /// A result arrived and carried nothing — not the same thing as no result,
     /// and not a state a button can improve, so there is none.
     private func showNoRowsState() {

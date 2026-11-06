@@ -55,6 +55,9 @@ struct CardPresentation: Equatable {
     let showsCancel: Bool
     let accessibilityLabel: String
 
+    /// `resultInMemory`: the card has a result to show — rows in memory, or
+    /// stored rows a reopened workspace or Session reads when the card is
+    /// shown (`CardResult.hasResult`). The name predates stored results.
     static func make(card: QueryCard, position: Int, lineageCount: Int, isEdited: Bool,
                      activity: CardActivity, resultInMemory: Bool, isDisplayed: Bool) -> CardPresentation {
         let state: State
