@@ -1797,6 +1797,7 @@ dependencies = [
  "futures",
  "ipnetwork",
  "keyring",
+ "libc",
  "log",
  "mac_address",
  "rusqlite",

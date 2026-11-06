@@ -748,6 +748,9 @@
     "Auto Width" : {
 
     },
+    "Automatic" : {
+
+    },
     "Autosave the session" : {
 
     },
@@ -2172,7 +2175,7 @@
     "Leave empty for the connection's default schema." : {
 
     },
-    "Leave it empty for DuckDB's default, 80% of this Mac's memory." : {
+    "Leave it empty for half of this Mac's memory, for each database." : {
 
     },
     "Leave it empty for Pharos and the version number." : {

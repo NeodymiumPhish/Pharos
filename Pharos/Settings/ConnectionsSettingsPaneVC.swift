@@ -204,8 +204,9 @@ final class ConnectionsSettingsPaneVC: SettingsFormPaneVC {
                     title: String(localized: "Memory limit"),
                     caption: String(localized: "The most memory one DuckDB database may use, such as 4GB or 512MB. Larger work spills to disk: beside a database file, or for an in-memory database into the system's temporary folder."),
                     icon: "memorychip",
-                    help: String(localized: "Leave it empty for DuckDB's default, 80% of this Mac's memory."),
-                    kind: .text(.settings(\.connections.duckdbMemoryLimit), width: 120)),
+                    help: String(localized: "Leave it empty for half of this Mac's memory, for each database."),
+                    kind: .text(.settings(\.connections.duckdbMemoryLimit), width: 120,
+                                placeholder: String(localized: "Automatic"))),
                 SettingsItem(
                     id: "duckdbCloud",
                     title: String(localized: "Cloud storage credentials"),

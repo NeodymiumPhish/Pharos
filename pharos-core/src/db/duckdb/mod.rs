@@ -116,9 +116,37 @@ impl OpenOptions {
         };
         OpenOptions {
             threads: if s.duckdb_threads == 0 { None } else { Some(s.duckdb_threads) },
-            memory_limit: blank_to_none(&s.duckdb_memory_limit),
+            // Empty = automatic. DuckDB's own default is 80% of RAM for EACH
+            // open database, so two or three databases could ask for more
+            // memory than the Mac has. The setting's stored default is still
+            // "", so this reaches users who saved settings before too.
+            memory_limit: blank_to_none(&s.duckdb_memory_limit).or_else(automatic_memory_limit),
         }
     }
+}
+
+/// The memory limit an empty setting means: half of this Mac's physical
+/// memory, in DuckDB's binary unit ("8192MiB"). Nil when the size cannot be
+/// read, which leaves DuckDB its own default.
+pub fn automatic_memory_limit() -> Option<String> {
+    physical_memory_bytes().map(|bytes| format!("{}MiB", bytes / 2 / (1024 * 1024)))
+}
+
+fn physical_memory_bytes() -> Option<u64> {
+    let mut bytes: u64 = 0;
+    let mut len = std::mem::size_of::<u64>();
+    // SAFETY: `hw.memsize` is a 64-bit integer; `bytes` and `len` describe
+    // exactly that buffer, and no new value is written.
+    let rc = unsafe {
+        libc::sysctlbyname(
+            c"hw.memsize".as_ptr(),
+            (&mut bytes as *mut u64).cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (rc == 0 && bytes > 0).then_some(bytes)
 }
 
 /// One open DuckDB database.
@@ -518,6 +546,34 @@ mod tests {
         let options = OpenOptions { memory_limit: Some("lots".into()), ..Default::default() };
         let err = DuckDbInstance::open(IN_MEMORY, false, &options).unwrap_err();
         assert!(err.contains("Memory limit"), "{err}");
+    }
+
+    /// An empty setting means half of this Mac's memory; a typed one wins.
+    #[test]
+    fn an_empty_memory_limit_is_half_of_physical_memory() {
+        let ram = physical_memory_bytes().expect("hw.memsize is readable on macOS");
+        let mut settings = crate::models::ConnectionSettings::default();
+        assert_eq!(settings.duckdb_memory_limit, "", "the stored default stays empty");
+
+        let automatic = OpenOptions::from_settings(&settings).memory_limit.expect("an automatic limit");
+        assert_eq!(automatic, format!("{}MiB", ram / 2 / (1024 * 1024)));
+
+        settings.duckdb_memory_limit = "  ".into();
+        assert_eq!(OpenOptions::from_settings(&settings).memory_limit, Some(automatic.clone()),
+                   "blank is empty");
+        settings.duckdb_memory_limit = " 2GB ".into();
+        assert_eq!(OpenOptions::from_settings(&settings).memory_limit.as_deref(), Some("2GB"),
+                   "a typed value is kept");
+
+        // DuckDB takes the automatic value and reports about half of RAM.
+        let options = OpenOptions { memory_limit: Some(automatic), ..Default::default() };
+        let db = DuckDbInstance::open(IN_MEMORY, false, &options).unwrap();
+        let shown: String = db.connect().unwrap()
+            .query_row("SELECT current_setting('memory_limit')", [], |r| r.get(0)).unwrap();
+        let gib: f64 = shown.trim_end_matches(" GiB").parse()
+            .unwrap_or_else(|_| panic!("expected GiB, DuckDB said {shown}"));
+        let half_gib = ram as f64 / 2.0 / (1024.0 * 1024.0 * 1024.0);
+        assert!((gib - half_gib).abs() < 0.1, "DuckDB shows {shown}, half of RAM is {half_gib:.2} GiB");
     }
 
     #[test]

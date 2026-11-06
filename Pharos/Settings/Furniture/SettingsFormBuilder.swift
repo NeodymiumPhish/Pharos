@@ -218,8 +218,8 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
             stepper.setAccessibilityIdentifier("settings.\(paneId).\(item.id).stepper")
             return group.container
 
-        case .text(let binding, let width):
-            let field = SettingsControlFactory.textField(width: width)
+        case .text(let binding, let width, let placeholder):
+            let field = SettingsControlFactory.textField(width: width, placeholder: placeholder)
             field.delegate = self
             textCommitters[ObjectIdentifier(field)] = { field in binding.set(field.stringValue) }
             refreshers[item.id] = { field.stringValue = binding.get() }

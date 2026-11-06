@@ -99,7 +99,8 @@ enum SettingsItemKind {
     /// Number field + stepper, range-checked on commit.
     case stepper(SettingsBinding<Int>, range: ClosedRange<Int>, unit: String?)
     /// Free text, committed after a typing pause and when editing ends.
-    case text(SettingsBinding<String>, width: CGFloat)
+    /// `placeholder` names what an empty field means.
+    case text(SettingsBinding<String>, width: CGFloat, placeholder: String? = nil)
     /// Slider, written continuously.
     case slider(SettingsBinding<Double>, range: ClosedRange<Double>)
     /// A path label with a Choose… button (`NSOpenPanel`).
