@@ -25,6 +25,7 @@ swiftc -o "$BIN" \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/RuleKey.swift \
   Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Core/TagRowMatch.swift \
   Pharos/Core/TagRuleRemoving.swift \
   Pharos/Core/TagManagerCommitting.swift \
   Pharos/Core/TagCommitWriting.swift \

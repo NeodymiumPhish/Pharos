@@ -221,12 +221,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// is a window, so "a background tab" is a question about the window.
     @MainActor
     func isTabOutOfSight(_ tabId: String) -> Bool {
-        guard let session = AppStateManager.shared.session(owningTabId: tabId),
-              let window = windowControllers.first(where: { $0.session === session })?.window,
-              window.isVisible else { return true }
-        if window.isMiniaturized { return true }
-        if let group = window.tabGroup, group.selectedWindow !== window { return true }
-        return false
+        guard let session = AppStateManager.shared.session(owningTabId: tabId) else { return true }
+        return WindowSight.isOutOfSight(windowControllers.first(where: { $0.session === session })?.window)
     }
 
     /// The content controller of the window holding `session`.

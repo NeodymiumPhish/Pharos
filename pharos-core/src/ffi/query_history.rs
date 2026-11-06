@@ -127,7 +127,7 @@ pub extern "C" fn pharos_get_query_history_result(entry_id: *const c_char) -> *m
         let rt = runtime();
         let id = unsafe { c_str_to_string(entry_id) };
         match rt.block_on(crate::commands::get_query_history_result(id, state)) {
-            Ok(Some(data)) => to_json_c_string(&data),
+            Ok(Some(data)) => to_json_c_string_owned(data),
             Ok(None) => std::ptr::null_mut(),
             Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }

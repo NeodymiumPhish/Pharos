@@ -2294,7 +2294,9 @@ class ContentViewController: NSViewController {
                 planHost.show(plan: plan, json: r.planJSON ?? "", isAnalyze: r.planIsAnalyze)
             }
             if let result = r.queryResult {
-                resultsVC.showResult(result)
+                // The card's own grid state: for the same rows it carries the
+                // sort order and tag map, so a card switch computes neither.
+                resultsVC.showResult(result, restoring: r.gridState)
             } else if let exec = r.executeResult {
                 resultsVC.showExecuteResult(exec)
             } else {
@@ -2303,7 +2305,6 @@ class ContentViewController: NSViewController {
                 resultsVC.clear()
             }
             if r.hasPayload {
-                if let gridState = r.gridState { resultsVC.restoreGridState(gridState) }
                 restorePendingEdits(from: r)
             }
         } else {
@@ -2628,7 +2629,7 @@ class ContentViewController: NSViewController {
                         // without an outermost ORDER BY, PostgreSQL may return
                         // a different order for this second execution.
                         self.resultsVC.pagedWithoutOrderBy = !SQLOrderStability.hasTopLevelOrderBy(querySQL)
-                        self.resultsVC.appendRows(from: moreResult, limitReached: merged.limitReached)
+                        self.resultsVC.appendPage(merged: merged)
                     } else {
                         self.resultsVC.setLoadingMore(false)
                     }
@@ -3137,9 +3138,7 @@ class ContentViewController: NSViewController {
                 guard self.displayedCardId == resultTabId else { return }
                 // Keep the user's widths, sort and filters across the swap, the
                 // way the Load All snapshot does.
-                let gridState = self.resultsVC.captureGridState()
-                self.resultsVC.showResult(refreshed)
-                if let gridState { self.resultsVC.restoreGridState(gridState) }
+                self.resultsVC.showResult(refreshed, restoring: self.resultsVC.captureGridState())
             }
         }
     }
@@ -3570,20 +3569,38 @@ extension ContentViewController {
         guard ownsBroadcast(notification) else { return }
         guard let entry = notification.userInfo?["entry"] as? QueryHistoryEntry else { return }
 
+        // A failed entry has no result to restore. Its SQL goes in a card,
+        // which is the useful thing: read the message in the navigator, fix
+        // the statement, run it again.
+        guard entry.isSucceeded else {
+            openHistoryEntry(entry, result: nil, from: notification)
+            return
+        }
+        // The read, the gunzip and the JSON decode of a stored result run off
+        // the main thread: on a large result they stopped the whole UI for as
+        // long as they took. The workspace reopen does the same.
+        let entryId = entry.id
+        let executionTimeMs = UInt64(entry.executionTimeMs)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = (try? PharosCore.getQueryHistoryResult(id: entryId)).map {
+                QueryResult.fromHistory($0, historyEntryId: entryId, executionTimeMs: executionTimeMs)
+            }
+            await MainActor.run { [weak self] in
+                self?.openHistoryEntry(entry, result: result, from: notification)
+            }
+        }
+    }
+
+    /// Open history `entry` in a tab: one card with its SQL, and `result` on
+    /// it when the entry's stored rows could be read.
+    private func openHistoryEntry(_ entry: QueryHistoryEntry, result: QueryResult?, from notification: Notification) {
         // One card holding the entry's SQL, named for its tables. The tab's
         // name is automatic.
         var card = QueryCard(name: entry.tableNames, sql: entry.sql)
-
-        // A failed entry has no result to restore. Its SQL is now in the card,
-        // which is the useful thing: read the message in the navigator, fix
-        // the statement, run it again.
-        guard entry.isSucceeded,
-              let resultData = try? PharosCore.getQueryHistoryResult(id: entry.id) else {
+        guard let result else {
             _ = open(newTab(document: CardDocument(cards: [card])), from: notification)
             return
         }
-        let result = QueryResult.fromHistory(
-            resultData, historyEntryId: entry.id, executionTimeMs: UInt64(entry.executionTimeMs))
         card.colorIndex = 0
         card.lastRun = CardRunRecord(
             runId: UUID().uuidString, rawSQL: entry.sql, renderedSQL: entry.sql,
@@ -3813,8 +3830,17 @@ extension ContentViewController {
         guard idx < cardResults.count else { return }
         cardResults[idx].resultViewMode = mode
         if mode == .chart { presentChart(for: idx) }
-        else { cancelServerAggregation() }   // leaving chart mode kills any run
+        else {
+            cancelServerAggregation()   // leaving chart mode kills any run
+            releaseChart()
+        }
         applyResultAreaVisibility()
+    }
+
+    /// The chart is not on screen: free its copy of the result.
+    private func releaseChart() {
+        chartHost.reset()
+        chartPresentedCardId = nil
     }
 
     /// Set (and persist) the view mode for the active result tab. Used by the
@@ -3859,6 +3885,7 @@ extension ContentViewController {
             // No active result tab (last result tab closed, or switched to a tab
             // with no results): kill any in-flight push-down so it isn't orphaned.
             cancelServerAggregation()
+            releaseChart()
             chartToggle.selectedSegment = 0
             applyResultAreaVisibility()
             return
@@ -4520,9 +4547,7 @@ extension ContentViewController {
                     if let held { self.noteRowsLoaded(forCard: rtId, runId: held.runId, result: replaced) }
                     if showInGrid && stillDisplaying {
                         // Keep the user's widths, sort and filters across the swap.
-                        let gridState = self.resultsVC.captureGridState()
-                        self.resultsVC.showResult(replaced)
-                        if let gridState { self.resultsVC.restoreGridState(gridState) }
+                        self.resultsVC.showResult(replaced, restoring: self.resultsVC.captureGridState())
                     }
                     completion(snapshot.hasMore)
                 }

@@ -32,6 +32,8 @@ swiftc -o /tmp/window-session-tests \
   Pharos/Models/PendingCellEdits.swift \
   Pharos/Models/CardDocument.swift \
   Pharos/Models/QueryTab.swift \
+  Pharos/Core/GridDerivedCache.swift \
+  Pharos/Core/TagRowMatch.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/QueryFailure.swift \
   Pharos/Models/QueryVariable.swift \

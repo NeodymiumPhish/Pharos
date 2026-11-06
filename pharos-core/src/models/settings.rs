@@ -811,8 +811,8 @@ pub struct ConnectionSettings {
     /// DuckDB: worker threads per database. 0 = DuckDB's default (all cores).
     #[serde(default)]
     pub duckdb_threads: u32,
-    /// DuckDB: `memory_limit` per database, e.g. "4GB". Empty = DuckDB's
-    /// default (80% of RAM).
+    /// DuckDB: `memory_limit` per database, e.g. "4GB". Empty = automatic,
+    /// half of this Mac's memory (`db::duckdb::automatic_memory_limit`).
     #[serde(default)]
     pub duckdb_memory_limit: String,
     /// DuckDB: cloud storage credentials (S3, R2, GCS), made a temporary

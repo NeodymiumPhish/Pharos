@@ -88,6 +88,12 @@ class ResultsGridVC: NSViewController {
     /// text, the Inspector and the removal sheet. Keeping one bake is what
     /// makes band, tooltip and tint appear and disappear in a single repaint.
     var matchesByRow: [Int: [TagRowMatch]] = [:]
+    /// `TagStore.generation` that `matchesByRow` is the COMPLETE map for, or
+    /// nil while none is (an async match is running, or nothing is shown).
+    /// `captureGridState` keeps the map for a card switch only when this is set.
+    private var tagMapStoreGeneration: Int?
+    /// `QueryResult.contentToken` of the rows on screen; nil when none are.
+    private var contentToken: UUID?
 
     /// Holds the Settings ▸ Tags subscription. See `observeTagSettings`.
     private var tagSettingsCancellable: AnyCancellable?
@@ -355,16 +361,36 @@ class ResultsGridVC: NSViewController {
             // `AppStateManager` uses for the same reason.
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.recomputeTagMap()
-                if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
-                    || self.forceShowTags {
-                    // A tag change can change which rows are VISIBLE.
-                    self.recomputeDisplayRows()
-                } else {
-                    self.reloadKeepingEditor { self.tableView.reloadData() }
-                    self.updateStatusBarText()
+                // Every grid hears every tag change. One out of sight copies
+                // and matches nothing now; it catches up when its window
+                // comes back into sight.
+                guard !WindowSight.isOutOfSight(self.view.window) else {
+                    self.tagMapStale = true
+                    return
                 }
+                self.applyTagStoreChange()
             }
+        }
+        sightObservers = WindowSight.observeComingIntoSight(of: { [weak self] in self?.view.window }) { [weak self] in
+            guard let self, self.tagMapStale else { return }
+            self.applyTagStoreChange()
+        }
+    }
+
+    /// Set when the tag store changed while this window was out of sight.
+    private var tagMapStale = false
+    private var sightObservers: [NSObjectProtocol] = []
+
+    /// Match the shown rows against the current tags and redraw.
+    private func applyTagStoreChange() {
+        tagMapStale = false
+        recomputeTagMap()
+        if columnFilterController.activeFilters[TagFunnel.columnId] != nil || forceShowTags {
+            // A tag change can change which rows are VISIBLE.
+            recomputeDisplayRows()
+        } else {
+            reloadKeepingEditor { tableView.reloadData() }
+            updateStatusBarText()
         }
     }
 
@@ -411,7 +437,7 @@ class ResultsGridVC: NSViewController {
         if let accessibilityDisplayObserver {
             NotificationCenter.default.removeObserver(accessibilityDisplayObserver)
         }
-        for observer in appearanceObservers {
+        for observer in appearanceObservers + sightObservers {
             NotificationCenter.default.removeObserver(observer)
         }
         accentObservation?.invalidate()
@@ -537,7 +563,16 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Public API
 
-    func showResult(_ result: QueryResult) {
+    /// Put `result` on screen. With `state` (a grid state captured from this
+    /// card earlier, or from the rows this result replaces), the columns, sort,
+    /// filters, scroll and selection come back as they were.
+    ///
+    /// A card switch hands back the SAME rows, so the sort order and the tag
+    /// map in `state.derived` are reused rather than computed again
+    /// (`GridDerivedCache`); for new rows they are computed one time. Either
+    /// way the rows go through the display pipeline once and the table
+    /// reloads once.
+    func showResult(_ result: QueryResult, restoring state: ResultsGridState? = nil) {
         // The grid reload is the second half of what a user calls "the query
         // took N seconds", so it is measured separately from the execute.
         let signpost = Log.signposter.beginInterval("showResult", id: Log.signposter.makeSignpostID())
@@ -557,6 +592,7 @@ class ResultsGridVC: NSViewController {
         self.hasMore = result.hasMore
         self.limitReached = result.limitReached
         self.executionTimeMs = result.executionTimeMs
+        self.contentToken = result.contentToken
         pagedWithoutOrderBy = false
 
         columnCategories = columns.map { PGTypeCategory(dataType: $0.dataType) }
@@ -571,8 +607,16 @@ class ResultsGridVC: NSViewController {
 
         cellSelectionController.clear()
 
-        rebuildColumns()
-        recomputeTagMap()
+        // Measuring a column renders its sample cells through the data source,
+        // which reads its per-column value kinds from `columns`: give it THIS
+        // result's columns first, not the previous result's.
+        dataSource.columns = columns
+        rebuildColumns(savedWidths: state?.columnWidths ?? [:])
+        if let state {
+            adoptSavedState(state, for: result)
+        } else {
+            recomputeTagMap()
+        }
         pushDataToHelpers()
         // After `pushDataToHelpers`, which is the one place the data source's
         // inputs are refreshed; the bar follows in the same turn.
@@ -595,9 +639,65 @@ class ResultsGridVC: NSViewController {
         if findController.isFindVisible {
             findController.closeFind(nil)
         }
+
+        if let state {
+            // Scroll position — through the table, not the clip. A direct
+            // `setBoundsOrigin` on the content clip does not carry the header
+            // clip with it (see FilterableHeaderView), so the header would draw
+            // at x = 0 while the rows sat at the saved offset.
+            tableView.scroll(state.scrollPosition)
+
+            // Selection — through the controller, so `state.selectedRows`,
+            // the Clear Selection button and `reconcileSelection` all see it.
+            // A bare `selectRowIndexes` leaves the controller empty, and the
+            // next `reloadData` silently drops the rows.
+            if !state.selectedRows.isEmpty {
+                cellSelectionController.selectRows(state.selectedRows)
+            }
+        }
     }
 
-    /// Captures current grid view state (column widths, sort, filters, scroll, selection).
+    /// The column layout, sort, tag map and filters of `state`, put on the
+    /// rows `showResult` just took. Leaves `displayRows` final; the caller
+    /// pushes and reloads.
+    private func adoptSavedState(_ state: ResultsGridState, for result: QueryResult) {
+        // Columns: order, then visibility, then widths, in that order and for
+        // the reasons `ResultsGridColumnState` sets out.
+        state.applyColumns(to: tableView)
+
+        // Sort: the kept order when these are the rows it was computed for,
+        // else one sort now. No header click is simulated, so nothing sorts
+        // twice and no intermediate reload happens.
+        if let sortColumn = state.sortColumn,
+           let order = state.derived?.sortedRows(contentToken: result.contentToken, column: sortColumn,
+                                                 ascending: state.sortAscending)
+                ?? sortController.sortedOrder(column: sortColumn, ascending: state.sortAscending) {
+            unfilteredDisplayRows = order
+            sortController.adoptSortState(column: sortColumn, ascending: state.sortAscending)
+        }
+
+        // Tags: the kept map when the rows and the tag rules are the same.
+        let storeGeneration = TagStore.shared.generation
+        if let map = state.derived?.tagMap(contentToken: result.contentToken, tagGeneration: storeGeneration) {
+            applyTagMap(map)
+            tagMapStoreGeneration = storeGeneration
+        } else {
+            recomputeTagMap()
+        }
+
+        // Column filters, then the display pipeline one time.
+        for (colName, filter) in state.columnFilters {
+            columnFilterController.setFilter(filter, forColumn: colName)
+        }
+        filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
+        resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
+        columnFilteredDisplayRows = pipelineDisplayRows()
+        displayRows = columnFilteredDisplayRows
+        onDisplayRowsChanged?()
+    }
+
+    /// Captures current grid view state (column widths, sort, filters, scroll,
+    /// selection) and the sort order and tag map computed for these rows.
     func captureGridState() -> ResultsGridState? {
         guard !columns.isEmpty else { return nil }
 
@@ -616,66 +716,46 @@ class ResultsGridVC: NSViewController {
             columnFilters: columnFilterController.activeFilters,
             scrollPosition: scrollView.contentView.bounds.origin,
             selectedRows: tableView.selectedRowIndexes,
-            hiddenColumns: columnState.hidden
+            hiddenColumns: columnState.hidden,
+            derived: contentToken.map { token in
+                GridDerivedCache(
+                    contentToken: token,
+                    sortColumn: sortCol,
+                    sortAscending: sortAsc,
+                    // With a sort on, `unfilteredDisplayRows` IS the sort of
+                    // every row (a sort, a page and a reset all rebuild it).
+                    sortedRows: sortCol != nil ? unfilteredDisplayRows : nil,
+                    // Only a COMPLETE map: not the blank one an async match
+                    // shows while it runs.
+                    tagMap: tagMapStoreGeneration != nil ? matchesByRow : nil,
+                    tagGeneration: tagMapStoreGeneration)
+            }
         )
     }
 
-    /// Restores previously captured grid view state after `showResult()`.
-    func restoreGridState(_ state: ResultsGridState) {
-        // 0. Columns: order, then visibility, then widths, in that order and for
-        // the reasons `ResultsGridColumnState` sets out.
-        state.applyColumns(to: tableView)
-
-        // 2. Sort — setting sortDescriptors triggers handleSortDescriptorsChanged via delegate
-        if let sortCol = state.sortColumn {
-            tableView.sortDescriptors = [NSSortDescriptor(key: sortCol, ascending: state.sortAscending)]
-        }
-
-        // 3. Column filters
-        if !state.columnFilters.isEmpty {
-            for (colName, filter) in state.columnFilters {
-                columnFilterController.setFilter(filter, forColumn: colName)
-            }
-            filterableHeaderView.activeFilterColumns = Set(columnFilterController.activeFilters.keys)
-            resetFiltersButton.isHidden = !columnFilterController.hasActiveFilters
-            recomputeColumnFilteredRows()
-        }
-
-        // 4. Scroll position — through the table, not the clip. A direct
-        // `setBoundsOrigin` on the content clip does not carry the header clip
-        // with it (see FilterableHeaderView), so the header would draw at x = 0
-        // while the rows sat at the saved offset.
-        tableView.scroll(state.scrollPosition)
-
-        // 5. Selection — through the controller, so `state.selectedRows`,
-        // the Clear Selection button and `reconcileSelection` all see it.
-        // A bare `selectRowIndexes` leaves the controller empty, and the
-        // next `reloadData` silently drops the rows.
-        if !state.selectedRows.isEmpty {
-            cellSelectionController.selectRows(state.selectedRows)
-        }
-    }
-
-    /// `limitReached`: the merged result is at the Load All limit.
-    func appendRows(from result: QueryResult, limitReached: Bool = false) {
-        // A page belongs to THIS result only if its shape matches. A Load More
-        // that lands after the tab re-ran a different query would otherwise
-        // put rows with the wrong column count under this header.
-        guard result.columns.count == columns.count else {
+    /// Take a Load More page. `merged` is the card's result with the page on
+    /// the end — the value the store now holds — so the grid shares its rows
+    /// buffer rather than appending to a second copy of its own.
+    func appendPage(merged: QueryResult) {
+        // A page belongs to THIS result only if its shape matches and it only
+        // ADDS rows. A Load More that lands after the tab re-ran a different
+        // query would otherwise put rows with the wrong column count under
+        // this header.
+        guard merged.columns.count == columns.count, merged.rows.count >= rows.count else {
             setLoadingMore(false)
             return
         }
         let oldCount = rows.count
-        rows.append(contentsOf: result.rows)
-        rowIdentity = rowIdentity?.appendingPage(result.rowIdentity, pageRowCount: result.rows.count)
-            ?? result.rowIdentity
-        hasMore = result.hasMore
-        self.limitReached = limitReached
+        rows = merged.rows
+        rowIdentity = merged.rowIdentity
+        hasMore = merged.hasMore
+        limitReached = merged.limitReached
+        contentToken = merged.contentToken
 
         let newIndices = Array(oldCount..<rows.count)
         unfilteredDisplayRows.append(contentsOf: newIndices)
 
-        recomputeTagMap()
+        appendTagMatches(fromRow: oldCount)
 
         if sortController.currentSortColumn != nil {
             sortController.reapplySortIfActive()
@@ -705,8 +785,10 @@ class ResultsGridVC: NSViewController {
         columns = []
         rows = []
         rowIdentity = nil
+        contentToken = nil
         // Rows are gone; a stale map would leak into the status text and stage gates.
         applyTagMap([:])
+        tagMapStoreGeneration = nil
         displayRows = []
         unfilteredDisplayRows = []
         columnFilteredDisplayRows = []
@@ -887,7 +969,9 @@ class ResultsGridVC: NSViewController {
 
     // MARK: - Column Setup
 
-    private func rebuildColumns() {
+    /// `savedWidths`, by column id, from a grid state being put back: a column
+    /// with a saved width takes it and is not measured.
+    private func rebuildColumns(savedWidths: [String: CGFloat] = [:]) {
         while let col = tableView.tableColumns.last {
             tableView.removeTableColumn(col)
         }
@@ -922,9 +1006,13 @@ class ResultsGridVC: NSViewController {
             // Settings ▸ Results ▸ Columns. Was a hard-coded 1000.
             col.maxWidth = max(col.minWidth, gridSettings.maximumColumnWidth)
             types[colId] = colDef.dataType.uppercased()
-            col.width = gridSettings.columnWidthMode == .fixed
-                ? min(max(gridSettings.fixedColumnWidth, col.minWidth), col.maxWidth)
-                : measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
+            if let saved = savedWidths[colId] {
+                col.width = saved
+            } else {
+                col.width = gridSettings.columnWidthMode == .fixed
+                    ? min(max(gridSettings.fixedColumnWidth, col.minWidth), col.maxWidth)
+                    : measuredColumnWidth(column: col, colId: colId, includeVisibleSample: false)
+            }
             col.sortDescriptorPrototype = NSSortDescriptor(key: colId, ascending: true)
             tableView.addTableColumn(col)
         }
@@ -1015,8 +1103,13 @@ class ResultsGridVC: NSViewController {
     /// this wiring — see the inline comment on the `forceShow` closure below for
     /// why (scope decision 2).
     func recomputeDisplayRows() {
-        applyColumnFiltered(
-            DisplayRowPipeline.run(
+        applyColumnFiltered(pipelineDisplayRows())
+        onDisplayRowsChanged?()
+    }
+
+    /// `unfilteredDisplayRows` through stages 1, 2 and 4. Changes no state.
+    private func pipelineDisplayRows() -> [Int] {
+        DisplayRowPipeline.run(
                 unfiltered: unfilteredDisplayRows,
                 stages: .init(
                     tagFilter: { [weak self] rows in
@@ -1033,8 +1126,7 @@ class ResultsGridVC: NSViewController {
                     // both. Find therefore sees the merged list.
                     forceShow: (forceShowTags && !matchesByRow.isEmpty)
                         ? DisplayRowPipeline.forceShowAdmitting(taggedRows: Set(matchesByRow.keys))
-                        : nil)))
-        onDisplayRowsChanged?()
+                        : nil))
     }
 
     /// The data rows, in query order, that a chart of this result plots: the
@@ -1194,9 +1286,12 @@ class ResultsGridVC: NSViewController {
     /// source then answers each row view from a dictionary.
     func recomputeTagMap() {
         tagMapGeneration += 1
+        tagMapStoreGeneration = nil
+        let storeGeneration = TagStore.shared.generation
         let index = TagStore.shared.tagIndex
         guard !index.isEmpty else {
             applyTagMap([:])
+            tagMapStoreGeneration = storeGeneration
             return
         }
         // Every value crosses the FFI as text, so the matcher takes a text copy
@@ -1208,6 +1303,7 @@ class ResultsGridVC: NSViewController {
         guard rows.count > Self.matchAsyncThreshold
                 || TagRuleMatcher.holdsHeavyJSON(columns: columnDefs, rows: textRows) else {
             applyTagMap(TagRuleMatcher.match(columns: columnDefs, rows: textRows, index: index))
+            tagMapStoreGeneration = storeGeneration
             return
         }
 
@@ -1228,16 +1324,68 @@ class ResultsGridVC: NSViewController {
                 MainActor.assumeIsolated {
                     guard let self, self.tagMapGeneration == generation else { return }
                     self.applyTagMap(map)
-                    if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
-                        || self.forceShowTags {
-                        // Tags decide visibility here; the map just changed.
-                        self.recomputeDisplayRows()
-                    } else {
-                        self.reloadKeepingEditor { self.tableView.reloadData() }
-                        self.updateStatusBarText()
-                    }
+                    self.tagMapStoreGeneration = storeGeneration
+                    self.redrawAfterAsyncTagMap()
                 }
             }
+        }
+    }
+
+    /// Match the rows from `start` on and add them to the map, for a Load More
+    /// page. The rows before `start` keep their verdicts, because a row's
+    /// verdict reads only that row (`TagRuleMatcher.appendingPage`, proved by
+    /// `scripts/test-tag-incremental-match.sh`). When the map on hand is not
+    /// complete for the current tag rules, every row is matched again.
+    private func appendTagMatches(fromRow start: Int) {
+        let storeGeneration = TagStore.shared.generation
+        guard tagMapStoreGeneration == storeGeneration else {
+            recomputeTagMap()
+            return
+        }
+        let index = TagStore.shared.tagIndex
+        guard !index.isEmpty, start < rows.count else { return }
+        let columnDefs = columns
+        let existing = matchesByRow
+        // Text copy of the PAGE only; see `recomputeTagMap`.
+        let pageRows: [[String?]] = rows[start...].map { row in row.map { $0.stringValue } }
+
+        guard pageRows.count > Self.matchAsyncThreshold
+                || TagRuleMatcher.holdsHeavyJSON(columns: columnDefs, rows: pageRows) else {
+            let page = TagRuleMatcher.match(columns: columnDefs, rows: pageRows, index: index)
+            if !page.isEmpty {
+                applyTagMap(TagRuleMatcher.appendingPage(page, to: existing, offset: start))
+            }
+            return
+        }
+
+        // The rows before the page keep their bands while the page matches;
+        // the map is not complete until it lands.
+        tagMapStoreGeneration = nil
+        let generation = tagMapGeneration
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let page = TagRuleMatcher.match(columns: columnDefs, rows: pageRows, index: index)
+            let map = TagRuleMatcher.appendingPage(page, to: existing, offset: start)
+            DispatchQueue.main.async {
+                // Main-queue dispatch: see `recomputeTagMap`.
+                MainActor.assumeIsolated {
+                    guard let self, self.tagMapGeneration == generation else { return }
+                    self.applyTagMap(map)
+                    self.tagMapStoreGeneration = storeGeneration
+                    self.redrawAfterAsyncTagMap()
+                }
+            }
+        }
+    }
+
+    /// After an async tag map lands: rebuild the visible rows when tags decide
+    /// visibility (the funnel or force-show), else repaint.
+    private func redrawAfterAsyncTagMap() {
+        if columnFilterController.activeFilters[TagFunnel.columnId] != nil || forceShowTags {
+            // Tags decide visibility here; the map just changed.
+            recomputeDisplayRows()
+        } else {
+            reloadKeepingEditor { tableView.reloadData() }
+            updateStatusBarText()
         }
     }
 

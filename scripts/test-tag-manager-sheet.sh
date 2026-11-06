@@ -43,6 +43,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Core/TagPalette.swift \
   Pharos/Core/TagPredicate.swift \
   Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Core/TagRowMatch.swift \
   Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/QueryResult.swift \

@@ -28,7 +28,7 @@ fn parse<T: for<'de> Deserialize<'de>>(json: *const c_char, callback: AsyncCallb
 
 fn answer<T: serde::Serialize>(callback: AsyncCallback, ctx: usize, result: Result<T, String>) {
     match result {
-        Ok(value) => callback_ok(callback, ctx, &serde_json::to_string(&value).unwrap_or_default()),
+        Ok(value) => callback_json(callback, ctx, value),
         Err(e) => callback_err(callback, ctx, &e),
     }
 }

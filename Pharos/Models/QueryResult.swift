@@ -125,6 +125,11 @@ struct QueryResult: Codable {
     /// not offered (`ResultLoadState`). Set by the app, never decoded: not in
     /// `CodingKeys`, so a result from the core or a cache starts false.
     var limitReached: Bool = false
+    /// Names these rows. Each decode, merge or rebuild makes a new token; a
+    /// copy keeps it. The grid reuses a sort order or a tag map it computed
+    /// earlier only for the same token (`GridDerivedCache`). Set by the app,
+    /// never decoded or encoded: not in `CodingKeys`.
+    var contentToken = UUID()
 
     enum CodingKeys: String, CodingKey {
         case columns, rows

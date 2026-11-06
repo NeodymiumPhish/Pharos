@@ -144,6 +144,44 @@ fn to_json_c_string<T: serde::Serialize>(value: &T) -> *mut c_char {
     to_c_string(&json)
 }
 
+/// Serialize `value` into ONE owned buffer that `pharos_free_string` frees,
+/// dropping `value` first. For a large result (`to_json_c_string` kept the
+/// value, a `String` and a `CString` copy alive at once) this holds one.
+/// Exact size, as `CString::into_raw` gives: `pharos_free_string` frees with
+/// `CString::from_raw`.
+fn to_json_c_string_owned<T: serde::Serialize>(value: T) -> *mut c_char {
+    let buf = serde_json::to_vec(&value).unwrap_or_else(|_| b"null".to_vec());
+    drop(value);
+    // serde_json escapes every byte below 0x20, so `buf` has no interior NUL
+    // and `CString::new` only appends one; the default is never taken.
+    CString::new(buf).unwrap_or_default().into_raw()
+}
+
+/// Invoke a callback with `value` as JSON, serialized straight into the
+/// buffer the callback reads and with `value` dropped BEFORE the callback.
+///
+/// Swift decodes inside the callback, so whatever Rust holds then stays
+/// alive for the whole decode. For a large result that is the biggest thing
+/// in the process: `callback_ok` held the value (a `serde_json::Value` per
+/// cell), the JSON `String` and a `CString` copy of it. This holds one
+/// buffer. A value that fails to serialize goes to the error callback, not
+/// as an empty string Swift then fails to decode.
+fn callback_json<T: serde::Serialize>(cb: AsyncCallback, ctx: usize, value: T) {
+    match serde_json::to_vec(&value) {
+        Ok(mut buf) => {
+            drop(value);
+            // No interior NUL (serde_json escapes control bytes), so this
+            // one terminates the string `strlen` reads.
+            buf.push(0);
+            cb(ctx as *mut std::ffi::c_void, buf.as_ptr() as *const c_char, std::ptr::null());
+        }
+        Err(e) => {
+            drop(value);
+            callback_err(cb, ctx, &format!("Failed to encode the result: {}", e));
+        }
+    }
+}
+
 /// Invoke a callback with a JSON result. Takes `usize` context to stay Send-safe across awaits.
 fn callback_ok(cb: AsyncCallback, ctx: usize, json: &str) {
     let c = CString::new(json).unwrap_or_default();
@@ -154,4 +192,82 @@ fn callback_ok(cb: AsyncCallback, ctx: usize, json: &str) {
 fn callback_err(cb: AsyncCallback, ctx: usize, error: &str) {
     let c = CString::new(error).unwrap_or_default();
     cb(ctx as *mut std::ffi::c_void, std::ptr::null(), c.as_ptr());
+}
+
+#[cfg(test)]
+mod json_buffer_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    /// What each callback received, by context. Tests run on parallel
+    /// threads, so each one reads back only its own context.
+    static RECEIVED: Mutex<Vec<(usize, Option<String>, Option<String>)>> = Mutex::new(Vec::new());
+
+    extern "C" fn record(ctx: *mut std::ffi::c_void, ok: *const c_char, err: *const c_char) {
+        let read = |p: *const c_char| {
+            (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_owned())
+        };
+        RECEIVED.lock().unwrap().push((ctx as usize, read(ok), read(err)));
+    }
+
+    fn received(ctx: usize) -> (Option<String>, Option<String>) {
+        let all = RECEIVED.lock().unwrap();
+        let mine: Vec<_> = all.iter().filter(|r| r.0 == ctx).collect();
+        assert_eq!(mine.len(), 1, "exactly one callback for context {}", ctx);
+        (mine[0].1.clone(), mine[0].2.clone())
+    }
+
+    /// A result whose cells hold every kind of control byte, NUL included:
+    /// the bytes Rust hands over must still be the whole JSON text.
+    fn awkward_result() -> serde_json::Value {
+        serde_json::json!({
+            "columns": [{"name": "c", "data_type": "text"}],
+            "rows": [["a\u{0}b", "\t\n\r", "\u{1}\u{1f}\u{7f}", "ünïcødé ✓"]],
+            "row_count": 1,
+        })
+    }
+
+    #[test]
+    fn callback_json_hands_over_the_whole_json_text() {
+        let value = awkward_result();
+        let expected = serde_json::to_string(&value).unwrap();
+        callback_json(record, 101, value);
+        let (ok, err) = received(101);
+        assert_eq!(err, None);
+        assert_eq!(ok.as_deref(), Some(expected.as_str()),
+                   "an interior NUL would cut the text short at strlen");
+    }
+
+    #[test]
+    fn a_value_that_cannot_serialize_reaches_the_error_callback() {
+        // serde_json refuses a map whose keys are not strings.
+        let mut bad = BTreeMap::new();
+        bad.insert((1, 2), 3);
+        callback_json(record, 102, bad);
+        let (ok, err) = received(102);
+        assert_eq!(ok, None, "no empty success payload");
+        assert!(err.unwrap().contains("Failed to encode the result"));
+    }
+
+    #[test]
+    fn the_owned_c_string_is_the_json_text_and_frees_cleanly() {
+        let value = awkward_result();
+        let expected = serde_json::to_string(&value).unwrap();
+        let ptr = to_json_c_string_owned(value);
+        assert!(!ptr.is_null());
+        assert_eq!(unsafe { CStr::from_ptr(ptr) }.to_str().unwrap(), expected);
+        // The same free the Swift side calls; a wrong-size allocation would
+        // fault here under the system allocator's checks.
+        lifecycle::pharos_free_string(ptr);
+    }
+
+    #[test]
+    fn the_owned_c_string_keeps_the_null_fallback() {
+        let mut bad = BTreeMap::new();
+        bad.insert((1, 2), 3);
+        let ptr = to_json_c_string_owned(bad);
+        assert_eq!(unsafe { CStr::from_ptr(ptr) }.to_str().unwrap(), "null");
+        lifecycle::pharos_free_string(ptr);
+    }
 }

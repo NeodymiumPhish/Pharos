@@ -108,7 +108,7 @@ pub extern "C" fn pharos_export_parquet(
             Err(e) => return callback_err(callback, ctx, &format!("Invalid options: {}", e)),
         };
         match crate::commands::duck::export_parquet(id, options.sql, options.schema, options.file_path, options.query_id, state).await {
-            Ok(result) => callback_ok(callback, ctx, &serde_json::to_string(&result).unwrap_or_default()),
+            Ok(result) => callback_json(callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });

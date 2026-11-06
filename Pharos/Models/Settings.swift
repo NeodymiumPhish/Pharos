@@ -1031,7 +1031,8 @@ struct ConnectionSettings: Codable, Equatable {
 
     /// Worker threads per database. 0 = DuckDB's default (all cores).
     var duckdbThreads: UInt32 = 0
-    /// `memory_limit` per database, e.g. "4GB". Empty = DuckDB's default.
+    /// `memory_limit` per database, e.g. "4GB". Empty = automatic: half of
+    /// this Mac's memory (the core's `automatic_memory_limit`).
     var duckdbMemoryLimit: String = ""
     /// Cloud storage credentials (S3, R2, GCS), made a temporary secret of
     /// every DuckDB database when it opens. Each one's secret key is in the

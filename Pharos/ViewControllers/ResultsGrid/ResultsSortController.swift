@@ -45,6 +45,9 @@ class ResultsSortController: NSObject {
     // MARK: - Sort Descriptors Changed
 
     func handleSortDescriptorsChanged(_ oldDescriptors: [NSSortDescriptor]) {
+        // `adoptSortState` sets the descriptors itself; the rows it adopts are
+        // already in that order.
+        guard !isAdoptingSortState else { return }
         guard let descriptor = tableView.sortDescriptors.first,
               let key = descriptor.key else {
             resetSort()
@@ -80,48 +83,45 @@ class ResultsSortController: NSObject {
             return
         }
 
-        let rows = delegate.sortableRows
-        let categories = delegate.sortableColumnCategories
-        guard let sortIdx = colIndex(from: sortKey) else { return }
-        let category = sortIdx < categories.count ? categories[sortIdx] : .string
-        let ascending = currentSortAscending
-
-        // `less` compares two NON-NULL values. Descending order swaps the
-        // arguments rather than negating the result: `!less(a, b)` is true for
-        // EQUAL keys in both directions, which is not a strict weak ordering,
-        // and `sort` then shuffles ties unpredictably between reloads.
-        let less: (AnyCodable, AnyCodable) -> Bool
-        switch category {
-        case .numeric:
-            less = { [unowned self] in self.numericValue($0) < self.numericValue($1) }
-        case .boolean:
-            less = { a, b in
-                let sA = (a.value as? Bool).map { $0 ? "t" : "f" } ?? (a.value as? String) ?? ""
-                let sB = (b.value as? Bool).map { $0 ? "t" : "f" } ?? (b.value as? String) ?? ""
-                return sA < sB // "f" < "t"
-            }
-        default:
-            less = { $0.displayString.localizedStandardCompare($1.displayString) == .orderedAscending }
-        }
-
-        // Sort all rows
-        var unfilteredDisplayRows = Array(0..<rows.count)
-        unfilteredDisplayRows.sort { a, b in
-            let valA: AnyCodable? = sortIdx < rows[a].count ? rows[a][sortIdx] : nil
-            let valB: AnyCodable? = sortIdx < rows[b].count ? rows[b][sortIdx] : nil
-
-            // NULLs always sort to end, in either direction
-            let nullA = valA?.isNull ?? true
-            let nullB = valB?.isNull ?? true
-            if nullA || nullB { return !nullA && nullB }
-            guard let valA, let valB else { return false }
-
-            return ascending ? less(valA, valB) : less(valB, valA)
-        }
+        guard let unfilteredDisplayRows = sortedOrder(column: sortKey, ascending: currentSortAscending) else { return }
 
         resetSortButton.isHidden = false
         updateSortIndicators()
         delegate.sortControllerDidSort(unfilteredDisplayRows: unfilteredDisplayRows, isSorted: true)
+    }
+
+    /// The delegate's rows in the order of a sort by `column`, or nil when
+    /// `column` is not a data column. Changes no state.
+    func sortedOrder(column: String, ascending: Bool) -> [Int]? {
+        guard let delegate, let sortIdx = colIndex(from: column) else { return nil }
+        let categories = delegate.sortableColumnCategories
+        let category = sortIdx < categories.count ? categories[sortIdx] : .string
+        let kind: ResultsSortKeys.Kind
+        switch category {
+        case .numeric: kind = .numeric
+        case .boolean: kind = .boolean
+        default: kind = .text
+        }
+        return ResultsSortKeys.order(rows: delegate.sortableRows, column: sortIdx, kind: kind, ascending: ascending)
+    }
+
+    // MARK: - Adopt a Saved Sort
+
+    private var isAdoptingSortState = false
+
+    /// Take on a sort the caller has already applied to its rows, for a grid
+    /// state put back on a card switch: the header, the indicators and the
+    /// Reset Sort button show it, and nothing sorts or notifies. The state
+    /// matches what a header click on `column` leaves (`sortClickCount` 1).
+    func adoptSortState(column: String, ascending: Bool) {
+        currentSortColumn = column
+        currentSortAscending = ascending
+        sortClickCount = 1
+        isAdoptingSortState = true
+        tableView.sortDescriptors = [NSSortDescriptor(key: column, ascending: ascending)]
+        isAdoptingSortState = false
+        resetSortButton.isHidden = false
+        updateSortIndicators()
     }
 
     // MARK: - Reset Sort
@@ -168,15 +168,5 @@ class ResultsSortController: NSObject {
         }
         // Trigger header view redraw
         (tableView.headerView as? FilterableHeaderView)?.sortDirections = sortDirections
-    }
-
-    // MARK: - Numeric Helpers
-
-    private func numericValue(_ value: AnyCodable?) -> Double {
-        guard let v = value?.value else { return 0 }
-        if let i = v as? Int64 { return Double(i) }
-        if let d = v as? Double { return d }
-        if let s = v as? String, let d = Double(s) { return d }
-        return 0
     }
 }

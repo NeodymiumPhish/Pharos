@@ -10,6 +10,7 @@ swiftc -o /tmp/tag-draft-tests \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/RuleKey.swift \
   Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Core/TagRowMatch.swift \
   Pharos/Core/TagDraft.swift \
   Pharos/Core/TagConditionKind.swift \
   Pharos/Core/TagGlob.swift \

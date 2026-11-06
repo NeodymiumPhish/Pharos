@@ -3407,29 +3407,48 @@ pub fn get_query_history_result(
     conn: &Connection,
     entry_id: &str,
 ) -> SqliteResult<Option<(String, String, Option<String>)>> {
+    get_query_history_result_blobs(conn, entry_id)?
+        .map(decode_query_history_result)
+        .transpose()
+}
+
+/// The stored blobs of a history entry's cached result — columns, rows and
+/// row identity — as written (gzip, or legacy text). Only the read needs the
+/// connection: a caller holding the metadata lock should release it before
+/// `decode_query_history_result`, because the gunzip of a large result is the
+/// slow part and every other store call waits on that lock.
+pub fn get_query_history_result_blobs(
+    conn: &Connection,
+    entry_id: &str,
+) -> SqliteResult<Option<(Vec<u8>, Vec<u8>, Option<Vec<u8>>)>> {
     let mut stmt = conn.prepare(
         "SELECT result_columns, result_rows, result_row_identity FROM query_history WHERE id = ?1 AND result_columns IS NOT NULL"
     )?;
+    let mut rows = stmt.query([entry_id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Decompress the blobs `get_query_history_result_blobs` read. Needs no
+/// connection, so it runs outside the metadata lock.
+pub fn decode_query_history_result(
+    (columns_raw, rows_raw, identity_raw): (Vec<u8>, Vec<u8>, Option<Vec<u8>>),
+) -> SqliteResult<(String, String, Option<String>)> {
     let bad_data = |e: String| {
         rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             e,
         )))
     };
-    let mut rows = stmt.query([entry_id])?;
-    if let Some(row) = rows.next()? {
-        let columns_raw: Vec<u8> = row.get(0)?;
-        let rows_raw: Vec<u8> = row.get(1)?;
-        let identity_raw: Option<Vec<u8>> = row.get(2)?;
-        let columns = decompress_or_passthrough(columns_raw).map_err(bad_data)?;
-        let rows_str = decompress_or_passthrough(rows_raw).map_err(bad_data)?;
-        let identity = identity_raw
-            .map(|raw| decompress_or_passthrough(raw).map_err(bad_data))
-            .transpose()?;
-        Ok(Some((columns, rows_str, identity)))
-    } else {
-        Ok(None)
-    }
+    let columns = decompress_or_passthrough(columns_raw).map_err(bad_data)?;
+    let rows_str = decompress_or_passthrough(rows_raw).map_err(bad_data)?;
+    let identity = identity_raw
+        .map(|raw| decompress_or_passthrough(raw).map_err(bad_data))
+        .transpose()?;
+    Ok((columns, rows_str, identity))
 }
 
 #[cfg(test)]
@@ -3884,6 +3903,37 @@ mod workspace_roundtrip_tests {
             .expect("entry should have cached results");
         assert_eq!(loaded_identity.as_deref(), Some(identity));
 
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The reopen reads the blobs under the lock and decompresses after it.
+    /// The blobs are STORED compressed (so the decode is real work), and the
+    /// split read + decode gives exactly what the one-step read gives.
+    #[test]
+    fn history_result_blobs_decode_outside_the_connection() {
+        let dir = temp_db_dir("blobs_split");
+        let conn = init_database(&dir).expect("init_database");
+
+        let entry = history_entry("h1", "c1", "prod-db", &now_offset(0));
+        let rows = format!("[{}]", (0..500).map(|i| format!("[\"{}\"]", i)).collect::<Vec<_>>().join(","));
+        save_query_history(&conn, &entry, Some(r#"[{"name":"id"}]"#), Some(&rows), Some(r#"{"k":1}"#))
+            .expect("save h1");
+
+        let blobs = get_query_history_result_blobs(&conn, "h1")
+            .expect("read blobs")
+            .expect("entry should have cached results");
+        assert_eq!(&blobs.1[..2], &[0x1f, 0x8b], "rows are stored gzip-compressed");
+        drop(conn); // the decode needs no connection at all
+
+        let (columns, decoded_rows, identity) = decode_query_history_result(blobs).expect("decode");
+        assert_eq!(columns, r#"[{"name":"id"}]"#);
+        assert_eq!(decoded_rows, rows);
+        assert_eq!(identity.as_deref(), Some(r#"{"k":1}"#));
+
+        let conn = init_database(&dir).expect("reopen");
+        assert!(get_query_history_result_blobs(&conn, "missing").expect("read").is_none(),
+                "an unknown entry has no blobs");
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }

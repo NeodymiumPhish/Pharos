@@ -1,28 +1,5 @@
 import Foundation
 
-// MARK: - Match results
-
-enum TagMatchState: String, Equatable {
-    /// Some tuple of this tag is entirely present in the row.
-    case solid
-    /// At least one captured value is present, but no single tuple is complete.
-    case dashed
-}
-
-/// One tag's verdict on one row.
-struct TagRowMatch: Equatable {
-    let tagId: String
-    let state: TagMatchState
-    /// Result column INDICES whose value matched, ascending. Phase 5 tints them.
-    let matchedColumns: [Int]
-    /// Every tuple that contributed a matched value, sorted. Phase 5's Inspector
-    /// explains a partial match from these.
-    let matchedRuleIds: [String]
-    /// Tuples entirely present in this row, sorted. Empty when dashed. The
-    /// "Remove From Tag" action deletes exactly these.
-    let solidRuleIds: [String]
-}
-
 // MARK: - TagRuleMatcher
 
 /// Maps the rows of a result to the tags that match them.
@@ -382,5 +359,22 @@ enum TagRuleMatcher {
             if state == .solid { solid += 1 } else { partial += 1 }
         }
         return (solid, partial)
+    }
+
+    /// The map of a result that grew by a page: `existing` for its first rows,
+    /// plus `page` (matched on the new rows alone) moved down by `offset`, the
+    /// row count before the page.
+    ///
+    /// Equal to matching every row again, because a row's verdict reads only
+    /// that row: the pattern overlay in `expand` is a memo keyed by cell value,
+    /// so the other rows in the call never change a row's result.
+    /// `scripts/test-tag-incremental-match.sh` holds this for every condition
+    /// kind and for JSON columns.
+    static func appendingPage(_ page: [Int: [TagRowMatch]], to existing: [Int: [TagRowMatch]],
+                              offset: Int) -> [Int: [TagRowMatch]] {
+        var merged = existing
+        merged.reserveCapacity(existing.count + page.count)
+        for (row, matches) in page { merged[row + offset] = matches }
+        return merged
     }
 }

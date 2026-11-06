@@ -30,7 +30,13 @@ final class TagStore {
 
     private init() {}
 
+    /// Counts store changes. A tag map matched under one generation is out of
+    /// date under the next, so a grid keeps a map across a card switch only
+    /// while this is unchanged (`GridDerivedCache`).
+    private(set) var generation = 0
+
     private func postChange() {
+        generation += 1
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 
