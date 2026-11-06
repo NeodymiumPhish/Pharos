@@ -183,7 +183,7 @@ pub extern "C" fn pharos_get_saved_query_result(result_id: *const c_char) -> *mu
         let rt = runtime();
         let id = unsafe { c_str_to_string(result_id) };
         match rt.block_on(crate::commands::get_saved_query_result(state, id)) {
-            Ok(Some(data)) => to_json_c_string(&data),
+            Ok(Some(data)) => to_json_c_string_owned(data),
             Ok(None) => std::ptr::null_mut(),
             Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }

@@ -165,10 +165,7 @@ pub extern "C" fn pharos_execute_query(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::execute_query(conn_id, sql_str, qid, lim, schema_str, source_str, state).await {
-            Ok(result) => {
-                let json = serde_json::to_string(&result).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
+            Ok(result) => callback_json(callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });
@@ -195,10 +192,7 @@ pub extern "C" fn pharos_execute_statement(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::execute_statement(conn_id, sql_str, qid, schema_str, state).await {
-            Ok(result) => {
-                let json = serde_json::to_string(&result).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
+            Ok(result) => callback_json(callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });
@@ -224,10 +218,7 @@ pub extern "C" fn pharos_fetch_more_rows(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::fetch_more_rows(conn_id, sql_str, limit, offset, schema_str, state).await {
-            Ok(result) => {
-                let json = serde_json::to_string(&result).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
+            Ok(result) => callback_json(callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });
@@ -269,10 +260,7 @@ pub extern "C" fn pharos_fetch_all_rows(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::fetch_all_rows_snapshot(conn_id, sql_str, qid, max_rows, schema_str, state, on_progress).await {
-            Ok(result) => {
-                let json = serde_json::to_string(&result).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
+            Ok(result) => callback_json(callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });
@@ -324,8 +312,7 @@ pub extern "C" fn pharos_explain_query(
                 // so the Swift side's `JSONDecoder` sees a value it can decode
                 // into `String`; handing over the bare array would make the
                 // callback's payload a different type per call.
-                let json = serde_json::to_string(&plan).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
+                callback_json(callback, ctx, plan);
             }
             Err(e) => callback_err(callback, ctx, &e),
         }
@@ -350,10 +337,7 @@ pub extern "C" fn pharos_validate_sql(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::validate_sql(conn_id, sql_str, schema_str, state).await {
-            Ok(result) => {
-                let json = serde_json::to_string(&result).unwrap_or_default();
-                callback_ok(callback, ctx, &json);
-            }
+            Ok(result) => callback_json(callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });

@@ -68,7 +68,7 @@ pub extern "C" fn pharos_load_workspace(id: *const c_char) -> *mut c_char {
         let rt = runtime();
         let id = unsafe { c_str_to_string(id) };
         match rt.block_on(crate::commands::load_workspace(id, state)) {
-            Ok(Some(d)) => to_json_c_string(&d),
+            Ok(Some(d)) => to_json_c_string_owned(d),
             Ok(None) => std::ptr::null_mut(),
             Err(e) => to_c_string(&serde_json::json!({"error": e}).to_string()),
         }
