@@ -16,6 +16,7 @@ swiftc -o /tmp/grid-column-resize-tests \
   Pharos/ViewControllers/ResultsGrid/ResultsSortController.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsSortKeys.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnIdentifier.swift \
   PharosTests/GridColumnResizeTests.swift \

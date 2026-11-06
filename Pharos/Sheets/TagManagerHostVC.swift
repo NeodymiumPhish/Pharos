@@ -35,7 +35,7 @@ final class TagManagerHostVC: NSViewController {
     private(set) var detail: TagDetailVC
 
     private var columns: [ColumnDef] = []
-    private var loadedRows: [[String?]] = []
+    private var loadedRows = ResultTable()
     /// False until the first `reseed`: before it, the detail is a placeholder
     /// with no tags, and the store's changes have nothing to follow.
     private var isSeeded = false
@@ -48,7 +48,7 @@ final class TagManagerHostVC: NSViewController {
         self.tags = tags
         self.committer = committer
         let placeholder = TagDetailVC(model: TagManagerModel(tags: [], mode: .manage), committer: committer,
-                                      columns: [], loadedRows: [], secondaryAction: .revert)
+                                      columns: [], loadedRows: ResultTable(), secondaryAction: .revert)
         detail = placeholder
         split = ManagerSplitViewController(sidebar: sidebar, detail: placeholder,
                                            autosaveName: "PharosTagManagerSplit",
@@ -84,7 +84,7 @@ final class TagManagerHostVC: NSViewController {
         if let window = view.window { split.installToolbarIfNeeded(on: window) }
     }
 
-    func setResults(columns: [ColumnDef], loadedRows: [[String?]]) {
+    func setResults(columns: [ColumnDef], loadedRows: ResultTable) {
         self.columns = columns
         self.loadedRows = loadedRows
     }

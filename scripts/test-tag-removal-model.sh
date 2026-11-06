@@ -18,6 +18,7 @@ swiftc -o /tmp/tag-removal-model-tests \
   Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/TagRemovalModelTests.swift \
   PharosTests/main.swift
 /tmp/tag-removal-model-tests

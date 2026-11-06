@@ -194,12 +194,10 @@ extension ResultsGridVC: QLPreviewPanelDataSource, QLPreviewPanelDelegate, Resul
         for displayRow in rowIndices {
             guard displayRow >= 0, displayRow < displayRows.count else { continue }
             let dataRow = displayRows[displayRow]
-            guard dataRow >= 0, dataRow < rows.count else { continue }
-            let rowValues = rows[dataRow]
+            guard dataRow >= 0, dataRow < rows.rowCount else { continue }
             for column in resolved {
-                guard column.dataColumn < rowValues.count else { continue }
-                let value = rowValues[column.dataColumn]
-                cells.append((value: value.isNull ? nil : value.displayString,
+                guard column.dataColumn < rows.columnCount else { continue }
+                cells.append((value: rows.string(dataRow, column.dataColumn),
                               columnName: columns[column.dataColumn].name,
                               typeName: columns[column.dataColumn].dataType,
                               displayRow: displayRow,

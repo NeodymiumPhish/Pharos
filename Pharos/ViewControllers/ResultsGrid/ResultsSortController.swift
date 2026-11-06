@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Sort Controller Delegate
 
 protocol ResultsSortControllerDelegate: AnyObject {
-    var sortableRows: [[AnyCodable]] { get }
+    var sortableRows: ResultTable { get }
     var sortableColumnCategories: [PGTypeCategory] { get }
     func sortControllerDidSort(unfilteredDisplayRows: [Int], isSorted: Bool)
     func sortControllerDidReset(unfilteredDisplayRows: [Int])
@@ -16,7 +16,7 @@ protocol ResultsSortControllerDelegate: AnyObject {
 /// The grid escapes hostile scalars for DISPLAY only (`ResultCellText.rendered`
 /// → `DisplayEscape`). Comparing the escaped form would order by the token
 /// spelling — every value with a leading space would collate under `<`, not
-/// under the space — so the comparisons below read `AnyCodable` off the model.
+/// under the space — so the comparisons below read the raw cell text off the model.
 class ResultsSortController: NSObject {
 
     enum SortDirection {
@@ -75,8 +75,7 @@ class ResultsSortController: NSObject {
         guard let delegate = delegate else { return }
 
         guard let sortKey = currentSortColumn else {
-            let rows = delegate.sortableRows
-            let displayRows = Array(0..<rows.count)
+            let displayRows = Array(0..<delegate.sortableRows.rowCount)
             resetSortButton.isHidden = true
             updateSortIndicators()
             delegate.sortControllerDidReset(unfilteredDisplayRows: displayRows)
@@ -131,8 +130,7 @@ class ResultsSortController: NSObject {
         currentSortColumn = nil
         sortClickCount = 0
         tableView.sortDescriptors = []
-        let rows = delegate.sortableRows
-        let displayRows = Array(0..<rows.count)
+        let displayRows = Array(0..<delegate.sortableRows.rowCount)
         resetSortButton.isHidden = true
         updateSortIndicators()
         delegate.sortControllerDidReset(unfilteredDisplayRows: displayRows)

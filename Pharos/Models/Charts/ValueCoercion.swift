@@ -1,7 +1,7 @@
 import Foundation
 
 /// Coerces PostgreSQL text-format values (which cross the FFI as JSON strings,
-/// decoded into AnyCodable as String) into typed values for charting.
+/// held as text in a `ResultTable`) into typed values for charting.
 enum ValueCoercion {
     private static let dateFormatters: [DateFormatter] = {
         let patterns = [
@@ -26,14 +26,9 @@ enum ValueCoercion {
         return Double(trimmed)
     }
 
-    static func double(from v: AnyCodable) -> Double? {
-        switch v.value {
-        case nil: return nil
-        case let d as Double: return d
-        case let i as Int64: return Double(i)
-        case let s as String: return double(from: s)
-        default: return nil
-        }
+    /// A cell's text, nil for a SQL NULL (which is no number).
+    static func double(from s: String?) -> Double? {
+        s.flatMap { double(from: $0) }
     }
 
     static func bool(from s: String) -> Bool? {

@@ -64,7 +64,7 @@ final class TagDetailVC: NSViewController, NSTextFieldDelegate {
     /// empty — the Tag Manager window can open with no result behind it at
     /// all — so nothing here may require them.
     private let columns: [ColumnDef]
-    private let loadedRows: [[String?]]
+    private let loadedRows: ResultTable
 
     /// How the footer's count is worked out.
     ///
@@ -72,7 +72,7 @@ final class TagDetailVC: NSViewController, NSTextFieldDelegate {
     /// function that blocks on a semaphore it controls; production uses the real
     /// matcher. Racing the real one by timing would be a flaky test pretending
     /// to be a guarantee.
-    var countMatches: (Tag, [ColumnDef], [[String?]]) -> (solid: Int, partial: Int)
+    var countMatches: (Tag, [ColumnDef], ResultTable) -> (solid: Int, partial: Int)
         = TagRuleMatcher.matchCounts
 
     /// Bumped by every count started, so a slow background count that lands
@@ -192,7 +192,7 @@ final class TagDetailVC: NSViewController, NSTextFieldDelegate {
     // MARK: Construction
 
     init(model: TagManagerModel, committer: TagManagerCommitting,
-         columns: [ColumnDef], loadedRows: [[String?]],
+         columns: [ColumnDef], loadedRows: ResultTable,
          secondaryAction: SecondaryAction) {
         self.model = model
         self.committer = committer
@@ -826,10 +826,10 @@ final class TagDetailVC: NSViewController, NSTextFieldDelegate {
         let columns = self.columns
         let count = countMatches
 
-        guard rows.count > Self.asyncCountThreshold
+        guard rows.rowCount > Self.asyncCountThreshold
                 || TagRuleMatcher.holdsHeavyJSON(columns: columns, rows: rows) else {
             let counts = count(preview, columns, rows)
-            show(solid: counts.solid, partial: counts.partial, loaded: rows.count)
+            show(solid: counts.solid, partial: counts.partial, loaded: rows.rowCount)
             return
         }
 
@@ -840,7 +840,7 @@ final class TagDetailVC: NSViewController, NSTextFieldDelegate {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.countGeneration == generation else { return }
-                    self.show(solid: counts.solid, partial: counts.partial, loaded: rows.count)
+                    self.show(solid: counts.solid, partial: counts.partial, loaded: rows.rowCount)
                 }
             }
         }

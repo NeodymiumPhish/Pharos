@@ -16,6 +16,7 @@ swiftc -o /tmp/tag-inspector-model-tests \
   Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/TagInspectorModelTests.swift \
   PharosTests/main.swift
 /tmp/tag-inspector-model-tests

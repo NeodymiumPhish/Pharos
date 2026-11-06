@@ -66,7 +66,7 @@ class ResultsGridVC: NSViewController {
 
     // Data
     var columns: [ColumnDef] = []
-    var rows: [[AnyCodable]] = []
+    var rows = ResultTable()
     /// The result's row identity, or nil when the core could not attribute the
     /// result to a table.
     ///
@@ -597,7 +597,7 @@ class ResultsGridVC: NSViewController {
 
         columnCategories = columns.map { PGTypeCategory(dataType: $0.dataType) }
 
-        displayRows = Array(0..<rows.count)
+        displayRows = Array(0..<rows.rowCount)
         unfilteredDisplayRows = displayRows
         columnFilteredDisplayRows = displayRows
         columnFilterController.clearAll()
@@ -741,18 +741,18 @@ class ResultsGridVC: NSViewController {
         // ADDS rows. A Load More that lands after the tab re-ran a different
         // query would otherwise put rows with the wrong column count under
         // this header.
-        guard merged.columns.count == columns.count, merged.rows.count >= rows.count else {
+        guard merged.columns.count == columns.count, merged.rows.rowCount >= rows.rowCount else {
             setLoadingMore(false)
             return
         }
-        let oldCount = rows.count
+        let oldCount = rows.rowCount
         rows = merged.rows
         rowIdentity = merged.rowIdentity
         hasMore = merged.hasMore
         limitReached = merged.limitReached
         contentToken = merged.contentToken
 
-        let newIndices = Array(oldCount..<rows.count)
+        let newIndices = Array(oldCount..<rows.rowCount)
         unfilteredDisplayRows.append(contentsOf: newIndices)
 
         appendTagMatches(fromRow: oldCount)
@@ -783,7 +783,7 @@ class ResultsGridVC: NSViewController {
         abandonEditing()
         pendingEdits.removeAll()
         columns = []
-        rows = []
+        rows = ResultTable()
         rowIdentity = nil
         contentToken = nil
         // Rows are gone; a stale map would leak into the status text and stage gates.
@@ -1134,7 +1134,7 @@ class ResultsGridVC: NSViewController {
     /// sort and without Find, which searches rather than filters. Nil when no
     /// row is filtered out.
     func chartRowIndices(columnFilters filters: [String: ColumnFilter]) -> [Int]? {
-        ChartGridFilters.rowIndices(rowCount: rows.count, controller: columnFilterController, filters: filters,
+        ChartGridFilters.rowIndices(rowCount: rows.rowCount, controller: columnFilterController, filters: filters,
                                     forceShowTagged: forceShowTags && !matchesByRow.isEmpty ? Set(matchesByRow.keys) : nil)
     }
 
@@ -1161,9 +1161,9 @@ class ResultsGridVC: NSViewController {
 
         let findVisible = findController.isFindVisible
         let findMatchCount = findController.findMatches.count
-        if (findVisible || filterCount > 0 || forceShowTags) && displayRows.count < rows.count {
+        if (findVisible || filterCount > 0 || forceShowTags) && displayRows.count < rows.rowCount {
             let visibleCount = formatRowCount(displayRows.count)
-            let total = formatRowCount(rows.count)
+            let total = formatRowCount(rows.rowCount)
             statusLabel.stringValue = "\(visibleCount) of \(total) rows in \(timeStr)\(filterSuffix)\(tagSuffix)\(moreStr)"
         } else if findVisible && findMatchCount > 0 {
             let rowPhrase = CountedNounText.phrase(displayRows.count, "row")
@@ -1247,10 +1247,9 @@ class ResultsGridVC: NSViewController {
         func value(displayRow: Int, column: Int) -> String? {
             guard displayRow >= 0, displayRow < displayRows.count else { return nil }
             let dataRow = displayRows[displayRow]
-            guard dataRow >= 0, dataRow < rows.count else { return nil }
-            guard column >= 0, column < rows[dataRow].count else { return nil }
-            let cell = rows[dataRow][column]
-            return cell.isNull ? nil : cell.displayString
+            guard dataRow >= 0, dataRow < rows.rowCount else { return nil }
+            guard column >= 0 else { return nil }
+            return rows.string(dataRow, column)
         }
 
         let fdc = cellSelectionController.firstDataColumn
@@ -1294,13 +1293,13 @@ class ResultsGridVC: NSViewController {
             tagMapStoreGeneration = storeGeneration
             return
         }
-        // Every value crosses the FFI as text, so the matcher takes a text copy
-        // of the result. It is built on the main thread — `rows` is main-actor
-        // state — and only the matching itself leaves.
+        // Every value crosses the FFI as text, so the matcher reads the table
+        // as it is. The table is immutable and a copy shares its storage, so
+        // the background match reads the same rows with no text copy.
         let columnDefs = columns
-        let textRows: [[String?]] = rows.map { row in row.map { $0.stringValue } }
+        let textRows = rows
 
-        guard rows.count > Self.matchAsyncThreshold
+        guard textRows.rowCount > Self.matchAsyncThreshold
                 || TagRuleMatcher.holdsHeavyJSON(columns: columnDefs, rows: textRows) else {
             applyTagMap(TagRuleMatcher.match(columns: columnDefs, rows: textRows, index: index))
             tagMapStoreGeneration = storeGeneration
@@ -1343,15 +1342,16 @@ class ResultsGridVC: NSViewController {
             return
         }
         let index = TagStore.shared.tagIndex
-        guard !index.isEmpty, start < rows.count else { return }
+        guard !index.isEmpty, start < rows.rowCount else { return }
         let columnDefs = columns
         let existing = matchesByRow
-        // Text copy of the PAGE only; see `recomputeTagMap`.
-        let pageRows: [[String?]] = rows[start...].map { row in row.map { $0.stringValue } }
+        // The PAGE only: the rows from `start` on (see `recomputeTagMap`).
+        let textRows = rows
+        let pageRange = start..<textRows.rowCount
 
-        guard pageRows.count > Self.matchAsyncThreshold
-                || TagRuleMatcher.holdsHeavyJSON(columns: columnDefs, rows: pageRows) else {
-            let page = TagRuleMatcher.match(columns: columnDefs, rows: pageRows, index: index)
+        guard pageRange.count > Self.matchAsyncThreshold
+                || TagRuleMatcher.holdsHeavyJSON(columns: columnDefs, rows: textRows, range: pageRange) else {
+            let page = TagRuleMatcher.match(columns: columnDefs, rows: textRows, range: pageRange, index: index)
             if !page.isEmpty {
                 applyTagMap(TagRuleMatcher.appendingPage(page, to: existing, offset: start))
             }
@@ -1363,7 +1363,7 @@ class ResultsGridVC: NSViewController {
         tagMapStoreGeneration = nil
         let generation = tagMapGeneration
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let page = TagRuleMatcher.match(columns: columnDefs, rows: pageRows, index: index)
+            let page = TagRuleMatcher.match(columns: columnDefs, rows: textRows, range: pageRange, index: index)
             let map = TagRuleMatcher.appendingPage(page, to: existing, offset: start)
             DispatchQueue.main.async {
                 // Main-queue dispatch: see `recomputeTagMap`.
@@ -1498,7 +1498,7 @@ class ResultsGridVC: NSViewController {
         let capture = TagCapture(
             columns: columns,
             selectedRows: targets.compactMap { row in
-                row < rows.count ? rows[row].map { $0.stringValue } : nil
+                row < rows.rowCount ? rows.row(row) : nil
             },
             originConnection: session.activeConnectionId ?? "",
             // Provenance only. A result with no source table is still taggable —
@@ -1507,7 +1507,7 @@ class ResultsGridVC: NSViewController {
         let model = TagManagerModel(tags: TagStore.shared.tags, mode: .add(capture: capture))
         presentAsSheet(TagManagerSheet(model: model, committer: TagStore.shared,
                                        columns: columns,
-                                       loadedRows: rows.map { row in row.map { $0.stringValue } }))
+                                       loadedRows: rows))
     }
 
     /// "Manage Tags…": rename, recolour, note, delete. `preselect` lands the
@@ -1522,8 +1522,8 @@ class ResultsGridVC: NSViewController {
     }
 
     /// The results the Tag Manager's live count runs over.
-    func tagManagerInputs() -> (columns: [ColumnDef], loadedRows: [[String?]]) {
-        (columns, rows.map { row in row.map { $0.stringValue } })
+    func tagManagerInputs() -> (columns: [ColumnDef], loadedRows: ResultTable) {
+        (columns, rows)
     }
 
     /// "Remove From Tag…": open the Tag Manager in `.remove` on the rules the
@@ -1544,7 +1544,7 @@ class ResultsGridVC: NSViewController {
         let model = TagManagerModel(tags: TagStore.shared.tags, mode: .remove(ruleIds: ruleIds))
         presentAsSheet(TagManagerSheet(model: model, committer: TagStore.shared,
                                        columns: columns,
-                                       loadedRows: rows.map { row in row.map { $0.stringValue } }))
+                                       loadedRows: rows))
     }
 
     // MARK: - Helper Coordination
@@ -1685,11 +1685,11 @@ class ResultsGridVC: NSViewController {
         for r in sampleIndices {
             guard r < displayRows.count else { continue }
             let d = displayRows[r]
-            guard d < rows.count, idx < rows[d].count else { continue }
+            guard d < rows.rowCount else { continue }
             let cat = idx < columnCategories.count ? columnCategories[idx] : .string
             // The data source's OWN renderer, options and all, so a truncated
             // cell is measured truncated.
-            let text = dataSource.renderedText(value: rows[d][idx], category: cat, columnIndex: idx)
+            let text = dataSource.renderedText(value: rows.string(d, idx), category: cat, columnIndex: idx)
             maxW = max(maxW, ceil((text as NSString).size(withAttributes: attrs).width) + pad)
         }
         return min(max(maxW, column.minWidth), max(column.minWidth, gridSettings.maximumColumnWidth))

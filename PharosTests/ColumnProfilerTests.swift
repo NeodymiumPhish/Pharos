@@ -9,8 +9,7 @@ func expect(_ cond: Bool, _ name: String) {
 
 func makeResult(_ columns: [(String, String)], _ rows: [[String?]]) -> QueryResult {
     let cols = columns.map { ColumnDef(name: $0.0, dataType: $0.1) }
-    let anyRows = rows.map { row in row.map { AnyCodable($0 as Any?) } }
-    return QueryResult(columns: cols, rows: anyRows, rowCount: rows.count,
+    return QueryResult(columns: cols, rows: ResultTable(rows: rows), rowCount: rows.count,
                        executionTimeMs: 0, hasMore: false, historyEntryId: nil)
 }
 

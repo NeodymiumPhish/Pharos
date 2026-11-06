@@ -77,7 +77,7 @@ private func makeSubject(rowCount: Int = 8,
     let subject = ResultsCopyExport(tableView: table,
                                     copyButton: NSButton(), exportButton: NSButton())
     subject.columns = [ColumnDef(name: "c", dataType: "text")]
-    subject.rows = (0..<rowCount).map { [AnyCodable("r\($0)")] }
+    subject.rows = ResultTable(rows: (0..<rowCount).map { ["r\($0)"] })
     subject.displayRows = displayRows
     subject.taggedRows = taggedRows
     return (subject, table)
@@ -120,7 +120,7 @@ private func testHiddenColumnsStayOutOfTheCopy() {
     let (s, table) = makeSubject(displayRows: [7, 2], taggedRows: [])
     table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("col_1")))
     s.columns = [ColumnDef(name: "c", dataType: "text"), ColumnDef(name: "d", dataType: "text")]
-    s.rows = (0..<8).map { [AnyCodable("r\($0)"), AnyCodable("x\($0)")] }
+    s.rows = ResultTable(rows: (0..<8).map { ["r\($0)", "x\($0)"] })
     expect(copied(s), "r7x7,r2x2", "both columns copy while both show")
     expect("\(s.selectionSummary().columns)", "2", "summary counts both visible columns")
 

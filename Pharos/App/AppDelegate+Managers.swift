@@ -16,6 +16,6 @@ extension AppDelegate {
     /// The front tab's loaded results go behind the live match count.
     @MainActor @objc func menuShowTagManager(_ sender: Any?) {
         let inputs = frontmostWindowController?.splitViewController.contentVC.tagManagerInputs()
-        TagManagerWindowController.shared.show(columns: inputs?.columns ?? [], loadedRows: inputs?.loadedRows ?? [])
+        TagManagerWindowController.shared.show(columns: inputs?.columns ?? [], loadedRows: inputs?.loadedRows ?? ResultTable())
     }
 }

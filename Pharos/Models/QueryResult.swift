@@ -107,7 +107,9 @@ extension RowIdentity {
 
 struct QueryResult: Codable {
     let columns: [ColumnDef]
-    let rows: [[AnyCodable]]
+    /// Every cell as text or NULL, by column (`ResultTable`). The JSON form
+    /// stays `[[string|null]]`.
+    let rows: ResultTable
     let rowCount: Int
     let executionTimeMs: UInt64
     let hasMore: Bool
@@ -159,7 +161,7 @@ struct QueryResult: Codable {
     /// chart load-all loop) already do this correctly — follow them.
     init(
         columns: [ColumnDef],
-        rows: [[AnyCodable]],
+        rows: ResultTable,
         rowCount: Int,
         executionTimeMs: UInt64,
         hasMore: Bool,
@@ -199,91 +201,4 @@ struct ValidationResult: Codable {
 struct ValidationError: Codable {
     let message: String
     let position: Int?
-}
-
-// MARK: - AnyCodable (for heterogeneous JSON values)
-
-/// A type-erased Codable value for representing arbitrary JSON.
-struct AnyCodable: Codable {
-    let value: Any?
-
-    /// Construct directly from a value (tests, ChartData assembly).
-    init(_ value: Any?) {
-        self.value = value
-    }
-
-    /// The cell as text, or nil for a SQL NULL.
-    ///
-    /// Every value of a real result crosses the FFI as a JSON string, because the
-    /// core reads PostgreSQL's text format — so `decode(Bool)`, `decode(Int64)` and
-    /// `decode(Double)` in `init(from:)` all fail on it and the value lands in the
-    /// `String` branch. A non-string here is therefore a hand-built fixture (a
-    /// chart or drill test), never a row a user could tag, and nil is the honest
-    /// answer for it rather than a `String(describing:)` that would invent a
-    /// format the fingerprint then depends on.
-    var stringValue: String? {
-        value as? String
-    }
-
-    /// String is tried FIRST, before Bool, Int64 and Double.
-    ///
-    /// Every cell of a real result is a JSON string (see `stringValue`), and a
-    /// failed `try? decode` is not free: `JSONDecoder` builds a `DecodingError`
-    /// with its coding path for each one. With the numeric attempts first, every
-    /// cell paid for three thrown errors before landing here — measured at
-    /// ~40 ms for a 1,000 × 20 page and ~2 s for a 50,000-row Fetch All, seven
-    /// times the whole decode. A JSON value has exactly one type, so the order of
-    /// the attempts changes nothing about which branch a value takes.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if container.decodeNil() {
-            value = nil
-        } else if let string = try? container.decode(String.self) {
-            value = string
-        } else if let bool = try? container.decode(Bool.self) {
-            value = bool
-        } else if let int = try? container.decode(Int64.self) {
-            value = int
-        } else if let double = try? container.decode(Double.self) {
-            value = double
-        } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map(\.value)
-        } else if let dict = try? container.decode([String: AnyCodable].self) {
-            value = dict.mapValues(\.value)
-        } else {
-            value = nil
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch value {
-        case nil:
-            try container.encodeNil()
-        case let bool as Bool:
-            try container.encode(bool)
-        case let int as Int64:
-            try container.encode(int)
-        case let double as Double:
-            try container.encode(double)
-        case let string as String:
-            try container.encode(string)
-        default:
-            try container.encodeNil()
-        }
-    }
-
-    /// Get the value as a display string.
-    var displayString: String {
-        switch value {
-        case nil: return ""
-        case let bool as Bool: return bool ? "true" : "false"
-        case let int as Int64: return String(int)
-        case let double as Double: return String(double)
-        case let string as String: return string
-        default: return String(describing: value ?? "")
-        }
-    }
-
-    var isNull: Bool { value == nil }
 }

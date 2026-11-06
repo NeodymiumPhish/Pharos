@@ -23,6 +23,7 @@ swiftc -o /tmp/tag-manager-model-tests \
   Pharos/Core/RowFingerprint.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/TagManagerModelTests.swift \
   PharosTests/main.swift
 /tmp/tag-manager-model-tests

@@ -67,7 +67,7 @@ struct QueryHistoryFilter: Codable {
 /// which is why `RowIdentity` carries snake_case CodingKeys. Do not unify them.
 struct QueryHistoryResultData: Codable {
     let columns: [ColumnDef]
-    let rows: [[AnyCodable]]
+    let rows: ResultTable
     /// nil for an entry cached before the identity column existed. Those entries
     /// also carry columns with no `relation_oid` key at all, and Rust never
     /// re-decodes that cached string — so `ColumnDef`'s OID fields must stay
@@ -101,7 +101,7 @@ extension QueryResult {
         QueryResult(
             columns: data.columns,
             rows: data.rows,
-            rowCount: data.rows.count,
+            rowCount: data.rows.rowCount,
             executionTimeMs: executionTimeMs,
             hasMore: false,
             historyEntryId: historyEntryId,
@@ -120,7 +120,7 @@ extension QueryResult {
         QueryResult(
             columns: data.columns,
             rows: data.rows,
-            rowCount: data.rows.count,
+            rowCount: data.rows.rowCount,
             executionTimeMs: executionTimeMs,
             hasMore: hasMore,
             historyEntryId: nil,

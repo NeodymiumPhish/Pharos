@@ -81,7 +81,7 @@ func runTests() {
     //    can't show a shortfall of its own; the shortfall is what
     //    `TagManagerSheetTests` MARK 33 pins with a two-condition rule).
     let draft = TagDraft.previewTag(tuples: single)
-    let counts = TagRuleMatcher.matchCounts(tag: draft, columns: columns, rows: rows)
+    let counts = TagRuleMatcher.matchCounts(tag: draft, columns: columns, rows: ResultTable(rows: rows))
     expectEqual(counts.solid, 3, "two md5 values match three loaded rows, all solid")
     expectEqual(counts.partial, 0, "single-condition rules can never be merely touched")
     expectEqual(TagDraft.isBroad(matched: 3, loaded: 4), true, "3 of 4 is over a tenth")

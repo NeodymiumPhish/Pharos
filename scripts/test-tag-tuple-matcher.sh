@@ -16,6 +16,7 @@ swiftc -o /tmp/tag-tuple-matcher-tests \
   Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/TagTupleMatcherTests.swift \
   PharosTests/main.swift
 /tmp/tag-tuple-matcher-tests

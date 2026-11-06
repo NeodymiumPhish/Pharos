@@ -18,7 +18,7 @@ extension String {
 ///
 /// DISPLAY ONLY. Everything here is one-way: `↵` for a newline, `<U+XXXX>` for a
 /// hostile scalar, `·` / `→` for an edge space / a tab. Copy, export, find, filter and sort all read the RAW
-/// `AnyCodable` off the model and never come through this type — see the note on
+/// cell text off the model (`ResultTable`) and never come through this type — see the note on
 /// `ResultsCopyExport` — because an escaped indicator pasted into another system
 /// is a corrupt indicator, and a search against an escaped string answers a
 /// different question than the user asked.
@@ -39,10 +39,12 @@ enum ResultCellText {
     ///     default, leaves PostgreSQL's own text alone.
     ///   - numberStyle: Settings ▸ Results ▸ Formatting, same terms.
     ///
+    /// `value` is the cell's text, nil for a SQL NULL.
+    ///
     /// Returns the text and the ranges of it the cell draws dimmed. The width
     /// measurer reads `.text` only: a mark is one glyph of the cell font
     /// either way.
-    static func renderedCell(value: AnyCodable, category: PGTypeCategory,
+    static func renderedCell(value: String?, category: PGTypeCategory,
                              boolTrue: String, boolFalse: String, nullString: String,
                              maximumCharacters: UInt32 = 0, showInvisibles: Bool = false,
                              kind: ResultValueKind = .other,
@@ -51,8 +53,7 @@ enum ResultCellText {
         // `nullString`, `boolTrue` and `boolFalse` come from AppSettings enums,
         // never from the result set, so they are neither escaped nor truncated
         // — a "NUL…" in place of "NULL" would be the app misreporting itself.
-        if value.isNull { return appText(nullString) }
-        let raw = value.displayString
+        guard let raw = value else { return appText(nullString) }
         switch category {
         case .boolean:
             switch raw.lowercased() {
@@ -96,7 +97,7 @@ enum ResultCellText {
     }
 
     /// `renderedCell`'s text alone, for a caller that draws no marks.
-    static func rendered(value: AnyCodable, category: PGTypeCategory,
+    static func rendered(value: String?, category: PGTypeCategory,
                          boolTrue: String, boolFalse: String, nullString: String,
                          maximumCharacters: UInt32 = 0, showInvisibles: Bool = false,
                          kind: ResultValueKind = .other,
@@ -185,7 +186,7 @@ enum ResultCellText {
     /// tests reach the same rule the cell does.
     ///
     /// DISPLAY ONLY, like everything else in this type: copy, export, find,
-    /// filter and sort read the raw `AnyCodable` and never come through here.
+    /// filter and sort read the raw cell text and never come through here.
     static func truncated(_ text: String, to maximumCharacters: UInt32) -> String {
         guard maximumCharacters > 0 else { return text }
         let limit = Int(maximumCharacters)

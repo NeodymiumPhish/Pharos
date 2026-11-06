@@ -42,11 +42,9 @@ enum ColumnClassifier {
         let declared = kind(forDataType: result.columns[index].dataType)
         guard declared == .categorical, !result.columns[index].dataType.lowercased().hasPrefix("bool") else { return declared }
         var samples: [String] = []
-        for row in result.rows where index < row.count {
-            let cell = row[index]
-            guard !cell.isNull else { continue }
-            let text = cell.displayString
-            guard !text.isEmpty else { continue }
+        let rows = result.rows
+        for r in 0..<rows.rowCount {
+            guard let text = rows.string(r, index), !text.isEmpty else { continue }
             samples.append(text)
             if samples.count >= sniffLimit { break }
         }

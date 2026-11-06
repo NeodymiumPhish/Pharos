@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/gantt-canvas-tests \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Utilities/SQLTypeName.swift \
   Pharos/Utilities/BlanksSentinel.swift \
   Pharos/Models/Charts/ChartTypes.swift \

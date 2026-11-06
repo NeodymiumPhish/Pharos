@@ -49,7 +49,7 @@ struct ChartSeries {
     var points: [ChartPoint]
 }
 
-/// Renderer-agnostic, plot-ready output. Holds no AnyCodable, no ChartConfig.
+/// Renderer-agnostic, plot-ready output. Holds no result cells, no ChartConfig.
 struct ChartData {
     var series: [ChartSeries] = []
     var ganttBars: [GanttBar] = []

@@ -8,6 +8,7 @@ swiftc -o /tmp/pharos-tab-context-state-tests \
   Pharos/Core/TabSessionBannerModel.swift \
   Pharos/Models/TabSession.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/RowEdit.swift \
   Pharos/Models/Connection.swift \
   PharosTests/TabContextStateTests.swift \

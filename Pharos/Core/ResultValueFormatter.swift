@@ -5,8 +5,8 @@ import Foundation
 /// # Why this is a parser
 ///
 /// Every value of a real result crosses the FFI as a JSON **string**: the core
-/// reads PostgreSQL's text format, so `AnyCodable` lands every cell in its
-/// `String` branch (see `Pharos/Models/QueryResult.swift`). There are no
+/// reads PostgreSQL's text format, so every cell is text or NULL in the
+/// result's `ResultTable` (see `Pharos/Models/ResultTable.swift`). There are no
 /// `Date`s and no numbers on the Swift side — only text. So "format this
 /// timestamp" can only mean: parse the text PostgreSQL sent, and write it out
 /// again another way.
@@ -22,8 +22,8 @@ import Foundation
 /// Nothing here may touch a value on its way to the pasteboard, to a file, or
 /// into a find, filter or sort comparison — the same rule `DisplayEscape` and
 /// `ResultCellText` state. Copy, export, find, filter and sort all read
-/// `AnyCodable.displayString` straight off the model and never come through
-/// here.
+/// the raw cell text straight off the model (`ResultTable`) and never come
+/// through here.
 ///
 /// # No `DateFormatter` for PARSING
 ///

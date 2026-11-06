@@ -54,8 +54,8 @@ private func identity(kind: String = "pk", keyColumns: [String] = ["id"], keys: 
                 candidates: [KeySet(kind: kind, keyColumns: keyColumns, keys: keys)])
 }
 
-private func row(_ values: String?...) -> [AnyCodable] {
-    values.map { AnyCodable($0) }
+private func row(_ values: String?...) -> [String?] {
+    values
 }
 
 // MARK: - Literals
@@ -105,7 +105,7 @@ private func testFootnoteNamesTheUniqueIndex() {
     pending.set(PendingEdit(dataRow: 0, columnIndex: 1, oldText: "alice", newText: "Zed"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
         pending: pending, columns: columns,
-        rows: [row("a@b.c", "alice")],
+        rows: ResultTable(rows: [row("a@b.c", "alice")]),
         rowIdentity: identity(kind: "unique", keyColumns: ["email"], keys: ["V5:a@b.c"]))
     else { failures += 1; print("FAIL a unique-index request is built"); return }
     expect(RowUpdateSQLBuilder.footnote(for: request),
@@ -114,7 +114,7 @@ private func testFootnoteNamesTheUniqueIndex() {
 
     guard let pkRequest = RowUpdateSQLBuilder.makeRequest(
         pending: pending, columns: [column("id", "INT4", attno: 1), column("name", "TEXT", attno: 2)],
-        rows: [row("1", "alice")],
+        rows: ResultTable(rows: [row("1", "alice")]),
         rowIdentity: identity(keys: ["V1:1"]))
     else { failures += 1; print("FAIL a primary-key request is built"); return }
     expect(RowUpdateSQLBuilder.footnote(for: pkRequest),
@@ -131,7 +131,7 @@ private func testOneStatementPerRow() {
     pending.set(PendingEdit(dataRow: 2, columnIndex: 1, oldText: "carol", newText: "Cara"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
         pending: pending, columns: columns,
-        rows: [row("1", "alice"), row("2", "bob"), row("3", "carol")],
+        rows: ResultTable(rows: [row("1", "alice"), row("2", "bob"), row("3", "carol")]),
         rowIdentity: identity(keys: ["V1:1", "V1:2", "V1:3"]))
     else { failures += 1; print("FAIL a two-row request is built"); return }
 
@@ -155,7 +155,7 @@ private func testTitleIsSingularForOneChange() {
     var pending = PendingCellEdits()
     pending.set(PendingEdit(dataRow: 0, columnIndex: 1, oldText: "alice", newText: "Zed"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
-        pending: pending, columns: columns, rows: [row("1", "alice")],
+        pending: pending, columns: columns, rows: ResultTable(rows: [row("1", "alice")]),
         rowIdentity: identity(keys: ["V1:1"]))
     else { failures += 1; print("FAIL a one-change request is built"); return }
     expect(RowUpdateSQLBuilder.title(for: request), "Apply 1 change to public.users?",
@@ -170,7 +170,7 @@ private func testHostileIdentifiersStayOneIdentifier() {
     var pending = PendingCellEdits()
     pending.set(PendingEdit(dataRow: 0, columnIndex: 1, oldText: "old", newText: "new"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
-        pending: pending, columns: columns, rows: [row("1", "old")],
+        pending: pending, columns: columns, rows: ResultTable(rows: [row("1", "old")]),
         rowIdentity: identity(keys: ["V1:1"], display: #"pub"lic.us"ers"#))
     else { failures += 1; print("FAIL a hostile-name request is built"); return }
     expect(RowUpdateSQLBuilder.statements(for: request)[0],
@@ -194,7 +194,7 @@ private func testCompoundKeyAndNulls() {
     pending.set(PendingEdit(dataRow: 0, columnIndex: 2, oldText: "hi", newText: nil))
     pending.set(PendingEdit(dataRow: 0, columnIndex: 3, oldText: nil, newText: "zed"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
-        pending: pending, columns: columns, rows: [row("7", "1", "hi", nil)],
+        pending: pending, columns: columns, rows: ResultTable(rows: [row("7", "1", "hi", nil)]),
         rowIdentity: identity(keyColumns: ["tenant", "id"], keys: ["V1:7V1:1"]))
     else { failures += 1; print("FAIL a compound-key request is built"); return }
 
@@ -226,7 +226,7 @@ private func testRequestAlignment() {
     pending.set(PendingEdit(dataRow: 1, columnIndex: 0, oldText: "bob", newText: "BOB"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
         pending: pending, columns: columns,
-        rows: [row("alice", "note-a", "1", "nick-a"), row("bob", "note-b", "2", "nick-b")],
+        rows: ResultTable(rows: [row("alice", "note-a", "1", "nick-a"), row("bob", "note-b", "2", "nick-b")]),
         rowIdentity: identity(keys: ["V1:1", "V1:2"]))
     else { failures += 1; print("FAIL an out-of-order request is built"); return }
 
@@ -257,7 +257,7 @@ private func testAnUneditedColumnOfAnEditedRowIsWrittenBackUnchanged() {
     pending.set(PendingEdit(dataRow: 1, columnIndex: 2, oldText: "bee", newText: "Bea"))
     guard let request = RowUpdateSQLBuilder.makeRequest(
         pending: pending, columns: columns,
-        rows: [row("1", "alice", "ali"), row("2", "bob", "bee")],
+        rows: ResultTable(rows: [row("1", "alice", "ali"), row("2", "bob", "bee")]),
         rowIdentity: identity(keys: ["V1:1", "V1:2"]))
     else { failures += 1; print("FAIL a mixed-column request is built"); return }
     expect(request.rows[0].newValues, ["Zed", "ali"], "row 0 keeps its own nick")
@@ -270,7 +270,7 @@ private func testRefusals() {
     let columns = [column("id", "INT4", attno: 1), column("name", "TEXT", attno: 2)]
     var pending = PendingCellEdits()
     pending.set(PendingEdit(dataRow: 0, columnIndex: 1, oldText: "alice", newText: "Zed"))
-    let rows = [row("1", "alice")]
+    let rows = ResultTable(rows: [row("1", "alice")])
 
     expectTrue(RowUpdateSQLBuilder.makeRequest(pending: PendingCellEdits(), columns: columns,
                                                rows: rows, rowIdentity: identity(keys: ["V1:1"])) == nil,
@@ -294,13 +294,13 @@ private func testRefusals() {
                "a table the core could not name builds no request")
 
     expectTrue(RowUpdateSQLBuilder.makeRequest(pending: pending, columns: columns,
-                                               rows: [row(nil, "alice")],
+                                               rows: ResultTable(rows: [row(nil, "alice")]),
                                                rowIdentity: identity(keys: ["V1:1"])) == nil,
                "a NULL key value builds no request")
 
     let missingKey = [column("name", "TEXT", attno: 2)]
     expectTrue(RowUpdateSQLBuilder.makeRequest(pending: pending, columns: missingKey,
-                                               rows: [row("alice")],
+                                               rows: ResultTable(rows: [row("alice")]),
                                                rowIdentity: identity(keys: ["V1:1"])) == nil,
                "a key column that is not in the result builds no request")
 }

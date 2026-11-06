@@ -97,7 +97,7 @@ struct StageSavedQueryResult: Encodable {
     let hasMore: Bool
     let chartViewStateJson: String?
     let columns: [ColumnDef]?
-    let rows: [[AnyCodable]]?
+    let rows: ResultTable?
     let rowIdentity: RowIdentity?
 }
 

@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -O -o /tmp/results-sort-keys-tests \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsSortKeys.swift \
   PharosTests/ResultsSortKeysTests.swift \
   PharosTests/main.swift

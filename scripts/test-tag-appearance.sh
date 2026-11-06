@@ -17,6 +17,7 @@ swiftc -o /tmp/tag-appearance-tests \
   Pharos/Core/TagPredicate.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/TagAppearanceTests.swift \
   PharosTests/main.swift
 /tmp/tag-appearance-tests

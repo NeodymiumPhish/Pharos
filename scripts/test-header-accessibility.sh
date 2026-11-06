@@ -17,6 +17,7 @@ swiftc -o /tmp/header-accessibility-tests \
   Pharos/ViewControllers/ResultsGrid/ResultsSortKeys.swift \
   Pharos/Views/AccessibilityProxyElement.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Utilities/PGTypeCategory.swift \
   Pharos/Utilities/ColumnIdentifier.swift \
   PharosTests/HeaderAccessibilityTests.swift \

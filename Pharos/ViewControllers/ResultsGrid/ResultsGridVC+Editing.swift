@@ -63,8 +63,8 @@ extension ResultsGridVC: ResultsCellEditingRouting, NSTextFieldDelegate {
     /// `PendingEdit`, and the value the review sheet's `IS NOT DISTINCT FROM`
     /// guard is built from.
     func loadedText(dataRow: Int, columnIndex: Int) -> String? {
-        guard dataRow >= 0, dataRow < rows.count, columnIndex < rows[dataRow].count else { return nil }
-        return rows[dataRow][columnIndex].stringValue
+        guard dataRow >= 0, dataRow < rows.rowCount, columnIndex >= 0 else { return nil }
+        return rows.string(dataRow, columnIndex)
     }
 
     // MARK: - Starting and ending an edit

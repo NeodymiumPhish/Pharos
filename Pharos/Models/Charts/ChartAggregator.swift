@@ -25,6 +25,9 @@ enum ChartAggregator {
 
         let seriesRef = config.mappings[.series]
         let catKind = ColumnClassifier.kind(of: catRef.index, in: result)
+        let rows = result.rows
+        // A category column past the table's last one plots no row.
+        let rowRange = catRef.index < rows.columnCount ? 0..<rows.rowCount : 0..<0
 
         // Decide numeric binning up front (needs a first pass for range + distinct).
         var numericBins: [(lo: Double, hi: Double)] = []
@@ -32,8 +35,8 @@ enum ChartAggregator {
         if catKind == .numeric {
             var vals: [Double] = []
             var distinct = Set<Double>()
-            for row in result.rows where catRef.index < row.count {
-                if let d = ValueCoercion.double(from: row[catRef.index]) { vals.append(d); distinct.insert(d) }
+            for r in rowRange {
+                if let d = ValueCoercion.double(from: rows.string(r, catRef.index)) { vals.append(d); distinct.insert(d) }
             }
             if let count = numericBinCount(config.numericBin, distinct: distinct.count, n: vals.count),
                let lo = vals.min(), let hi = vals.max(), hi > lo {
@@ -50,14 +53,13 @@ enum ChartAggregator {
         var order: [String] = []; var seen = Set<String>()
         var seriesOrder: [String] = []; var seriesSeen = Set<String>()
         var drillOf: [String: DrillKey] = [:]      // category label → drill key
-        var rawOf: [String: String] = [:]          // discrete label → raw displayString (for Other fold + anyOf)
+        var rawOf: [String: String] = [:]          // discrete label → raw cell text (for Other fold + anyOf)
         var labelIsNull: [String: Bool] = [:]
         var sawAnyValue = false; var plotted = 0
 
-        for row in result.rows {
-            guard catRef.index < row.count else { continue }
-            let rawCat = row[catRef.index]
-            let isNull = rawCat.isNull || rawCat.displayString.isEmpty
+        for r in rowRange {
+            let rawCat = rows.string(r, catRef.index)
+            let isNull = rawCat?.isEmpty ?? true
 
             // Determine the category label + its drill key.
             let label: String
@@ -65,19 +67,19 @@ enum ChartAggregator {
                 let i = binOf(d); let b = numericBins[i]
                 label = binRangeLabel(b.lo, b.hi)
                 drillOf[label] = .range(catRef, b.lo, b.hi, .numeric)
-            } else if catKind == .temporal, config.temporalBin != .none, case let s as String = rawCat.value,
+            } else if catKind == .temporal, config.temporalBin != .none, let s = rawCat,
                       let date = ValueCoercion.date(from: s) {
                 label = binLabel(date, bin: config.temporalBin)
                 if let (lo, hi) = temporalBinBounds(date, bin: config.temporalBin) {
                     drillOf[label] = .range(catRef, lo, hi, .temporal)
                 }
             } else {
-                label = rawCat.displayString
+                label = rawCat ?? ""
                 if isNull { drillOf[label] = .blank(catRef); labelIsNull[label] = true }
-                else { rawOf[label] = rawCat.displayString }   // discrete drill built at emit (anyOf)
+                else { rawOf[label] = label }   // discrete drill built at emit (anyOf)
             }
 
-            let seriesName = seriesRef.map { row[$0.index].displayString } ?? ""
+            let seriesName = seriesRef.map { rows.displayString(r, $0.index) } ?? ""
             let key = Key(series: seriesName, cat: label)
             if !seen.contains(label) { seen.insert(label); order.append(label) }
             if !seriesSeen.contains(seriesName) { seriesSeen.insert(seriesName); seriesOrder.append(seriesName) }
@@ -85,7 +87,7 @@ enum ChartAggregator {
             if isCount {
                 counts[key, default: 0] += 1; sawAnyValue = true; plotted += 1; continue
             }
-            guard let vr = valRef, vr.index < row.count, let y = ValueCoercion.double(from: row[vr.index]) else { continue }
+            guard let vr = valRef, let y = ValueCoercion.double(from: rows.string(r, vr.index)) else { continue }
             sawAnyValue = true; plotted += 1
             sums[key, default: 0] += y; counts[key, default: 0] += 1
             mins[key] = mins[key].map { Swift.min($0, y) } ?? y
@@ -170,7 +172,7 @@ enum ChartAggregator {
             out.series.append(ChartSeries(name: s, points: pts))
         }
         out.plottedRowCount = plotted
-        out.totalLoadedRowCount = result.rows.count
+        out.totalLoadedRowCount = result.rows.rowCount
         out.wasTruncated = truncated
         out.otherBucketCount = otherCount
         return out
@@ -186,11 +188,12 @@ enum ChartAggregator {
         // Optional size column (bubble radius); only read when it maps to a real column.
         let sizeRef = config.mappings[.size].flatMap { $0.index < result.columns.count ? $0 : nil }
         var pts: [ChartPoint] = []
-        for row in result.rows {
-            guard xRef.index < row.count, yRef.index < row.count,
-                  let x = ValueCoercion.double(from: row[xRef.index]),
-                  let y = ValueCoercion.double(from: row[yRef.index]) else { continue }
-            let size = sizeRef.flatMap { $0.index < row.count ? ValueCoercion.double(from: row[$0.index]) : nil }
+        let rows = result.rows
+        for r in 0..<rows.rowCount {
+            // A column past the table's last one reads as NULL: no point.
+            guard let x = ValueCoercion.double(from: rows.string(r, xRef.index)),
+                  let y = ValueCoercion.double(from: rows.string(r, yRef.index)) else { continue }
+            let size = sizeRef.flatMap { ValueCoercion.double(from: rows.string(r, $0.index)) }
             pts.append(ChartPoint(xLabel: "", xValue: x, y: y, size: size))
         }
         if pts.isEmpty { return .empty(.allNull) }
@@ -213,7 +216,7 @@ enum ChartAggregator {
             out.series = [ChartSeries(name: "", points: pts)]
         }
         out.plottedRowCount = out.series.first?.points.count ?? 0
-        out.totalLoadedRowCount = result.rows.count
+        out.totalLoadedRowCount = result.rows.rowCount
         return out
     }
 
@@ -235,14 +238,16 @@ enum ChartAggregator {
         struct Obs { var bar: GanttBar; var order: Int }
         var lanes: [String: [Obs]] = [:]
         var laneOrder: [String] = []
-        for (i, row) in result.rows.enumerated() {
-            guard maxIndex < row.count,
-                  let a = epoch(from: row[startRef.index]),
-                  let b = epoch(from: row[endRef.index]) else { continue }
-            let lane = labelRefs.map { row[$0.index].displayString }.joined(separator: ganttValueSeparator)
-            let segmentValues = segmentRefs.map { row[$0.index].displayString }
-            let laneKeys = labelRefs.map { drillKey($0, row[$0.index]) }
-            let segmentKeys = segmentRefs.map { drillKey($0, row[$0.index]) }
+        let rows = result.rows
+        // A mapped column past the table's last one plots no row.
+        let rowRange = maxIndex < rows.columnCount ? 0..<rows.rowCount : 0..<0
+        for i in rowRange {
+            guard let a = epoch(from: rows.string(i, startRef.index)),
+                  let b = epoch(from: rows.string(i, endRef.index)) else { continue }
+            let lane = labelRefs.map { rows.displayString(i, $0.index) }.joined(separator: ganttValueSeparator)
+            let segmentValues = segmentRefs.map { rows.displayString(i, $0.index) }
+            let laneKeys = labelRefs.map { drillKey($0, rows.string(i, $0.index)) }
+            let segmentKeys = segmentRefs.map { drillKey($0, rows.string(i, $0.index)) }
             let bar = GanttBar(lane: lane,
                                segment: segmentValues.joined(separator: ganttValueSeparator),
                                segmentValues: segmentValues,
@@ -294,15 +299,17 @@ enum ChartAggregator {
         out.ganttBars = bars
         out.ganttLanes = laneOrder
         out.plottedRowCount = lanes.values.reduce(0) { $0 + $1.count }
-        out.totalLoadedRowCount = result.rows.count
+        out.totalLoadedRowCount = result.rows.rowCount
         let startKind = ColumnClassifier.kind(of: startRef.index, in: result)
         out.ganttAxisKind = startKind == .temporal ? .temporal : .numeric
         return out
     }
 
-    /// The drill key for one cell: its exact value, or the blank mark.
-    private static func drillKey(_ ref: ColumnRef, _ v: AnyCodable) -> DrillKey {
-        v.isNull || v.displayString.isEmpty ? .blank(ref) : .anyOf(ref, [v.displayString])
+    /// The drill key for one cell (nil = SQL NULL): its exact value, or the
+    /// blank mark.
+    private static func drillKey(_ ref: ColumnRef, _ v: String?) -> DrillKey {
+        guard let v, !v.isEmpty else { return .blank(ref) }
+        return .anyOf(ref, [v])
     }
 
     private static func compound(_ keys: [DrillKey]) -> DrillKey? {
@@ -332,12 +339,13 @@ enum ChartAggregator {
         // Build a per-axis labeller: numeric binning (first pass for range +
         // distinct, with the low-cardinality escape) mirrors the categorical
         // path; temporal binning uses the axis's resolved TemporalBin; otherwise
-        // discrete. Returns (label, drill sub-key) for a raw cell.
-        func makeAxisLabeller(_ ref: ColumnRef, _ kind: ColumnKind, _ bin: AxisBin) -> (AnyCodable) -> (String, DrillKey) {
+        // discrete. Returns (label, drill sub-key) for a raw cell (nil = NULL).
+        let rows = result.rows
+        func makeAxisLabeller(_ ref: ColumnRef, _ kind: ColumnKind, _ bin: AxisBin) -> (String?) -> (String, DrillKey) {
             if kind == .numeric {
                 var vals: [Double] = []; var distinct = Set<Double>()
-                for row in result.rows where ref.index < row.count {
-                    if let d = ValueCoercion.double(from: row[ref.index]) { vals.append(d); distinct.insert(d) }
+                for r in 0..<rows.rowCount {
+                    if let d = ValueCoercion.double(from: rows.string(r, ref.index)) { vals.append(d); distinct.insert(d) }
                 }
                 if let count = numericBinCount(bin.numeric, distinct: distinct.count, n: vals.count),
                    let lo = vals.min(), let hi = vals.max(), hi > lo {
@@ -346,8 +354,8 @@ enum ChartAggregator {
                     let binOf: (Double) -> Int = { v in Swift.min(count - 1, Swift.max(0, Int((v - lo) / width))) }
                     return { v in
                         guard let d = ValueCoercion.double(from: v) else {
-                            if v.isNull || v.displayString.isEmpty { return ("(null)", .blank(ref)) }
-                            return (v.displayString, .anyOf(ref, [v.displayString]))
+                            guard let v, !v.isEmpty else { return ("(null)", .blank(ref)) }
+                            return (v, .anyOf(ref, [v]))
                         }
                         let b = bins[binOf(d)]
                         return (binRangeLabel(b.lo, b.hi), .range(ref, b.lo, b.hi, .numeric))
@@ -356,28 +364,29 @@ enum ChartAggregator {
                 // else: fall through to discrete handling below.
             }
             return { v in
-                if kind == .temporal, bin.temporal != .none, case let s as String = v.value, let d = ValueCoercion.date(from: s) {
+                if kind == .temporal, bin.temporal != .none, let s = v, let d = ValueCoercion.date(from: s) {
                     let label = binLabel(d, bin: bin.temporal)
                     if let (blo, bhi) = temporalBinBounds(d, bin: bin.temporal) { return (label, .range(ref, blo, bhi, .temporal)) }
                     return (label, .anyOf(ref, [label]))
                 }
-                if v.isNull || v.displayString.isEmpty { return ("(null)", .blank(ref)) }
-                return (v.displayString, .anyOf(ref, [v.displayString]))
+                guard let v, !v.isEmpty else { return ("(null)", .blank(ref)) }
+                return (v, .anyOf(ref, [v]))
             }
         }
         let xLabeller = makeAxisLabeller(xRef, xKind, config.resolvedBin(for: .x))
         let yLabeller = makeAxisLabeller(yRef, yKind, config.resolvedBin(for: .y))
 
-        for row in result.rows {
-            guard xRef.index < row.count, yRef.index < row.count else { continue }
-            let (xl, xk) = xLabeller(row[xRef.index])
-            let (yl, yk) = yLabeller(row[yRef.index])
+        // An axis column past the table's last one plots no row.
+        let rowRange = xRef.index < rows.columnCount && yRef.index < rows.columnCount ? 0..<rows.rowCount : 0..<0
+        for r in rowRange {
+            let (xl, xk) = xLabeller(rows.string(r, xRef.index))
+            let (yl, yk) = yLabeller(rows.string(r, yRef.index))
             let key = Key(x: xl, y: yl)
             if !xSeen.contains(xl) { xSeen.insert(xl); xOrder.append(xl) }
             if !ySeen.contains(yl) { ySeen.insert(yl); yOrder.append(yl) }
             drillOf[key] = .compound([xk, yk])
             if isCount { counts[key, default: 0] += 1; saw = true; continue }
-            guard let vr = valRef, vr.index < row.count, let val = ValueCoercion.double(from: row[vr.index]) else { continue }
+            guard let vr = valRef, let val = ValueCoercion.double(from: rows.string(r, vr.index)) else { continue }
             saw = true
             sums[key, default: 0] += val; counts[key, default: 0] += 1
             mins[key] = mins[key].map { Swift.min($0, val) } ?? val
@@ -416,7 +425,7 @@ enum ChartAggregator {
             out.heatmapCells.append(HeatmapCell(x: x, y: y, value: value(key), drill: drillOf[key]))
         } }
         out.plottedRowCount = out.heatmapCells.count
-        out.totalLoadedRowCount = result.rows.count
+        out.totalLoadedRowCount = result.rows.rowCount
         out.wasTruncated = truncated
         return out
     }
@@ -480,11 +489,10 @@ enum ChartAggregator {
         }
     }
 
-    private static func epoch(from v: AnyCodable) -> Double? {
-        if case let s as String = v.value {
-            if let d = ValueCoercion.date(from: s) { return d.timeIntervalSince1970 }
-            return ValueCoercion.double(from: s)   // numeric gantt axis
-        }
-        return ValueCoercion.double(from: v)
+    /// A cell's text (nil = SQL NULL) as seconds: a date, else a number.
+    private static func epoch(from v: String?) -> Double? {
+        guard let s = v else { return nil }
+        if let d = ValueCoercion.date(from: s) { return d.timeIntervalSince1970 }
+        return ValueCoercion.double(from: s)   // numeric gantt axis
     }
 }

@@ -10,8 +10,7 @@ func expect(_ cond: Bool, _ name: String) {
 // Helper: build a QueryResult where every cell is a PG-text string (as in prod).
 func makeResult(_ columns: [(String, String)], _ rows: [[String?]]) -> QueryResult {
     let cols = columns.map { ColumnDef(name: $0.0, dataType: $0.1) }
-    let anyRows = rows.map { row in row.map { AnyCodable($0 as Any?) } }
-    return QueryResult(columns: cols, rows: anyRows, rowCount: rows.count,
+    return QueryResult(columns: cols, rows: ResultTable(rows: rows), rowCount: rows.count,
                        executionTimeMs: 0, hasMore: false, historyEntryId: nil)
 }
 
@@ -194,9 +193,9 @@ func runTests() {
     // Heatmap numeric X-axis binning (per-axis): 20 distinct x values, .b10 → 10 bins.
     do {
         let cols = [ColumnDef(name: "x", dataType: "numeric"), ColumnDef(name: "y", dataType: "text")]
-        var rows: [[AnyCodable]] = []
-        for i in 0..<20 { rows.append([AnyCodable(String(i)), AnyCodable(i % 2 == 0 ? "a" : "b")]) }
-        let res = QueryResult(columns: cols, rows: rows, rowCount: 20, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
+        var rows: [[String?]] = []
+        for i in 0..<20 { rows.append([String(i), i % 2 == 0 ? "a" : "b"]) }
+        let res = QueryResult(columns: cols, rows: ResultTable(rows: rows), rowCount: 20, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
         var cfg = ChartConfig(chartType: .heatmap, aggregation: .count)
         cfg.mappings[.x] = ColumnRef(index: 0, name: "x")
         cfg.mappings[.y] = ColumnRef(index: 1, name: "y")
@@ -214,8 +213,8 @@ func runTests() {
     // Multi-series bar points carry compound(category + series) drill keys.
     do {
         let cols = [ColumnDef(name: "cat", dataType: "text"), ColumnDef(name: "val", dataType: "numeric"), ColumnDef(name: "ser", dataType: "text")]
-        let rows: [[AnyCodable]] = [[AnyCodable("a"), AnyCodable("1"), AnyCodable("s1")],
-                                    [AnyCodable("a"), AnyCodable("2"), AnyCodable("s2")]]
+        let rows = ResultTable(rows: [["a", "1", "s1"],
+                                      ["a", "2", "s2"]])
         let res = QueryResult(columns: cols, rows: rows, rowCount: 2, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
         var cfg = ChartConfig(chartType: .bar, aggregation: .sum)
         cfg.mappings[.category] = ColumnRef(index: 0, name: "cat")
@@ -232,7 +231,7 @@ func runTests() {
     do {
         func gantt(_ startType: String) -> ChartData {
             let cols = [ColumnDef(name: "lbl", dataType: "text"), ColumnDef(name: "s", dataType: startType), ColumnDef(name: "e", dataType: startType)]
-            let rows: [[AnyCodable]] = [[AnyCodable("job"), AnyCodable("1"), AnyCodable("2")]]
+            let rows = ResultTable(rows: [["job", "1", "2"]])
             let res = QueryResult(columns: cols, rows: rows, rowCount: 1, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
             var cfg = ChartConfig(chartType: .gantt)
             cfg.mappings[.label] = ColumnRef(index: 0, name: "lbl")

@@ -23,7 +23,7 @@ enum IntentResultCSV {
         CopyData(
             columnNames: result.columns.map(\.name),
             columnIndices: Array(result.columns.indices),
-            rows: result.rows.map { row in row.map { $0.isNull ? nil : $0.displayString } },
+            rows: (0..<result.rows.rowCount).map { result.rows.row($0) },
             includeHeaders: true
         )
     }

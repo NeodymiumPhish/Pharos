@@ -83,7 +83,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             columnValueKinds = columns.map { ResultValueKind(dataType: $0.dataType) }
         }
     }
-    var rows: [[AnyCodable]] = []
+    var rows = ResultTable()
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
 
@@ -382,13 +382,13 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// the formatting styles need the column's declared type, and a caller
     /// that could omit it would silently measure an unformatted cell and draw
     /// a formatted one. Out of range takes `.other`, which formats nothing.
-    func renderedText(value: AnyCodable, category: PGTypeCategory, columnIndex: Int) -> String {
+    func renderedText(value: String?, category: PGTypeCategory, columnIndex: Int) -> String {
         renderedCell(value: value, category: category, columnIndex: columnIndex).text
     }
 
     /// `renderedText` plus the ranges the cell draws dimmed. The cell reads
     /// this; the measurer reads `renderedText`. One call underneath both.
-    func renderedCell(value: AnyCodable, category: PGTypeCategory,
+    func renderedCell(value: String?, category: PGTypeCategory,
                       columnIndex: Int) -> DisplayEscape.CellText {
         let kind = columnIndex >= 0 && columnIndex < columnValueKinds.count
             ? columnValueKinds[columnIndex] : .other
@@ -524,7 +524,6 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             (cell.textField as? ResultCellLabel)?.accessibilityValueOverride = nil
 
         } else {
-            let rowData = rows[dataRowIdx]
             // Cache lookup, not a `colIndex(from:)` string parse: this runs for
             // every visible non-rownum cell on realize and on every scroll tick.
             // Identical result — `colIdToDataIndex` is built by running the same
@@ -532,9 +531,9 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             // passes a column that is in that array. Both branches of this `if`
             // are unreachable for `__rownum__`: the enclosing `else` already
             // excluded it, and it has no cache entry either way.
-            if let idx = colIdToDataIndex[colIdRaw], idx < rowData.count {
+            if let idx = colIdToDataIndex[colIdRaw], idx < rows.columnCount {
                 let category = idx < columnCategories.count ? columnCategories[idx] : .string
-                let value = rowData[idx]
+                let value = rows.string(dataRowIdx, idx)
                 styleCell(cell, value: value, category: category, columnIndex: idx)
                 // A pending edit repaints what `styleCell` just drew: the text
                 // becomes the value that WILL be written, not the one that was
@@ -796,7 +795,8 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Cell Styling
 
-    private func styleCell(_ cell: ResultCellView, value: AnyCodable,
+    /// `value` is the cell's text, nil for a SQL NULL.
+    private func styleCell(_ cell: ResultCellView, value: String?,
                            category: PGTypeCategory, columnIndex: Int) {
         guard let textField = cell.textField else { return }
         let shown = renderedCell(value: value, category: category, columnIndex: columnIndex)
@@ -806,7 +806,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // alignment of the column it last served. Font and alignment go
         // BEFORE the text: a marked cell copies both into its attributed form.
         textField.alignment = category == .numeric ? .right : .left
-        textField.font = value.isNull ? nullFont : regularFont
+        textField.font = value == nil ? nullFont : regularFont
         cell.setDisplayedText(shown.text, dimmedRanges: shown.dimmedRanges)
 
         // A mark draws as `·` or `→`, which VoiceOver would read as "middle
@@ -815,7 +815,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         (textField as? ResultCellLabel)?.accessibilityValueOverride =
             ResultCellText.accessibilityText(shown)
 
-        if value.isNull {
+        guard let value else {
             cell.normalTextColor = nullTextColor
             return
         }
@@ -823,7 +823,7 @@ class ResultsDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         switch category {
         case .numeric: color = .systemBlue
         case .boolean:
-            let low = value.displayString.lowercased()
+            let low = value.lowercased()
             color = (low == "t" || low == "true") ? .systemGreen
                   : (low == "f" || low == "false") ? .systemRed : .labelColor
         case .temporal: color = .systemPurple

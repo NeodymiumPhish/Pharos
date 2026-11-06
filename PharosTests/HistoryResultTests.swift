@@ -43,11 +43,11 @@ private func makeColumns() -> [ColumnDef] {
     ]
 }
 
-private func makeRows() -> [[AnyCodable]] {
-    [
-        [AnyCodable("1"), AnyCodable("ada@example.com")],
-        [AnyCodable("2"), AnyCodable("grace@example.com")],
-    ]
+private func makeRows() -> ResultTable {
+    ResultTable(rows: [
+        ["1", "ada@example.com"],
+        ["2", "grace@example.com"],
+    ])
 }
 
 private func makeRowIdentity() -> RowIdentity {
@@ -96,7 +96,7 @@ func runTests() {
 
     expectEqual(result1.columns.map(\.name), ["id", "email"], "column names survive")
     expectEqual(result1.columns.map(\.relationOid), [16543, 16543], "column relationOid survives")
-    expectEqual(result1.rows.map { $0.map(\.stringValue) }, [["1", "ada@example.com"], ["2", "grace@example.com"]],
+    expectEqual(result1.rows.allRows, [["1", "ada@example.com"], ["2", "grace@example.com"]],
                 "row values survive")
 
     // MARK: 3 — rowCount equals rows.count.
@@ -144,7 +144,7 @@ func runTests() {
        ]),
        let decoded = try? JSONDecoder().decode(QueryHistoryResultData.self, from: back) {
         expectEqual(decoded.columns.map(\.dataType), ["int4", "text"], "staged columns decode back")
-        expectEqual(decoded.rows.map { $0.map(\.stringValue) }, [["1", "ada@example.com"], ["2", "grace@example.com"]],
+        expectEqual(decoded.rows.allRows, [["1", "ada@example.com"], ["2", "grace@example.com"]],
                     "staged rows decode back")
         expectEqual(decoded.rowIdentity?.candidates.count, 2, "staged row identity decodes back")
     } else {

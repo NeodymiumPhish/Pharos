@@ -19,10 +19,10 @@ private let columns = [
     ColumnDef(name: "id", dataType: "int4", relationOid: 16543, relationAttno: 1),
     ColumnDef(name: "note", dataType: "text"),
 ]
-private let rows: [[AnyCodable]] = [
-    [AnyCodable("1"), AnyCodable("it's \"quoted\"\nand on two lines")],
-    [AnyCodable("2"), AnyCodable(nil)],
-]
+private let rows = ResultTable(rows: [
+    ["1", "it's \"quoted\"\nand on two lines"],
+    ["2", nil],
+])
 private let identity = RowIdentity(tableKey: "16543", tableDisplay: "public.t", tableKeys: ["16543"],
                                    candidates: [KeySet(kind: "pk", keyColumns: ["id"], keys: ["1", "2"])])
 
@@ -86,7 +86,7 @@ func runTests() {
             let result = QueryResult.fromSavedSession(data, hasMore: m.hasMore, executionTimeMs: 7)
             expect(result.columns.map(\.name) == ["id", "note"] && result.columns[0].relationOid == 16543,
                    "columns round-trip")
-            expect(result.rows.map { $0.map(\.stringValue) } == rows.map { $0.map(\.stringValue) },
+            expect(result.rows == rows,
                    "rows round-trip, quotes, newlines and nulls included")
             expect(result.rowIdentity?.candidates.first?.keys == ["1", "2"], "the row identity round-trips")
             expect(result.hasMore, "hasMore comes back")

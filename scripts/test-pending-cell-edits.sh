@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/pending-cell-edits-tests \
   Pharos/Models/PendingCellEdits.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/PendingCellEditsTests.swift \
   PharosTests/main.swift
 /tmp/pending-cell-edits-tests

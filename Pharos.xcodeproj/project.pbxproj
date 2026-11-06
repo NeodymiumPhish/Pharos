@@ -92,6 +92,7 @@
 		34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080E74E651B82BE21F196DDC /* ImportDataSheet.swift */; };
 		34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE224A37E3FEC0F67F65D19 /* Settings.swift */; };
 		3528B524F776D3A6392F2ACC /* ColumnIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13897D85C05525947FD11603 /* ColumnIdentifier.swift */; };
+		3654B63A3BC5A6994340B5D2 /* ResultTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D73BFD04250C45EC896C32E0 /* ResultTable.swift */; };
 		36F4B911A65A7A4F251D6E95 /* ThemeApplier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8F6493070677B9D780F62A /* ThemeApplier.swift */; };
 		37032AE66A9B2B0D4E5F3E9F /* ConnectionURLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 282A36163CC5BDB9DCB7C6BC /* ConnectionURLParser.swift */; };
 		37224592625DAA0B20A229A7 /* PharosCore+RowEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A9A7AC2E63AF19AD967879 /* PharosCore+RowEdit.swift */; };
@@ -812,6 +813,7 @@
 		D4776C733D6998553124829E /* ManagerToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagerToolbarController.swift; sourceTree = "<group>"; };
 		D662512D7219078869005EED /* ResultsDataSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsDataSource.swift; sourceTree = "<group>"; };
 		D712C9854028F854DE9E6E46 /* ResultCellText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultCellText.swift; sourceTree = "<group>"; };
+		D73BFD04250C45EC896C32E0 /* ResultTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultTable.swift; sourceTree = "<group>"; };
 		D8007F48D05B3FAE7D2C3E56 /* SchemaListFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaListFilter.swift; sourceTree = "<group>"; };
 		D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockMenu.swift"; sourceTree = "<group>"; };
 		D8ECD595639457E93B8C5FA7 /* FilterableHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterableHeaderView.swift; sourceTree = "<group>"; };
@@ -1107,6 +1109,7 @@
 				0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */,
 				233C6A90A27F4B31ABD3A76B /* QueryVariable.swift */,
 				B3CD268ABF6FA13DB82F8E14 /* RecentFile.swift */,
+				D73BFD04250C45EC896C32E0 /* ResultTable.swift */,
 				5B90FD4F0EF957A405004E20 /* RowEdit.swift */,
 				74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */,
 				F443CAC6284678541D0523EA /* Schema.swift */,
@@ -1875,6 +1878,7 @@
 				FB448EB1A7763038E94ADAC5 /* ResultCellText.swift in Sources */,
 				EDFB862435D437381FC0E7D5 /* ResultCellView.swift in Sources */,
 				6BA96F1C55425E22450B0287 /* ResultLoadState.swift in Sources */,
+				3654B63A3BC5A6994340B5D2 /* ResultTable.swift in Sources */,
 				E4DA12266E68AD108BF10535 /* ResultValueFormatter.swift in Sources */,
 				8AB8139F13F0723A04529C4B /* ResultsCellSelection.swift in Sources */,
 				D5288C4F09BC95F63D22DD83 /* ResultsColumnFilterController.swift in Sources */,

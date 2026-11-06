@@ -116,19 +116,24 @@ enum TagRuleMatcher {
         return index
     }
 
-    /// Matching tags by index into `rows`, strongest first. A row with no match
-    /// is absent from the map — every downstream reader treats "absent" as
+    /// Matching tags for the rows in `range` (every row when nil), strongest
+    /// first, keyed by the row's index FROM `range.lowerBound`: a page
+    /// matched alone goes into a whole map through `appendingPage`. A row
+    /// with no match is absent from the map — every downstream reader treats "absent" as
     /// untagged, so an empty array would be a second spelling of the same fact.
     ///
     /// - Parameters:
     ///   - columns: the result's columns; only `dataType` is read, for the
     ///     family. Column NAMES take no part in matching.
     ///   - rows: the result's values as text. Every value crosses the FFI as a
-    ///     string, so there is nothing else to compare.
+    ///     string, so there is nothing else to compare. A column past the
+    ///     table's last one reads as NULL.
+    ///   - range: the rows to match; nil for all of them.
     ///   - index: from `buildIndex`.
-    static func match(columns: [ColumnDef], rows: [[String?]], index: Index)
+    static func match(columns: [ColumnDef], rows: ResultTable, range: Range<Int>? = nil, index: Index)
         -> [Int: [TagRowMatch]] {
         guard !index.isEmpty else { return [:] }
+        let range = range ?? 0..<rows.rowCount
 
         // One classification for the whole result. nil means "no condition
         // could ever answer this column", and that cell is never normalized —
@@ -153,10 +158,9 @@ enum TagRuleMatcher {
         // Without a pattern only an exact hit can use a key, so a document keeps
         // those alone. Its other values would otherwise stay in memory for the
         // whole row walk.
-        let jsonKeys: [[[TagValueKey]]] = jsonColumns.isEmpty ? [] : rows.map { row in
+        let jsonKeys: [[[TagValueKey]]] = jsonColumns.isEmpty ? [] : range.map { row in
             jsonColumns.map { column in
-                guard column < row.count else { return [] }
-                let keys = TagValueNormalizer.jsonLeafKeys(text: row[column], families: wanted)
+                let keys = TagValueNormalizer.jsonLeafKeys(text: rows.string(row, column), families: wanted)
                 return expanded ? keys : keys.filter { index.slots[$0] != nil }
             }
         }
@@ -164,11 +168,12 @@ enum TagRuleMatcher {
         var cellKeys: [[TagValueKey?]] = []
         var overlay: [TagValueKey: [Index.Slot]] = [:]
         if expanded {
-            (cellKeys, overlay) = expand(families: families, rows: rows, jsonKeys: jsonKeys, index: index)
+            (cellKeys, overlay) = expand(families: families, rows: rows, range: range, jsonKeys: jsonKeys,
+                                         index: index)
         }
 
         var out: [Int: [TagRowMatch]] = [:]
-        for (rowIndex, row) in rows.enumerated() {
+        for (rowIndex, row) in range.enumerated() {
             // Per row: which slots of which tuples were satisfied, which result
             // columns hit, and which tuples each tag heard from.
             var satisfied: [Int: Set<Int>] = [:]
@@ -194,12 +199,11 @@ enum TagRuleMatcher {
                 let key: TagValueKey?
                 if expanded {
                     // `cellKeys[rowIndex]` is always `families.count` wide, so
-                    // a short row is already handled — `expand` left its
-                    // missing cells nil.
+                    // a column past the table's last one is already handled —
+                    // `expand` left its cells nil.
                     key = cellKeys[rowIndex][column]
                 } else {
-                    guard column < row.count else { continue }
-                    key = TagValueNormalizer.key(text: row[column], family: family)
+                    key = TagValueNormalizer.key(text: rows.string(row, column), family: family)
                 }
                 guard let key else { continue }
                 probe(key, column: column)
@@ -236,15 +240,16 @@ enum TagRuleMatcher {
     /// row thresholds do not protect a short result of large documents.
     ///
     /// Stops counting at the limit, so its own cost has a small bound.
-    static func holdsHeavyJSON(columns: [ColumnDef], rows: [[String?]]) -> Bool {
+    /// `range` is the rows to look at; nil for all of them.
+    static func holdsHeavyJSON(columns: [ColumnDef], rows: ResultTable, range: Range<Int>? = nil) -> Bool {
         let jsonColumns = columns.indices.filter {
             TagValueNormalizer.isJSONFamily(TagValueNormalizer.family(forDataType: columns[$0].dataType))
         }
         guard !jsonColumns.isEmpty else { return false }
         var bytes = 0
-        for row in rows {
-            for column in jsonColumns where column < row.count {
-                bytes += row[column]?.utf8.count ?? 0
+        for row in range ?? 0..<rows.rowCount {
+            for column in jsonColumns {
+                bytes += rows.utf8Count(row, column)
             }
             if bytes > heavyJSONBytes { return true }
         }
@@ -282,16 +287,16 @@ enum TagRuleMatcher {
     ///
     /// Normalizing each distinct text once instead of each cell is the second
     /// saving: the cache this builds is what the row loop reads.
-    private static func expand(families: [String?], rows: [[String?]], jsonKeys: [[[TagValueKey]]],
-                               index: Index)
+    private static func expand(families: [String?], rows: ResultTable, range: Range<Int>,
+                               jsonKeys: [[[TagValueKey]]], index: Index)
         -> (cellKeys: [[TagValueKey?]], overlay: [TagValueKey: [Index.Slot]]) {
-        var cellKeys = [[TagValueKey?]](repeating: [], count: rows.count)
+        var cellKeys = [[TagValueKey?]](repeating: [], count: range.count)
         var distinct = Set<TagValueKey>()
-        for (rowIndex, row) in rows.enumerated() {
+        for (rowIndex, row) in range.enumerated() {
             var keys = [TagValueKey?](repeating: nil, count: families.count)
             for (column, family) in families.enumerated() {
-                guard let family, column < row.count,
-                      let key = TagValueNormalizer.key(text: row[column], family: family)
+                guard let family,
+                      let key = TagValueNormalizer.key(text: rows.string(row, column), family: family)
                 else { continue }
                 keys[column] = key
                 distinct.insert(key)
@@ -346,7 +351,7 @@ enum TagRuleMatcher {
     ///
     /// Deliberately the REAL matcher rather than a cheaper estimate — a count
     /// that disagreed with what saves would be worse than no count.
-    static func matchCounts(tag: Tag, columns: [ColumnDef], rows: [[String?]])
+    static func matchCounts(tag: Tag, columns: [ColumnDef], rows: ResultTable)
         -> (solid: Int, partial: Int) {
         let matches = match(columns: columns, rows: rows, index: buildIndex([tag]))
         var solid = 0

@@ -3,7 +3,7 @@ import AppKit
 // MARK: - ResultsFindControllerDelegate
 
 extension ResultsGridVC: ResultsFindControllerDelegate {
-    var findRows: [[AnyCodable]] { rows }
+    var findRows: ResultTable { rows }
     var findColumns: [ColumnDef] { columns }
     var findUnfilteredDisplayRows: [Int] { columnFilteredDisplayRows }
 
@@ -85,7 +85,7 @@ extension ResultsGridVC: ResultsDataSourceDelegate {
 // MARK: - ResultsSortControllerDelegate
 
 extension ResultsGridVC: ResultsSortControllerDelegate {
-    var sortableRows: [[AnyCodable]] { rows }
+    var sortableRows: ResultTable { rows }
     var sortableColumnCategories: [PGTypeCategory] { columnCategories }
 
     func sortControllerDidSort(unfilteredDisplayRows newUnfiltered: [Int], isSorted: Bool) {
@@ -110,7 +110,7 @@ extension ResultsGridVC: ResultsCopyExportDelegate {
 // MARK: - ResultsColumnFilterControllerDelegate
 
 extension ResultsGridVC: ResultsColumnFilterControllerDelegate {
-    var filterableRows: [[AnyCodable]] { rows }
+    var filterableRows: ResultTable { rows }
     var filterableColumnCategories: [PGTypeCategory] { columnCategories }
 }
 
@@ -175,7 +175,7 @@ extension ResultsGridVC: FilterableHeaderViewDelegate {
             hasBlanks: distinct.hasBlanks,
             referenceSize: referenceSize,
             counts: distinct.counts,
-            loadedRowCount: rows.count,
+            loadedRowCount: rows.rowCount,
             hasMore: hasMore,
             showInvisibleCharacters: dataSource.showInvisibleCharacters
         )

@@ -20,7 +20,7 @@ private func ganttData() -> (ChartData, ChartConfig) {
     ]
     for i in 0..<20 { rows.append(["192.0.2.\(i)", "8080", "http-alt", "banner \(i)", "2024-01-01 00:00:00+00", "2024-01-01 00:00:00+00"]) }
     let res = QueryResult(columns: cols.map { ColumnDef(name: $0.0, dataType: $0.1) },
-                          rows: rows.map { $0.map { AnyCodable($0 as Any?) } }, rowCount: rows.count,
+                          rows: ResultTable(rows: rows), rowCount: rows.count,
                           executionTimeMs: 0, hasMore: false, historyEntryId: nil)
     var cfg = ChartConfig(chartType: .gantt)
     cfg.setColumns([ColumnRef(index: 0, name: "ip"), ColumnRef(index: 1, name: "port")], for: .label)

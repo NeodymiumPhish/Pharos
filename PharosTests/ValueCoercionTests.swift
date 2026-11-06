@@ -16,10 +16,11 @@ func runTests() {
     expect(ValueCoercion.double(from: "not a number") == nil, "non-numeric → nil")
     expect(ValueCoercion.double(from: "") == nil, "empty → nil")
 
-    // From AnyCodable (value is a String, or already a number via the memberwise init).
-    expect(ValueCoercion.double(from: AnyCodable("42")) == 42, "AnyCodable string")
-    expect(ValueCoercion.double(from: AnyCodable(3.14)) == 3.14, "AnyCodable double")
-    expect(ValueCoercion.double(from: AnyCodable(nil)) == nil, "AnyCodable null → nil")
+    // From a result cell (text, or nil for a SQL NULL).
+    expect(ValueCoercion.double(from: "42") == 42, "cell string")
+    expect(ValueCoercion.double(from: "3.14") == 3.14, "cell decimal string")
+    let nullCell: String? = nil
+    expect(ValueCoercion.double(from: nullCell) == nil, "cell null → nil")
 
     // Booleans: PG text is t/f.
     expect(ValueCoercion.bool(from: "t") == true, "t → true")
