@@ -105,8 +105,15 @@ pub extern "C" fn pharos_extract_table_names(sql: *const c_char) -> *mut c_char 
 
 /// Stage one result of a Session save. `json` is JSON-encoded
 /// StageSavedQueryResult. Returns JSON StagedSavedQueryResult.
+///
+/// `block` / `block_len`: the rows as a PRB1 block (borrowed; the caller keeps
+/// it), in place of the JSON's `rows`. NULL keeps the rows in the JSON.
 #[no_mangle]
-pub extern "C" fn pharos_stage_saved_query_result(json: *const c_char) -> *mut c_char {
+pub extern "C" fn pharos_stage_saved_query_result(
+    json: *const c_char,
+    block: *const u8,
+    block_len: usize,
+) -> *mut c_char {
     ffi_sync!({
         let state = app_state();
         let rt = runtime();
@@ -115,7 +122,10 @@ pub extern "C" fn pharos_stage_saved_query_result(json: *const c_char) -> *mut c
             Ok(r) => r,
             Err(e) => return to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         };
-        match rt.block_on(crate::commands::stage_saved_query_result(state, row)) {
+        // SAFETY: the caller hands a block of `block_len` bytes that lives for
+        // this call.
+        let block = (!block.is_null()).then(|| unsafe { std::slice::from_raw_parts(block, block_len) });
+        match rt.block_on(crate::commands::stage_saved_query_result(state, row, block)) {
             Ok(staged) => to_json_c_string(&staged),
             Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }

@@ -110,6 +110,23 @@ func runTests() {
                "the second save holds the new result and the kept one")
         expect(again.savedQuery.resultCount == 2, "the count follows the new snapshot")
 
+        // Rows sent as their block (the app's path) come back cell for cell,
+        // a "/" included (the core writes it unescaped).
+        let slashRows = ResultTable(rows: [["a/b", nil], ["c\\d", "é"]])
+        let blockRow = stage(created.id, "snap4", run: "runE", priority: 0, kind: .rows)
+        let viaBlock = StageSavedQueryResult(
+            savedQueryId: blockRow.savedQueryId, snapshotId: blockRow.snapshotId, runId: blockRow.runId,
+            cardId: blockRow.cardId, priority: 0, kind: .rows, sql: blockRow.sql, rawSql: blockRow.rawSql,
+            schemaName: blockRow.schemaName, executedAt: blockRow.executedAt, executionTimeMs: 7,
+            rowsAffected: nil, rowCount: 2, hasMore: false, chartViewStateJson: nil,
+            columns: [ColumnDef(name: "a", dataType: "text"), ColumnDef(name: "b", dataType: "text")],
+            rows: nil, rowIdentity: nil)
+        _ = try PharosCore.stageSavedQueryResult(viaBlock, rows: slashRows)
+        _ = try PharosCore.commitSavedQuerySnapshot(commit(created.id, "snap4"))
+        let blockMeta = try PharosCore.loadSavedQueryResults(savedQueryId: created.id).first { $0.runId == "runE" }
+        let blockBack = try blockMeta.flatMap { try PharosCore.getSavedQueryResult(id: $0.id) }
+        expect(blockBack?.rows == slashRows, "rows staged as a block come back cell for cell")
+
         // Deleting the Session deletes its results.
         _ = try PharosCore.deleteSavedQuery(id: created.id)
         expect(try PharosCore.loadSavedQueryResults(savedQueryId: created.id).isEmpty, "delete removes the results")

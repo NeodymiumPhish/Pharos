@@ -592,8 +592,11 @@ void pharos_apply_row_updates(const char *connection_id,
 /**
  * Stage one result of a Session save. `json` is JSON-encoded
  * StageSavedQueryResult. Returns JSON StagedSavedQueryResult.
+ *
+ * `block` / `block_len`: the rows as a PRB1 block (borrowed; the caller keeps
+ * it), in place of the JSON's `rows`. NULL keeps the rows in the JSON.
  */
- char *pharos_stage_saved_query_result(const char *json);
+ char *pharos_stage_saved_query_result(const char *json, const uint8_t *block, uintptr_t block_len);
 
 /**
  * Make a staged snapshot the Session's own. `json` is JSON-encoded

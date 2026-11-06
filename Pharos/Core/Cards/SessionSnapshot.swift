@@ -10,10 +10,14 @@ import Foundation
 /// again since the save has a new run id, so an old result never lands on it.
 enum SessionSnapshot {
 
-    /// A card whose result is in memory at save time.
+    /// A card whose result the tab holds at save time.
     struct Held: Equatable {
         let cardId: String
         let timestamp: Date
+        /// The rows are stored, not in memory (a reopened workspace or
+        /// Session that has not shown this card). Kept as they are when this
+        /// Session already stores the run; otherwise read and staged.
+        var rowsStoredOnly: Bool = false
     }
 
     /// A result in memory that the save writes.
@@ -54,7 +58,14 @@ enum SessionSnapshot {
         }
         var plan = SavePlan()
         for (i, item) in inMemory.enumerated() {
-            plan.stage.append(SaveItem(cardId: item.card.id, runId: item.card.lastRun!.runId, priority: i))
+            let runId = item.card.lastRun!.runId
+            // Rows this Session already stores stay where they are, at the
+            // priority of the card's place (the displayed card keeps 0).
+            if item.held.rowsStoredOnly && storedRunIds.contains(runId) {
+                plan.keep.append(KeepSavedQueryResult(runId: runId, priority: i))
+            } else {
+                plan.stage.append(SaveItem(cardId: item.card.id, runId: runId, priority: i))
+            }
         }
         for (i, runId) in onDisk.enumerated() {
             plan.keep.append(KeepSavedQueryResult(runId: runId, priority: inMemory.count + i))

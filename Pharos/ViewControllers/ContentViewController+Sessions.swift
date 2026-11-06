@@ -29,7 +29,9 @@ extension ContentViewController {
         guard let tab = session.tabs.first(where: { $0.id == tabId }) else { completion(false); return }
         let document = tab.document
         let stored = CardPersistence.encode(document, mode: .latest)
-        let held = session.resultStore[tabId].results.filter(\.hasPayload)
+        // Stored results that were never shown count too: their rows go into
+        // the Session (kept, or read on the write queue and staged).
+        let held = session.resultStore[tabId].results.filter(\.hasResult)
         let connectionId = tab.connectionId
         let schemaName = tab.schemaName
         let tabName = tab.name
@@ -75,16 +77,26 @@ extension ContentViewController {
             .map(\.runId))
         let plan = SessionSnapshot.plan(
             document: document,
-            held: held.map { SessionSnapshot.Held(cardId: $0.id, timestamp: $0.timestamp) },
+            held: held.map { SessionSnapshot.Held(cardId: $0.id, timestamp: $0.timestamp, rowsStoredOnly: $0.isLoadable) },
             storedRunIds: storedRunIds)
         let byCard = Dictionary(held.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let snapshotId = UUID().uuidString
         do {
             for item in plan.stage {
-                guard let result = byCard[item.cardId], let run = document.card(item.cardId)?.lastRun else { continue }
+                guard var result = byCard[item.cardId], let run = document.card(item.cardId)?.lastRun else { continue }
+                if result.isLoadable {
+                    // Stored elsewhere (a workspace's history row, another
+                    // Session): read the rows here, off the main thread.
+                    guard let rows = loadStoredRows(result) else {
+                        Log.query.error("Session save: the stored rows of a card could not be read; it is saved without them")
+                        continue
+                    }
+                    result.queryResult = rows
+                }
+                // The rows go as their block; the core writes the stored JSON.
                 _ = try PharosCore.stageSavedQueryResult(stageRow(
                     result, run: run, priority: item.priority, savedQueryId: savedQueryId,
-                    snapshotId: snapshotId, schemaName: schemaName))
+                    snapshotId: snapshotId, schemaName: schemaName), rows: result.queryResult?.rows)
             }
             return try PharosCore.commitSavedQuerySnapshot(CommitSavedQuerySnapshot(
                 savedQueryId: savedQueryId, snapshotId: snapshotId, sql: text, cardsJson: json,
@@ -92,6 +104,22 @@ extension ContentViewController {
         } catch {
             try? PharosCore.abortSavedQuerySnapshot(savedQueryId: savedQueryId, snapshotId: snapshotId)
             throw error
+        }
+    }
+
+    /// A stored result's rows, read synchronously (the write queue).
+    private static func loadStoredRows(_ result: CardResult) -> QueryResult? {
+        switch result.storedSource {
+        case .history(let id):
+            return (try? PharosCore.getQueryHistoryResult(id: id)).map {
+                QueryResult.fromHistory($0, historyEntryId: id, executionTimeMs: result.executionTimeMs)
+            }
+        case .session(let resultId, let hasMore):
+            return (try? PharosCore.getSavedQueryResult(id: resultId)).flatMap { $0 }.map {
+                QueryResult.fromSavedSession($0, hasMore: hasMore, executionTimeMs: result.executionTimeMs)
+            }
+        case nil:
+            return nil
         }
     }
 
@@ -106,7 +134,7 @@ extension ContentViewController {
             executionTimeMs: result.executionTimeMs, rowsAffected: result.executeResult?.rowsAffected,
             rowCount: rows?.rows.rowCount, hasMore: rows?.hasMore ?? false,
             chartViewStateJson: chartStateJSON(of: result),
-            columns: rows?.columns, rows: rows?.rows, rowIdentity: rows?.rowIdentity)
+            columns: rows?.columns, rows: nil, rowIdentity: rows?.rowIdentity)
     }
 
     /// The chart and view mode, as the history row stores them. Nil for a
@@ -170,22 +198,17 @@ extension ContentViewController {
     /// the run itself, or one with pending cell edits, stays.
     func restoreSessionResults(tabId: String, savedQueryId: String) {
         Task.detached(priority: .userInitiated) { [weak self] in
+            // The metas only: each result points at its stored rows, which
+            // load when its card is shown (`loadStoredRows`).
             guard let metas = try? PharosCore.loadSavedQueryResults(savedQueryId: savedQueryId),
                   !metas.isEmpty else { return }
-            // One FFI round trip per result: each can be large.
-            var rows: [String: QueryHistoryResultData] = [:]
-            for meta in metas where meta.kind == .rows && meta.hasRows {
-                if let data = try? PharosCore.getSavedQueryResult(id: meta.id) { rows[meta.id] = data }
-            }
-            let loaded = rows
             await MainActor.run { [weak self] in
-                self?.applySessionResults(metas: metas, rows: loaded, tabId: tabId)
+                self?.applySessionResults(metas: metas, tabId: tabId)
             }
         }
     }
 
-    private func applySessionResults(metas: [SavedQueryResultMeta], rows: [String: QueryHistoryResultData],
-                                     tabId: String) {
+    private func applySessionResults(metas: [SavedQueryResultMeta], tabId: String) {
         guard let tab = session.tabs.first(where: { $0.id == tabId }) else { return }
         let match = SessionSnapshot.match(document: tab.document, metas: metas)
         var entry = session.resultStore[tabId]
@@ -195,7 +218,7 @@ extension ContentViewController {
             guard let meta = match.results[card.id], let run = card.lastRun else { continue }
             let held = entry.result(forCard: card.id)
             if let held, held.runId == run.runId || !held.pendingEdits.isEmpty { continue }
-            guard var result = Self.sessionResult(meta, rows: rows[meta.id], card: card.id, run: run) else {
+            guard var result = Self.sessionResult(meta, card: card.id, run: run) else {
                 if held == nil { removed.insert(card.id) }
                 continue
             }
@@ -232,9 +255,9 @@ extension ContentViewController {
         applySeededResultState(forTabId: tabId)
     }
 
-    /// A card's result from its stored copy. Nil when the rows should be
-    /// there and are not.
-    private static func sessionResult(_ meta: SavedQueryResultMeta, rows: QueryHistoryResultData?, card: String,
+    /// A card's result from its stored copy, its rows still stored. Nil when
+    /// the rows should be there and are not.
+    private static func sessionResult(_ meta: SavedQueryResultMeta, card: String,
                                       run: CardRunRecord) -> CardResult? {
         let executedAt = ISO8601DateFormatter().date(from: meta.executedAt) ?? run.finishedAt
         var result = CardResult(cardId: card, runId: run.runId, sql: meta.sql, rawSQL: meta.rawSql ?? meta.sql,
@@ -248,9 +271,9 @@ extension ContentViewController {
         result.hasBeenViewed = true
         switch meta.kind {
         case .rows:
-            guard let rows else { return nil }
-            result.queryResult = .fromSavedSession(rows, hasMore: meta.hasMore, executionTimeMs: ms)
-            result.totalRowCountHint = meta.hasMore ? nil : rows.rows.rowCount
+            guard meta.hasRows else { return nil }
+            result.storedSource = .session(resultId: meta.id, hasMore: meta.hasMore)
+            result.totalRowCountHint = meta.hasMore ? nil : meta.rowCount
         case .affected:
             result.executeResult = ExecuteResult(rowsAffected: UInt64(max(0, meta.rowsAffected ?? 0)),
                                                  executionTimeMs: ms, historyEntryId: nil)

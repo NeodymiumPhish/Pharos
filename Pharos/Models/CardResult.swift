@@ -69,6 +69,18 @@ struct CardResult: Identifiable {
     /// Rows or an affected count are in memory.
     var hasPayload: Bool { queryResult != nil || executeResult != nil }
 
+    /// Where this result's rows are stored when they are not in memory yet: a
+    /// reopened workspace or Session puts them on its cards without reading
+    /// them, and the rows load when the card is shown. Nil for a result that
+    /// came from a run (its rows were in memory from the start).
+    var storedSource: StoredResultSource?
+
+    /// The rows are stored and not read yet: showing the card reads them.
+    var isLoadable: Bool { !hasPayload && storedSource != nil }
+
+    /// The card has a result to show: in memory, or stored and loadable.
+    var hasResult: Bool { hasPayload || storedSource != nil }
+
     init(cardId: String, runId: String = UUID().uuidString, sql: String, rawSQL: String, timestamp: Date = Date()) {
         self.id = cardId
         self.runId = runId
@@ -76,4 +88,13 @@ struct CardResult: Identifiable {
         self.rawSQL = rawSQL
         self.timestamp = timestamp
     }
+}
+
+/// Where a result's rows are stored.
+enum StoredResultSource: Equatable {
+    /// A `query_history` row (a workspace result).
+    case history(id: String)
+    /// A saved Session result (`saved_query_results`). `hasMore` is the saved
+    /// result's, which `QueryResult.fromSavedSession` needs.
+    case session(resultId: String, hasMore: Bool)
 }
