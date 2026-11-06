@@ -361,16 +361,36 @@ class ResultsGridVC: NSViewController {
             // `AppStateManager` uses for the same reason.
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.recomputeTagMap()
-                if self.columnFilterController.activeFilters[TagFunnel.columnId] != nil
-                    || self.forceShowTags {
-                    // A tag change can change which rows are VISIBLE.
-                    self.recomputeDisplayRows()
-                } else {
-                    self.reloadKeepingEditor { self.tableView.reloadData() }
-                    self.updateStatusBarText()
+                // Every grid hears every tag change. One out of sight copies
+                // and matches nothing now; it catches up when its window
+                // comes back into sight.
+                guard !WindowSight.isOutOfSight(self.view.window) else {
+                    self.tagMapStale = true
+                    return
                 }
+                self.applyTagStoreChange()
             }
+        }
+        sightObservers = WindowSight.observeComingIntoSight(of: { [weak self] in self?.view.window }) { [weak self] in
+            guard let self, self.tagMapStale else { return }
+            self.applyTagStoreChange()
+        }
+    }
+
+    /// Set when the tag store changed while this window was out of sight.
+    private var tagMapStale = false
+    private var sightObservers: [NSObjectProtocol] = []
+
+    /// Match the shown rows against the current tags and redraw.
+    private func applyTagStoreChange() {
+        tagMapStale = false
+        recomputeTagMap()
+        if columnFilterController.activeFilters[TagFunnel.columnId] != nil || forceShowTags {
+            // A tag change can change which rows are VISIBLE.
+            recomputeDisplayRows()
+        } else {
+            reloadKeepingEditor { tableView.reloadData() }
+            updateStatusBarText()
         }
     }
 
@@ -417,7 +437,7 @@ class ResultsGridVC: NSViewController {
         if let accessibilityDisplayObserver {
             NotificationCenter.default.removeObserver(accessibilityDisplayObserver)
         }
-        for observer in appearanceObservers {
+        for observer in appearanceObservers + sightObservers {
             NotificationCenter.default.removeObserver(observer)
         }
         accentObservation?.invalidate()

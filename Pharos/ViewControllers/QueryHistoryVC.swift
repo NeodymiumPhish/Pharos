@@ -323,6 +323,13 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
             self, selector: #selector(historyDidChange),
             name: .workspaceHistoryDidChange, object: nil
         )
+        sightObservers = WindowSight.observeComingIntoSight(of: { [weak self] in self?.view.window }) { [weak self] in
+            self?.requeryIfNeeded()
+        }
+    }
+
+    deinit {
+        for observer in sightObservers { NotificationCenter.default.removeObserver(observer) }
     }
 
     /// Two `NSScrollView`s as split-view arranged subviews have no intrinsic
@@ -343,7 +350,31 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         }
     }
 
+    /// Every query run posts these, and every window has this list, so each
+    /// run cost one SQLite read + decode per open tab. A window out of sight
+    /// marks itself and reads once when it comes back (`requeryIfNeeded`).
     @objc private func historyDidChange() {
+        requeryWhenInSight()
+    }
+
+    /// Set when a change arrived while this window was out of sight. Starts
+    /// set: nothing has been read yet, and the sidebar's first `clearFilter`
+    /// (from `select` in its `viewDidLoad`) is what loads a window that has
+    /// no connection.
+    private var needsRequery = true
+    private var sightObservers: [NSObjectProtocol] = []
+
+    private func requeryWhenInSight() {
+        if WindowSight.isOutOfSight(view.window) {
+            needsRequery = true
+        } else {
+            requery()
+        }
+    }
+
+    /// Read the list if a change was left for later.
+    func requeryIfNeeded() {
+        guard needsRequery else { return }
         requery()
     }
 
@@ -357,9 +388,10 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 .removeDuplicates()
                 .dropFirst()
                 .receive(on: RunLoop.main)
-                .sink { [weak self] _ in self?.requery() }
+                .sink { [weak self] _ in self?.requeryWhenInSight() }
         }
-        requery()
+        // A tab restored behind another reads its list when it is selected.
+        requeryWhenInSight()
     }
 
     // MARK: - Filter API (called by SidebarViewController)
@@ -381,7 +413,11 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
         requery()
     }
 
+    /// The sidebar calls this on every navigator switch, whichever list shows.
+    /// With no filter to clear and nothing left for later, the list on hand is
+    /// already the unfiltered one.
     func clearFilter() {
+        guard filterText != nil || needsRequery else { return }
         filterText = nil
         requery()
     }
@@ -429,6 +465,7 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
     private var requeryGeneration: UInt64 = 0
 
     private func requery() {
+        needsRequery = false
         requeryGeneration &+= 1
         let generation = requeryGeneration
         let search = (filterText?.isEmpty ?? true) ? nil : filterText
@@ -462,6 +499,13 @@ class QueryHistoryVC: NSViewController, NSTableViewDataSource, NSTableViewDelega
                 )
             } catch {
                 Log.ui.error("Failed to load workspace history: \(error.localizedDescription, privacy: .public)")
+                // The list on screen is now older than the store, and this read
+                // may have superseded one that would have succeeded. Read again
+                // the next time this window comes into sight.
+                await MainActor.run { [weak self] in
+                    guard let self, generation == self.requeryGeneration else { return }
+                    self.needsRequery = true
+                }
                 return
             }
             await MainActor.run { [weak self] in

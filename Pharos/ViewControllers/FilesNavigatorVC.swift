@@ -91,17 +91,25 @@ final class FilesNavigatorVC: NSViewController {
 
         observers.append(NotificationCenter.default.addObserver(
             forName: RecentFileStore.didChange, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reload() }
+                MainActor.assumeIsolated { self?.reloadIfInSight() }
             })
-        // A tab that starts or stops using a file changes which rows are open.
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reload() }
-            })
+        // A tab that starts or stops using a file changes which rows are open,
+        // in every window. A window out of sight shows nothing, so each list
+        // catches up when its OWN window comes into sight; it used to reload
+        // in every window whenever any window became main.
+        observers += WindowSight.observeComingIntoSight(of: { [weak self] in self?.view.window }) { [weak self] in
+            self?.reload()
+        }
         stateManager.$connections.combineLatest(stateManager.$connectionStatuses)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.reload() }
+            .sink { [weak self] _ in self?.reloadIfInSight() }
             .store(in: &cancellables)
+        reload()
+    }
+
+    /// A window out of sight reloads when it comes back (see above).
+    private func reloadIfInSight() {
+        guard !WindowSight.isOutOfSight(view.window) else { return }
         reload()
     }
 

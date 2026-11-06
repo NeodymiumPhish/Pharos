@@ -1585,13 +1585,17 @@ final class CardStackVC: NSViewController {
     // MARK: - Variables
 
     func setVariables(names: Set<String>, completion: [QueryVariable]) {
+        // Every variable edit reaches every window. The previews read only
+        // the NAMES, and re-highlighting every preview is the costly part, so
+        // a value edit leaves them alone.
+        let namesChanged = names != variableNames
         variableNames = names
         completionVariables = completion
         for editor in editors.values {
             editor.setVariableNames(names)
             editor.setCompletionVariables(completion)
         }
-        refreshPreviews()
+        if namesChanged { refreshPreviews() }
     }
 
     /// The text of every card, for the `{{name}}` scan.
