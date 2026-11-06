@@ -818,6 +818,59 @@ pub async fn execute_query(
     })
 }
 
+/// Load All's rows as they arrive. Each FETCH chunk goes into the block at
+/// once and its `PgRow`s are dropped, so the peak is the block plus one chunk,
+/// not every `PgRow` of the result plus the block.
+pub(crate) struct SnapshotRows {
+    builder: Option<ResultBlockBuilder>,
+    columns: Vec<ColumnDef>,
+}
+
+impl SnapshotRows {
+    pub(crate) fn new() -> Self {
+        SnapshotRows { builder: None, columns: Vec::new() }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.builder.as_ref().map_or(0, ResultBlockBuilder::row_count)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Add `chunk`, keeping at most `cap` rows in all. True when the chunk
+    /// held rows past the cap (they are not kept: the result is cut there).
+    pub(crate) fn append(&mut self, chunk: Vec<sqlx::postgres::PgRow>, cap: usize) -> bool {
+        let Some(first) = chunk.first() else { return false };
+        if self.builder.is_none() {
+            self.columns = pg_columns_to_defs(first.columns());
+            let mut builder = ResultBlockBuilder::new(self.columns.len());
+            builder.reserve_rows(chunk.len());
+            self.builder = Some(builder);
+        }
+        let builder = self.builder.as_mut().expect("set above");
+        let room = cap.saturating_sub(builder.row_count());
+        let capped = chunk.len() > room;
+        let width = self.columns.len();
+        for row in chunk.into_iter().take(room) {
+            for i in 0..width {
+                builder.push(pg_cell(&row, i));
+            }
+            builder.end_row();
+        }
+        capped
+    }
+
+    /// The columns (empty when no row came) and the rows.
+    pub(crate) fn finish(self) -> (Vec<ColumnDef>, Rows) {
+        match self.builder {
+            Some(builder) => (self.columns, Rows::from_builder(builder)),
+            None => (Vec::new(), Rows::empty()),
+        }
+    }
+}
+
 /// One cell as text, or None for NULL. With the simple query protocol
 /// (raw_sql) every value arrives in PostgreSQL's text format, so the raw bytes
 /// ARE the text — no per-type decoding. A value that is not UTF-8, or a read
@@ -1031,7 +1084,7 @@ pub async fn fetch_all_rows_snapshot(
         return Err(format_db_error(&e));
     }
 
-    let mut rows: Vec<sqlx::postgres::PgRow> = Vec::new();
+    let mut rows = SnapshotRows::new();
     let mut has_more = false;
     // As in execute_query: a FETCH waits for its rows OR the cancel.
     let cancelled = cancel.cancelled();
@@ -1046,6 +1099,7 @@ pub async fn fetch_all_rows_snapshot(
         let want = std::cmp::min(SNAPSHOT_FETCH_CHUNK, max_rows - rows.len() as i64 + 1);
         let fetch = format!("FETCH FORWARD {} FROM {}", want, cursor);
         let mut stream = sqlx::raw_sql(&fetch).fetch(&mut *conn);
+        let mut chunk: Vec<sqlx::postgres::PgRow> = Vec::with_capacity(want.max(0) as usize);
         let mut got: i64 = 0;
         let mut fetch_error: Option<String> = None;
         let mut was_cancelled = false;
@@ -1062,7 +1116,7 @@ pub async fn fetch_all_rows_snapshot(
             match row_result {
                 Ok(row) => {
                     got += 1;
-                    rows.push(row);
+                    chunk.push(row);
                 }
                 Err(e) => {
                     fetch_error = Some(format_db_error(&e));
@@ -1085,10 +1139,9 @@ pub async fn fetch_all_rows_snapshot(
         }
         // The cap is applied BEFORE the progress report, so the caller is never
         // told about a row the result does not keep.
-        let capped = rows.len() as i64 > max_rows;
+        let capped = rows.append(chunk, max_rows.max(0) as usize);
         if capped {
             has_more = true;
-            rows.truncate(max_rows as usize);
         }
         on_progress(rows.len() as u64);
         if capped || got < want {
@@ -1128,8 +1181,7 @@ pub async fn fetch_all_rows_snapshot(
         });
     }
 
-    let columns: Vec<ColumnDef> = pg_columns_to_defs(rows[0].columns());
-    let json_rows = rows_to_block(rows, &columns, usize::MAX);
+    let (columns, json_rows) = rows.finish();
     let row_count = json_rows.len();
 
     // Release this connection before the identity block acquires one of its own.

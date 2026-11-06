@@ -43,7 +43,7 @@ use sqlx::{Connection, Executor, PgConnection, Row};
 
 use super::query::{
     build_row_identity, cancel_backend, cancel_until_ended, explain_statement, format_db_error, history_entry,
-    pg_columns_to_defs, query_timeout_seconds, record_history, result_cache, rows_to_block, search_path_suffix,
+    pg_columns_to_defs, query_timeout_seconds, record_history, result_cache, rows_to_block, search_path_suffix, SnapshotRows,
     set_search_path, ExecuteResult, QueryResult, CANCEL_CONFIRM_WAIT, QUERY_CANCELLED,
 };
 use super::row_edit::{build_update_statement, history_sql, validate_request, RowUpdateRequest, RowUpdateResult};
@@ -1103,7 +1103,7 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
     let reset = ensure_live(&mut guard, &session, state).await?;
     let cap = request.max_rows.max(1) as usize;
     let in_transaction: bool;
-    let outcome: Result<(Vec<PgRow>, bool, Vec<super::row_identity::ColumnDef>), ReadError> = {
+    let outcome: Result<(SnapshotRows, bool, Vec<super::row_identity::ColumnDef>), ReadError> = {
         let live = guard.as_mut().expect("ensure_live leaves a connection");
         apply_schema(live, t.schema.as_deref(), state).await;
         in_transaction = live.txn == TxnState::InTransaction;
@@ -1120,7 +1120,7 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
                     .await
                     .map_err(ReadError::Sql);
             }
-            let mut rows: Vec<PgRow> = Vec::new();
+            let mut rows = SnapshotRows::new();
             let mut more = false;
             while result.is_ok() {
                 let want = (cap + 1 - rows.len()).min(5000);
@@ -1129,10 +1129,8 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
                 match fetched {
                     Ok((chunk, n)) => {
                         let done = n < want;
-                        rows.extend(chunk);
-                        let capped = rows.len() > cap;
+                        let capped = rows.append(chunk, cap);
                         if capped {
-                            rows.truncate(cap);
                             more = true;
                         }
                         // After the truncation, as the pool path does, so the
@@ -1178,9 +1176,9 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
     };
     let (report, _) = finish(&mut guard, &session, state, reset).await;
     drop(guard);
-    let columns = rows.first().map(|r| pg_columns_to_defs(r.columns())).unwrap_or(empty_columns);
-    let row_count = rows.len();
-    let json_rows = rows_to_block(rows, &columns, usize::MAX);
+    let (columns, json_rows) = rows.finish();
+    let columns = if json_rows.is_empty() { empty_columns } else { columns };
+    let row_count = json_rows.len();
     // The snapshot is a new execution, so its rows need their own keys (the
     // app must never keep the first page's). Same rule as a card's run: the
     // identity reads the catalogue through the pool, which cannot see a
