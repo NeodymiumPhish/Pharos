@@ -216,6 +216,7 @@ extension ContentViewController {
         }
         entry.results.insert(contentsOf: fresh, at: 0)
         session.resultStore[tabId] = entry
+        ResultMemoryManager.shared.scheduleCheck()
 
         let restoredIds = Set(restored.map(\.id))
         session.updateTab(id: tabId) { t in

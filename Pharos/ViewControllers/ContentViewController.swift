@@ -2251,6 +2251,7 @@ class ContentViewController: NSViewController {
         } else if isForeground {
             refreshCardResultsUI()
         }
+        ResultMemoryManager.shared.scheduleCheck()
     }
 
     /// Show one card's results in the results area (View Results, a new run,
@@ -2347,6 +2348,8 @@ class ContentViewController: NSViewController {
     /// Note that the user has seen this result, so the limit will not take it.
     private func markResultViewed(_ cardId: String) {
         _ = mutateResult(cardId: cardId) { $0.hasBeenViewed = true }
+        // Shown now: the last result the memory budget would move out.
+        ResultMemoryManager.shared.noteShown(cardId: cardId)
     }
 
     /// The card's menu ▸ Clear Results: let go of the rows. The card stays and
@@ -2656,6 +2659,8 @@ class ContentViewController: NSViewController {
     /// name row and the results header show the run record's row count, so
     /// give the record the count the result holds now.
     private func noteRowsLoaded(forCard cardId: String, runId: String, result: QueryResult) {
+        // The result grew (Load More, Load All): the budget may be passed.
+        ResultMemoryManager.shared.scheduleCheck()
         guard let tabId = session.resultStore.editorTabId(forCard: cardId) else { return }
         var changed = false
         session.updateTab(id: tabId) {
@@ -3691,6 +3696,7 @@ extension ContentViewController {
 
                 var document = decoded
                 let results = Self.restoreResults(detail.results, blobs: loaded, into: &document)
+                ResultMemoryManager.shared.scheduleCheck()
                 let focus = focusResultId.flatMap { fid in results.first(where: { $0.historyResultId == fid }) } ?? results.last
                 document.displayedCardId = focus?.id
 

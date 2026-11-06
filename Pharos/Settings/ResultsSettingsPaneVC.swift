@@ -176,6 +176,13 @@ final class ResultsSettingsPaneVC: SettingsFormPaneVC {
                     help: String(localized: "Over the limit, the oldest results you have not looked at are let go. The card stays and shows Results removed; run it again to get them back. 0 keeps them all."),
                     kind: .stepper(.settings(\.results.maximumResultTabs), range: 0...50, unit: nil)),
                 SettingsItem(
+                    id: "resultMemoryPercent",
+                    title: String(localized: "Memory for results"),
+                    caption: String(localized: "How much of this Mac's memory the results of all tabs may hold before results you are not looking at move to disk."),
+                    icon: "memorychip",
+                    help: String(localized: "A result on disk stays on its card and opens again at once; macOS reads it back as you scroll. 0 keeps every result in memory."),
+                    kind: .stepper(.settings(\.results.resultMemoryPercent), range: 0...75, unit: String(localized: "% of memory"))),
+                SettingsItem(
                     id: "showNewResultsAutomatically",
                     title: String(localized: "Show new results automatically"),
                     caption: String(localized: "When a card's run ends, its results take over the results area. Off keeps the results you are looking at."),

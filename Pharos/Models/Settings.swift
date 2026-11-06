@@ -635,6 +635,10 @@ struct ResultsSettings: Codable, Equatable {
     /// Most results one editor tab keeps in memory, 0 for unlimited. The key
     /// keeps its old name, so a limit set for result tabs carries over.
     var maximumResultTabs: UInt32 = 0
+    /// Percent of this Mac's memory the results of all windows may hold before
+    /// the ones out of sight move to a memory-mapped file (`ResultMemoryBudget`).
+    /// 0 turns the budget off.
+    var resultMemoryPercent: UInt32 = 25
     /// A card's new results take over the results area when its run ends.
     var showNewResultsAutomatically: Bool = true
 }

@@ -10,6 +10,9 @@
     " (more available)" : {
 
     },
+    "% of memory" : {
+
+    },
     "%@" : {
 
     },
@@ -434,6 +437,9 @@
 
     },
     "A Partitions folder under each partitioned table." : {
+
+    },
+    "A result on disk stays on its card and opens again at once; macOS reads it back as you scroll. 0 keeps every result in memory." : {
 
     },
     "A Session can keep %@ of results. The queries were saved; run them again after you open the Session." : {
@@ -1914,6 +1920,9 @@
     "Host" : {
 
     },
+    "How much of this Mac's memory the results of all tabs may hold before results you are not looking at move to disk." : {
+
+    },
     "How NULL renders in the grid and the Inspector." : {
 
     },
@@ -2296,6 +2305,9 @@
 
     },
     "Medium" : {
+
+    },
+    "Memory for results" : {
 
     },
     "Memory limit" : {

@@ -21,6 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // that writes `~/Library/Logs/Pharos/pharos-crash-*.log`. It existed
         // since the crash logger was written but nothing installed it.
         CrashLogger.install()
+        // Spill files a crash left behind (each file's name is normally
+        // removed as soon as it is mapped).
+        ResultMemoryManager.clearSpillFolder()
         // Remembered DuckDB attaches follow their connections (restore and
         // detach); the navigator shows where an attached schema comes from.
         DuckDBAttachments.shared.startObserving()
