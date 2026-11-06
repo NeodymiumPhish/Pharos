@@ -78,10 +78,16 @@ extension PharosCore {
     /// of it before the decoder saw a byte.
     static func getQueryHistoryResult(id: String) throws -> QueryHistoryResultData? {
         // NULL = no cached results.
-        guard let ptr = id.withCString({ pharos_get_query_history_result($0) }) else { return nil }
+        // The rows come back as a PRB1 block beside the JSON (`"rows":[]`).
+        var block: UnsafeMutablePointer<UInt8>?
+        var length: UInt = 0
+        guard let ptr = id.withCString({ pharos_get_query_history_result($0, &block, &length) }) else { return nil }
         defer { pharos_free_string(ptr) }
+        let rows = adoptBlock(block, length)
         do {
-            return try decodeNoCopy(ptr)
+            var data: QueryHistoryResultData = try decodeNoCopy(ptr)
+            if let rows { data.rows = try ResultTable(block: rows) }
+            return data
         } catch PharosCoreError.decodingError {
             // Old cached results were name-keyed objects; new format is index-based arrays.
             // Gracefully return nil so the history entry is still visible but without cached result preview.

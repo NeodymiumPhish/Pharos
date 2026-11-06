@@ -25,7 +25,7 @@ final class ChartViewModel: ObservableObject {
     let profiles: [ColumnProfile]
     /// The deterministic recommender's ranked list for this result.
     let recommendations: [ChartRecommendation]
-    var rowCount: Int { result.rows.count }
+    var rowCount: Int { result.rows.rowCount }
     @Published var suggestionState: ChartSuggestionState = .idle
     /// Ask the on-device model (host-owned; the rail calls it only when the
     /// model may be used).

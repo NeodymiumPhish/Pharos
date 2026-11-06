@@ -35,6 +35,17 @@ extension PharosCore {
         }
     }
 
+    /// As `sessionCall`, for a call whose rows come back as a block.
+    private static func sessionRowsCall<R: Encodable>(
+        _ request: R,
+        _ ffi: @escaping (UnsafePointer<CChar>, AsyncCallback, BlockCallback, UnsafeMutableRawPointer) -> Void
+    ) async throws -> SessionResult<QueryResult> {
+        let json = try String(decoding: JSONEncoder().encode(request), as: UTF8.self)
+        return try await withResultCallback { callback, block, context in
+            json.withCString { ffi($0, callback, block, context) }
+        }
+    }
+
     private static func runBody(_ t: TabSessionTarget, sql: String, limit: Int32?, source: String?, aux: Bool) -> SessionRunBody {
         SessionRunBody(sessionId: t.sessionId, connectionId: t.connectionId, schema: t.schema, queryId: t.queryId,
                        sql: sql, limit: limit, source: source, aux: aux)
@@ -44,8 +55,8 @@ extension PharosCore {
     static func sessionExecuteQuery(
         _ target: TabSessionTarget, sql: String, limit: Int32 = 1000, source: String? = nil, aux: Bool = false
     ) async throws -> SessionResult<QueryResult> {
-        try await sessionCall(runBody(target, sql: sql, limit: limit, source: source, aux: aux)) {
-            pharos_session_execute_query($0, $1, $2)
+        try await sessionRowsCall(runBody(target, sql: sql, limit: limit, source: source, aux: aux)) {
+            pharos_session_execute_query($0, $1, $2, $3)
         }
     }
 
@@ -69,7 +80,7 @@ extension PharosCore {
     ) async throws -> SessionResult<QueryResult> {
         let body = FetchMoreBody(sessionId: t.sessionId, connectionId: t.connectionId, schema: t.schema,
                                  queryId: t.queryId, sql: sql, limit: limit, offset: offset)
-        return try await sessionCall(body) { pharos_session_fetch_more_rows($0, $1, $2) }
+        return try await sessionRowsCall(body) { pharos_session_fetch_more_rows($0, $1, $2, $3) }
     }
 
     private struct FetchAllBody: Encodable {
@@ -85,8 +96,8 @@ extension PharosCore {
         let body = FetchAllBody(sessionId: t.sessionId, connectionId: t.connectionId, schema: t.schema,
                                 queryId: t.queryId, sql: sql, maxRows: maxRows)
         let json = try String(decoding: JSONEncoder().encode(body), as: UTF8.self)
-        return try await withAsyncCallback(onProgress: onProgress) { callback, progress, context in
-            json.withCString { pharos_session_fetch_all_rows($0, progress, callback, context) }
+        return try await withResultCallback(onProgress: onProgress) { callback, progress, block, context in
+            json.withCString { pharos_session_fetch_all_rows($0, progress, callback, block, context) }
         }
     }
 

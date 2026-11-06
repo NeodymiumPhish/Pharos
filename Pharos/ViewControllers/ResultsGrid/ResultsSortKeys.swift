@@ -18,29 +18,27 @@ enum ResultsSortKeys {
     enum Kind {
         /// Compared as `Double`. A value that does not parse counts as 0.
         case numeric
-        /// `true`/`false` as "t"/"f"; text as itself. Compared by code point.
+        /// The cell's text ("t"/"f" for a boolean). Compared by code point.
         case boolean
         /// `localizedStandardCompare` of the display string.
         case text
     }
 
     /// Data-row indices of `rows` in sorted order, by column `column`.
-    /// A row too short to hold the column counts as NULL.
-    static func order(rows: [[AnyCodable]], column: Int, kind: Kind, ascending: Bool) -> [Int] {
+    /// A column past the last one reads as NULL.
+    static func order(rows: ResultTable, column: Int, kind: Kind, ascending: Bool) -> [Int] {
+        let rowRange = 0..<rows.rowCount
         switch kind {
         case .numeric:
-            let keys = rows.map { row -> Double? in
-                guard let cell = cell(row, column) else { return nil }
-                return numericValue(cell)
+            let keys = rowRange.map { r -> Double? in
+                rows.string(r, column).map { Double($0) ?? 0 }
             }
             return order(keys: keys, ascending: ascending) { a, b in
                 a < b ? .orderedAscending : (b < a ? .orderedDescending : .orderedSame)
             }
         case .boolean:
-            let keys = rows.map { row -> String? in
-                guard let cell = cell(row, column) else { return nil }
-                return (cell.value as? Bool).map { $0 ? "t" : "f" } ?? (cell.value as? String) ?? ""
-            }
+            // PostgreSQL's text format spells a boolean "t"/"f" already.
+            let keys = rowRange.map { r -> String? in rows.string(r, column) }
             return order(keys: keys, ascending: ascending) { a, b in
                 a < b ? .orderedAscending : (b < a ? .orderedDescending : .orderedSame)
             }
@@ -48,7 +46,7 @@ enum ResultsSortKeys {
             // NSString keys: the same `localizedStandardCompare`, without
             // bridging both Swift strings on every comparison (measured
             // 904 ms against 1,364 ms for 200,000 rows).
-            let keys = rows.map { row -> NSString? in (cell(row, column)?.displayString).map { $0 as NSString } }
+            let keys = rowRange.map { r -> NSString? in rows.string(r, column).map { $0 as NSString } }
             return order(keys: keys, ascending: ascending) { $0.localizedStandardCompare($1 as String) }
         }
     }
@@ -74,21 +72,5 @@ enum ResultsSortKeys {
             }
         }
         return indices
-    }
-
-    /// The cell, or nil for a SQL NULL or a row too short to hold the column.
-    private static func cell(_ row: [AnyCodable], _ column: Int) -> AnyCodable? {
-        guard column < row.count else { return nil }
-        let value = row[column]
-        return value.isNull ? nil : value
-    }
-
-    private static func numericValue(_ value: AnyCodable) -> Double {
-        switch value.value {
-        case let s as String: return Double(s) ?? 0
-        case let i as Int64: return Double(i)
-        case let d as Double: return d
-        default: return 0
-        }
     }
 }

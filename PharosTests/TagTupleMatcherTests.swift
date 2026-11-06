@@ -13,6 +13,22 @@ func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ name: String) {
 
 // MARK: Fixtures
 
+/// The matcher reads a `ResultTable`; the fixtures here are written as cell
+/// arrays, so these build the table (a short row's missing cells are NULL).
+fileprivate extension TagRuleMatcher {
+    static func match(columns: [ColumnDef], rows: [[String?]], index: Index) -> [Int: [TagRowMatch]] {
+        match(columns: columns, rows: ResultTable(rows: rows), index: index)
+    }
+
+    static func matchCounts(tag: Tag, columns: [ColumnDef], rows: [[String?]]) -> (solid: Int, partial: Int) {
+        matchCounts(tag: tag, columns: columns, rows: ResultTable(rows: rows))
+    }
+
+    static func holdsHeavyJSON(columns: [ColumnDef], rows: [[String?]]) -> Bool {
+        holdsHeavyJSON(columns: columns, rows: ResultTable(rows: rows))
+    }
+}
+
 private func value(_ family: String, _ text: String) -> TagCondition {
     TagCondition(family: family,
                 value: TagValueNormalizer.normalize(text, family: family), display: text)

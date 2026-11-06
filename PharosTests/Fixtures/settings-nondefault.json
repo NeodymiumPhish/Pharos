@@ -176,6 +176,7 @@
     "monospacedFont": false,
     "nullStyle": "dimmed",
     "numberStyle": "grouped",
+    "resultMemoryPercent": 10,
     "showColumnTypeIcons": true,
     "showInvisibleCharacters": true,
     "showNewResultsAutomatically": false,

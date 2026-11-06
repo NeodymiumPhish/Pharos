@@ -164,9 +164,10 @@ class InspectorViewController: NSViewController {
         showNoSelection()
     }
 
+    /// `row` is the row's cells as text, nil for a SQL NULL.
     func showRowDetail(
         columns: [ColumnDef],
-        row: [AnyCodable],
+        row: [String?],
         rowNumber: Int,
         dataRow: Int,
         totalRows: Int,
@@ -231,7 +232,7 @@ class InspectorViewController: NSViewController {
         for (index, colDef) in columns.enumerated() {
             let category = index < columnCategories.count ? columnCategories[index] : .string
             let keyLabel = makeKeyLabel(name: colDef.name, dataType: colDef.dataType)
-            let value: AnyCodable? = index < row.count ? row[index] : nil
+            let value: String? = index < row.count ? row[index] : nil
             let valueLabel = makeValueLabel(value: value, category: category)
 
             stackView.addArrangedSubview(keyLabel)
@@ -498,9 +499,12 @@ class InspectorViewController: NSViewController {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
+    /// Summarise rows `rowIndices` of `rows` (indices past the end are
+    /// skipped).
     func showAggregation(
         columns: [ColumnDef],
-        rows: [[AnyCodable]],
+        rows: ResultTable,
+        rowIndices: [Int],
         selectionCount: Int,
         columnCategories: [PGTypeCategory]
     ) {
@@ -513,7 +517,8 @@ class InspectorViewController: NSViewController {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         // Compute aggregations
-        let aggregations = computeAggregations(columns: columns, rows: rows, categories: columnCategories)
+        let aggregations = computeAggregations(columns: columns, rows: rows, rowIndices: rowIndices,
+                                               categories: columnCategories)
 
         // Header: "Selection Summary" + "N rows"
         let titleLabel = NSTextField(labelWithString: "Selection Summary")
@@ -1016,7 +1021,8 @@ class InspectorViewController: NSViewController {
         return label
     }
 
-    private func makeValueLabel(value: AnyCodable?, category: PGTypeCategory) -> NSTextField {
+    /// `value` is the cell's text, nil for a SQL NULL.
+    private func makeValueLabel(value: String?, category: PGTypeCategory) -> NSTextField {
         let label = CopyableValueLabel(labelWithString: "")
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
@@ -1027,7 +1033,7 @@ class InspectorViewController: NSViewController {
         label.isSelectable = true
 
         guard let value else {
-            // Key missing from dict entirely — treat as NULL
+            // A SQL NULL, or a column the row does not hold.
             label.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
             label.copyableValue = label.stringValue
             label.textColor = .tertiaryLabelColor
@@ -1035,15 +1041,7 @@ class InspectorViewController: NSViewController {
             return label
         }
 
-        if value.isNull {
-            label.stringValue = AppStateManager.shared.settings.nullDisplay.rawValue
-            label.copyableValue = label.stringValue
-            label.textColor = .tertiaryLabelColor
-            label.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).withTraits(.italic)
-            return label
-        }
-
-        if value.displayString.isEmpty {
+        if value.isEmpty {
             label.stringValue = "(empty string)"
             label.copyableValue = ""
             label.textColor = .tertiaryLabelColor
@@ -1065,15 +1063,15 @@ class InspectorViewController: NSViewController {
         // value is DATA, so it obeys the grid's setting: tier A always, tier B
         // only with Show invisible characters on.
         label.stringValue = DisplayEscape.escapedMultilineValue(
-            value.displayString,
+            value,
             showInvisibles: AppStateManager.shared.settings.results.showInvisibleCharacters)
-        label.copyableValue = value.displayString
+        label.copyableValue = value
 
         switch category {
         case .numeric:
             label.textColor = .systemBlue
         case .boolean:
-            let str = value.displayString.lowercased()
+            let str = value.lowercased()
             let boolDisplay = AppStateManager.shared.settings.boolDisplay
             if str == "t" || str == "true" {
                 // The bool words are app-owned, so display and copy agree here.
@@ -1167,26 +1165,27 @@ class InspectorViewController: NSViewController {
 
     private func computeAggregations(
         columns: [ColumnDef],
-        rows: [[AnyCodable]],
+        rows: ResultTable,
+        rowIndices: [Int],
         categories: [PGTypeCategory]
     ) -> [ColumnAggregation] {
-        columns.enumerated().map { (index, col) in
+        let rowIndices = rowIndices.filter { $0 >= 0 && $0 < rows.rowCount }
+        return columns.enumerated().map { (index, col) in
             var agg = ColumnAggregation(
                 columnName: col.name,
                 dataType: col.dataType,
                 category: index < categories.count ? categories[index] : .string
             )
-            for row in rows {
-                let value: AnyCodable? = index < row.count ? row[index] : nil
+            for row in rowIndices {
                 agg.totalCount += 1
 
-                guard let val = value, !val.isNull else { continue }
+                guard let val = rows.string(row, index) else { continue }
                 agg.nonNullCount += 1
-                agg.distinctValues.insert(val.displayString)
+                agg.distinctValues.insert(val)
 
                 switch agg.category {
                 case .numeric:
-                    if let d = Double(val.displayString) {
+                    if let d = Double(val) {
                         agg.numericMin = min(agg.numericMin ?? d, d)
                         agg.numericMax = max(agg.numericMax ?? d, d)
                         agg.numericSum += d
@@ -1195,11 +1194,11 @@ class InspectorViewController: NSViewController {
                     // Skip min/max for interval types — lexicographic comparison is meaningless
                     let dt = col.dataType.lowercased()
                     guard dt != "interval" else { break }
-                    let s = val.displayString
+                    let s = val
                     if agg.earliest == nil || s < agg.earliest! { agg.earliest = s }
                     if agg.latest == nil || s > agg.latest! { agg.latest = s }
                 case .boolean:
-                    let b = val.displayString.lowercased()
+                    let b = val.lowercased()
                     if b == "t" || b == "true" { agg.trueCount += 1 }
                     else if b == "f" || b == "false" { agg.falseCount += 1 }
                 default:

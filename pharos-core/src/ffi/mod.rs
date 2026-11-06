@@ -113,6 +113,98 @@ pub type AsyncCallback = extern "C" fn(
 pub type ProgressCallback =
     Option<extern "C" fn(context: *mut std::ffi::c_void, rows_loaded: u64)>;
 
+/// Callback that hands a result's rows over as one PRB1 block
+/// (`commands::result_block`), called once, right BEFORE the completion
+/// callback, from the same task, with the SAME context.
+/// - `block` / `block_len`: the block. OWNERSHIP PASSES to the caller, who
+///   frees it with `pharos_free_block(block, block_len)` — Swift wraps it in a
+///   `Data` with that deallocator, so the rows are never copied.
+///
+/// The completion callback then carries the result's other fields as JSON
+/// with `"rows":[]`. NULL keeps the old contract: the rows travel inside the
+/// JSON. Nullable alias, as for `ProgressCallback`.
+pub type BlockCallback =
+    Option<extern "C" fn(context: *mut std::ffi::c_void, block: *mut u8, block_len: usize)>;
+
+/// Free a block a `BlockCallback` or an out-parameter handed over.
+///
+/// # Safety
+/// `block` must be a pointer pharos-core handed over with exactly this
+/// `block_len`, and must not be used after this call.
+#[no_mangle]
+pub unsafe extern "C" fn pharos_free_block(block: *mut u8, block_len: usize) {
+    if !block.is_null() {
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(block, block_len)) });
+    }
+}
+
+/// Hand a boxed block's ownership to the caller as (pointer, length).
+fn block_into_raw(block: Vec<u8>) -> (*mut u8, usize) {
+    let boxed = block.into_boxed_slice();
+    let len = boxed.len();
+    (Box::into_raw(boxed) as *mut u8, len)
+}
+
+/// A value whose rows can be moved out for a `BlockCallback`.
+trait TakeRows {
+    fn take_rows(&mut self) -> crate::commands::result_block::Rows;
+}
+
+impl TakeRows for crate::commands::query::QueryResult {
+    fn take_rows(&mut self) -> crate::commands::result_block::Rows {
+        std::mem::replace(&mut self.rows, crate::commands::result_block::Rows::empty())
+    }
+}
+
+impl TakeRows for crate::commands::tab_session::SessionQueryResult {
+    fn take_rows(&mut self) -> crate::commands::result_block::Rows {
+        self.result.take_rows()
+    }
+}
+
+/// A stored result (history or Session) as JSON, with its rows moved into a
+/// block written to `out_block` / `out_len` when both are non-NULL (the JSON
+/// then carries `"rows":[]`). NULL out-parameters keep the rows in the JSON.
+fn stored_result_c_string(
+    mut data: crate::commands::QueryHistoryResultData,
+    out_block: *mut *mut u8,
+    out_len: *mut usize,
+) -> *mut c_char {
+    if !out_block.is_null() && !out_len.is_null() {
+        match crate::commands::result_block::from_json_rows(data.rows.get()) {
+            Ok(block) => {
+                let (ptr, len) = block_into_raw(block);
+                unsafe {
+                    *out_block = ptr;
+                    *out_len = len;
+                }
+                data.rows = serde_json::value::RawValue::from_string("[]".to_string())
+                    .expect("[] is JSON");
+            }
+            Err(e) => {
+                return to_c_string(&serde_json::json!({ "error": format!("Stored rows: {}", e) }).to_string());
+            }
+        }
+    }
+    to_json_c_string_owned(data)
+}
+
+/// Complete a result-returning call: the rows as a block through
+/// `block_callback` (when the caller gave one), then the rest as JSON
+/// through `callback_json`.
+fn callback_result<T: serde::Serialize + TakeRows>(
+    cb: AsyncCallback,
+    block_callback: BlockCallback,
+    ctx: usize,
+    mut value: T,
+) {
+    if let Some(deliver) = block_callback {
+        let (ptr, len) = block_into_raw(value.take_rows().into_block());
+        deliver(ctx as *mut std::ffi::c_void, ptr, len);
+    }
+    callback_json(cb, ctx, value);
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -85,14 +85,53 @@ class SQLCompletionProvider: NSObject {
 
     /// Set all three at once and rebuild the catalog once. One metadata push
     /// through the three setters rebuilt it three times.
-    func updateMetadata(schemas: [SchemaInfo], tables: [String: [TableInfo]], columnsByTable: [String: [ColumnInfo]]) {
+    ///
+    /// `shared` names this metadata — its connection and its
+    /// `MetadataCache` revision — so every window on that connection uses ONE
+    /// catalog: the first provider to see a revision builds it, the others
+    /// take it as it is. Each window rebuilt (and held) its own copy of every
+    /// table and column on every publish. nil builds a catalog of its own.
+    func updateMetadata(schemas: [SchemaInfo], tables: [String: [TableInfo]], columnsByTable: [String: [ColumnInfo]],
+                        shared: (connectionId: String, revision: Int)? = nil) {
         isUpdatingMetadata = true
         self.schemas = schemas
         self.tables = tables
         self.columnsByTable = columnsByTable
         isUpdatingMetadata = false
+        if let shared, let box = Self.sharedCatalogs[shared.connectionId]?.box, box.revision == shared.revision {
+            sharedCatalog = box
+            catalog = box.catalog
+            return
+        }
         rebuildCatalog()
+        if let shared {
+            let box = SharedCatalog(revision: shared.revision, catalog: catalog)
+            sharedCatalog = box
+            Self.sharedCatalogs[shared.connectionId] = WeakSharedCatalog(box: box)
+        } else {
+            sharedCatalog = nil
+        }
     }
+
+    /// One connection's catalog at one revision, shared by the providers
+    /// that show it. Held strongly by those providers and weakly by the map
+    /// below, so it goes when no window shows that connection.
+    private final class SharedCatalog {
+        let revision: Int
+        let catalog: CompletionResolver.Catalog
+        init(revision: Int, catalog: CompletionResolver.Catalog) {
+            self.revision = revision
+            self.catalog = catalog
+        }
+    }
+
+    private struct WeakSharedCatalog {
+        weak var box: SharedCatalog?
+    }
+
+    /// Main-thread state, like everything else in this class.
+    private static var sharedCatalogs: [String: WeakSharedCatalog] = [:]
+    private var sharedCatalog: SharedCatalog?
 
     private var isUpdatingMetadata = false
 

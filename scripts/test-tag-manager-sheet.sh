@@ -47,6 +47,7 @@ swiftc -o /tmp/tag-manager-sheet-tests \
   Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/Tag.swift \
   Pharos/Views/HostileTextBadge.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \

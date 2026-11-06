@@ -889,13 +889,13 @@ class ContentViewController: NSViewController {
             let displayIndex = selectedIndices.first!
             guard displayIndex < resultsVC.displayRows.count else { return }
             let dataIndex = resultsVC.displayRows[displayIndex]
-            guard dataIndex < resultsVC.rows.count else { return }
-            let rowData = resultsVC.rows[dataIndex]
+            guard dataIndex < resultsVC.rows.rowCount else { return }
+            let rowData = resultsVC.rows.row(dataIndex)
             let entries = TagInspectorModel.entries(
                 matches: resultsVC.matchesByRow[dataIndex] ?? [],
                 tags: TagStore.shared.tags,
                 columns: resultsVC.columns,
-                rowText: rowData.map { $0.stringValue })
+                rowText: rowData)
             splitVC.inspectorVC.showRowDetail(
                 columns: resultsVC.columns,
                 row: rowData,
@@ -910,13 +910,10 @@ class ContentViewController: NSViewController {
                 guard idx < resultsVC.displayRows.count else { return nil }
                 return resultsVC.displayRows[idx]
             }
-            let selectedRows = dataIndices.compactMap { idx -> [AnyCodable]? in
-                guard idx < resultsVC.rows.count else { return nil }
-                return resultsVC.rows[idx]
-            }
             splitVC.inspectorVC.showAggregation(
                 columns: resultsVC.columns,
-                rows: selectedRows,
+                rows: resultsVC.rows,
+                rowIndices: dataIndices,
                 selectionCount: selectedIndices.count,
                 columnCategories: resultsVC.columnCategories
             )
@@ -2254,6 +2251,7 @@ class ContentViewController: NSViewController {
         } else if isForeground {
             refreshCardResultsUI()
         }
+        ResultMemoryManager.shared.scheduleCheck()
     }
 
     /// Show one card's results in the results area (View Results, a new run,
@@ -2350,6 +2348,8 @@ class ContentViewController: NSViewController {
     /// Note that the user has seen this result, so the limit will not take it.
     private func markResultViewed(_ cardId: String) {
         _ = mutateResult(cardId: cardId) { $0.hasBeenViewed = true }
+        // Shown now: the last result the memory budget would move out.
+        ResultMemoryManager.shared.noteShown(cardId: cardId)
     }
 
     /// The card's menu ▸ Clear Results: let go of the rows. The card stays and
@@ -2572,7 +2572,7 @@ class ContentViewController: NSViewController {
         guard existingResult.hasMore, !existingResult.limitReached else { return }
 
         let trimmedSQL = querySQL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let offset = Int64(existingResult.rows.count)
+        let offset = Int64(existingResult.rows.rowCount)
         // A page never grows the result past the Load All limit.
         let loadAllLimit = ResultLoadState.clampedLimit(stateManager.settings.query.loadAllLimit)
         let limit = min(Int64(stateManager.settings.query.defaultLimit), Int64(loadAllLimit) - offset)
@@ -2606,10 +2606,19 @@ class ContentViewController: NSViewController {
                     )
                 }
                 await MainActor.run {
+                    // A page with rows is the same query's next rows, so it has
+                    // the result's columns; one that does not cannot be joined
+                    // on (`ResultTable.appending` requires one column count).
+                    guard existingResult.rows.isEmpty || moreResult.rows.isEmpty
+                            || existingResult.rows.columnCount == moreResult.rows.columnCount else {
+                        self.resultsVC.setLoadingMore(false)
+                        Log.query.error("Load More page has \(moreResult.rows.columnCount) columns, the result \(existingResult.rows.columnCount)")
+                        return
+                    }
                     let merged = QueryResult(
                         columns: existingResult.columns,
-                        rows: existingResult.rows + moreResult.rows,
-                        rowCount: existingResult.rows.count + moreResult.rows.count,
+                        rows: existingResult.rows.appending(moreResult.rows),
+                        rowCount: existingResult.rows.rowCount + moreResult.rows.rowCount,
                         executionTimeMs: existingResult.executionTimeMs,
                         hasMore: moreResult.hasMore,
                         historyEntryId: existingResult.historyEntryId,
@@ -2617,9 +2626,9 @@ class ContentViewController: NSViewController {
                         // Omitting this would take the nil default and drop every
                         // tag in the grid on the first Load More.
                         rowIdentity: existingResult.rowIdentity?.appendingPage(
-                            moreResult.rowIdentity, pageRowCount: moreResult.rows.count),
+                            moreResult.rowIdentity, pageRowCount: moreResult.rows.rowCount),
                         limitReached: ResultLoadState.isAtLimit(
-                            rowCount: existingResult.rows.count + moreResult.rows.count,
+                            rowCount: existingResult.rows.rowCount + moreResult.rows.rowCount,
                             hasMore: moreResult.hasMore, limit: loadAllLimit)
                     )
                     applyMerged(merged)
@@ -2650,11 +2659,13 @@ class ContentViewController: NSViewController {
     /// name row and the results header show the run record's row count, so
     /// give the record the count the result holds now.
     private func noteRowsLoaded(forCard cardId: String, runId: String, result: QueryResult) {
+        // The result grew (Load More, Load All): the budget may be passed.
+        ResultMemoryManager.shared.scheduleCheck()
         guard let tabId = session.resultStore.editorTabId(forCard: cardId) else { return }
         var changed = false
         session.updateTab(id: tabId) {
             changed = $0.document.rowsLoaded(cardId: cardId, runId: runId,
-                                             count: result.rows.count, hasMore: result.hasMore)
+                                             count: result.rows.rowCount, hasMore: result.hasMore)
         }
         guard changed else { return }
         markSessionResultsChanged(tabId: tabId)
@@ -3114,7 +3125,7 @@ class ContentViewController: NSViewController {
         guard !sql.isEmpty else { return }
         // At least as many rows as were on screen, so a grid the user had
         // paged out does not shrink back to one page under them.
-        let limit = Int32(clamping: max(Int(stateManager.settings.query.defaultLimit), current.rows.count))
+        let limit = Int32(clamping: max(Int(stateManager.settings.query.defaultLimit), current.rows.rowCount))
         let schema = editorTab.schemaName
         Task {
             // Re-read on the connection that wrote: in an open transaction only
@@ -3685,6 +3696,7 @@ extension ContentViewController {
 
                 var document = decoded
                 let results = Self.restoreResults(detail.results, blobs: loaded, into: &document)
+                ResultMemoryManager.shared.scheduleCheck()
                 let focus = focusResultId.flatMap { fid in results.first(where: { $0.historyResultId == fid }) } ?? results.last
                 document.displayedCardId = focus?.id
 
@@ -3918,7 +3930,7 @@ extension ContentViewController {
             chartHost.dialectName = stateManager.dialectName(for: session.activeTab?.connectionId)
             chartPresentedCardId = nil
             chartHost.present(
-                result: QueryResult(columns: [], rows: [], rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
+                result: QueryResult(columns: [], rows: ResultTable(), rowCount: 0, executionTimeMs: 0, hasMore: false, historyEntryId: nil),
                 sql: cardResults[idx].sql,
                 initialConfig: cardResults[idx].chartConfig,
                 banner: ChartBannerInfo(shouldShow: false, canLoadAll: false, text: "")
@@ -4194,11 +4206,11 @@ extension ContentViewController {
         guard !applied.isEmpty else { splitVC.inspectorVC.withdraw(.results); return }
         var filters: [String: ColumnFilter] = [:]
         for a in applied { filters[a.columnId] = a.filter }
-        let matchIdx = fc.matchingRows(filters, inputDisplayRows: Array(0..<resultsVC.rows.count))
-        let rows = matchIdx.compactMap { $0 < resultsVC.rows.count ? resultsVC.rows[$0] : nil }
+        let rows = resultsVC.rows
+        let matchIdx = fc.matchingRows(filters, inputDisplayRows: Array(0..<rows.rowCount))
         splitVC.inspectorVC.showAggregation(
-            columns: resultsVC.columns, rows: rows,
-            selectionCount: rows.count, columnCategories: resultsVC.columnCategories)
+            columns: resultsVC.columns, rows: rows, rowIndices: matchIdx,
+            selectionCount: matchIdx.count, columnCategories: resultsVC.columnCategories)
         splitVC.showInspector()
     }
 
@@ -4333,8 +4345,8 @@ extension ContentViewController {
     // MARK: Banner
 
     private func bannerInfo(for idx: Int, result: QueryResult, plotted: QueryResult?) -> ChartBannerInfo {
-        let loaded = result.rows.count
-        let kept = plotted?.rows.count ?? loaded
+        let loaded = result.rows.rowCount
+        let kept = plotted?.rows.rowCount ?? loaded
         let canLoadMore = result.hasMore
         // Total from the source (live/history); fall back to loaded when unknown.
         let total = cardResults[idx].totalRowCountHint ?? loaded
@@ -4350,10 +4362,10 @@ extension ContentViewController {
     /// The grid always holds the displayed card's rows; a count mismatch means
     /// it does not yet, and the chart plots every row rather than wrong ones.
     private func chartRows(for result: QueryResult) -> QueryResult? {
-        guard let fc = resultsVC.columnFilterController, resultsVC.rows.count == result.rows.count else { return nil }
+        guard let fc = resultsVC.columnFilterController, resultsVC.rows.rowCount == result.rows.rowCount else { return nil }
         let filters = ChartGridFilters.filters(active: fc.activeFilters, drillColumns: drillColumns, displaced: displacedFilters)
         guard let keep = resultsVC.chartRowIndices(columnFilters: filters) else { return nil }
-        return QueryResult(columns: result.columns, rows: keep.map { result.rows[$0] }, rowCount: keep.count,
+        return QueryResult(columns: result.columns, rows: result.rows.gathering(rows: keep), rowCount: keep.count,
                            executionTimeMs: result.executionTimeMs, hasMore: result.hasMore,
                            historyEntryId: result.historyEntryId, rowIdentity: result.rowIdentity)
     }
@@ -4528,7 +4540,7 @@ extension ContentViewController {
                     let replaced = QueryResult(
                         columns: snapshot.columns.isEmpty ? current.columns : snapshot.columns,
                         rows: snapshot.rows,
-                        rowCount: snapshot.rows.count,
+                        rowCount: snapshot.rows.rowCount,
                         executionTimeMs: current.executionTimeMs,
                         hasMore: snapshot.hasMore,
                         historyEntryId: current.historyEntryId,
@@ -4537,12 +4549,12 @@ extension ContentViewController {
                         // misaligned block is worse than a gap.
                         rowIdentity: snapshot.rowIdentity,
                         limitReached: ResultLoadState.isAtLimit(
-                            rowCount: snapshot.rows.count, hasMore: snapshot.hasMore,
+                            rowCount: snapshot.rows.rowCount, hasMore: snapshot.hasMore,
                             limit: ResultLoadState.clampedLimit(self.stateManager.settings.query.loadAllLimit))
                     )
                     let held = self.session.resultStore.mutateResult(cardId: rtId) {
                         $0.queryResult = replaced
-                        if !snapshot.hasMore { $0.totalRowCountHint = snapshot.rows.count }
+                        if !snapshot.hasMore { $0.totalRowCountHint = snapshot.rows.rowCount }
                     }
                     if let held { self.noteRowsLoaded(forCard: rtId, runId: held.runId, result: replaced) }
                     if showInGrid && stillDisplaying {
@@ -5165,8 +5177,8 @@ extension ContentViewController {
 
     /// The front tab's loaded results, for the Tag Manager's live count when
     /// it is opened from the toolbar or the Window menu.
-    func tagManagerInputs() -> (columns: [ColumnDef], loadedRows: [[String?]]) {
-        resultsVC.isViewLoaded ? resultsVC.tagManagerInputs() : ([], [])
+    func tagManagerInputs() -> (columns: [ColumnDef], loadedRows: ResultTable) {
+        resultsVC.isViewLoaded ? resultsVC.tagManagerInputs() : ([], ResultTable())
     }
 
     @objc func menuManageTags(_ sender: Any?) {

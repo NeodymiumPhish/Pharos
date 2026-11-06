@@ -33,16 +33,33 @@ fn answer<T: serde::Serialize>(callback: AsyncCallback, ctx: usize, result: Resu
     }
 }
 
+fn answer_rows(
+    callback: AsyncCallback,
+    block_callback: BlockCallback,
+    ctx: usize,
+    result: Result<tab_session::SessionQueryResult, String>,
+) {
+    match result {
+        Ok(value) => callback_result(callback, block_callback, ctx, value),
+        Err(e) => callback_err(callback, ctx, &e),
+    }
+}
+
 /// Run a card's row-returning statement on its tab's connection.
 /// Request: `{sessionId, connectionId, schema?, queryId?, sql, limit?, source?, aux?}`.
 /// Result: QueryResult JSON plus `session`.
 #[no_mangle]
-pub extern "C" fn pharos_session_execute_query(request_json: *const c_char, callback: AsyncCallback, context: *mut std::ffi::c_void) {
+pub extern "C" fn pharos_session_execute_query(
+    request_json: *const c_char,
+    callback: AsyncCallback,
+    block_callback: BlockCallback,
+    context: *mut std::ffi::c_void,
+) {
     let ctx = context as usize;
     let Some(request) = parse::<SessionRunRequest>(request_json, callback, ctx) else { return };
     let state = app_state();
     ffi_spawn!(callback, context, async move {
-        answer(callback, ctx, tab_session::session_execute_query(request, state).await);
+        answer_rows(callback, block_callback, ctx, tab_session::session_execute_query(request, state).await);
     });
 }
 
@@ -61,12 +78,17 @@ pub extern "C" fn pharos_session_execute_statement(request_json: *const c_char, 
 /// Load More on the tab's connection.
 /// Request: `{sessionId, connectionId, schema?, queryId?, sql, limit, offset}`.
 #[no_mangle]
-pub extern "C" fn pharos_session_fetch_more_rows(request_json: *const c_char, callback: AsyncCallback, context: *mut std::ffi::c_void) {
+pub extern "C" fn pharos_session_fetch_more_rows(
+    request_json: *const c_char,
+    callback: AsyncCallback,
+    block_callback: BlockCallback,
+    context: *mut std::ffi::c_void,
+) {
     let ctx = context as usize;
     let Some(request) = parse::<SessionFetchMoreRequest>(request_json, callback, ctx) else { return };
     let state = app_state();
     ffi_spawn!(callback, context, async move {
-        answer(callback, ctx, tab_session::session_fetch_more_rows(request, state).await);
+        answer_rows(callback, block_callback, ctx, tab_session::session_fetch_more_rows(request, state).await);
     });
 }
 
@@ -77,6 +99,7 @@ pub extern "C" fn pharos_session_fetch_all_rows(
     request_json: *const c_char,
     progress: ProgressCallback,
     callback: AsyncCallback,
+    block_callback: BlockCallback,
     context: *mut std::ffi::c_void,
 ) {
     let ctx = context as usize;
@@ -88,7 +111,7 @@ pub extern "C" fn pharos_session_fetch_all_rows(
         }
     };
     ffi_spawn!(callback, context, async move {
-        answer(callback, ctx, tab_session::session_fetch_all_rows(request, state, on_progress).await);
+        answer_rows(callback, block_callback, ctx, tab_session::session_fetch_all_rows(request, state, on_progress).await);
     });
 }
 

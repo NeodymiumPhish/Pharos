@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 # formatter itself is tested on its own in test-result-value-formatter.sh.
 swiftc -o /tmp/result-cell-text-tests \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/Settings.swift \
   Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Utilities/SQLTypeName.swift \

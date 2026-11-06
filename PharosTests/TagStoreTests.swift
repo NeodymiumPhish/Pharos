@@ -54,7 +54,7 @@ func writePhase() {
         // The store is GLOBAL: no connection argument anywhere above.
         let columns = [ColumnDef(name: "hash", dataType: "text")]
         let rows: [[String?]] = [["d41d8c"], ["nothing"], ["ddeeff"]]
-        let matches = TagRuleMatcher.match(columns: columns, rows: rows, index: store.tagIndex)
+        let matches = TagRuleMatcher.match(columns: columns, rows: ResultTable(rows: rows), index: store.tagIndex)
         expectEqual(matches.count, 2, "the cached index matches a foreign result")
         expectEqual(matches[0]?[0].state, .solid, "a one-value tuple is solid")
     } catch {

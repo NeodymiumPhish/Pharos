@@ -52,7 +52,7 @@ final class TagManagerWindowController: NSWindowController {
     /// Show the window, on `preselect` when given. `columns`/`loadedRows` are
     /// the results the live match count runs over (the grid that asked, or
     /// the front window's); none gives "No rows are loaded here".
-    func show(preselect: String? = nil, columns: [ColumnDef] = [], loadedRows: [[String?]] = []) {
+    func show(preselect: String? = nil, columns: [ColumnDef] = [], loadedRows: ResultTable = ResultTable()) {
         _ = host.view
         host.setResults(columns: columns, loadedRows: loadedRows)
         if window?.isVisible != true || !host.hasEdits {

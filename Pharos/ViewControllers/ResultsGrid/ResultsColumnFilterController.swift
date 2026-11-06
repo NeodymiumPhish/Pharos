@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Column Filter Controller Delegate
 
 protocol ResultsColumnFilterControllerDelegate: AnyObject {
-    var filterableRows: [[AnyCodable]] { get }
+    var filterableRows: ResultTable { get }
     var filterableColumnCategories: [PGTypeCategory] { get }
 }
 
@@ -13,7 +13,7 @@ protocol ResultsColumnFilterControllerDelegate: AnyObject {
 ///
 /// The grid escapes hostile scalars for DISPLAY only (`ResultCellText.rendered`
 /// → `DisplayEscape`). `distinctValues` below therefore keys its checklist by
-/// the raw `displayString`, and `FilterValueListView` keys its CHECKED SET by
+/// the raw cell text, and `FilterValueListView` keys its CHECKED SET by
 /// that same raw string — so the value-picker's own labels are still drawn
 /// unescaped today. That is a known remaining display surface, listed apart
 /// from this change because escaping it means escaping the LABEL only while the
@@ -82,7 +82,7 @@ class ResultsColumnFilterController {
             for (colId, filter) in filters {
                 guard let idx = colIndex(from: colId) else { continue }
                 let category = idx < categories.count ? categories[idx] : .string
-                let value: AnyCodable? = idx < rows[rowIdx].count ? rows[rowIdx][idx] : nil
+                let value = rows.string(rowIdx, idx)
                 if !evaluate(filter: filter, value: value, category: category, preparedAnyOf: anyOfSets[colId]) { return false }
             }
             return true
@@ -128,22 +128,20 @@ class ResultsColumnFilterController {
 
         var tallies: [String: Tally] = [:]
 
-        for row in rows {
+        for row in 0..<rows.rowCount {
             // Does this row pass every OTHER column's filter?
             var passes = true
             for (fColId, filter) in otherFilters {
                 guard let fIdx = colIndex(from: fColId) else { continue }
                 let fCat = fIdx < categories.count ? categories[fIdx] : .string
-                let fVal: AnyCodable? = fIdx < row.count ? row[fIdx] : nil
-                if !evaluate(filter: filter, value: fVal, category: fCat) { passes = false; break }
+                if !evaluate(filter: filter, value: rows.string(row, fIdx), category: fCat) { passes = false; break }
             }
 
-            let cell: AnyCodable? = idx < row.count ? row[idx] : nil
             let key: String
-            if cell == nil || cell!.isNull || cell!.displayString.isEmpty {
-                key = ColumnFilter.blanksSentinel
+            if let cell = rows.string(row, idx), !cell.isEmpty {
+                key = cell
             } else {
-                key = cell!.displayString
+                key = ColumnFilter.blanksSentinel
             }
             tallies[key, default: Tally()].total += 1
             if passes { tallies[key, default: Tally()].filtered += 1 }
@@ -183,28 +181,29 @@ class ResultsColumnFilterController {
 
     // MARK: - Evaluation
 
-    private func evaluate(filter: ColumnFilter, value: AnyCodable?, category: PGTypeCategory,
+    /// `value` is the cell's text, nil for a SQL NULL (and for a column past
+    /// the last one).
+    private func evaluate(filter: ColumnFilter, value: String?, category: PGTypeCategory,
                           preparedAnyOf: Set<String>? = nil) -> Bool {
         switch filter.op {
         case .isNull:
-            return value?.isNull ?? true
+            return value == nil
         case .isNotNull:
-            return !(value?.isNull ?? true)
+            return value != nil
         case .isTrue:
             return boolValue(value) == true
         case .isFalse:
             return boolValue(value) == false
         case .isAnyOf:
             let set = preparedAnyOf ?? Set(filter.values ?? [])
-            let isBlank = (value?.isNull ?? true) || (value?.displayString.isEmpty ?? true)
-            if isBlank { return set.contains(ColumnFilter.blanksSentinel) }
-            return set.contains(value!.displayString)
+            guard let value, !value.isEmpty else { return set.contains(ColumnFilter.blanksSentinel) }
+            return set.contains(value)
         default:
             break
         }
 
         // Remaining operators require a non-null value
-        guard let value = value, !value.isNull else { return false }
+        guard let value else { return false }
 
         switch category {
         case .numeric:
@@ -218,14 +217,14 @@ class ResultsColumnFilterController {
         }
     }
 
-    private func evaluateNumeric(filter: ColumnFilter, value: AnyCodable) -> Bool {
+    private func evaluateNumeric(filter: ColumnFilter, value: String) -> Bool {
         // Multi-value: match if cell value equals any of the provided values
         if filter.op == .containsAnyOf {
-            guard let cellNum = parseDouble(value), let vals = filter.values else { return false }
+            guard let cellNum = Double(value), let vals = filter.values else { return false }
             return vals.contains { Double($0) == cellNum }
         }
 
-        guard let cellNum = parseDouble(value) else {
+        guard let cellNum = Double(value) else {
             return evaluateText(filter: filter, value: value)
         }
         guard let filterNum = Double(filter.value) else {
@@ -249,8 +248,7 @@ class ResultsColumnFilterController {
         }
     }
 
-    private func evaluateTemporal(filter: ColumnFilter, value: AnyCodable) -> Bool {
-        let cellStr = value.displayString
+    private func evaluateTemporal(filter: ColumnFilter, value cellStr: String) -> Bool {
 
         // Interval comparison — compare by total seconds
         if filter.dataType.lowercased() == "interval" {
@@ -279,7 +277,7 @@ class ResultsColumnFilterController {
                 let hi = max(fSec, fSec2)
                 return cellSec >= lo && cellSec <= hi
             default:
-                return evaluateText(filter: filter, value: value)
+                return evaluateText(filter: filter, value: cellStr)
             }
         }
 
@@ -298,12 +296,12 @@ class ResultsColumnFilterController {
             let hi = max(filterStr, v2)
             return cellStr >= lo && cellStr <= hi
         default:
-            return evaluateText(filter: filter, value: value)
+            return evaluateText(filter: filter, value: cellStr)
         }
     }
 
-    private func evaluateText(filter: ColumnFilter, value: AnyCodable) -> Bool {
-        let cellStr = value.displayString.lowercased()
+    private func evaluateText(filter: ColumnFilter, value: String) -> Bool {
+        let cellStr = value.lowercased()
         let filterStr = filter.value.lowercased()
 
         switch filter.op {
@@ -373,19 +371,9 @@ class ResultsColumnFilterController {
 
     // MARK: - Helpers
 
-    private func parseDouble(_ value: AnyCodable) -> Double? {
-        if let v = value.value {
-            if let i = v as? Int64 { return Double(i) }
-            if let d = v as? Double { return d }
-            if let s = v as? String { return Double(s) }
-        }
-        return nil
-    }
-
-    private func boolValue(_ value: AnyCodable?) -> Bool? {
-        guard let v = value, !v.isNull else { return nil }
-        if let b = v.value as? Bool { return b }
-        let s = v.displayString.lowercased()
+    private func boolValue(_ value: String?) -> Bool? {
+        guard let value else { return nil }
+        let s = value.lowercased()
         if s == "true" || s == "t" { return true }
         if s == "false" || s == "f" { return false }
         return nil

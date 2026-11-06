@@ -27,6 +27,7 @@ swiftc -o /tmp/grid-column-visibility-tests \
   Pharos/Core/GridDerivedCache.swift \
   Pharos/Core/TagRowMatch.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/QueryFailure.swift \
   Pharos/Models/QueryVariable.swift \
   Pharos/Utilities/ColumnFilter.swift \

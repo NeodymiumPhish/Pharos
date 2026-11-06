@@ -42,7 +42,7 @@ final class TagManagerSheet: NSViewController, NSTableViewDataSource, NSTableVie
     // MARK: Construction
 
     init(model: TagManagerModel, committer: TagManagerCommitting,
-         columns: [ColumnDef], loadedRows: [[String?]]) {
+         columns: [ColumnDef], loadedRows: ResultTable) {
         detail = TagDetailVC(model: model, committer: committer,
                              columns: columns, loadedRows: loadedRows,
                              secondaryAction: .cancel)

@@ -9,10 +9,10 @@ func expect(_ cond: Bool, _ name: String) {
 }
 
 private final class Rows: ResultsColumnFilterControllerDelegate {
-    var filterableRows: [[AnyCodable]]
+    var filterableRows: ResultTable
     var filterableColumnCategories: [PGTypeCategory]
     init(_ rows: [[String]], _ cats: [PGTypeCategory]) {
-        filterableRows = rows.map { $0.map { AnyCodable($0) } }
+        filterableRows = ResultTable(rows: rows)
         filterableColumnCategories = cats
     }
 }

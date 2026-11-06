@@ -42,6 +42,7 @@ swiftc -o "$BIN" \
   Pharos/Models/Connection.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   PharosTests/TagStoreTests.swift \
   PharosTests/main.swift
 

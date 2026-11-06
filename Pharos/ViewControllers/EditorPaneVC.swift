@@ -191,12 +191,14 @@ class EditorPaneVC: NSViewController {
         // per change to it. Another window's connection never reaches it.
         session.$activeConnectionId
             .removeDuplicates()
-            .map { [metadataCache] id in metadataCache.publisher(for: id) }
+            .map { [metadataCache] id in metadataCache.publisher(for: id).map { (id, $0) } }
             .switchToLatest()
             .receive(on: RunLoop.main)
-            .sink { [weak self] metadata in
+            .sink { [weak self] id, metadata in
+                // One catalog per connection and revision, for every window.
                 self?.completionProvider.updateMetadata(
-                    schemas: metadata.schemas, tables: metadata.tables, columnsByTable: metadata.columnsByTable)
+                    schemas: metadata.schemas, tables: metadata.tables, columnsByTable: metadata.columnsByTable,
+                    shared: id.map { ($0, metadata.revision) })
             }
             .store(in: &cancellables)
 

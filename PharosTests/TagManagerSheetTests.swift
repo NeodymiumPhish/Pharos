@@ -475,7 +475,7 @@ private func makeSheet(_ committer: RecordingCommitter,
                        tags: [Tag] = fixtureTags(),
                        mode: TagManagerModel.Mode = .manage,
                        columns: [ColumnDef] = [],
-                       loadedRows: [[String?]] = []) -> TagManagerSheet {
+                       loadedRows: ResultTable = ResultTable()) -> TagManagerSheet {
     TagManagerSheet(model: TagManagerModel(tags: tags, mode: mode),
                     committer: committer, columns: columns, loadedRows: loadedRows)
 }
@@ -494,20 +494,20 @@ private func countColumns() -> [ColumnDef] {
 /// Ten rows. Tag "Suspect" (10.0.0.1 or evil.example) matches exactly ONE of
 /// them; changing its address rule to 10.0.0.2 makes it match TWO, which is
 /// also over the breadth threshold.
-private func countRows() -> [[String?]] {
+private func countRows() -> ResultTable {
     var rows: [[String?]] = [
         ["10.0.0.1", "a.example"],
         ["10.0.0.2", "b.example"],
         ["10.0.0.2", "c.example"],
     ]
     for index in 0..<7 { rows.append(["10.0.0.9", "x\(index).example"]) }
-    return rows
+    return ResultTable(rows: rows)
 }
 
 /// Above `asyncCountThreshold`, so the count leaves the main thread — which is
 /// the only path on which a stale count can exist at all.
-private func manyRows() -> [[String?]] {
-    (0..<5_001).map { ["10.9.\($0 / 256).\($0 % 256)", "h\($0).example"] }
+private func manyRows() -> ResultTable {
+    ResultTable(rows: (0..<5_001).map { ["10.9.\($0 / 256).\($0 % 256)", "h\($0).example"] })
 }
 
 /// What a grid selection offers, carrying the provenance a captured finding
@@ -574,7 +574,7 @@ private final class GatedCounter {
 
     private var finishedFirst = false
 
-    func count(_ tag: Tag, _ columns: [ColumnDef], _ rows: [[String?]]) -> (solid: Int, partial: Int) {
+    func count(_ tag: Tag, _ columns: [ColumnDef], _ rows: ResultTable) -> (solid: Int, partial: Int) {
         lock.lock()
         calls += 1
         let ordinal = calls

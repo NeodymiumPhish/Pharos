@@ -35,15 +35,15 @@ enum ServerChartDataBuilder {
         var pointsBySeries: [String: [ChartPoint]] = [:]
         var plotted = 0
 
-        for row in result.rows {
-            guard let catCell = cell(row, catIdx), let valCell = cell(row, valIdx),
-                  let y = ValueCoercion.double(from: valCell) else { continue }
-            let isNull = catCell.isNull || catCell.displayString.isEmpty
-            let drill: DrillKey = isNull ? .blank(catRef) : .anyOf(catRef, [catCell.displayString])
-            let seriesName = seriesIdx.flatMap { cell(row, $0)?.displayString } ?? ""
+        let rows = result.rows
+        for r in rowRange(rows, catIdx, valIdx) {
+            guard let y = ValueCoercion.double(from: rows.string(r, valIdx)) else { continue }
+            let catText = rows.displayString(r, catIdx)
+            let drill: DrillKey = catText.isEmpty ? .blank(catRef) : .anyOf(catRef, [catText])
+            let seriesName = seriesIdx.map { rows.displayString(r, $0) } ?? ""
             if !seriesSeen.contains(seriesName) { seriesSeen.insert(seriesName); seriesOrder.append(seriesName) }
             pointsBySeries[seriesName, default: []].append(
-                ChartPoint(xLabel: catCell.displayString, xValue: nil, y: y, drill: drill))
+                ChartPoint(xLabel: catText, xValue: nil, y: y, drill: drill))
             plotted += 1
         }
         if plotted == 0 { return .empty(.allNull) }
@@ -67,11 +67,11 @@ enum ServerChartDataBuilder {
 
         struct Row { let bucket: Int; let lo: Double; let hi: Double; let y: Double }
         var parsed: [Row] = []
-        for row in result.rows {
-            guard let bCell = cell(row, bucketIdx), let loCell = cell(row, loIdx),
-                  let hiCell = cell(row, hiIdx), let vCell = cell(row, valIdx),
-                  let b = intValue(bCell), let lo = ValueCoercion.double(from: loCell),
-                  let hi = ValueCoercion.double(from: hiCell), let y = ValueCoercion.double(from: vCell) else { continue }
+        let rows = result.rows
+        for r in rowRange(rows, bucketIdx, loIdx, hiIdx, valIdx) {
+            guard let b = intValue(rows.string(r, bucketIdx)), let lo = ValueCoercion.double(from: rows.string(r, loIdx)),
+                  let hi = ValueCoercion.double(from: rows.string(r, hiIdx)),
+                  let y = ValueCoercion.double(from: rows.string(r, valIdx)) else { continue }
             parsed.append(Row(bucket: b, lo: lo, hi: hi, y: y))
         }
         if parsed.isEmpty { return .empty(.allNull) }
@@ -80,7 +80,7 @@ enum ServerChartDataBuilder {
         // lo/hi are constant across rows (same _r CTE row repeated per group).
         let lo = parsed[0].lo, hi = parsed[0].hi
         // Server-chosen bucket count rides `_n`; fall back to the layout nominal.
-        let nFromCol = colIndex(result, "_n").flatMap { i in result.rows.first.flatMap { cell($0, i) }.flatMap { intValue($0) } }
+        let nFromCol = colIndex(result, "_n").flatMap { i in rows.isEmpty ? nil : intValue(rows.string(0, i)) }
         let effectiveBins = (nFromCol ?? 0) > 0 ? nFromCol! : binCount
         let width = (hi - lo) / Double(effectiveBins)
 
@@ -121,26 +121,27 @@ enum ServerChartDataBuilder {
         }
         let xb = bounds("x"), yb = bounds("y")
 
-        func axisLabelDrill(_ raw: AnyCodable, _ row: [AnyCodable], numeric: Bool,
+        let rows = result.rows
+        /// `raw` is the axis cell's text, nil for a SQL NULL; `r` its row.
+        func axisLabelDrill(_ raw: String?, _ r: Int, numeric: Bool,
                             _ bnd: (lo: Int?, hi: Int?, n: Int?), _ ref: ColumnRef) -> (String, DrillKey) {
             if numeric, let bucket = intValue(raw),
-               let loC = bnd.lo.flatMap({ cell(row, $0) }).flatMap({ ValueCoercion.double(from: $0) }),
-               let hiC = bnd.hi.flatMap({ cell(row, $0) }).flatMap({ ValueCoercion.double(from: $0) }),
-               let nC = bnd.n.flatMap({ cell(row, $0) }).flatMap({ intValue($0) }), nC > 0 {
+               let loC = bnd.lo.flatMap({ ValueCoercion.double(from: rows.string(r, $0)) }),
+               let hiC = bnd.hi.flatMap({ ValueCoercion.double(from: rows.string(r, $0)) }),
+               let nC = bnd.n.flatMap({ intValue(rows.string(r, $0)) }), nC > 0 {
                 let width = (hiC - loC) / Double(nC)
                 let blo = loC + Double(bucket - 1) * width, bhi = loC + Double(bucket) * width
                 return (rangeLabel(blo, bhi), .range(ref, blo, bhi, .numeric))
             }
-            if raw.isNull || raw.displayString.isEmpty { return ("(null)", .blank(ref)) }
-            return (raw.displayString, .anyOf(ref, [raw.displayString]))
+            guard let raw, !raw.isEmpty else { return ("(null)", .blank(ref)) }
+            return (raw, .anyOf(ref, [raw]))
         }
 
         var cells: [HeatmapCell] = []
-        for row in result.rows {
-            guard let xCell = cell(row, xIdx), let yCell = cell(row, yIdx), let vCell = cell(row, valIdx),
-                  let v = ValueCoercion.double(from: vCell) else { continue }
-            let (xl, xk) = axisLabelDrill(xCell, row, numeric: layout.xNumericBinned, xb, xRef)
-            let (yl, yk) = axisLabelDrill(yCell, row, numeric: layout.yNumericBinned, yb, yRef)
+        for r in rowRange(rows, xIdx, yIdx, valIdx) {
+            guard let v = ValueCoercion.double(from: rows.string(r, valIdx)) else { continue }
+            let (xl, xk) = axisLabelDrill(rows.string(r, xIdx), r, numeric: layout.xNumericBinned, xb, xRef)
+            let (yl, yk) = axisLabelDrill(rows.string(r, yIdx), r, numeric: layout.yNumericBinned, yb, yRef)
             cells.append(HeatmapCell(x: xl, y: yl, value: v, drill: .compound([xk, yk])))
         }
         if cells.isEmpty { return .empty(.allNull) }
@@ -159,9 +160,10 @@ enum ServerChartDataBuilder {
             return .empty(.noColumns)
         }
         var pts: [ChartPoint] = []
-        for row in result.rows {
-            guard let xCell = cell(row, xIdx), let yCell = cell(row, yIdx),
-                  let x = ValueCoercion.double(from: xCell), let y = ValueCoercion.double(from: yCell) else { continue }
+        let rows = result.rows
+        for r in rowRange(rows, xIdx, yIdx) {
+            guard let x = ValueCoercion.double(from: rows.string(r, xIdx)),
+                  let y = ValueCoercion.double(from: rows.string(r, yIdx)) else { continue }
             pts.append(ChartPoint(xLabel: "", xValue: x, y: y))
         }
         if pts.isEmpty { return .empty(.allNull) }
@@ -180,12 +182,14 @@ enum ServerChartDataBuilder {
         result.columns.firstIndex { $0.name == alias }
     }
 
-    private static func cell(_ row: [AnyCodable], _ idx: Int?) -> AnyCodable? {
-        guard let i = idx, i < row.count else { return nil }
-        return row[i]
+    /// Every row, or none when a column the mark needs is past the table's
+    /// last one.
+    private static func rowRange(_ rows: ResultTable, _ needed: Int...) -> Range<Int> {
+        needed.allSatisfy { $0 < rows.columnCount } ? 0..<rows.rowCount : 0..<0
     }
 
-    private static func intValue(_ v: AnyCodable) -> Int? {
-        Int(v.displayString.trimmingCharacters(in: .whitespaces))
+    /// A cell's text (nil = SQL NULL) as an integer.
+    private static func intValue(_ v: String?) -> Int? {
+        v.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
     }
 }

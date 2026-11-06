@@ -537,12 +537,18 @@ pub struct ResultsSettings {
     // carries over: most results one editor tab keeps in memory, 0 = no limit.
     #[serde(default)]
     pub maximum_result_tabs: u32,
+    /// Percent of this Mac's memory the results of all windows may hold
+    /// before the ones out of sight move to a memory-mapped file. 0 = off.
+    #[serde(default = "default_result_memory_percent")]
+    pub result_memory_percent: u32,
     /// A card's new results take over the results area when its run ends.
     #[serde(default = "default_true")]
     pub show_new_results_automatically: bool,
 }
 
 fn default_true() -> bool { true }
+
+fn default_result_memory_percent() -> u32 { 25 }
 fn default_results_font_size() -> u32 { 12 }
 fn default_maximum_column_width() -> u32 { 1000 }
 fn default_fixed_column_width() -> u32 { 200 }
@@ -572,6 +578,7 @@ impl Default for ResultsSettings {
             copy_rich_text: true,
             allow_inline_editing: true,
             maximum_result_tabs: 0,
+            result_memory_percent: default_result_memory_percent(),
             show_new_results_automatically: true,
         }
     }
@@ -1395,6 +1402,7 @@ pub(crate) mod fixture {
                     copy_rich_text: false,
                     allow_inline_editing: false,
                     maximum_result_tabs: 1,
+                    result_memory_percent: 10,
                     show_new_results_automatically: false,
                 },
                 updates: UpdateSettings {

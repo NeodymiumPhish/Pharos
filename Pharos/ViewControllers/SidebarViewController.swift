@@ -228,11 +228,33 @@ class SidebarViewController: NSViewController {
                           let activeId = self.session.activeConnectionId,
                           target == nil || target == activeId,
                           self.stateManager.status(for: activeId) == .connected else { return }
-                    self.schemaBrowser.loadSchemas(connectionId: activeId, force: true)
-                    self.applyActiveSchemaToBrowser()
+                    // Every window on the connection hears this, and each
+                    // re-read the whole catalog over the FFI. A window out of
+                    // sight reads when it comes back into sight instead.
+                    guard !WindowSight.isOutOfSight(self.view.window) else {
+                        self.schemaRefreshPending = activeId
+                        return
+                    }
+                    self.refreshSchemas(connectionId: activeId)
                 }
             }
         )
+        notificationObservers += WindowSight.observeComingIntoSight(of: { [weak self] in self?.view.window }) { [weak self] in
+            guard let self, let pending = self.schemaRefreshPending else { return }
+            self.schemaRefreshPending = nil
+            // Only if the tab still shows that connection, connected.
+            guard self.session.activeConnectionId == pending,
+                  self.stateManager.status(for: pending) == .connected else { return }
+            self.refreshSchemas(connectionId: pending)
+        }
+    }
+
+    /// A refresh asked for while this window was out of sight.
+    private var schemaRefreshPending: String?
+
+    private func refreshSchemas(connectionId: String) {
+        schemaBrowser.loadSchemas(connectionId: connectionId, force: true)
+        applyActiveSchemaToBrowser()
     }
 
     // MARK: - Navigator Switching

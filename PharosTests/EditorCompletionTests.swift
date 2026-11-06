@@ -425,6 +425,22 @@ private func testSharedProvider() {
         tables: ["public": [table("users", "public")]],
         columnsByTable: ["public.users": [column("id", "integer", pk: true)]])
     expectEqual(provider.catalogRebuildCountForTesting - before, 1, "shared: one metadata update rebuilds the catalog once")
+
+    // Two windows on one connection: the second takes the first's catalog for
+    // the same revision, and a new revision is built once again.
+    let windowA = SQLCompletionProvider(), windowB = SQLCompletionProvider()
+    let usersTable = ["public": [table("users", "public")]]
+    let usersColumns = ["public.users": [column("id", "integer", pk: true)]]
+    windowA.updateMetadata(schemas: [], tables: usersTable, columnsByTable: usersColumns, shared: ("conn-x", 41))
+    windowB.updateMetadata(schemas: [], tables: usersTable, columnsByTable: usersColumns, shared: ("conn-x", 41))
+    expectEqual(windowA.catalogRebuildCountForTesting, 1, "shared: the first window builds the catalog")
+    expectEqual(windowB.catalogRebuildCountForTesting, 0, "shared: a second window on the same revision builds nothing")
+    windowB.updateMetadata(schemas: [], tables: usersTable, columnsByTable: usersColumns, shared: ("conn-x", 42))
+    expectEqual(windowB.catalogRebuildCountForTesting, 1, "shared: a new revision is built")
+    windowA.updateMetadata(schemas: [], tables: usersTable, columnsByTable: usersColumns, shared: ("conn-x", 42))
+    expectEqual(windowA.catalogRebuildCountForTesting, 1, "shared: and taken by the other window")
+    windowA.updateMetadata(schemas: [], tables: usersTable, columnsByTable: usersColumns, shared: ("conn-y", 42))
+    expectEqual(windowA.catalogRebuildCountForTesting, 2, "shared: another connection has its own catalog")
     provider.variables = [.init(name: "user_id", preview: "v")]
     provider.attachTo(a)
     let hostA = SharedHost(textView: a, provider: provider)

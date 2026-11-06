@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-tab-session-tests \
   Pharos/Models/TabSession.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/RowEdit.swift \
   Pharos/Core/TabSessionMonitor.swift \
   Pharos/Core/TabSessionBannerModel.swift \

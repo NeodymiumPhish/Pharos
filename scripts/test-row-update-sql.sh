@@ -10,6 +10,7 @@ swiftc -o /tmp/row-update-sql-tests \
   Pharos/Core/RowUpdateSQLBuilder.swift \
   Pharos/Models/PendingCellEdits.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/RowEdit.swift \
   Pharos/Utilities/SqlIdentifierQuoting.swift \
   PharosTests/RowUpdateSQLTests.swift \

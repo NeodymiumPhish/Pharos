@@ -39,8 +39,8 @@ import Foundation
 ///
 /// `Pharos/Core/` rather than the results-grid folder because the grid is only
 /// one of many callers, and because the pure `swiftc` harnesses that compile it
-/// (13 of them today) must not have to drag `AnyCodable` and `PGTypeCategory`
-/// in behind it.
+/// (13 of them today) must not have to drag the result model and
+/// `PGTypeCategory` in behind it.
 enum DisplayEscape {
 
     /// Scalars that must never reach a label as themselves.

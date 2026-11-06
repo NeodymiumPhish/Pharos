@@ -54,6 +54,8 @@ func runTests() {
         // Some rows are short: a page can hold ragged rows too.
         rows.append(i % 37 == 5 ? [ip, host] : [ip, host, port, seen, doc])
     }
+    // A short row's missing cells read as NULL, as a past-the-end column does.
+    let table = ResultTable(rows: rows)
 
     let tags: [(String, Tag)] = [
         ("exact", tag("exact", [rule("e1", [cond(.exact, "text", "example.org")]),
@@ -75,11 +77,13 @@ func runTests() {
         let index = label == "all tags together"
             ? TagRuleMatcher.buildIndex(everyTag)
             : TagRuleMatcher.buildIndex([single])
-        let whole = TagRuleMatcher.match(columns: columns, rows: rows, index: index)
+        let whole = TagRuleMatcher.match(columns: columns, rows: table, index: index)
         expectEqual(whole.isEmpty, false, "\(label): the fixture matches some rows")
         for split in [1, 100, 119, 200, 239] {
-            let first = TagRuleMatcher.match(columns: columns, rows: Array(rows[..<split]), index: index)
-            let page = TagRuleMatcher.match(columns: columns, rows: Array(rows[split...]), index: index)
+            // The first rows as their own table (the result before Load More),
+            // the page as a range of the grown one (what the grid passes).
+            let first = TagRuleMatcher.match(columns: columns, rows: table.slice(0..<split), index: index)
+            let page = TagRuleMatcher.match(columns: columns, rows: table, range: split..<table.rowCount, index: index)
             expectEqual(TagRuleMatcher.appendingPage(page, to: first, offset: split), whole,
                         "\(label): page at \(split) merged = whole match")
         }
@@ -87,12 +91,12 @@ func runTests() {
 
     // Three pages in a row, as three Load More presses give.
     let index = TagRuleMatcher.buildIndex(everyTag)
-    var grown = TagRuleMatcher.match(columns: columns, rows: Array(rows[..<60]), index: index)
+    var grown = TagRuleMatcher.match(columns: columns, rows: table.slice(0..<60), index: index)
     for (start, end) in [(60, 130), (130, 200), (200, 240)] {
-        let page = TagRuleMatcher.match(columns: columns, rows: Array(rows[start..<end]), index: index)
+        let page = TagRuleMatcher.match(columns: columns, rows: table.slice(0..<end), range: start..<end, index: index)
         grown = TagRuleMatcher.appendingPage(page, to: grown, offset: start)
     }
-    expectEqual(grown, TagRuleMatcher.match(columns: columns, rows: rows, index: index),
+    expectEqual(grown, TagRuleMatcher.match(columns: columns, rows: table, index: index),
                 "three pages merged = whole match")
 
     print(failures == 0 ? "ALL PASS" : "\(failures) FAILURE(S)")

@@ -9,6 +9,7 @@ pub mod model_feedback;
 pub mod query;
 pub mod query_history;
 pub mod query_variable;
+pub mod result_block;
 pub mod recent_file;
 pub mod redact;
 pub mod row_edit;

@@ -36,6 +36,7 @@ swiftc -o /tmp/tag-rule-grid-view-tests \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Models/Tag.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Views/HostileTextBadge.swift \
   Pharos/Views/NSStackView+SpanFullWidth.swift \
   Pharos/Views/TagConditionRowView.swift \

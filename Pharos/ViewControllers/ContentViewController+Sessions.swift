@@ -104,7 +104,7 @@ extension ContentViewController {
             sql: result.sql, rawSql: result.rawSQL, schemaName: result.historySchema ?? schemaName,
             executedAt: ISO8601DateFormatter().string(from: run.finishedAt),
             executionTimeMs: result.executionTimeMs, rowsAffected: result.executeResult?.rowsAffected,
-            rowCount: rows?.rows.count, hasMore: rows?.hasMore ?? false,
+            rowCount: rows?.rows.rowCount, hasMore: rows?.hasMore ?? false,
             chartViewStateJson: chartStateJSON(of: result),
             columns: rows?.columns, rows: rows?.rows, rowIdentity: rows?.rowIdentity)
     }
@@ -216,6 +216,7 @@ extension ContentViewController {
         }
         entry.results.insert(contentsOf: fresh, at: 0)
         session.resultStore[tabId] = entry
+        ResultMemoryManager.shared.scheduleCheck()
 
         let restoredIds = Set(restored.map(\.id))
         session.updateTab(id: tabId) { t in
@@ -249,7 +250,7 @@ extension ContentViewController {
         case .rows:
             guard let rows else { return nil }
             result.queryResult = .fromSavedSession(rows, hasMore: meta.hasMore, executionTimeMs: ms)
-            result.totalRowCountHint = meta.hasMore ? nil : rows.rows.count
+            result.totalRowCountHint = meta.hasMore ? nil : rows.rows.rowCount
         case .affected:
             result.executeResult = ExecuteResult(rowsAffected: UInt64(max(0, meta.rowsAffected ?? 0)),
                                                  executionTimeMs: ms, historyEntryId: nil)

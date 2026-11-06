@@ -36,7 +36,7 @@ enum RowUpdateSQLBuilder {
     static func makeRequest(
         pending: PendingCellEdits,
         columns: [ColumnDef],
-        rows: [[AnyCodable]],
+        rows: ResultTable,
         rowIdentity: RowIdentity?
     ) -> RowUpdateRequest? {
         guard !pending.isEmpty,
@@ -76,8 +76,7 @@ enum RowUpdateSQLBuilder {
 
         var requestRows: [RowUpdateRequest.Row] = []
         for dataRow in pending.rows {
-            guard dataRow >= 0, dataRow < rows.count else { return nil }
-            let row = rows[dataRow]
+            guard dataRow >= 0, dataRow < rows.rowCount else { return nil }
 
             // A NULL key value would make the WHERE clause match nothing (or,
             // worse, everything with a NULL there). The core already refuses
@@ -85,14 +84,14 @@ enum RowUpdateSQLBuilder {
             // `CellEditability`; this is the third and last gate.
             var key: [String] = []
             for idx in keyIndices {
-                guard idx < row.count, let text = row[idx].stringValue else { return nil }
+                guard let text = rows.string(dataRow, idx) else { return nil }
                 key.append(text)
             }
 
             var oldValues: [String?] = []
             var newValues: [String?] = []
             for idx in editedIndices {
-                let loaded = idx < row.count ? row[idx].stringValue : nil
+                let loaded = rows.string(dataRow, idx)
                 oldValues.append(loaded)
                 // A column this row did not edit is written back with the value
                 // it already has. It costs one bound parameter and keeps every

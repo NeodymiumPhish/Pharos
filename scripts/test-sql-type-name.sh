@@ -11,6 +11,7 @@ swiftc -o "$BIN" \
   Pharos/Models/ColumnTypeIcon.swift \
   Pharos/Models/Charts/ChartTypes.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/Charts/ValueCoercion.swift \
   Pharos/Models/Charts/ColumnClassifier.swift \
   PharosTests/SQLTypeNameTests.swift \

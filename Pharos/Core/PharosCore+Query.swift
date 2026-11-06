@@ -32,13 +32,13 @@ extension PharosCore {
         schema: String? = nil,
         source: String? = nil
     ) async throws -> QueryResult {
-        return try await withAsyncCallback { callback, context in
+        return try await withResultCallback { callback, block, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
                     withOptionalCString(queryId) { cQid in
                         withOptionalCString(schema) { cSchema in
                             withOptionalCString(source) { cSource in
-                                pharos_execute_query(cConn, cSql, cQid, limit, cSchema, cSource, callback, context)
+                                pharos_execute_query(cConn, cSql, cQid, limit, cSchema, cSource, callback, block, context)
                             }
                         }
                     }
@@ -78,11 +78,11 @@ extension PharosCore {
     ) async throws -> QueryResult {
         let signpost = Log.signposter.beginInterval("fetchMore", id: Log.signposter.makeSignpostID())
         defer { Log.signposter.endInterval("fetchMore", signpost) }
-        return try await withAsyncCallback { callback, context in
+        return try await withResultCallback { callback, block, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
                     withOptionalCString(schema) { cSchema in
-                        pharos_fetch_more_rows(cConn, cSql, limit, offset, cSchema, callback, context)
+                        pharos_fetch_more_rows(cConn, cSql, limit, offset, cSchema, callback, block, context)
                     }
                 }
             }
@@ -108,12 +108,12 @@ extension PharosCore {
     ) async throws -> QueryResult {
         let signpost = Log.signposter.beginInterval("fetchAll", id: Log.signposter.makeSignpostID())
         defer { Log.signposter.endInterval("fetchAll", signpost) }
-        return try await withAsyncCallback(onProgress: onProgress) { callback, progress, context in
+        return try await withResultCallback(onProgress: onProgress) { callback, progress, block, context in
             connectionId.withCString { cConn in
                 sql.withCString { cSql in
                     queryId.withCString { cQid in
                         withOptionalCString(schema) { cSchema in
-                            pharos_fetch_all_rows(cConn, cSql, cQid, maxRows, cSchema, progress, callback, context)
+                            pharos_fetch_all_rows(cConn, cSql, cQid, maxRows, cSchema, progress, callback, block, context)
                         }
                     }
                 }

@@ -27,6 +27,20 @@
 typedef void (*AsyncCallback)(void *context, const char *result_json, const char *error_msg);
 
 /**
+ * Callback that hands a result's rows over as one PRB1 block
+ * (`commands::result_block`), called once, right BEFORE the completion
+ * callback, from the same task, with the SAME context.
+ * - `block` / `block_len`: the block. OWNERSHIP PASSES to the caller, who
+ *   frees it with `pharos_free_block(block, block_len)` — Swift wraps it in a
+ *   `Data` with that deallocator, so the rows are never copied.
+ *
+ * The completion callback then carries the result's other fields as JSON
+ * with `"rows":[]`. NULL keeps the old contract: the rows travel inside the
+ * JSON. Nullable alias, as for `ProgressCallback`.
+ */
+typedef void (*BlockCallback)(void *context, uint8_t *block, uintptr_t block_len);
+
+/**
  * Callback invoked while a long operation is still running.
  * - `context`: the SAME opaque pointer the operation's `AsyncCallback` is given,
  *   so one box on the caller's side carries both closures.
@@ -43,6 +57,15 @@ typedef void (*AsyncCallback)(void *context, const char *result_json, const char
  * `struct Option_ProgressCallback` for it, which no caller can pass NULL to.
  */
 typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
+
+/**
+ * Free a block a `BlockCallback` or an out-parameter handed over.
+ *
+ * # Safety
+ * `block` must be a pointer pharos-core handed over with exactly this
+ * `block_len`, and must not be used after this call.
+ */
+ void pharos_free_block(uint8_t *block, uintptr_t block_len);
 
 /**
  * Split SQL text into query cards. Returns `{"cards":[…]}` (camelCase card
@@ -360,6 +383,7 @@ void pharos_execute_query(const char *connection_id,
                           const char *schema,
                           const char *source,
                           AsyncCallback callback,
+                          BlockCallback block_callback,
                           void *context);
 
 /**
@@ -384,6 +408,7 @@ void pharos_fetch_more_rows(const char *connection_id,
                             int64_t offset,
                             const char *schema,
                             AsyncCallback callback,
+                            BlockCallback block_callback,
                             void *context);
 
 /**
@@ -404,6 +429,7 @@ void pharos_fetch_all_rows(const char *connection_id,
                            const char *schema,
                            ProgressCallback progress,
                            AsyncCallback callback,
+                           BlockCallback block_callback,
                            void *context);
 
 /**
@@ -467,8 +493,15 @@ char *pharos_load_query_history(const char *json);
 
 /**
  * Get cached result data for a history entry. Returns JSON or NULL.
+ *
+ * `out_block` / `out_len`: when both are non-NULL, the rows come back as a
+ * PRB1 block written there (free it with `pharos_free_block`) and the JSON
+ * carries `"rows":[]`; a NULL result writes nothing.
  */
- char *pharos_get_query_history_result(const char *entry_id);
+
+char *pharos_get_query_history_result(const char *entry_id,
+                                      uint8_t **out_block,
+                                      uintptr_t *out_len);
 
 /**
  * Batch delete query history entries. `json` is a JSON array of ID strings.
@@ -582,8 +615,15 @@ void pharos_apply_row_updates(const char *connection_id,
 /**
  * One stored Session result, in the shape of a history result. Returns JSON
  * or NULL when its rows are not stored.
+ *
+ * `out_block` / `out_len`: when both are non-NULL, the rows come back as a
+ * PRB1 block written there (free it with `pharos_free_block`) and the JSON
+ * carries `"rows":[]`; a NULL result writes nothing.
  */
- char *pharos_get_saved_query_result(const char *result_id);
+
+char *pharos_get_saved_query_result(const char *result_id,
+                                    uint8_t **out_block,
+                                    uintptr_t *out_len);
 
 /**
  * Get schemas. Returns JSON array via callback.
@@ -721,7 +761,11 @@ void pharos_generate_table_ddl(const char *connection_id,
  * Request: `{sessionId, connectionId, schema?, queryId?, sql, limit?, source?, aux?}`.
  * Result: QueryResult JSON plus `session`.
  */
- void pharos_session_execute_query(const char *request_json, AsyncCallback callback, void *context);
+
+void pharos_session_execute_query(const char *request_json,
+                                  AsyncCallback callback,
+                                  BlockCallback block_callback,
+                                  void *context);
 
 /**
  * Run a card's other statement on its tab's connection. Same request as
@@ -739,6 +783,7 @@ void pharos_session_execute_statement(const char *request_json,
 
 void pharos_session_fetch_more_rows(const char *request_json,
                                     AsyncCallback callback,
+                                    BlockCallback block_callback,
                                     void *context);
 
 /**
@@ -749,6 +794,7 @@ void pharos_session_fetch_more_rows(const char *request_json,
 void pharos_session_fetch_all_rows(const char *request_json,
                                    ProgressCallback progress,
                                    AsyncCallback callback,
+                                   BlockCallback block_callback,
                                    void *context);
 
 /**

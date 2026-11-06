@@ -10,8 +10,7 @@ func expect(_ c: Bool, _ n: String) { if c { print("PASS \(n)") } else { failure
 /// All cell values arrive as strings (mirrors the FFI's JSON-string cells).
 func makeResult(_ cols: [(String, String)], _ rows: [[String?]], hasMore: Bool = false) -> QueryResult {
     let columns = cols.map { ColumnDef(name: $0.0, dataType: $0.1) }
-    let anyRows = rows.map { r in r.map { AnyCodable($0) } }
-    return QueryResult(columns: columns, rows: anyRows, rowCount: anyRows.count,
+    return QueryResult(columns: columns, rows: ResultTable(rows: rows), rowCount: rows.count,
                         executionTimeMs: 0, hasMore: hasMore, historyEntryId: nil)
 }
 
@@ -134,7 +133,7 @@ func runTests() {
     scCfg.mappings[.y] = ColumnRef(index: 1, name: "age")
     let scRes = QueryResult(
         columns: [ColumnDef(name: "_x", dataType: "numeric"), ColumnDef(name: "_y", dataType: "numeric")],
-        rows: [[AnyCodable("1.5"), AnyCodable("10")], [AnyCodable("2.0"), AnyCodable("20")], [AnyCodable("3.0"), AnyCodable("30")]],
+        rows: ResultTable(rows: [["1.5", "10"], ["2.0", "20"], ["3.0", "30"]]),
         rowCount: 3, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
     let scData = ServerChartDataBuilder.build(scRes, layout: scLayout, config: scCfg)
     expect(scData.series.first?.points.count == 3, "scatter maps 3 points")
@@ -149,8 +148,8 @@ func runTests() {
         columns: [ColumnDef(name: "_bucket", dataType: "int4"), ColumnDef(name: "_lo", dataType: "numeric"),
                   ColumnDef(name: "_hi", dataType: "numeric"), ColumnDef(name: "_n", dataType: "int4"),
                   ColumnDef(name: "_val", dataType: "numeric")],
-        rows: [[AnyCodable("1"), AnyCodable("0"), AnyCodable("10"), AnyCodable("2"), AnyCodable("5")],
-               [AnyCodable("2"), AnyCodable("0"), AnyCodable("10"), AnyCodable("2"), AnyCodable("7")]],
+        rows: ResultTable(rows: [["1", "0", "10", "2", "5"],
+                                 ["2", "0", "10", "2", "7"]]),
         rowCount: 2, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
     let numData = ServerChartDataBuilder.build(numRes, layout: PushdownLayout(kind: .categorical, hasSeries: false, numericBins: 0), config: numCfg)
     let numPts = numData.series.first?.points ?? []
@@ -168,7 +167,7 @@ func runTests() {
         columns: [ColumnDef(name: "_x", dataType: "int4"), ColumnDef(name: "_y", dataType: "text"),
                   ColumnDef(name: "_xlo", dataType: "numeric"), ColumnDef(name: "_xhi", dataType: "numeric"),
                   ColumnDef(name: "_xn", dataType: "int4"), ColumnDef(name: "_val", dataType: "numeric")],
-        rows: [[AnyCodable("1"), AnyCodable("open"), AnyCodable("0"), AnyCodable("10"), AnyCodable("2"), AnyCodable("4")]],
+        rows: ResultTable(rows: [["1", "open", "0", "10", "2", "4"]]),
         rowCount: 1, executionTimeMs: 1, hasMore: false, historyEntryId: nil)
     let hmData = ServerChartDataBuilder.build(hmRes, layout: PushdownLayout(kind: .heatmap, hasSeries: false, numericBins: nil, xNumericBinned: true, yNumericBinned: false), config: hmCfg)
     expect(hmData.heatmapCells.first?.x == "0–5", "heatmap numeric X labelled from _xlo/_xhi/_xn")

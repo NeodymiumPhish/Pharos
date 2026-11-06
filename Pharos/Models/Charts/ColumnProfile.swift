@@ -66,23 +66,22 @@ enum ColumnProfiler {
     static let discreteNumericThreshold = 12
 
     static func profile(_ result: QueryResult, sampleLimit: Int = sampleLimit) -> [ColumnProfile] {
-        let rows = result.rows.prefix(sampleLimit)
+        let rows = result.rows
+        let sample = 0..<min(rows.rowCount, max(sampleLimit, 0))
         return result.columns.enumerated().map { index, column in
-            profile(column: column, index: index, rows: rows)
+            profile(column: column, index: index, rows: rows, sample: sample)
         }
     }
 
-    private static func profile(column: ColumnDef, index: Int, rows: ArraySlice<[AnyCodable]>) -> ColumnProfile {
+    private static func profile(column: ColumnDef, index: Int, rows: ResultTable,
+                                sample: Range<Int>) -> ColumnProfile {
         let declared = ColumnClassifier.kind(forDataType: column.dataType)
         let isBoolean = column.dataType.lowercased().hasPrefix("bool")
 
         var values: [String] = []
         var distinct = Set<String>()
-        for row in rows where index < row.count {
-            let cell = row[index]
-            if cell.isNull { continue }
-            let text = cell.displayString
-            if text.isEmpty { continue }
+        for r in sample {
+            guard let text = rows.string(r, index), !text.isEmpty else { continue }
             values.append(text)
             distinct.insert(text)
         }
@@ -110,7 +109,7 @@ enum ColumnProfiler {
 
         return ColumnProfile(index: index, name: column.name, dataType: column.dataType,
                              declaredKind: declared, kind: kind,
-                             sampledRows: rows.count, nonNullCount: values.count,
+                             sampledRows: sample.count, nonNullCount: values.count,
                              distinctCount: distinct.count, isBoolean: isBoolean,
                              allNonNegative: allNonNegative, allIntegers: allIntegers,
                              spanSeconds: span)

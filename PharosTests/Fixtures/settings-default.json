@@ -172,6 +172,7 @@
     "monospacedFont": true,
     "nullStyle": "italic",
     "numberStyle": "asReturned",
+    "resultMemoryPercent": 25,
     "showColumnTypeIcons": false,
     "showInvisibleCharacters": false,
     "showNewResultsAutomatically": true,

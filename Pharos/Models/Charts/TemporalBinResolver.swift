@@ -26,8 +26,9 @@ enum TemporalBinResolver {
     static func span(of result: QueryResult, column ref: ColumnRef) -> Double? {
         guard ref.index < result.columns.count else { return nil }
         var lo: String? = nil, hi: String? = nil
-        for row in result.rows where ref.index < row.count {
-            guard case let s as String = row[ref.index].value, !s.isEmpty else { continue }
+        let rows = result.rows
+        for r in 0..<rows.rowCount {
+            guard let s = rows.string(r, ref.index), !s.isEmpty else { continue }
             if lo == nil || s < lo! { lo = s }
             if hi == nil || s > hi! { hi = s }
         }

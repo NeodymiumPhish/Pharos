@@ -3,7 +3,7 @@ import AppKit
 // MARK: - Find Controller Delegate
 
 protocol ResultsFindControllerDelegate: AnyObject {
-    var findRows: [[AnyCodable]] { get }
+    var findRows: ResultTable { get }
     var findColumns: [ColumnDef] { get }
     var findUnfilteredDisplayRows: [Int] { get }
     func findControllerDidUpdateResults(
@@ -25,7 +25,7 @@ protocol ResultsFindControllerDelegate: AnyObject {
 /// → `DisplayEscape`). Searching the escaped form would answer a different
 /// question than the user asked — typing `10.0.0.1` would miss a cell drawn as
 /// `10.0.0.1<U+0020>`, and typing `U+0020` would match every padded cell. So the
-/// scan below reads `AnyCodable.displayString` off the model.
+/// scan below reads the raw cell text off the model (`ResultTable`).
 ///
 /// The escaping cannot shift a highlight, because this controller does not
 /// compute character ranges: a match is a whole CELL (`CellAddress`), and
@@ -238,12 +238,9 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
         findMatchSet = Set()
 
         for (displayIdx, rowIdx) in displayRows.enumerated() {
-            let rowData = rows[rowIdx]
-            for (colIdx, _) in columns.enumerated() {
+            for colIdx in columns.indices {
                 let colId = "col_\(colIdx)"
-                guard colIdx < rowData.count else { continue }
-                let value = rowData[colIdx]
-                if !value.isNull, matcher.matches(value.displayString) {
+                if let value = rows.string(rowIdx, colIdx), matcher.matches(value) {
                     findMatches.append((row: displayIdx, colId: colId))
                     findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     matchingRowIndices.insert(rowIdx)
@@ -258,12 +255,9 @@ class ResultsFindController: NSObject, NSSearchFieldDelegate, ResultsTableFindRo
             findMatches = []
             findMatchSet = Set()
             for (displayIdx, rowIdx) in displayRows.enumerated() {
-                let rowData = rows[rowIdx]
-                for (colIdx, _) in columns.enumerated() {
+                for colIdx in columns.indices {
                     let colId = "col_\(colIdx)"
-                    guard colIdx < rowData.count else { continue }
-                    let value = rowData[colIdx]
-                    if !value.isNull, matcher.matches(value.displayString) {
+                    if let value = rows.string(rowIdx, colIdx), matcher.matches(value) {
                         findMatches.append((row: displayIdx, colId: colId))
                         findMatchSet.insert(CellAddress(row: displayIdx, colId: colId))
                     }

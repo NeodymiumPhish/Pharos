@@ -20,10 +20,10 @@ private func expect(_ actual: String, _ expected: String, _ name: String) {
 
 // MARK: - Fixtures
 
-private func result(_ names: [String], _ rows: [[Any?]]) -> QueryResult {
+private func result(_ names: [String], _ rows: [[String?]]) -> QueryResult {
     QueryResult(
         columns: names.map { ColumnDef(name: $0, dataType: "text") },
-        rows: rows.map { $0.map { AnyCodable($0) } },
+        rows: ResultTable(rows: rows),
         rowCount: rows.count,
         executionTimeMs: 1,
         hasMore: false,

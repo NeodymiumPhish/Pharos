@@ -21,6 +21,7 @@ swiftc -o "$BIN" \
   Pharos/Models/Connection.swift \
   Pharos/Models/SavedQuery.swift \
   Pharos/Models/QueryResult.swift \
+  Pharos/Models/ResultTable.swift \
   Pharos/Models/QueryHistoryStatus.swift \
   Pharos/Models/QueryHistory.swift \
   PharosTests/SessionStoreTests.swift \

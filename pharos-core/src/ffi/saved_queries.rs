@@ -177,13 +177,21 @@ pub extern "C" fn pharos_load_saved_query_results(saved_query_id: *const c_char)
 /// One stored Session result, in the shape of a history result. Returns JSON
 /// or NULL when its rows are not stored.
 #[no_mangle]
-pub extern "C" fn pharos_get_saved_query_result(result_id: *const c_char) -> *mut c_char {
+///
+/// `out_block` / `out_len`: when both are non-NULL, the rows come back as a
+/// PRB1 block written there (free it with `pharos_free_block`) and the JSON
+/// carries `"rows":[]`; a NULL result writes nothing.
+pub extern "C" fn pharos_get_saved_query_result(
+    result_id: *const c_char,
+    out_block: *mut *mut u8,
+    out_len: *mut usize,
+) -> *mut c_char {
     ffi_sync!({
         let state = app_state();
         let rt = runtime();
         let id = unsafe { c_str_to_string(result_id) };
         match rt.block_on(crate::commands::get_saved_query_result(state, id)) {
-            Ok(Some(data)) => to_json_c_string_owned(data),
+            Ok(Some(data)) => stored_result_c_string(data, out_block, out_len),
             Ok(None) => std::ptr::null_mut(),
             Err(e) => to_c_string(&serde_json::json!({"error": e.to_string()}).to_string()),
         }

@@ -28,7 +28,7 @@ protocol ResultsCopyExportDelegate: AnyObject {
 /// The grid escapes hostile scalars for DISPLAY (`ResultCellText.rendered` →
 /// `DisplayEscape`) so a bidi override cannot make a cell read as a filename the
 /// data does not hold. That transform must stop at the label. This class reads
-/// `AnyCodable.displayString` straight off the model instead, because an
+/// the raw cell text straight off the model (`ResultTable`) instead, because an
 /// analyst pastes indicators out of here into other systems, and an indicator
 /// that arrived as `10.0.0.1<U+0020>` is a corrupt indicator — the copy would
 /// silently no longer be the thing that was on screen.
@@ -52,7 +52,7 @@ class ResultsCopyExport: NSObject {
 
     // Data state (pushed by VC)
     var columns: [ColumnDef] = []
-    var rows: [[AnyCodable]] = []
+    var rows = ResultTable()
     var displayRows: [Int] = []
     var columnCategories: [PGTypeCategory] = []
 
@@ -206,17 +206,13 @@ class ResultsCopyExport: NSObject {
         for row in range.topLeft.row...range.bottomRight.row {
             guard row >= 0, row < displayRows.count else { continue }
             let dataIdx = displayRows[row]
-            guard dataIdx < rows.count else { continue }
+            guard dataIdx < rows.rowCount else { continue }
             guard TagCopyScope.include(dataRow: dataIdx, taggedOnly: taggedOnly,
                                        taggedRows: taggedRows) else {
                 droppedByScope = true
                 continue
             }
-            let data = rows[dataIdx]
-            let values = indices.map { idx in
-                idx < data.count && !data[idx].isNull ? data[idx].displayString : nil
-            }
-            rowData.append(values)
+            rowData.append(indices.map { rows.string(dataIdx, $0) })
         }
 
         // An out-of-bounds range still reports `.none` and keeps its old
@@ -263,21 +259,15 @@ class ResultsCopyExport: NSObject {
                 guard row < displayRows.count,
                       TagCopyScope.include(dataRow: displayRows[row], taggedOnly: taggedOnly,
                                            taggedRows: taggedRows) else { continue }
-                let data = rows[displayRows[row]]
-                let values = indices.map { idx in
-                    idx < data.count && !data[idx].isNull ? data[idx].displayString : nil
-                }
-                rowData.append(values)
+                let dataIdx = displayRows[row]
+                rowData.append(indices.map { rows.string(dataIdx, $0) })
             }
         } else {
             for row in 0..<displayRows.count {
                 guard TagCopyScope.include(dataRow: displayRows[row], taggedOnly: taggedOnly,
                                            taggedRows: taggedRows) else { continue }
-                let data = rows[displayRows[row]]
-                let values = indices.map { idx in
-                    idx < data.count && !data[idx].isNull ? data[idx].displayString : nil
-                }
-                rowData.append(values)
+                let dataIdx = displayRows[row]
+                rowData.append(indices.map { rows.string(dataIdx, $0) })
             }
         }
 
