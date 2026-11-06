@@ -132,6 +132,66 @@ impl ResultBlockBuilder {
     }
 }
 
+/// Write the block for `rows` in one allocation of the exact size, when every
+/// row is already in memory. `cell(row, column)` gives a cell's UTF-8 bytes
+/// (None = NULL). Two passes: the first counts each column's text, the
+/// second writes the cells straight into the block.
+///
+/// The builder grows a buffer per column by doubling and then copies them
+/// into the block, so it frees about twice the block in medium-size pieces;
+/// malloc keeps those pieces for reuse, and each run of a large result left
+/// the process ~100 MB bigger (measured). This makes ONE large allocation,
+/// which the system takes back whole when the block is freed.
+pub fn block_from_rows<R>(rows: &[R], columns: usize, cell: impl Fn(&R, usize) -> Option<&[u8]>) -> Vec<u8> {
+    let n = rows.len();
+    let bitmap = n.div_ceil(8);
+    let mut text = vec![0usize; columns];
+    for row in rows {
+        for (c, total) in text.iter_mut().enumerate() {
+            if let Some(bytes) = cell(row, c) {
+                *total += bytes.len();
+            }
+        }
+    }
+    for &t in &text {
+        assert!(t <= u32::MAX as usize, "a column holds more than 4 GB of text");
+    }
+    let size = 16 + text.iter().map(|&t| 4 + padded(bitmap) + 4 * (n + 1) + padded(t)).sum::<usize>();
+    let mut out = Vec::with_capacity(size);
+    out.extend_from_slice(MAGIC);
+    out.extend_from_slice(&VERSION.to_le_bytes());
+    out.extend_from_slice(&(n as u32).to_le_bytes());
+    out.extend_from_slice(&(columns as u32).to_le_bytes());
+    for (c, &total) in text.iter().enumerate() {
+        out.extend_from_slice(&(total as u32).to_le_bytes());
+        // Null bitmap.
+        let bitmap_at = out.len();
+        out.resize(bitmap_at + padded(bitmap), 0);
+        for (r, row) in rows.iter().enumerate() {
+            if cell(row, c).is_none() {
+                out[bitmap_at + (r >> 3)] |= 1 << (r & 7);
+            }
+        }
+        // Offsets.
+        let mut offset = 0u32;
+        out.extend_from_slice(&offset.to_le_bytes());
+        for row in rows {
+            offset += cell(row, c).map_or(0, |b| b.len() as u32);
+            out.extend_from_slice(&offset.to_le_bytes());
+        }
+        // Text.
+        for row in rows {
+            if let Some(bytes) = cell(row, c) {
+                out.extend_from_slice(bytes);
+            }
+        }
+        out.resize(out.len() + padded(total) - total, 0);
+    }
+    debug_assert_eq!(out.len(), size);
+    debug_assert_eq!(out.capacity(), size, "one allocation of the exact size");
+    out
+}
+
 /// A parsed block, borrowing its bytes.
 pub struct ResultBlock<'a> {
     data: &'a [u8],
@@ -562,6 +622,28 @@ mod tests {
                     assert_eq!(parsed.cell(r, c), *cell);
                 }
             }
+        }
+    }
+
+    /// The exact writer gives the builder's bytes, in one exact allocation.
+    #[test]
+    fn block_from_rows_matches_the_builder() {
+        let rows = sample();
+        let exact = block_from_rows(&rows, 4, |row, c| row.get(c).copied().flatten().map(str::as_bytes));
+        assert_eq!(exact, build(&rows));
+        assert_eq!(exact.capacity(), exact.len());
+        let none: Vec<Vec<Option<&str>>> = vec![];
+        assert_eq!(block_from_rows(&none, 3, |row, c| row.get(c).copied().flatten().map(str::as_bytes)),
+                   ResultBlockBuilder::new(3).finish());
+        for n in 0..=17usize {
+            let rows: Vec<Vec<Option<String>>> = (0..n)
+                .map(|i| vec![Some("x".repeat(i % 10)), if i % 3 == 0 { None } else { Some("y".into()) }])
+                .collect();
+            let borrowed: Vec<Vec<Option<&str>>> =
+                rows.iter().map(|r| r.iter().map(|c| c.as_deref()).collect()).collect();
+            // `build` takes its column count from the rows, so 0 rows needs the builder itself.
+            let expected = if n == 0 { ResultBlockBuilder::new(2).finish() } else { build(&borrowed) };
+            assert_eq!(block_from_rows(&borrowed, 2, |row, c| row[c].map(str::as_bytes)), expected, "{} rows", n);
         }
     }
 

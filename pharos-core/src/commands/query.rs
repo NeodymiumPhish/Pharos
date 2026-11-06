@@ -358,7 +358,7 @@ pub(crate) fn tagged_db_message(code: Option<&str>, message: &str) -> String {
 // logic that fills them. A private `use` here is still visible to this module's
 // descendants, so the test module below reaches them through `super::`.
 use super::row_identity::{assemble_row_identity, ColumnDef, RowIdentity};
-use super::result_block::{ResultBlockBuilder, Rows};
+use super::result_block::{block_from_rows, ResultBlockBuilder, Rows};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
@@ -532,19 +532,13 @@ async fn read_rows_with_cancel(
     ReadOutcome { rows, error, cancelled }
 }
 
-/// The first `take` rows as one block of text cells, in column order. Each
-/// row is dropped as soon as its cells are copied, so the `PgRow`s and the
-/// block are not both whole at once for long.
+/// The first `take` rows as one block of text cells, in column order, written
+/// in one exact allocation (`block_from_rows`).
 pub(crate) fn rows_to_block(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: usize) -> Rows {
-    let mut builder = ResultBlockBuilder::new(columns.len());
-    builder.reserve_rows(take.min(rows.len()));
-    for row in rows.into_iter().take(take) {
-        for i in 0..columns.len() {
-            builder.push(pg_cell(&row, i));
-        }
-        builder.end_row();
-    }
-    Rows::from_builder(builder)
+    let kept = &rows[..take.min(rows.len())];
+    let block = block_from_rows(kept, columns.len(), |row, i| pg_cell(row, i).map(str::as_bytes));
+    drop(rows);
+    Rows::from_block(block).expect("block_from_rows writes a valid block")
 }
 
 /// The history row for one successful run, with a fresh id.
