@@ -358,11 +358,14 @@ pub(crate) fn tagged_db_message(code: Option<&str>, message: &str) -> String {
 // logic that fills them. A private `use` here is still visible to this module's
 // descendants, so the test module below reaches them through `super::`.
 use super::row_identity::{assemble_row_identity, ColumnDef, RowIdentity};
+use super::result_block::{ResultBlockBuilder, Rows};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     pub columns: Vec<ColumnDef>,
-    pub rows: Vec<serde_json::Value>,
+    /// The rows as one PRB1 block (`result_block`), not a `Value` per cell.
+    /// Serializes as JSON `[[string|null]]`, the same text as before.
+    pub rows: Rows,
     pub row_count: usize,
     pub execution_time_ms: u64,
     pub has_more: bool,
@@ -400,7 +403,7 @@ pub(crate) async fn build_row_identity(
     pool: &sqlx::PgPool,
     connection_id: &str,
     columns: &[ColumnDef],
-    json_rows: &[serde_json::Value],
+    rows: &Rows,
     state: &AppState,
 ) -> Option<RowIdentity> {
     let column_oids: Vec<Option<u32>> = columns.iter().map(|c| c.relation_oid).collect();
@@ -465,7 +468,7 @@ pub(crate) async fn build_row_identity(
     let info = state.get_table_key_info(connection_id, primary_oid);
     Some(assemble_row_identity(
         columns,
-        json_rows,
+        &rows.reader(),
         primary_oid,
         &all_oids,
         info.as_ref(),
@@ -529,19 +532,19 @@ async fn read_rows_with_cancel(
     ReadOutcome { rows, error, cancelled }
 }
 
-/// The first `take` rows as JSON arrays of text values, in column order.
-pub(crate) fn rows_to_json(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: usize) -> Vec<serde_json::Value> {
-    rows.into_iter()
-        .take(take)
-        .map(|row| {
-            let values: Vec<serde_json::Value> = columns
-                .iter()
-                .enumerate()
-                .map(|(i, col)| extract_value(&row, i, &col.data_type))
-                .collect();
-            serde_json::Value::Array(values)
-        })
-        .collect()
+/// The first `take` rows as one block of text cells, in column order. Each
+/// row is dropped as soon as its cells are copied, so the `PgRow`s and the
+/// block are not both whole at once for long.
+pub(crate) fn rows_to_block(rows: Vec<sqlx::postgres::PgRow>, columns: &[ColumnDef], take: usize) -> Rows {
+    let mut builder = ResultBlockBuilder::new(columns.len());
+    builder.reserve_rows(take.min(rows.len()));
+    for row in rows.into_iter().take(take) {
+        for i in 0..columns.len() {
+            builder.push(pg_cell(&row, i));
+        }
+        builder.end_row();
+    }
+    Rows::from_builder(builder)
 }
 
 /// The history row for one successful run, with a fresh id.
@@ -587,14 +590,21 @@ pub(crate) type ResultCache = (String, String, Option<String>);
 /// moved into the result once, not cloned.
 pub(crate) fn result_cache(
     columns: &[ColumnDef],
-    json_rows: &[serde_json::Value],
+    rows: &Rows,
     row_identity: Option<&RowIdentity>,
 ) -> Option<ResultCache> {
-    if json_rows.is_empty() {
+    if rows.is_empty() {
+        return None;
+    }
+    // A block over 16 MB writes more than 10 MB of JSON: per cell the block
+    // holds the text plus a 4-byte offset, the JSON the text plus at least 3
+    // bytes (quotes and a comma, or `null,`), so the JSON is at least ~3/4 of
+    // the block. Such a result was never cached; skip the serialization.
+    if rows.block().len() > 16_000_000 {
         return None;
     }
     let columns_json = serde_json::to_string(columns).unwrap_or_default();
-    let rows_json = serde_json::to_string(json_rows).unwrap_or_default();
+    let rows_json = serde_json::to_string(rows).unwrap_or_default();
     let identity_json = row_identity.and_then(|id| serde_json::to_string(id).ok());
     if columns_json.len() + rows_json.len() < 10_000_000 {
         Some((columns_json, rows_json, identity_json))
@@ -749,7 +759,7 @@ pub async fn execute_query(
         };
         return Ok(QueryResult {
             columns,
-            rows: vec![],
+            rows: Rows::empty(),
             row_count: 0,
             execution_time_ms,
             has_more: false,
@@ -768,7 +778,7 @@ pub async fn execute_query(
 
     let row_limit = std::cmp::min(rows.len(), limit as usize);
 
-    let json_rows = rows_to_json(rows, &columns, row_limit);
+    let json_rows = rows_to_block(rows, &columns, row_limit);
 
     // Return this connection to the pool BEFORE the identity block, which
     // acquires one of its own for the catalogue read. The pool is small — see
@@ -808,22 +818,16 @@ pub async fn execute_query(
     })
 }
 
-/// Extract a value from a row at the given index.
-/// With simple query protocol (raw_sql), all values arrive in PostgreSQL text format.
-/// We just read the text representation directly — no per-type decoding needed.
-fn extract_value(row: &sqlx::postgres::PgRow, index: usize, _type_name: &str) -> serde_json::Value {
-    match row.try_get_raw(index) {
-        Ok(raw) => {
-            if raw.is_null() {
-                serde_json::Value::Null
-            } else if let Ok(s) = raw.as_str() {
-                serde_json::Value::String(s.to_string())
-            } else {
-                serde_json::Value::Null
-            }
-        }
-        Err(_) => serde_json::Value::Null,
+/// One cell as text, or None for NULL. With the simple query protocol
+/// (raw_sql) every value arrives in PostgreSQL's text format, so the raw bytes
+/// ARE the text — no per-type decoding. A value that is not UTF-8, or a read
+/// error, is NULL, as it always was.
+fn pg_cell(row: &sqlx::postgres::PgRow, index: usize) -> Option<&str> {
+    let raw = row.try_get_raw(index).ok()?;
+    if raw.is_null() {
+        return None;
     }
+    raw.as_str().ok()
 }
 
 /// Fetch more rows from an already-executed query using LIMIT/OFFSET
@@ -892,7 +896,7 @@ pub async fn fetch_more_rows(
     if rows.is_empty() {
         return Ok(QueryResult {
             columns: vec![],
-            rows: vec![],
+            rows: Rows::empty(),
             row_count: 0,
             execution_time_ms,
             has_more: false,
@@ -907,7 +911,7 @@ pub async fn fetch_more_rows(
     let has_more = rows.len() > limit as usize;
     let row_limit = std::cmp::min(rows.len(), limit as usize);
 
-    let json_rows = rows_to_json(rows, &columns, row_limit);
+    let json_rows = rows_to_block(rows, &columns, row_limit);
 
     // As in execute_query: release this connection before the catalogue read
     // acquires one of its own.
@@ -1115,7 +1119,7 @@ pub async fn fetch_all_rows_snapshot(
     if rows.is_empty() {
         return Ok(QueryResult {
             columns: empty_columns,
-            rows: vec![],
+            rows: Rows::empty(),
             row_count: 0,
             execution_time_ms,
             has_more: false,
@@ -1125,7 +1129,7 @@ pub async fn fetch_all_rows_snapshot(
     }
 
     let columns: Vec<ColumnDef> = pg_columns_to_defs(rows[0].columns());
-    let json_rows = rows_to_json(rows, &columns, usize::MAX);
+    let json_rows = rows_to_block(rows, &columns, usize::MAX);
     let row_count = json_rows.len();
 
     // Release this connection before the identity block acquires one of its own.
@@ -2202,8 +2206,8 @@ mod live_query_identity_tests {
             assert!(!all.has_more, "nothing beyond the cap");
             assert_eq!(all.row_count, 12_000);
             assert_eq!(all.columns.len(), 2);
-            assert_eq!(all.rows[0][0], serde_json::json!("1"), "first row is the first of the ORDER BY");
-            assert_eq!(all.rows[11_999][0], serde_json::json!("12000"), "last row is the last of the ORDER BY");
+            assert_eq!(all.rows.cell(0, 0).as_deref(), Some("1"), "first row is the first of the ORDER BY");
+            assert_eq!(all.rows.cell(11_999, 0).as_deref(), Some("12000"), "last row is the last of the ORDER BY");
             assert!(all.history_entry_id.is_none(), "a snapshot is not a new history entry");
 
             // One progress call per 5,000-row chunk, each carrying the running
@@ -2218,7 +2222,7 @@ mod live_query_identity_tests {
             let capped = snap(5_000, sql).await.expect("snapshot at cap");
             assert_eq!(capped.rows.len(), 5_000);
             assert!(capped.has_more, "the cap cut the snapshot short");
-            assert_eq!(capped.rows[4_999][0], serde_json::json!("5000"));
+            assert_eq!(capped.rows.cell(4_999, 0).as_deref(), Some("5000"));
             // The cap is applied before the report, so no tick is larger than it.
             let capped_ticks = drain_ticks();
             assert!(
@@ -2247,7 +2251,7 @@ mod live_query_identity_tests {
             let after = execute_query(CONN.to_string(), "SELECT 41 + 1 AS x".to_string(), None, None, None, None, &state)
                 .await
                 .expect("the pool is usable after a failed snapshot");
-            assert_eq!(after.rows[0][0], serde_json::json!("42"));
+            assert_eq!(after.rows.cell(0, 0).as_deref(), Some("42"));
 
             // Nothing left registered.
             for id in ["snap-100000", "snap-5000", "snap-12000", "snap-100"] {
@@ -2563,7 +2567,7 @@ mod live_cancel_tests {
             let after = execute_query(CONN.to_string(), "SELECT 41 + 1 AS x".to_string(), None, None, None, None, &state)
                 .await
                 .expect("the pool is usable after a cut-off result");
-            assert_eq!(after.rows[0][0], serde_json::json!("42"));
+            assert_eq!(after.rows.cell(0, 0).as_deref(), Some("42"));
             assert!(!state.is_query_registered("q-trunc"), "unregistered");
         });
     }
@@ -2967,7 +2971,7 @@ mod live_pool_reset_tests {
     /// The one value of a one-row, one-column result, as the text it crossed in.
     async fn scalar(state: &AppState, sql: &str) -> String {
         let result = run(state, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
-        result.rows[0][0].as_str().expect("text value").to_string()
+        result.rows.cell(0, 0).as_deref().expect("text value").to_string()
     }
 
     fn block_on<F: std::future::Future<Output = ()>>(f: F) {
@@ -3165,7 +3169,7 @@ mod live_pool_reset_tests {
             let result = run(&state, &format!("BEGIN; UPDATE public.{TABLE} SET v = 1 WHERE id = 1; COMMIT; SELECT v FROM public.{TABLE}")).await;
             let (_, v) = read_and_drop_probe_table(&mut other, TABLE).await;
             let result = result.expect("a complete block is not refused");
-            assert_eq!(result.rows[0][0], serde_json::json!("1"));
+            assert_eq!(result.rows.cell(0, 0).as_deref(), Some("1"));
             assert_eq!(v, 1, "the committed UPDATE stays");
         });
     }

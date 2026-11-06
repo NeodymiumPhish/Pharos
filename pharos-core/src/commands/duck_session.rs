@@ -829,7 +829,7 @@ mod tests {
 
         execute_statement(run("tab", "COMMIT"), &state).await.expect("the transaction is still open");
         let r = execute_query(run("tab", "SELECT count(*) FROM kept"), &state).await.unwrap();
-        assert_eq!(r.result.rows[0][0], serde_json::json!("1"));
+        assert_eq!(r.result.rows.cell(0, 0).as_deref(), Some("1"));
 
         // Outside a transaction, binding errors are reported again.
         let bound = validate_sql(target, "SELECT * FROM no_such_table".into(), &state).await.unwrap();

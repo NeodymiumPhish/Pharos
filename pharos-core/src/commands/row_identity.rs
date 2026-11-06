@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use super::result_block::KeyCells;
+
 use crate::models::{KeyCandidate, TableKeyInfo};
 
 /// One column of a query result. `relation_oid` and `relation_attno` are what
@@ -54,9 +56,9 @@ pub struct RowIdentity {
 ///
 /// `info` is None when the catalogue read failed. The result then keeps its
 /// table names and drops to the fingerprint tier.
-pub fn assemble_row_identity(
+pub fn assemble_row_identity<R: KeyCells + ?Sized>(
     columns: &[ColumnDef],
-    json_rows: &[serde_json::Value],
+    rows: &R,
     primary_oid: u32,
     all_oids: &[u32],
     info: Option<&TableKeyInfo>,
@@ -106,12 +108,8 @@ pub fn assemble_row_identity(
         let key_columns: Vec<String> =
             indices.iter().map(|idx| columns[*idx].name.clone()).collect();
 
-        let keys: Vec<String> = json_rows
-            .iter()
-            .map(|row| match row.as_array() {
-                Some(values) => row_key(values, &indices),
-                None => String::new(),
-            })
+        let keys: Vec<String> = (0..rows.row_count())
+            .map(|r| key_from(|c| rows.text(r, c), &indices))
             .collect();
 
         candidates.push(KeySet {
@@ -217,14 +215,19 @@ pub fn unknown_table_display(oid: u32) -> String {
 /// `row` holds the same JSON values that go to Swift. Every value crossed the
 /// wire as PostgreSQL text, so a string or a null is all that can appear.
 pub fn row_key(row: &[serde_json::Value], column_indices: &[usize]) -> String {
+    // Defensive: a non-string, non-null value means the text-protocol
+    // assumption broke; `as_str` gives None, and no key is built.
+    key_from(|c| row.get(c).and_then(serde_json::Value::as_str), column_indices)
+}
+
+/// The key of one row whose text cells `cell` reads (None = NULL, missing or
+/// not text). Empty when any key cell is None.
+pub fn key_from<'a>(cell: impl Fn(usize) -> Option<&'a str>, column_indices: &[usize]) -> String {
     let mut values: Vec<Option<String>> = Vec::with_capacity(column_indices.len());
     for idx in column_indices {
-        match row.get(*idx) {
-            Some(serde_json::Value::String(s)) => values.push(Some(s.clone())),
-            Some(serde_json::Value::Null) | None => return String::new(),
-            // Defensive: a non-string, non-null value means the text-protocol
-            // assumption broke. Refuse to build a key rather than guess.
-            Some(_) => return String::new(),
+        match cell(*idx) {
+            Some(s) => values.push(Some(s.to_owned())),
+            None => return String::new(),
         }
     }
     encode_key(&values)
@@ -293,7 +296,7 @@ mod assemble_tests {
     /// goes straight into the tag popover.
     #[test]
     fn a_missing_catalogue_entry_still_names_the_table() {
-        let id = assemble_row_identity(&users_columns(), &[], USERS, &[USERS], None);
+        let id = assemble_row_identity(&users_columns(), &[] as &[serde_json::Value], USERS, &[USERS], None);
         // Compare against the helper, not a literal: the point is that both
         // call sites agree, not that the wording is any particular string.
         assert_eq!(id.table_display, unknown_table_display(609999));
@@ -395,7 +398,7 @@ mod assemble_tests {
     #[test]
     fn table_keys_lists_every_source_table() {
         let columns = vec![col("name", Some(USERS), Some(3)), col("role", Some(610009), Some(3))];
-        let id = assemble_row_identity(&columns, &[], USERS, &[USERS, 610009], None);
+        let id = assemble_row_identity(&columns, &[] as &[serde_json::Value], USERS, &[USERS, 610009], None);
         assert_eq!(id.table_keys, vec!["oid:609999", "oid:610009"]);
         // table_key names the primary table only, and is one of table_keys.
         assert_eq!(id.table_key, "oid:609999");
@@ -450,7 +453,7 @@ mod assemble_tests {
     #[test]
     fn no_rows_gives_candidates_with_no_keys() {
         let id =
-            assemble_row_identity(&users_columns(), &[], USERS, &[USERS], Some(&users_info()));
+            assemble_row_identity(&users_columns(), &[] as &[serde_json::Value], USERS, &[USERS], Some(&users_info()));
         assert_eq!(id.candidates.len(), 2);
         assert!(keyset(&id, "pk").keys.is_empty());
     }

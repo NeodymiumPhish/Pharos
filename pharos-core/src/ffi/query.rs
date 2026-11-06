@@ -359,7 +359,7 @@ mod duckdb_format_tests {
     /// The rows as DuckDB's own text (the card path), one string per row.
     fn rows(c: &::duckdb::Connection, sql: &str) -> Result<Vec<String>, String> {
         let r = crate::db::duckdb::exec::query_text(c, sql, None, 0)?;
-        Ok(r.rows.iter().map(|row| row.to_string()).collect())
+        Ok(r.rows.to_values().iter().map(|row| row.to_string()).collect())
     }
 
     #[test]

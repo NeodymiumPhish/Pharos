@@ -27,6 +27,7 @@ use duckdb::{Connection, InterruptHandle};
 
 use super::text::{type_name, typed_value_text};
 use crate::commands::row_identity::ColumnDef;
+use crate::commands::result_block::{ResultBlockBuilder, Rows};
 use crate::commands::sql_lexer::{split_chunks, ChunkKind};
 use crate::state::QueryCancel;
 
@@ -34,8 +35,8 @@ use crate::state::QueryCancel;
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRows {
     pub columns: Vec<ColumnDef>,
-    /// Each row a JSON array of strings and nulls, in column order.
-    pub rows: Vec<serde_json::Value>,
+    /// Text cells (NULL as None), in column order, as one block.
+    pub rows: Rows,
     /// A row past `limit` exists.
     pub has_more: bool,
     /// True when the rows came from the `COLUMNS(*)::VARCHAR` wrapper, so
@@ -108,7 +109,7 @@ pub fn query_text(conn: &Connection, sql: &str, limit: Option<usize>, offset: us
     let stmts = statements(sql);
     refuse_stored_secrets(&stmts)?;
     let Some((last, before)) = stmts.split_last() else {
-        return Ok(TextRows { columns: vec![], rows: vec![], has_more: false, pageable: false });
+        return Ok(TextRows { columns: vec![], rows: Rows::empty(), has_more: false, pageable: false });
     };
     for s in before {
         conn.execute_batch(s).map_err(|e| e.to_string())?;
@@ -149,16 +150,19 @@ fn rows_of_inner(conn: &Connection, statement: &str, limit: Option<usize>, offse
         if let Ok(mut stmt) = conn.prepare(&wrapped) {
             let width = columns.len();
             let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-            let mut out = Vec::new();
+            let mut out = PageBuilder::new(width, limit);
             while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-                let mut cells = Vec::with_capacity(width);
+                if out.is_full() {
+                    out.saw_more();
+                    break;
+                }
                 for i in 0..width {
                     let cell: Option<String> = row.get(i).map_err(|e| e.to_string())?;
-                    cells.push(cell.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+                    out.builder.push(cell.as_deref());
                 }
-                out.push(serde_json::Value::Array(cells));
+                out.builder.end_row();
             }
-            return Ok(page(columns, out, limit, true));
+            return Ok(out.finish(columns, true));
         }
     }
     if !run_as_written_ok {
@@ -208,11 +212,7 @@ pub fn with_text_stream<T>(
     // over in batches.
     let all = run_as_written(conn, statement, None)?;
     let columns = all.columns;
-    let mut pending: std::collections::VecDeque<Vec<Option<String>>> = all
-        .rows
-        .into_iter()
-        .map(|r| r.as_array().map(|a| a.iter().map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default())
-        .collect();
+    let mut pending: std::collections::VecDeque<Vec<Option<String>>> = all.rows.to_cells().into();
     let mut next = |n: usize| -> Result<TextChunk, String> {
         let take = n.min(pending.len());
         Ok(TextChunk { columns: columns.clone(), rows: pending.drain(..take).collect() })
@@ -238,7 +238,7 @@ pub fn describe(conn: &Connection, statement: &str) -> Option<Vec<ColumnDef>> {
 fn run_as_written(conn: &Connection, statement: &str, limit: Option<usize>) -> Result<TextRows, String> {
     let mut stmt = conn.prepare(statement).map_err(|e| e.to_string())?;
     let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
+    let mut out: Option<PageBuilder> = None;
     let mut columns: Option<Vec<ColumnDef>> = None;
     let mut types = Vec::new();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
@@ -248,18 +248,17 @@ fn run_as_written(conn: &Connection, statement: &str, limit: Option<usize>) -> R
             columns = Some(columns_of(stmt_ref));
             types = (0..width).map(|i| stmt_ref.column_logical_type(i)).collect();
         }
-        let mut cells = Vec::with_capacity(width);
+        let page = out.get_or_insert_with(|| PageBuilder::new(width, limit));
+        // Everything is already materialised by DuckDB; stop at the page.
+        if page.is_full() {
+            page.saw_more();
+            break;
+        }
         for (i, ty) in types.iter().enumerate() {
             let value: Value = row.get(i).map_err(|e| e.to_string())?;
-            cells.push(typed_value_text(&value, ty).map(serde_json::Value::String).unwrap_or(serde_json::Value::Null));
+            page.builder.push(typed_value_text(&value, ty).as_deref());
         }
-        out.push(serde_json::Value::Array(cells));
-        // Everything is already materialised by DuckDB; stop at the page.
-        if let Some(limit) = limit {
-            if out.len() > limit {
-                break;
-            }
-        }
+        page.builder.end_row();
     }
     drop(rows);
     let columns = match columns {
@@ -269,7 +268,8 @@ fn run_as_written(conn: &Connection, statement: &str, limit: Option<usize>) -> R
     };
     // A statement that ran as written cannot be paged, so the page holds
     // what was read; `has_more` still says when it was cut.
-    Ok(page(columns, out, limit, false))
+    let page = out.unwrap_or_else(|| PageBuilder::new(columns.len(), limit));
+    Ok(page.finish(columns, false))
 }
 
 fn columns_of(stmt: &duckdb::Statement<'_>) -> Vec<ColumnDef> {
@@ -286,12 +286,34 @@ fn columns_of(stmt: &duckdb::Statement<'_>) -> Vec<ColumnDef> {
         .collect()
 }
 
-fn page(columns: Vec<ColumnDef>, mut rows: Vec<serde_json::Value>, limit: Option<usize>, pageable: bool) -> TextRows {
-    let has_more = matches!(limit, Some(l) if rows.len() > l);
-    if let Some(l) = limit {
-        rows.truncate(l);
+/// The rows of one page as they are read: up to `limit` rows, and whether a
+/// row past it exists (the reader stops at that row, it is not kept).
+struct PageBuilder {
+    builder: ResultBlockBuilder,
+    limit: Option<usize>,
+    has_more: bool,
+}
+
+impl PageBuilder {
+    fn new(width: usize, limit: Option<usize>) -> Self {
+        let mut builder = ResultBlockBuilder::new(width);
+        if let Some(l) = limit {
+            builder.reserve_rows(l.min(65_536));
+        }
+        PageBuilder { builder, limit, has_more: false }
     }
-    TextRows { columns, rows, has_more, pageable }
+
+    fn is_full(&self) -> bool {
+        matches!(self.limit, Some(l) if self.builder.row_count() >= l)
+    }
+
+    fn saw_more(&mut self) {
+        self.has_more = true;
+    }
+
+    fn finish(self, columns: Vec<ColumnDef>, pageable: bool) -> TextRows {
+        TextRows { columns, rows: Rows::from_builder(self.builder), has_more: self.has_more, pageable }
+    }
 }
 
 /// Run every statement of `sql`; the rows the LAST one changed (DuckDB
@@ -622,10 +644,7 @@ mod tests {
     }
 
     fn cells(r: &TextRows) -> Vec<Vec<Option<String>>> {
-        r.rows
-            .iter()
-            .map(|row| row.as_array().unwrap().iter().map(|v| v.as_str().map(String::from)).collect())
-            .collect()
+        r.rows.to_cells()
     }
 
     #[test]

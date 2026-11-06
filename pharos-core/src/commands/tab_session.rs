@@ -43,7 +43,7 @@ use sqlx::{Connection, Executor, PgConnection, Row};
 
 use super::query::{
     build_row_identity, cancel_backend, cancel_until_ended, explain_statement, format_db_error, history_entry,
-    pg_columns_to_defs, query_timeout_seconds, record_history, result_cache, rows_to_json, search_path_suffix,
+    pg_columns_to_defs, query_timeout_seconds, record_history, result_cache, rows_to_block, search_path_suffix,
     set_search_path, ExecuteResult, QueryResult, CANCEL_CONFIRM_WAIT, QUERY_CANCELLED,
 };
 use super::row_edit::{build_update_statement, history_sql, validate_request, RowUpdateRequest, RowUpdateResult};
@@ -799,7 +799,7 @@ pub async fn session_execute_query(request: SessionRunRequest, state: &AppState)
     };
     let has_more = total > limit as usize;
     let row_count = rows.len().min(limit as usize);
-    let json_rows = rows_to_json(rows, &columns, row_count);
+    let json_rows = rows_to_block(rows, &columns, row_count);
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
     let (report, refusal) = finish(&mut guard, &session, state, reset).await;
@@ -1180,7 +1180,7 @@ pub async fn session_fetch_all_rows(request: SessionFetchAllRequest, state: &App
     drop(guard);
     let columns = rows.first().map(|r| pg_columns_to_defs(r.columns())).unwrap_or(empty_columns);
     let row_count = rows.len();
-    let json_rows = rows_to_json(rows, &columns, usize::MAX);
+    let json_rows = rows_to_block(rows, &columns, usize::MAX);
     // The snapshot is a new execution, so its rows need their own keys (the
     // app must never keep the first page's). Same rule as a card's run: the
     // identity reads the catalogue through the pool, which cannot see a
@@ -1639,7 +1639,7 @@ mod tests {
         assert_eq!(request.limit, Some(5));
         assert!(!request.aux);
         let result = SessionQueryResult {
-            result: QueryResult { columns: vec![], rows: vec![], row_count: 0, execution_time_ms: 1, has_more: false,
+            result: QueryResult { columns: vec![], rows: crate::commands::result_block::Rows::empty(), row_count: 0, execution_time_ms: 1, has_more: false,
                                   history_entry_id: None, row_identity: None },
             session: TabSession::new("t", "c", 600).report(),
         };
@@ -1738,7 +1738,7 @@ mod live_tab_session_tests {
 
     async fn scalar(state: &AppState, sql: &str) -> String {
         let r = query(state, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
-        r.result.rows[0][0].as_str().expect("text").to_string()
+        r.result.rows.cell(0, 0).as_deref().expect("text").to_string()
     }
 
     fn table_name(tag: &str) -> String {
@@ -1827,12 +1827,12 @@ mod live_tab_session_tests {
             let mut show = card(TAB, "SHOW search_path");
             show.target.schema = Some("public".to_string());
             let r = session_execute_query(show, &state).await.expect("SHOW");
-            assert_eq!(r.result.rows[0][0].as_str(), Some("pg_catalog"));
+            assert_eq!(r.result.rows.cell(0, 0).as_deref(), Some("pg_catalog"));
             // A CHANGED pull-down is sent.
             let mut moved = card(TAB, "SHOW search_path");
             moved.target.schema = Some("information_schema".to_string());
             let r = session_execute_query(moved, &state).await.expect("SHOW");
-            assert!(r.result.rows[0][0].as_str().unwrap().starts_with("information_schema"), "{:?}", r.result.rows);
+            assert!(r.result.rows.cell(0, 0).as_deref().unwrap().starts_with("information_schema"), "{:?}", r.result.rows);
         });
     }
 
@@ -1910,7 +1910,7 @@ mod live_tab_session_tests {
             let (r, _) = tokio::join!(session_execute_query(slow, &state), cancel);
             assert_eq!(r.unwrap_err(), QUERY_CANCELLED);
             let after = query(&state, "SELECT pg_backend_pid()::text").await.unwrap();
-            assert_eq!(after.result.rows[0][0].as_str().unwrap(), pid);
+            assert_eq!(after.result.rows.cell(0, 0).as_deref().unwrap(), pid);
             assert!(after.session.reset.is_none());
             assert_eq!(after.session.txn, TxnState::Idle);
         });
@@ -1963,7 +1963,7 @@ mod live_tab_session_tests {
             assert_eq!(state.tab_session(TAB).unwrap().report().txn, TxnState::InTransaction);
             let good = SessionFetchMoreRequest { target: target(TAB), sql: "SELECT n FROM aux_t ORDER BY n".into(), limit: 10, offset: 10 };
             let page = session_fetch_more_rows(good, &state).await.expect("load more sees the temp table");
-            assert_eq!(page.result.rows[0][0].as_str(), Some("11"));
+            assert_eq!(page.result.rows.cell(0, 0).as_deref(), Some("11"));
             assert!(page.result.history_entry_id.is_none(), "Pharos's own work is not history");
             // Explain ANALYZE of a write is undone; the transaction stays open.
             let plan = session_explain(SessionExplainRequest { target: target(TAB), sql: "DELETE FROM aux_t".into(), analyze: true }, &state)
@@ -2088,7 +2088,7 @@ mod live_tab_session_tests {
             let r = query(&state, "SHOW work_mem").await.expect("runs on a new connection");
             assert!(r.session.reset.is_some(), "the reset was not reported");
             assert_ne!(r.session.backend_pid, pid);
-            assert_ne!(r.result.rows[0][0].as_str(), Some("55MB"), "settings of the old connection survived?");
+            assert_ne!(r.result.rows.cell(0, 0).as_deref(), Some("55MB"), "settings of the old connection survived?");
             let again = query(&state, "SELECT 1").await.unwrap();
             assert!(again.session.reset.is_none(), "a reset is reported once");
         });
