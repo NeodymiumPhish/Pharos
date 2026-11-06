@@ -159,8 +159,17 @@ pub async fn get_query_history_result(
     entry_id: String,
     state: &AppState,
 ) -> Result<Option<QueryHistoryResultData>, String> {
-    let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
-    let result = sqlite::get_query_history_result(&db, &entry_id)
+    // The lock covers the READ only. The gunzip and the parse below can take a
+    // while on a large result, and every other store call waits on this lock
+    // (`get_saved_query_result` does the same).
+    let blobs = {
+        let db = state.metadata_db.lock().map_err(|e| e.to_string())?;
+        sqlite::get_query_history_result_blobs(&db, &entry_id)
+            .map_err(|e| format!("Failed to load history result: {}", e))?
+    };
+    let result = blobs
+        .map(sqlite::decode_query_history_result)
+        .transpose()
         .map_err(|e| format!("Failed to load history result: {}", e))?;
 
     match result {

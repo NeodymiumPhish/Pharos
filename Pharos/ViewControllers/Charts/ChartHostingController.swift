@@ -69,6 +69,18 @@ final class ChartHostingController: NSViewController {
         self.hosting = host
     }
 
+    /// Let go of the chart. The view model holds the whole result it plots,
+    /// plus its column profiles and chart data, and would otherwise keep them
+    /// alive after the grid shows again or the result is cleared — until the
+    /// next chart opens. `present` builds both again, as it always has.
+    func reset() {
+        cancelSuggestion()
+        hosting?.view.removeFromSuperview()
+        hosting?.removeFromParent()
+        hosting = nil
+        model = nil
+    }
+
     /// Plot new rows for the presented result (the grid's filters changed).
     func updateRows(_ plotted: QueryResult, banner: ChartBannerInfo) {
         model?.setRows(plotted, banner: banner)
