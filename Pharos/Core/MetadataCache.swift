@@ -28,8 +28,11 @@ final class MetadataCache: ObservableObject {
         /// Keyed `"schema.table"`.
         var columnsByTable: [String: [ColumnInfo]] = [:]
         var isLoading = false
-        /// Bumped by every change, so equality — what `removeDuplicates` runs
-        /// on every publish — compares two numbers instead of whole catalogs.
+        /// Set by every change from one counter for the whole cache, so equality
+        /// — what `removeDuplicates` runs on every publish — compares two
+        /// numbers instead of whole catalogs, and a (connection, revision) pair
+        /// never repeats, even after the connection's entry is cleared. The
+        /// completion list keys its shared catalog on that pair.
         fileprivate(set) var revision = 0
 
         static let empty = ConnectionMetadata()
@@ -142,10 +145,14 @@ final class MetadataCache: ObservableObject {
         return minutes <= 0 || Date().timeIntervalSince(finished) <= TimeInterval(minutes) * 60
     }
 
+    /// The last revision given out (see `ConnectionMetadata.revision`).
+    private var lastRevision = 0
+
     private func update(_ id: String, _ change: (inout ConnectionMetadata) -> Void) {
         var entry = entries[id] ?? ConnectionMetadata()
         change(&entry)
-        entry.revision += 1
+        lastRevision += 1
+        entry.revision = lastRevision
         entries[id] = entry
     }
 
