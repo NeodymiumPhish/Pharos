@@ -45,8 +45,20 @@ extension PharosCore {
     // MARK: Session results
 
     /// Stage one result of a Session save. See `SessionSnapshotWriter`.
-    static func stageSavedQueryResult(_ row: StageSavedQueryResult) throws -> StagedSavedQueryResult {
-        try callSync(input: row) { pharos_stage_saved_query_result($0) }
+    ///
+    /// `rows` go over as their PRB1 block (borrowed for the call) and the core
+    /// writes the stored JSON from it; `row.rows` must then be nil. Encoding
+    /// every row to JSON here took ~2.5 s and a full JSON copy for 200k x 20.
+    static func stageSavedQueryResult(_ row: StageSavedQueryResult, rows: ResultTable? = nil) throws -> StagedSavedQueryResult {
+        guard let rows else {
+            return try callSync(input: row) { pharos_stage_saved_query_result($0, nil, 0) }
+        }
+        precondition(row.rows == nil, "rows go as the block or in the JSON, not both")
+        return try rows.block.withUnsafeBytes { raw in
+            try callSync(input: row) {
+                pharos_stage_saved_query_result($0, raw.bindMemory(to: UInt8.self).baseAddress, UInt(raw.count))
+            }
+        }
     }
 
     /// Make a staged snapshot the Session's own, with the Session's cards.

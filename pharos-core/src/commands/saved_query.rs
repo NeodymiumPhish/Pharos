@@ -67,10 +67,20 @@ pub async fn batch_delete_saved_queries(
 // database call waits on that lock.
 
 /// Stage one result of a Session save (see `db::saved_query_results`).
+///
+/// `block`: the rows as a PRB1 block, in place of `row.rows`. The stored text
+/// is written from it (`result_block::to_json_rows`), so the app does not
+/// encode every row to JSON itself. Same JSON shape as before; the one
+/// byte difference is that `/` is not escaped as `\/` (as in history blobs).
 pub async fn stage_saved_query_result(
     state: &AppState,
-    row: StageSavedQueryResult,
+    mut row: StageSavedQueryResult,
+    block: Option<&[u8]>,
 ) -> Result<StagedSavedQueryResult, String> {
+    if let Some(block) = block {
+        let json = super::result_block::to_json_rows(block).map_err(|e| format!("Session result rows: {}", e))?;
+        row.rows = Some(serde_json::value::RawValue::from_string(json).map_err(|e| e.to_string())?);
+    }
     let compress = |raw: &Option<Box<serde_json::value::RawValue>>| {
         raw.as_ref().map(|v| sqlite::compress_data(v.get())).transpose()
     };
@@ -166,7 +176,7 @@ mod tests {
             "columns":[{"name":"a","data_type":"text"}],"rows":[["x"],[null]],
             "rowIdentity":{"table_key":"t"}}"#;
         let row: StageSavedQueryResult = serde_json::from_str(json).unwrap();
-        let staged = rt.block_on(stage_saved_query_result(&state, row)).unwrap();
+        let staged = rt.block_on(stage_saved_query_result(&state, row, None)).unwrap();
         assert!(staged.stored);
         let commit: CommitSavedQuerySnapshot = serde_json::from_str(
             r#"{"savedQueryId":"s","snapshotId":"snap","sql":"SELECT 1","cardsJson":"{}"}"#,
@@ -180,6 +190,40 @@ mod tests {
         assert_eq!(data.rows.get(), r#"[["x"],[null]]"#);
         assert_eq!(data.columns.get(), r#"[{"name":"a","data_type":"text"}]"#);
         assert_eq!(data.row_identity.unwrap().get(), r#"{"table_key":"t"}"#);
+    }
+
+    /// Rows sent as a block are stored as the JSON `to_json_rows` writes, and
+    /// read back as the same block.
+    #[test]
+    fn rows_from_a_block_are_stored_as_their_json() {
+        let state = state_with_session();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut b = super::super::result_block::ResultBlockBuilder::new(2);
+        for row in [[Some("x/y"), None], [Some("é \"q\""), Some("")]] {
+            for cell in row { b.push(cell); }
+            b.end_row();
+        }
+        let block = b.finish();
+        let json = r#"{"savedQueryId":"s","snapshotId":"snap","runId":"run","cardId":"c","priority":0,
+            "kind":"rows","sql":"SELECT 1","executedAt":"2026-10-08T00:00:00Z","executionTimeMs":3,
+            "rowCount":2,"hasMore":false,"columns":[{"name":"a","data_type":"text"},{"name":"b","data_type":"text"}],
+            "rows":null}"#;
+        let row: StageSavedQueryResult = serde_json::from_str(json).unwrap();
+        assert!(rt.block_on(stage_saved_query_result(&state, row, Some(&block))).unwrap().stored);
+        let commit: CommitSavedQuerySnapshot = serde_json::from_str(
+            r#"{"savedQueryId":"s","snapshotId":"snap","sql":"SELECT 1","cardsJson":"{}"}"#,
+        )
+        .unwrap();
+        rt.block_on(commit_saved_query_snapshot(&state, commit)).unwrap();
+        let metas = rt.block_on(load_saved_query_results(&state, "s".into())).unwrap();
+        let data = rt.block_on(get_saved_query_result(&state, metas[0].id.clone())).unwrap().unwrap();
+        assert_eq!(data.rows.get(), super::super::result_block::to_json_rows(&block).unwrap());
+        assert_eq!(super::super::result_block::from_json_rows(data.rows.get()).unwrap(), block,
+                   "the stored rows read back as the same block");
+
+        // A bad block is an error, not a silent empty result.
+        let row: StageSavedQueryResult = serde_json::from_str(json).unwrap();
+        assert!(rt.block_on(stage_saved_query_result(&state, row, Some(&[1, 2, 3]))).is_err());
     }
 
     /// A JSON null for the rows (an "affected" result) stages no blobs.
