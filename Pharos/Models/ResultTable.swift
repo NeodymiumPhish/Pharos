@@ -31,6 +31,10 @@ struct ResultTable {
     var byteCount: Int { storage.data.length }
     /// The block itself (shares the storage's bytes; no copy).
     var block: Data { Data(referencing: storage.data) }
+    /// True when the rows read from a spill file through a memory map
+    /// (`spilled(to:)`): clean file-backed pages, not counted as this
+    /// process's memory and dropped by the system under pressure.
+    var isSpilled: Bool { storage.isFileBacked }
 
     /// An empty table: no rows, `columnCount` columns.
     init(columnCount: Int = 0) {
@@ -128,6 +132,29 @@ struct ResultTable {
         return builder.finish()
     }
 }
+
+// MARK: - Spill
+
+extension ResultTable {
+    /// The same rows, read from a file through a memory map. The block is
+    /// written to a new file in `directory`, mapped, and the file's NAME is
+    /// removed at once: the mapping keeps the pages readable, nothing is left
+    /// to clean up, and the disk space comes back when the table is released.
+    /// Showing the rows again needs no decode — the system reads pages back
+    /// as the grid touches them. Slow (it writes the whole block): call it off
+    /// the main thread.
+    func spilled(to directory: URL) throws -> ResultTable {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(UUID().uuidString + ".prb")
+        try block.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let mapped = try Data(contentsOf: url, options: .alwaysMapped)
+        return ResultTable(storage: try ResultTableStorage(data: mapped as NSData, isFileBacked: true))
+    }
+}
+
+/// Immutable value over immutable storage.
+extension ResultTable: Sendable {}
 
 extension ResultTable: Equatable {
     /// Same cells. Blocks are canonical (one layout per content), so this
@@ -320,24 +347,32 @@ enum ResultTableError: Error, Equatable {
 /// The parsed block. `NSData` keeps its bytes at one address for its life
 /// (also for wrapped Rust buffers and mapped files), so reads go through a
 /// raw pointer without `withUnsafeBytes` on every cell.
-final class ResultTableStorage {
+///
+/// Immutable after `init` (the NSData's bytes never change), so it is safe to
+/// share across threads: a spill reads it off the main thread.
+final class ResultTableStorage: @unchecked Sendable {
     let data: NSData
     let rowCount: Int
     let columnCount: Int
+    /// The block is a memory-mapped spill file.
+    let isFileBacked: Bool
     private let base: UnsafeRawPointer
     /// Per column: byte offsets of the bitmap, the offsets array and the text.
     private let bitmapAt: [Int]
     private let offsetsAt: [Int]
     private let textAt: [Int]
 
-    /// Called when the storage goes (M5: deletes a spill file).
-    var onRelease: (() -> Void)?
-
-    init(data: NSData) throws {
+    init(data: NSData, isFileBacked: Bool = false) throws {
         self.data = data
+        self.isFileBacked = isFileBacked
         let length = data.length
         guard length >= 16 else { throw ResultTableError.badBlock("shorter than the header") }
-        let base = data.bytes
+        // `-bytes` autoreleases, and this init runs on pharos-core's worker
+        // threads, which never drain a pool: without one of its own, every
+        // block handed over by the FFI stayed allocated after its table was
+        // released (measured: the Data's deallocator never ran). `data` keeps
+        // the bytes alive and at one address for this storage's life.
+        let base = autoreleasepool { data.bytes }
         self.base = base
         func u32(_ at: Int) -> Int { Int(UInt32(littleEndian: base.loadUnaligned(fromByteOffset: at, as: UInt32.self))) }
         guard u32(0) == 0x3142_5250 else {   // "PRB1" read as a little-endian u32
@@ -374,8 +409,6 @@ final class ResultTableStorage {
         rowCount = rows; columnCount = columns
         self.bitmapAt = bitmapAt; self.offsetsAt = offsetsAt; self.textAt = textAt
     }
-
-    deinit { onRelease?() }
 
     @inline(__always) func isNull(_ row: Int, _ column: Int) -> Bool {
         precondition(row >= 0 && row < rowCount, "row \(row) out of range 0..<\(rowCount)")

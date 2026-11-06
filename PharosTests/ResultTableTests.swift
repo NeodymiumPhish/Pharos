@@ -128,6 +128,36 @@ func runTests() {
         _ = try JSONDecoder().decode(ResultTable.self, from: Data(#"[[1]]"#.utf8))
     }
 
+    // MARK: A wrapped block is freed when its table goes
+    // This runs with no autorelease pool, like pharos-core's worker threads,
+    // where the FFI's blocks are wrapped. `-bytes` autoreleases; without the
+    // storage's own pool the deallocator never ran and every block leaked.
+
+    var freed = false
+    do {
+        let bytes = [UInt8](ResultTable(rows: [["leak", nil]]).block)
+        let raw = malloc(bytes.count)!.assumingMemoryBound(to: UInt8.self)
+        bytes.withUnsafeBytes { raw.update(from: $0.bindMemory(to: UInt8.self).baseAddress!, count: bytes.count) }
+        let wrapped = try! ResultTable(block: Data(bytesNoCopy: raw, count: bytes.count,
+                                                   deallocator: .custom { p, _ in free(p); freed = true }))
+        _ = wrapped.string(0, 0)
+        _ = wrapped.block.count
+    }
+    expect(freed, true, "a block's deallocator runs when its table goes, outside any autorelease pool")
+
+    // MARK: Spill to a mapped file
+
+    let spillDir = FileManager.default.temporaryDirectory.appendingPathComponent("result-table-spill-\(getpid())")
+    let spilled = try! table.spilled(to: spillDir)
+    expect(spilled, table, "a spilled table has the same cells")
+    expect(spilled.allRows, rows, "a spilled table reads back cell for cell")
+    expect(spilled.isSpilled, true, "a spilled table says so")
+    expect(table.isSpilled, false, "an in-memory table does not")
+    let left = (try? FileManager.default.contentsOfDirectory(atPath: spillDir.path)) ?? []
+    expect(left, [], "no spill file name is left behind")
+    expect(spilled.appending(page).isSpilled, false, "a table built from a spilled one is in memory")
+    try? FileManager.default.removeItem(at: spillDir)
+
     // MARK: Size and speed (information only)
 
     if ProcessInfo.processInfo.environment["TABLE_BENCH"] == "1" {
