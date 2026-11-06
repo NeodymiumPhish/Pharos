@@ -74,9 +74,15 @@ extension PharosCore {
     /// straight from the C buffer, as `getQueryHistoryResult` does: this can
     /// be a large result.
     static func getSavedQueryResult(id: String) throws -> QueryHistoryResultData? {
-        guard let ptr = id.withCString({ pharos_get_saved_query_result($0) }) else { return nil }
+        // The rows come back as a PRB1 block beside the JSON (`"rows":[]`).
+        var block: UnsafeMutablePointer<UInt8>?
+        var length: UInt = 0
+        guard let ptr = id.withCString({ pharos_get_saved_query_result($0, &block, &length) }) else { return nil }
         defer { pharos_free_string(ptr) }
-        return try decodeNoCopy(ptr)
+        let rows = adoptBlock(block, length)
+        var data: QueryHistoryResultData = try decodeNoCopy(ptr)
+        if let rows { data.rows = try ResultTable(block: rows) }
+        return data
     }
 
     /// Extract table names from SQL for display.

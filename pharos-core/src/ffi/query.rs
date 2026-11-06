@@ -151,6 +151,7 @@ pub extern "C" fn pharos_execute_query(
     schema: *const c_char,
     source: *const c_char,
     callback: AsyncCallback,
+    block_callback: BlockCallback,
     context: *mut std::ffi::c_void,
 ) {
     let state = app_state();
@@ -165,7 +166,7 @@ pub extern "C" fn pharos_execute_query(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::execute_query(conn_id, sql_str, qid, lim, schema_str, source_str, state).await {
-            Ok(result) => callback_json(callback, ctx, result),
+            Ok(result) => callback_result(callback, block_callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });
@@ -207,6 +208,7 @@ pub extern "C" fn pharos_fetch_more_rows(
     offset: i64,
     schema: *const c_char,
     callback: AsyncCallback,
+    block_callback: BlockCallback,
     context: *mut std::ffi::c_void,
 ) {
     let state = app_state();
@@ -218,7 +220,7 @@ pub extern "C" fn pharos_fetch_more_rows(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::fetch_more_rows(conn_id, sql_str, limit, offset, schema_str, state).await {
-            Ok(result) => callback_json(callback, ctx, result),
+            Ok(result) => callback_result(callback, block_callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });
@@ -241,6 +243,7 @@ pub extern "C" fn pharos_fetch_all_rows(
     schema: *const c_char,
     progress: ProgressCallback,
     callback: AsyncCallback,
+    block_callback: BlockCallback,
     context: *mut std::ffi::c_void,
 ) {
     let state = app_state();
@@ -260,7 +263,7 @@ pub extern "C" fn pharos_fetch_all_rows(
     ffi_spawn!(callback, context, async move {
 
         match crate::commands::fetch_all_rows_snapshot(conn_id, sql_str, qid, max_rows, schema_str, state, on_progress).await {
-            Ok(result) => callback_json(callback, ctx, result),
+            Ok(result) => callback_result(callback, block_callback, ctx, result),
             Err(e) => callback_err(callback, ctx, &e),
         }
     });

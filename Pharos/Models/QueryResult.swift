@@ -109,7 +109,7 @@ struct QueryResult: Codable {
     let columns: [ColumnDef]
     /// Every cell as text or NULL, by column (`ResultTable`). The JSON form
     /// stays `[[string|null]]`.
-    let rows: ResultTable
+    var rows: ResultTable
     let rowCount: Int
     let executionTimeMs: UInt64
     let hasMore: Bool

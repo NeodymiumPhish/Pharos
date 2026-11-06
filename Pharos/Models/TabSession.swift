@@ -45,7 +45,7 @@ struct TabSessionReport: Codable, Equatable, Sendable {
 
 /// A result type plus the session report beside its fields.
 struct SessionResult<Payload: Decodable>: Decodable {
-    let payload: Payload
+    var payload: Payload
     let session: TabSessionReport
 
     private enum CodingKeys: String, CodingKey { case session }
