@@ -7,6 +7,7 @@ swiftc -o /tmp/tag-inspector-model-tests \
   Pharos/Core/TagMatchDisclosure.swift \
   Pharos/Core/DisplayEscape.swift \
   Pharos/Core/TagRuleMatcher.swift \
+  Pharos/Core/TagRowMatch.swift \
   Pharos/Utilities/SQLTypeName.swift \
   Pharos/Core/TagValueNormalizer.swift \
   Pharos/Core/CIDRRange.swift \

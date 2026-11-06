@@ -19,10 +19,13 @@ swiftc -o /tmp/grid-column-visibility-tests \
   Pharos/ViewControllers/ResultsGrid/InsetScrollView.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsCellSelection.swift \
   Pharos/ViewControllers/ResultsGrid/ResultsSortController.swift \
+  Pharos/ViewControllers/ResultsGrid/ResultsSortKeys.swift \
   Pharos/Views/AccessibilityProxyElement.swift \
   Pharos/Core/SQLErrorLocation.swift \
   Pharos/Models/CardDocument.swift \
   Pharos/Models/QueryTab.swift \
+  Pharos/Core/GridDerivedCache.swift \
+  Pharos/Core/TagRowMatch.swift \
   Pharos/Models/QueryResult.swift \
   Pharos/Models/QueryFailure.swift \
   Pharos/Models/QueryVariable.swift \

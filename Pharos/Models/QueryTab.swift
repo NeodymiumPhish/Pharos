@@ -13,6 +13,9 @@ struct ResultsGridState {
     /// menu. A hidden column keeps its entry in `columnWidths`, so showing it
     /// again brings back the width it had.
     var hiddenColumns: Set<String> = []
+    /// The sort order and tag map the grid computed for these rows, so a card
+    /// switch puts them back rather than computing them again. Memory only.
+    var derived: GridDerivedCache<[Int: [TagRowMatch]]>? = nil
 }
 
 /// A single query currently executing for a tab. `id` matches the `query_id`

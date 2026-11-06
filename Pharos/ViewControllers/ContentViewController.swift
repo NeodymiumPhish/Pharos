@@ -2294,7 +2294,9 @@ class ContentViewController: NSViewController {
                 planHost.show(plan: plan, json: r.planJSON ?? "", isAnalyze: r.planIsAnalyze)
             }
             if let result = r.queryResult {
-                resultsVC.showResult(result)
+                // The card's own grid state: for the same rows it carries the
+                // sort order and tag map, so a card switch computes neither.
+                resultsVC.showResult(result, restoring: r.gridState)
             } else if let exec = r.executeResult {
                 resultsVC.showExecuteResult(exec)
             } else {
@@ -2303,7 +2305,6 @@ class ContentViewController: NSViewController {
                 resultsVC.clear()
             }
             if r.hasPayload {
-                if let gridState = r.gridState { resultsVC.restoreGridState(gridState) }
                 restorePendingEdits(from: r)
             }
         } else {
@@ -2628,7 +2629,7 @@ class ContentViewController: NSViewController {
                         // without an outermost ORDER BY, PostgreSQL may return
                         // a different order for this second execution.
                         self.resultsVC.pagedWithoutOrderBy = !SQLOrderStability.hasTopLevelOrderBy(querySQL)
-                        self.resultsVC.appendRows(from: moreResult, limitReached: merged.limitReached)
+                        self.resultsVC.appendPage(merged: merged)
                     } else {
                         self.resultsVC.setLoadingMore(false)
                     }
@@ -3137,9 +3138,7 @@ class ContentViewController: NSViewController {
                 guard self.displayedCardId == resultTabId else { return }
                 // Keep the user's widths, sort and filters across the swap, the
                 // way the Load All snapshot does.
-                let gridState = self.resultsVC.captureGridState()
-                self.resultsVC.showResult(refreshed)
-                if let gridState { self.resultsVC.restoreGridState(gridState) }
+                self.resultsVC.showResult(refreshed, restoring: self.resultsVC.captureGridState())
             }
         }
     }
@@ -4520,9 +4519,7 @@ extension ContentViewController {
                     if let held { self.noteRowsLoaded(forCard: rtId, runId: held.runId, result: replaced) }
                     if showInGrid && stillDisplaying {
                         // Keep the user's widths, sort and filters across the swap.
-                        let gridState = self.resultsVC.captureGridState()
-                        self.resultsVC.showResult(replaced)
-                        if let gridState { self.resultsVC.restoreGridState(gridState) }
+                        self.resultsVC.showResult(replaced, restoring: self.resultsVC.captureGridState())
                     }
                     completion(snapshot.hasMore)
                 }
