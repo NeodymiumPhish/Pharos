@@ -78,6 +78,7 @@
 		2BEB53ACBA763C78FB91D0E4 /* ContentViewController+UnsavedWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65BB5738BD159E9BD4771CC0 /* ContentViewController+UnsavedWork.swift */; };
 		2C0ED764FC791B6EA6A28A48 /* DescribeQueryPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C34549177E366EA2564237F /* DescribeQueryPopoverVC.swift */; };
 		2C70F162D9FAFC6BD51247E7 /* SQLListFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF909DD2FE3959D905A6DC25 /* SQLListFormatter.swift */; };
+		2D9D20C41A41BE357C0283C2 /* PharosCore+AppData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */; };
 		2DA2CC6487D9C4BFD53F3CF1 /* IntelligenceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9AB0873C57969274A41108 /* IntelligenceSession.swift */; };
 		2E2D04CAAE6675C81B15D999 /* TagValueNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */; };
 		2ED1DB1D0547080DFEA6B854 /* NameSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D231D081993C950E11523AB /* NameSuggestion.swift */; };
@@ -91,6 +92,7 @@
 		32658884EC755D14B18936A7 /* QueryNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB4F09F19C8E648E59B702C /* QueryNotifier.swift */; };
 		344D7F8872C054B7213BE168 /* NSLayoutConstraint+Swap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */; };
 		34745A1F62CCD2F095540249 /* ImportDataSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080E74E651B82BE21F196DDC /* ImportDataSheet.swift */; };
+		34A6F81306EC1FA384E1EB62 /* AppDataTransferRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */; };
 		34B2E78C9DB19D897C10D722 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE224A37E3FEC0F67F65D19 /* Settings.swift */; };
 		3528B524F776D3A6392F2ACC /* ColumnIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13897D85C05525947FD11603 /* ColumnIdentifier.swift */; };
 		3654B63A3BC5A6994340B5D2 /* ResultTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D73BFD04250C45EC896C32E0 /* ResultTable.swift */; };
@@ -108,7 +110,6 @@
 		3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */; };
 		3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */; };
 		3C08561F398C70E3EEDBA08B /* PharosCore+Cards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773275ECF4E6A49569780BB8 /* PharosCore+Cards.swift */; };
-		2D9D20C41A41BE357C0283C2 /* PharosCore+AppData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */; };
 		3C471C6BB89249B37BD0214F /* LaunchConnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46AFACD95D022C934A3AD80 /* LaunchConnectPolicy.swift */; };
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
 		3DCBD8AB9F46D4D240F5799E /* DuckDBCloseRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4E71413435BD2076C73B4E /* DuckDBCloseRule.swift */; };
@@ -122,7 +123,6 @@
 		419548440610B3FAF2841187 /* TagPredicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4DF712BE5E256C3E932817 /* TagPredicate.swift */; };
 		42592243ACB60639EEF429A2 /* TagValueImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923D7668E7CBCB3D0A427A3E /* TagValueImport.swift */; };
 		43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */; };
-		34A6F81306EC1FA384E1EB62 /* AppDataTransferRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */; };
 		440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */; };
 		445C2450A99170B573A8C90A /* MetadataCache+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */; };
 		44BC0BED6488F665BF3EB2EA /* PharosCore+Tags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */; };
@@ -184,6 +184,7 @@
 		613E5793FBC83289A0D307D4 /* SavedQueryCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E96C6665DAA0DA6F127AEC96 /* SavedQueryCellView.swift */; };
 		62D9A5F2ACCC76ADE89B2800 /* CopyableValueLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABFB8621654C650D3BF1AA7 /* CopyableValueLabel.swift */; };
 		642F1F0C94207A757429312D /* SettingsAboutHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E128075E277D62671E85189F /* SettingsAboutHeader.swift */; };
+		646C2A561F0A0937AF42A12C /* AppDataTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */; };
 		64FED1B9DA7DDF1EBAB4E72B /* TabSessionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2D0C2230ED3F4B236C2B74 /* TabSessionMonitor.swift */; };
 		6542D77ED87980EB583419A1 /* AuthoredLabelTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4B2E4D578C7DD3EF1B65A8 /* AuthoredLabelTextField.swift */; };
 		655708804511E3B8A99A319D /* Navigator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4D0427E59AB31AE00221DB /* Navigator.swift */; };
@@ -319,7 +320,6 @@
 		A85D406B8C9FD7038E6C901E /* VariableMenuPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA0901EAD7AC81B55DF2E06 /* VariableMenuPreview.swift */; };
 		A909F8974E0A0438F238862A /* GanttRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50B700A8B92A89542F8051A /* GanttRows.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
-		646C2A561F0A0937AF42A12C /* AppDataTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */; };
 		A9D3BA2E569055A93F3AE976 /* SQLDraftSchema+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB3092E3A4D3A16C1986A40 /* SQLDraftSchema+Cache.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
 		AA85FF8401AA3168DE75F249 /* SQLOrderStability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */; };
@@ -362,7 +362,6 @@
 		BE1B3B13E8594784CDDA5A12 /* ErrorExplanationPrompt+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924134701A5DCF2C9E7981E0 /* ErrorExplanationPrompt+Cache.swift */; };
 		BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */; };
 		BE87D256E01F62F5EA1D0E56 /* AttachDatabaseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */; };
-		D358049E8E69310179961F2F /* AppDataTransferWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */; };
 		C04A7D87CA7ABF614B9F4706 /* AppDelegate+DockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */; };
 		C09D4BB119BB9E4BAE7941C1 /* ServerChartDataBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */; };
 		C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A457DB103F34236A49AF1C /* InspectorColumnRowView.swift */; };
@@ -387,6 +386,7 @@
 		D277525C141C071F15B8BBF5 /* TagColorSwatchPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEAC782733D67E7A2495443C /* TagColorSwatchPicker.swift */; };
 		D27A1D46140FEC7E59278CEE /* UpdateCheckPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE902A585FDD51D23B51B23 /* UpdateCheckPolicy.swift */; };
 		D33D96EDFA3FA62EFBA1A3AC /* SettingsSectionHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923392DA36283E6B6414BCE3 /* SettingsSectionHeader.swift */; };
+		D358049E8E69310179961F2F /* AppDataTransferWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */; };
 		D3CCAA474E55F8232080947D /* ReviewRowChangesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F86E15E1706580700E0E7E8 /* ReviewRowChangesSheet.swift */; };
 		D490BC5B7339E95349267722 /* QueryVariableStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1240AA7DD9358837FF59AC79 /* QueryVariableStore.swift */; };
 		D4AA5CE5CFBC5C82D272798D /* ModelFeedbackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9540FC762F792920A98F2CAB /* ModelFeedbackStore.swift */; };
@@ -583,6 +583,7 @@
 		478AE9084B7DAB02CD46EF65 /* TagRuleRemoving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRuleRemoving.swift; sourceTree = "<group>"; };
 		4A3CAF3E2DBC07E5EB977E87 /* SettingsPaneRegistry+Factories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsPaneRegistry+Factories.swift"; sourceTree = "<group>"; };
 		4B5ECAA757C7692770A532EA /* FoldState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldState.swift; sourceTree = "<group>"; };
+		4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransferRules.swift; sourceTree = "<group>"; };
 		4C09DD10816D645D8567A7B5 /* FindHighlights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindHighlights.swift; sourceTree = "<group>"; };
 		4C25DF8F9813C90CA3567012 /* ChartConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartConfig.swift; sourceTree = "<group>"; };
 		4C543DD071753ABE6429A6C8 /* PharosCore+RecentFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+RecentFiles.swift"; sourceTree = "<group>"; };
@@ -622,7 +623,6 @@
 		615D52B308F7A0AB7B3567C9 /* SQLDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraft.swift; sourceTree = "<group>"; };
 		61756089841C329775F79CBB /* TagInspectorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagInspectorModel.swift; sourceTree = "<group>"; };
 		62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityDisplay.swift; sourceTree = "<group>"; };
-		4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransferRules.swift; sourceTree = "<group>"; };
 		645CC515733651A8555D0BC9 /* ScrollBarPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollBarPolicy.swift; sourceTree = "<group>"; };
 		6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
 		65BB5738BD159E9BD4771CC0 /* ContentViewController+UnsavedWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentViewController+UnsavedWork.swift"; sourceTree = "<group>"; };
@@ -653,7 +653,6 @@
 		74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuery.swift; sourceTree = "<group>"; };
 		770627A8864DE2D210669FAE /* RecentFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentFileStore.swift; sourceTree = "<group>"; };
 		773275ECF4E6A49569780BB8 /* PharosCore+Cards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Cards.swift"; sourceTree = "<group>"; };
-		B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+AppData.swift"; sourceTree = "<group>"; };
 		777B3FE187C2372DED419961 /* DrillMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillMerge.swift; sourceTree = "<group>"; };
 		77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartsSettingsPaneVC.swift; sourceTree = "<group>"; };
 		7810C3A700C53571493B19DD /* WindowSight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSight.swift; sourceTree = "<group>"; };
@@ -699,7 +698,6 @@
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
 		9540FC762F792920A98F2CAB /* ModelFeedbackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelFeedbackStore.swift; sourceTree = "<group>"; };
 		95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachDatabaseSheet.swift; sourceTree = "<group>"; };
-		C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransferWindowController.swift; sourceTree = "<group>"; };
 		976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosEntities.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
@@ -739,6 +737,7 @@
 		A9114095BC992F8AAD07387C /* QueryProgressText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryProgressText.swift; sourceTree = "<group>"; };
 		AA16914752C36D98C5FB61F6 /* DrillKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillKey.swift; sourceTree = "<group>"; };
 		AA51B3ECA2060638EA1898B8 /* QueryHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryHistory.swift; sourceTree = "<group>"; };
+		AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransfer.swift; sourceTree = "<group>"; };
 		AABFB8621654C650D3BF1AA7 /* CopyableValueLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyableValueLabel.swift; sourceTree = "<group>"; };
 		AB145E84466583565F196D2B /* SettingsSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndex.swift; sourceTree = "<group>"; };
 		AB1E5037B8F3B1BB2DA446A4 /* ExportImportOutcomeText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportImportOutcomeText.swift; sourceTree = "<group>"; };
@@ -757,6 +756,7 @@
 		B0D312EA5698E1D3935FAA0C /* TagRemovalModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagRemovalModel.swift; sourceTree = "<group>"; };
 		B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTilePicker.swift; sourceTree = "<group>"; };
 		B1E8FAEB6C42EFBE17142B4C /* SettingsMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsMetrics.swift; sourceTree = "<group>"; };
+		B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+AppData.swift"; sourceTree = "<group>"; };
 		B2EFE8CF506C1CA082186338 /* SchemaTreeCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeCellView.swift; sourceTree = "<group>"; };
 		B3CD268ABF6FA13DB82F8E14 /* RecentFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentFile.swift; sourceTree = "<group>"; };
 		B4658AC549B8ABCCA3C1B9FE /* SchemaTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchemaTreeNode.swift; sourceTree = "<group>"; };
@@ -789,6 +789,7 @@
 		C3BC598353E0F57A4149DB68 /* TagSampleTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagSampleTest.swift; sourceTree = "<group>"; };
 		C4869C5D3844F9198CB55373 /* NavigatorPaneState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigatorPaneState.swift; sourceTree = "<group>"; };
 		C49D82441B539D07769FC7B1 /* ManagerSidebarItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagerSidebarItem.swift; sourceTree = "<group>"; };
+		C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransferWindowController.swift; sourceTree = "<group>"; };
 		C7547E1FE459C609A4C14319 /* GridSelectionValidity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridSelectionValidity.swift; sourceTree = "<group>"; };
 		C76ECA80D0A628845C307266 /* MainToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainToolbarController.swift; sourceTree = "<group>"; };
 		C87F939622E046E11116B21C /* ResultsGridColumnState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultsGridColumnState.swift; sourceTree = "<group>"; };
@@ -861,7 +862,6 @@
 		EBB204A7203DFE7F75AE059A /* PharosCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosCore.swift; sourceTree = "<group>"; };
 		EBB861C66E832DF6949FD223 /* PharosCore+QueryVariables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+QueryVariables.swift"; sourceTree = "<group>"; };
 		EBF3A05751881D6DB6B2AE26 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
-		AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransfer.swift; sourceTree = "<group>"; };
 		EC36595DD6A1FE2966DC1132 /* SettingsItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsItem.swift; sourceTree = "<group>"; };
 		EC541A0819881910AFFC872F /* ValueCoercion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueCoercion.swift; sourceTree = "<group>"; };
 		EC9AB0873C57969274A41108 /* IntelligenceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceSession.swift; sourceTree = "<group>"; };
@@ -1588,9 +1588,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2700;
-				TargetAttributes = {
-				};
+				LastUpgradeCheck = 2720;
 			};
 			buildConfigurationList = 411217F64ED31E33A1F0B733 /* Build configuration list for PBXProject "Pharos" */;
 			developmentRegion = en;
@@ -1642,7 +1640,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -n \"$PHAROS_CI\" ]; then\n  echo \"Skipping Rust build — CI pre-built library\"\n  exit 0\nfi\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\n# DuckDB with Pharos's extensions, for this Mac's architecture.\n# Skipped when up to date; the first build takes several minutes.\n\"${SRCROOT}/scripts/build-duckdb.sh\"\ncd \"${SRCROOT}/pharos-core\"\ncargo build --release\n";
+			shellScript = "if [ -n \"$PHAROS_CI\" ]; then\n  echo \"Skipping Rust build — CI pre-built library\"\n  exit 0\nfi\nexport PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"\n# DuckDB with Pharos's extensions, for this Mac's architecture.\n# Skipped when up to date; the first build takes several minutes.\n\"${SRCROOT}/scripts/build-duckdb.sh\"\ncd \"${SRCROOT}/pharos-core\"\ncargo build --release\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -2115,9 +2113,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(SRCROOT)/pharos-core/target/release",
-				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/pharos-core/target/release";
 				OTHER_LDFLAGS = (
 					"-lpharos_core",
 					"-framework",
@@ -2282,9 +2278,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = (
-					"$(SRCROOT)/pharos-core/target/release",
-				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/pharos-core/target/release";
 				OTHER_LDFLAGS = (
 					"-lpharos_core",
 					"-framework",
@@ -2303,8 +2297,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.pharos.client;
 				PRODUCT_NAME = Pharos;
 				SDKROOT = macosx;
-				STRIP_INSTALLED_PRODUCT = YES;
-				STRIP_STYLE = "non-global";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Pharos/CPharosCore";
 				SWIFT_OBJC_BRIDGING_HEADER = "";
