@@ -1,7 +1,8 @@
 import AppKit
 
 // Window ▸ Tag Manager, Window ▸ Variable Manager, File ▸ Manage
-// Connections…, and the toolbar buttons that send the same actions.
+// Connections…, File ▸ Export App Data… and File ▸ Import App Data…, and the
+// toolbar buttons that send the same actions.
 // App-wide: they work with no main window, and from a manager window, whose
 // responder chain reaches no MainWindowController.
 extension AppDelegate {
@@ -11,6 +12,14 @@ extension AppDelegate {
 
     @MainActor @objc func menuShowVariableManager(_ sender: Any?) {
         VariableManagerWindowController.shared.show()
+    }
+
+    @MainActor @objc func menuExportAppData(_ sender: Any?) {
+        AppDataTransferWindowController.shared.showExport()
+    }
+
+    @MainActor @objc func menuImportAppData(_ sender: Any?) {
+        AppDataTransferWindowController.shared.showImport()
     }
 
     /// The front tab's loaded results go behind the live match count.

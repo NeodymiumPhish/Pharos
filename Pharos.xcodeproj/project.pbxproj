@@ -108,6 +108,7 @@
 		3BAF13B47C5D27BF9A23649F /* QueryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */; };
 		3BB2598F16FCA36267E8BB4F /* SavedQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */; };
 		3C08561F398C70E3EEDBA08B /* PharosCore+Cards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773275ECF4E6A49569780BB8 /* PharosCore+Cards.swift */; };
+		2D9D20C41A41BE357C0283C2 /* PharosCore+AppData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */; };
 		3C471C6BB89249B37BD0214F /* LaunchConnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46AFACD95D022C934A3AD80 /* LaunchConnectPolicy.swift */; };
 		3DAAA2B09C678F281734F208 /* ChartHostingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F891B6EAB834D607054C3750 /* ChartHostingController.swift */; };
 		3DCBD8AB9F46D4D240F5799E /* DuckDBCloseRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4E71413435BD2076C73B4E /* DuckDBCloseRule.swift */; };
@@ -121,6 +122,7 @@
 		419548440610B3FAF2841187 /* TagPredicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4DF712BE5E256C3E932817 /* TagPredicate.swift */; };
 		42592243ACB60639EEF429A2 /* TagValueImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 923D7668E7CBCB3D0A427A3E /* TagValueImport.swift */; };
 		43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */; };
+		34A6F81306EC1FA384E1EB62 /* AppDataTransferRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */; };
 		440FD3D2D5B4BE1E95727294 /* RowUpdateSQLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */; };
 		445C2450A99170B573A8C90A /* MetadataCache+Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E4C180D0531E1CDEF07A40 /* MetadataCache+Shared.swift */; };
 		44BC0BED6488F665BF3EB2EA /* PharosCore+Tags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0E57AE2ADFE7A5651016D2 /* PharosCore+Tags.swift */; };
@@ -317,6 +319,7 @@
 		A85D406B8C9FD7038E6C901E /* VariableMenuPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CA0901EAD7AC81B55DF2E06 /* VariableMenuPreview.swift */; };
 		A909F8974E0A0438F238862A /* GanttRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50B700A8B92A89542F8051A /* GanttRows.swift */; };
 		A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF3A05751881D6DB6B2AE26 /* Connection.swift */; };
+		646C2A561F0A0937AF42A12C /* AppDataTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */; };
 		A9D3BA2E569055A93F3AE976 /* SQLDraftSchema+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB3092E3A4D3A16C1986A40 /* SQLDraftSchema+Cache.swift */; };
 		A9D51FCCE26395D146188699 /* ResultsSortController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5A664A2928C215F48E9A6C /* ResultsSortController.swift */; };
 		AA85FF8401AA3168DE75F249 /* SQLOrderStability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */; };
@@ -359,6 +362,7 @@
 		BE1B3B13E8594784CDDA5A12 /* ErrorExplanationPrompt+Cache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 924134701A5DCF2C9E7981E0 /* ErrorExplanationPrompt+Cache.swift */; };
 		BE458AA0ADD207EC3EB17ED1 /* SanitiseNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8CC5F13398E983088076A2 /* SanitiseNotice.swift */; };
 		BE87D256E01F62F5EA1D0E56 /* AttachDatabaseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */; };
+		D358049E8E69310179961F2F /* AppDataTransferWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */; };
 		C04A7D87CA7ABF614B9F4706 /* AppDelegate+DockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D85BF03593871516B78BEA5E /* AppDelegate+DockMenu.swift */; };
 		C09D4BB119BB9E4BAE7941C1 /* ServerChartDataBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */; };
 		C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A457DB103F34236A49AF1C /* InspectorColumnRowView.swift */; };
@@ -618,6 +622,7 @@
 		615D52B308F7A0AB7B3567C9 /* SQLDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraft.swift; sourceTree = "<group>"; };
 		61756089841C329775F79CBB /* TagInspectorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagInspectorModel.swift; sourceTree = "<group>"; };
 		62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityDisplay.swift; sourceTree = "<group>"; };
+		4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransferRules.swift; sourceTree = "<group>"; };
 		645CC515733651A8555D0BC9 /* ScrollBarPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollBarPolicy.swift; sourceTree = "<group>"; };
 		6477FA0687C5FBFD9213A0B4 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowController.swift; sourceTree = "<group>"; };
 		65BB5738BD159E9BD4771CC0 /* ContentViewController+UnsavedWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentViewController+UnsavedWork.swift"; sourceTree = "<group>"; };
@@ -648,6 +653,7 @@
 		74EE864CF2A51B28DD0180D7 /* SavedQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuery.swift; sourceTree = "<group>"; };
 		770627A8864DE2D210669FAE /* RecentFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentFileStore.swift; sourceTree = "<group>"; };
 		773275ECF4E6A49569780BB8 /* PharosCore+Cards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Cards.swift"; sourceTree = "<group>"; };
+		B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+AppData.swift"; sourceTree = "<group>"; };
 		777B3FE187C2372DED419961 /* DrillMerge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DrillMerge.swift; sourceTree = "<group>"; };
 		77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartsSettingsPaneVC.swift; sourceTree = "<group>"; };
 		7810C3A700C53571493B19DD /* WindowSight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSight.swift; sourceTree = "<group>"; };
@@ -693,6 +699,7 @@
 		9411F1B22AE807915061D790 /* FoldingLayoutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingLayoutManager.swift; sourceTree = "<group>"; };
 		9540FC762F792920A98F2CAB /* ModelFeedbackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelFeedbackStore.swift; sourceTree = "<group>"; };
 		95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachDatabaseSheet.swift; sourceTree = "<group>"; };
+		C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransferWindowController.swift; sourceTree = "<group>"; };
 		976FF0CA26C8DA5D97CA81D6 /* PharosEntities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosEntities.swift; sourceTree = "<group>"; };
 		97AA1F94A343C5D877860C0C /* PharosCore+SavedQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+SavedQueries.swift"; sourceTree = "<group>"; };
 		97BEB29394899F91D91EB1BD /* SqlPushdownGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlPushdownGenerator.swift; sourceTree = "<group>"; };
@@ -854,6 +861,7 @@
 		EBB204A7203DFE7F75AE059A /* PharosCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PharosCore.swift; sourceTree = "<group>"; };
 		EBB861C66E832DF6949FD223 /* PharosCore+QueryVariables.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+QueryVariables.swift"; sourceTree = "<group>"; };
 		EBF3A05751881D6DB6B2AE26 /* Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Connection.swift; sourceTree = "<group>"; };
+		AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataTransfer.swift; sourceTree = "<group>"; };
 		EC36595DD6A1FE2966DC1132 /* SettingsItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsItem.swift; sourceTree = "<group>"; };
 		EC541A0819881910AFFC872F /* ValueCoercion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ValueCoercion.swift; sourceTree = "<group>"; };
 		EC9AB0873C57969274A41108 /* IntelligenceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceSession.swift; sourceTree = "<group>"; };
@@ -1102,6 +1110,7 @@
 				2949AE91999FDD99B80619FE /* CardResultStore.swift */,
 				46F573AC8CDC5345301B4F4E /* ColumnTypeIcon.swift */,
 				EBF3A05751881D6DB6B2AE26 /* Connection.swift */,
+				AA5BBF91D50E456C3252BCD8 /* AppDataTransfer.swift */,
 				9F670324A3284FA21DE1DEBF /* ModelFeedbackEntry.swift */,
 				8C4D0427E59AB31AE00221DB /* Navigator.swift */,
 				565D0CC33B7CB4593582B80F /* PartitionDisplay.swift */,
@@ -1185,6 +1194,7 @@
 			isa = PBXGroup;
 			children = (
 				95674010AC1F693F3FDD75BF /* AttachDatabaseSheet.swift */,
+				C6C880AEE41BDFE3B332F534 /* AppDataTransferWindowController.swift */,
 				FCDEB8CA1D1E287C49516768 /* ChartPaletteEditor.swift */,
 				20B39F69829E562F1E0DDEEC /* ExportDataSheet.swift */,
 				080E74E651B82BE21F196DDC /* ImportDataSheet.swift */,
@@ -1221,6 +1231,7 @@
 			isa = PBXGroup;
 			children = (
 				62A7CFFFD09026A8415D542E /* AccessibilityDisplay.swift */,
+				4BCD983F28C6A01DE9E8A115 /* AppDataTransferRules.swift */,
 				A6D3955E9601CF2414F57DFA /* AppInfo.swift */,
 				028712E3F9210287025ADAE8 /* AppStateManager.swift */,
 				324E7295B398823974915B5A /* AuthoredLabelSanitizer.swift */,
@@ -1262,6 +1273,7 @@
 				55D838DE107454A24C614573 /* PasswordPromptCoordinator.swift */,
 				EBB204A7203DFE7F75AE059A /* PharosCore.swift */,
 				773275ECF4E6A49569780BB8 /* PharosCore+Cards.swift */,
+				B24C00822949DC5B56FC4BB2 /* PharosCore+AppData.swift */,
 				03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */,
 				5B66356022E62F3638C73204 /* PharosCore+DuckDB.swift */,
 				C0545483DE63C69CAFE2604F /* PharosCore+ModelFeedback.swift */,
@@ -1641,6 +1653,7 @@
 			files = (
 				099B8ED24B3A5A36561A89A9 /* AboutSettingsPaneVC.swift in Sources */,
 				43D410ACD811DD436821D293 /* AccessibilityDisplay.swift in Sources */,
+				34A6F81306EC1FA384E1EB62 /* AppDataTransferRules.swift in Sources */,
 				A26D02C08A56B10243B8B93F /* AccessibilityProxyElement.swift in Sources */,
 				465C57EEC45F618538AAE62A /* AdvancedSettingsPaneVC.swift in Sources */,
 				C04A7D87CA7ABF614B9F4706 /* AppDelegate+DockMenu.swift in Sources */,
@@ -1652,6 +1665,7 @@
 				65BEED50C4062338E69E2217 /* AppStateManager.swift in Sources */,
 				95A33984D8A036AFD8CA4EB6 /* AppearanceSettingsPaneVC.swift in Sources */,
 				BE87D256E01F62F5EA1D0E56 /* AttachDatabaseSheet.swift in Sources */,
+				D358049E8E69310179961F2F /* AppDataTransferWindowController.swift in Sources */,
 				EB024138B8243B0BC5FF4CDD /* AuthoredLabelSanitizer.swift in Sources */,
 				6542D77ED87980EB583419A1 /* AuthoredLabelTextField.swift in Sources */,
 				FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */,
@@ -1702,6 +1716,7 @@
 				1FD34C73229401E999C2AC7B /* CompletionTriggerPolicy.swift in Sources */,
 				D0C43C4DB51855D79C012753 /* ConnectSchema.swift in Sources */,
 				A97E8AF9FA8A694D08979B05 /* Connection.swift in Sources */,
+				646C2A561F0A0937AF42A12C /* AppDataTransfer.swift in Sources */,
 				5998A9C5AC0C9EDBFA14BBCD /* ConnectionFormRules.swift in Sources */,
 				1EE2DA44329BF633992F09FD /* ConnectionLossClassifier.swift in Sources */,
 				E6B84272A07F3A0758F5E280 /* ConnectionMenuArt.swift in Sources */,
@@ -1833,6 +1848,7 @@
 				4918202983DF92FB8533CF90 /* PendingCellEdits.swift in Sources */,
 				F18E0DA8C46408A22F7149ED /* PendingEditsBar.swift in Sources */,
 				3C08561F398C70E3EEDBA08B /* PharosCore+Cards.swift in Sources */,
+				2D9D20C41A41BE357C0283C2 /* PharosCore+AppData.swift in Sources */,
 				1A6C6385B521B72E26B7965F /* PharosCore+Connection.swift in Sources */,
 				B4E887729AA6B374E5CA615B /* PharosCore+DuckDB.swift in Sources */,
 				94BEDEAAA1B0DDD7FFD7DE34 /* PharosCore+ModelFeedback.swift in Sources */,

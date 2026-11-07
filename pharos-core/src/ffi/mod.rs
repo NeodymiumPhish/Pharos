@@ -42,6 +42,7 @@ macro_rules! ffi_spawn {
     }};
 }
 
+mod app_backup;
 mod cards;
 mod connection;
 mod duckdb;

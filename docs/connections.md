@@ -291,7 +291,7 @@ The gate guards the two places Pharos *acts* on the password. It does not change
 
 ## Connection Storage
 
-Connection metadata (name, host, port, database, username, SSL mode, root certificate path, default schema, Touch ID requirement, SSH tunnel settings, read-only, remember-password, connect-at-launch and the session time zone) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite.
+Connection metadata (name, host, port, database, username, SSL mode, root certificate path, default schema, Touch ID requirement, SSH tunnel settings, read-only, remember-password, connect-at-launch and the session time zone) is stored in a local SQLite database in Pharos's Application Support directory. Passwords are stored in the macOS Keychain, never in SQLite. To move your connections, with their passwords, to another Mac, use [File > Export App Data…](app-data.md): the file is encrypted with a password you choose.
 
 A connection with an SSH tunnel has up to **two** Keychain entries: the database password, and the SSH passphrase or password. Each is written only if its own remember switch is on, and deleting the connection removes both. The SSH tunnel's own settings — host, port, user, authentication mode, key path and the remember switch — are stored in SQLite with the secret removed, so the Keychain is the only place either secret lives.
 

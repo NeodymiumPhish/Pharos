@@ -68,6 +68,25 @@ typedef void (*ProgressCallback)(void *context, uint64_t rows_loaded);
  void pharos_free_block(uint8_t *block, uintptr_t block_len);
 
 /**
+ * Write the chosen categories to a file. `json` is ExportAppDataOptions;
+ * the answer is ExportAppDataResult.
+ */
+ void pharos_export_app_data(const char *json, AsyncCallback callback, void *context);
+
+/**
+ * What a file holds. `json` is `{"path": ..., "passphrase": ...}` (the
+ * passphrase may be absent); the answer is BackupSummary, `locked` for an
+ * encrypted file read without its password.
+ */
+ void pharos_inspect_app_data(const char *json, AsyncCallback callback, void *context);
+
+/**
+ * Read the chosen categories from a file into the store. `json` is
+ * ImportAppDataOptions; the answer is ImportAppDataResult.
+ */
+ void pharos_import_app_data(const char *json, AsyncCallback callback, void *context);
+
+/**
  * Split SQL text into query cards. Returns `{"cards":[…]}` (camelCase card
  * fields). A null pointer is empty text.
  */

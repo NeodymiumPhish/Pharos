@@ -43,6 +43,7 @@ Requires macOS 26 (Tahoe) or later. Supports PostgreSQL 10+ servers and DuckDB d
 - **Connections** -- SSL support (disable/prefer/require), color-coded server icons, and Keychain password storage.
 - **DuckDB** -- Open or create a `.duckdb` file (File ▸ New/Open DuckDB Database…, Open Recent, or from Finder), or use an in-memory database. Built-in extensions: time zones and collations (`icu`), `INET`, full-text search, Excel and SQLite files, JSON, Parquet, files over HTTPS and S3 (`httpfs`), and PostgreSQL databases (`postgres_scanner`). Query cards, history, Sessions, the schema browser, DDL, Explain, charts, export (including Parquet) and CSV import all work. A file another app holds for writing opens read-only on request.
 - **SSH tunnels** -- Reach a database behind a bastion. Runs the system `ssh`, so `~/.ssh/config` aliases, `ProxyJump` and a 1Password agent key all apply. Strict host keys by default.
+- **Export and import app data** -- File ▸ Export App Data… writes your Sessions (optionally with their saved results), query history, connections with their passwords, tags and variables — any or all of them — to one file, encrypted with a password you choose. File ▸ Import App Data… reads it back on this Mac or another one, adding new items and replacing or keeping ones that are already there.
 - **Settings** -- A sidebar of sixteen panes covering appearance, the editor, query behaviour, the results grid, the navigators, connections, privacy, notifications and more. Every control applies at once; there is no Save button.
 
 ## Build from Source

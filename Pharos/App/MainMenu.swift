@@ -127,6 +127,16 @@ enum MainMenu {
         exportEditor.keyEquivalentModifierMask = [.command, .option]
 
         fileMenu.addItem(.separator())
+
+        // The user's own Pharos data — Sessions, history, connections with
+        // their passwords, tags and variables — to one file and back
+        // (AppDataTransferWindowController). App-wide: no window needed.
+        let exportAppData = fileMenu.addItem(withTitle: String(localized: "Export App Data…"), action: #selector(AppDelegate.menuExportAppData(_:)), keyEquivalent: "")
+        exportAppData.image = NSImage(systemSymbolName: "square.and.arrow.up.on.square", accessibilityDescription: nil)
+        let importAppData = fileMenu.addItem(withTitle: String(localized: "Import App Data…"), action: #selector(AppDelegate.menuImportAppData(_:)), keyEquivalent: "")
+        importAppData.image = NSImage(systemSymbolName: "square.and.arrow.down.on.square", accessibilityDescription: nil)
+
+        fileMenu.addItem(.separator())
         // Closes every tab of the window (its tab group), asking about each.
         fileMenu.addItem(withTitle: String(localized: "Close Window"), action: #selector(MainWindowController.menuCloseWindow(_:)), keyEquivalent: "W")
         fileMenuItem.submenu = fileMenu

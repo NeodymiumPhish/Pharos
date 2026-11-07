@@ -40,6 +40,14 @@ keyring = { version = "3", features = ["apple-native"] }
 urlencoding = "2"
 sqlformat = "0.3"
 flate2 = "1"
+# File ▸ Export App Data… (`commands::app_backup`): a backup that carries
+# connection passwords is encrypted with a password the user chooses —
+# AES-256-GCM under a PBKDF2-HMAC-SHA256 key. base64 carries the binary parts
+# (saved results, the salt, the nonce, the ciphertext) inside the JSON file.
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+sha2 = "0.10"
+base64 = "0.22"
 # DuckDB 2.0.0, linked against the static libraries scripts/build-duckdb.sh
 # builds (with the extensions in duckdb/extension_config.cmake); build.rs adds
 # the extension libraries. No `bundled`: that build cannot link out-of-tree

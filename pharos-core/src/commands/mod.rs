@@ -1,3 +1,4 @@
+pub mod app_backup;
 pub mod connection;
 pub mod ddl;
 pub mod duck;
@@ -24,6 +25,7 @@ pub mod table;
 pub mod tag;
 pub mod workspace;
 
+pub use app_backup::{export_app_data, import_app_data, inspect_app_data};
 pub use connection::*;
 pub use ddl::*;
 pub use metadata::*;

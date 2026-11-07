@@ -61,6 +61,15 @@ final class QueryVariableStore {
         postChange()
     }
 
+    /// Read the list again because something other than this store changed
+    /// it (File ▸ Import App Data…). Posts `didChange`, so the Variable
+    /// Manager and every editor pick the new list up.
+    func reload() throws {
+        variables = try PharosCore.loadQueryVariables()
+        loaded = true
+        postChange()
+    }
+
     /// Adopt `variables` as the whole list, then persist it.
     ///
     /// The in-memory assignment and the post come FIRST, the write second: the
