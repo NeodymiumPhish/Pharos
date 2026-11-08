@@ -109,6 +109,25 @@ enum MCPToolCatalog {
              ],
              required: [], readOnly: true, destructive: false),
 
+        Tool(name: "search_history", title: "Search query history",
+             description: "Search the queries Pharos has run (Results History), newest first: the SQL, when it ran, how long it took, its row count or its error. search is a full-text match on the SQL. Use status \"failed\" to find errors. An entry's SQL longer than max_sql_chars is cut short.",
+             properties: [
+                "search": string("Words the SQL must contain (full-text, so whole words and prefixes such as orders*)."),
+                "connection_id": string("Only queries run on this connection (from list_connections)."),
+                "status": ["type": "string", "enum": ["all", "succeeded", "failed"], "default": "all",
+                           "description": "Which runs: all of them, those that succeeded, or those that failed or were cancelled."],
+                "limit": integer("Entries to return.", minimum: 1, maximum: 200, default: 25),
+                "offset": integer("Entries to skip, for the next page.", minimum: 0, maximum: Int(Int32.max), default: 0),
+                "max_sql_chars": integer("Characters of an entry's SQL before it is cut short.",
+                                         minimum: 50, maximum: maxCellChars, default: 2_000),
+             ],
+             required: [], readOnly: true, destructive: false),
+
+        Tool(name: "list_variables", title: "List query variables",
+             description: "The query variables a card can use as {{name}}: each one's name, type (literal, text, number, bool, date, timestamp, timestamptz, list_text or list_number) and whether it is global or linked to particular connections. Give connection_id for the variables a tab on that connection sees. Values are included only if the user allows it in Pharos's settings; run_card fills them in either way.",
+             properties: ["connection_id": string("Only the variables available on this connection (global ones and those linked to it).")],
+             required: [], readOnly: true, destructive: false),
+
         Tool(name: "open_session", title: "Open a Session or workspace",
              description: "Open a saved Session (with the results saved with it) or a Results History workspace in a Pharos tab, and return the tab. Nothing is run. A Session that is already open is not opened twice.",
              properties: [
@@ -197,6 +216,7 @@ enum MCPToolCatalog {
     static let instructions = """
     Pharos is a SQL client for PostgreSQL and DuckDB. Its query tabs hold query cards: one SQL statement each, with a name, notes and the result of its last run. \
     Start with list_connections and list_tabs. To query, create_card (with connection_id for a new tab, or tab_id), then run_card, then page through get_card_result. \
+    search_history finds queries the user ran before, and list_variables the {{name}} variables a card can use. \
     Everything you do appears in the user's Pharos window. Statements that change data need the user's permission in Pharos and their confirmation for each run. \
     Results are paged and long cells are cut short; prefer aggregates and LIMIT over reading many rows.
     """

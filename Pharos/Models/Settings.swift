@@ -753,6 +753,9 @@ struct SecuritySettings: Codable, Equatable {
     /// Whether an MCP client may run what `DestructiveSQLScanner` flags. Off
     /// refuses it before it is queued; on still asks every time.
     var mcpAllowWrites: Bool = false
+    /// Whether an MCP client's `list_variables` returns values. Off: names
+    /// and types only, since a value can be a token or an address.
+    var mcpShareVariableValues: Bool = false
 }
 
 // MARK: - Database Navigator

@@ -62,7 +62,7 @@ proc.stdin.flush()
 check(init["result"]["serverInfo"]["name"] == "pharos", "initialize: Pharos answers")
 
 tools = rpc("tools/list")["result"]["tools"]
-check(len(tools) == 15, "tools/list: 15 tools", str(len(tools)))
+check(len(tools) == 17, "tools/list: 17 tools", str(len(tools)))
 
 conns, err = tool("list_connections")
 names = [c["name"] for c in (conns or {}).get("connections", [])]
@@ -128,6 +128,41 @@ check(again is not None and again["saved_session_id"] == saved["saved_session_id
 
 idle, _ = tool("cancel_card", tab_id=tab, card_id=card)
 check("not running" in (idle or {}).get("message", ""), "cancel_card: an idle card was not running")
+
+# A run that fails, then the history of this run's queries.
+bad, err = tool("create_card", tab_id=tab, sql="SELECT * FROM no_such_table", name="Broken Query")
+failed, err = tool("run_card", tab_id=tab, card_id=bad["card"]["id"])
+check(failed is not None and failed["status"] == "failed" and "no_such_table" in failed.get("error", ""),
+      "run_card: a failure comes back with the server's error", err or json.dumps(failed))
+
+hist, err = tool("search_history", search="people", connection_id="mcp-duck")
+sqls = [e["sql"] for e in (hist or {}).get("entries", [])]
+check(any("ORDER BY id" in q for q in sqls) and any("count(*)" in q for q in sqls),
+      "search_history: finds this run's queries by a word of their SQL", err or json.dumps(sqls))
+check(all(e["status"] == "succeeded" and "row_count" in e for e in hist["entries"] if "people" in e["sql"]),
+      "search_history: each with its status and row count")
+fails, err = tool("search_history", status="failed", limit=5)
+check(any("no_such_table" in e["sql"] and e.get("error") for e in (fails or {}).get("entries", [])),
+      "search_history: status failed finds the failure, with its error", err or json.dumps(fails))
+one, _ = tool("search_history", connection_id="mcp-duck", limit=1)
+check(len(one["entries"]) == 1 and one["next_offset"] == 1, "search_history: pages, with next_offset")
+nobody, err = tool("search_history", connection_id="nope")
+check(nobody is None and "list_connections" in (err or ""), "search_history: an unknown connection is refused")
+
+variables, err = tool("list_variables", connection_id="mcp-duck")
+pv = [v for v in (variables or {}).get("variables", []) if v["name"] == "person_id"]
+check(len(pv) == 1 and pv[0]["type"] == "number" and pv[0]["scope"] == "global",
+      "list_variables: the seeded variable, its type and scope", err or json.dumps(variables))
+check(pv and "value" not in pv[0] and variables["values_shared"] is False,
+      "list_variables: values are not shared unless the user allows it", json.dumps(variables))
+
+withvar, _ = tool("create_card", tab_id=tab, sql="SELECT name FROM people WHERE id = {{person_id}}", name="Person By Id")
+filled, err = tool("run_card", tab_id=tab, card_id=withvar["card"]["id"])
+check(filled is not None and filled.get("result", {}).get("rows") == [["Grace"]],
+      "run_card: a {{variable}} is filled in from the user's variables", err or json.dumps(filled))
+unknown, _ = tool("create_card", tab_id=tab, sql="SELECT {{no_such_var}}")
+missing_var, err = tool("run_card", tab_id=tab, card_id=unknown["card"]["id"])
+check(missing_var is None and "no_such_var" in (err or ""), "run_card: an undefined variable is refused by name", err or "")
 
 # Writes are allowed in this run's settings and Settings ▸ Query's own
 # confirmation is OFF: an MCP run must still wait for the user.

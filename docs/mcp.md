@@ -23,6 +23,7 @@ server. An AI app on the same Mac that speaks MCP, such as Claude desktop or LM
 Studio, can then work with your query cards:
 
 - list your connections, your open tabs, your saved Sessions and your recent workspaces
+- search your query history, and list your query variables
 - open a saved Session or a workspace in a tab
 - add a query card to a tab, and change its SQL, name or notes
 - run a card, and read its status and its rows, a page at a time
@@ -43,7 +44,9 @@ The server is **off** until you turn it on.
    are connected.
 3. If the app should be able to change data, also turn on **Let AI apps run
    statements that change data** (see [Safety](#safety)).
-4. Click **Copy** beside **Configuration for your AI app**. This puts the
+4. If the app should see your query variables' values, also turn on **Let AI
+   apps read query variable values**.
+5. Click **Copy** beside **Configuration for your AI app**. This puts the
    configuration below on the clipboard, with the path of your copy of Pharos.
 
 Pharos must be running for an AI app to use it. If Pharos is not running, or the
@@ -133,6 +136,16 @@ passwords, hosts or user names. Rows come back a page at a time (50 rows by
 default, 500 at most). Pharos cuts long cells to 200 characters by default, and
 a page stops early when it reaches about 100 KB.
 
+**Variable values stay hidden unless you share them.** `list_variables` returns
+each variable's name, type and scope. It returns values only if you turn on
+**Let AI apps read query variable values**. With the setting off, a card that
+uses `{{name}}` still runs with your value, and `get_card` shows the SQL that
+ran, so an app can see a value after it uses one.
+
+**Query history is shared in full.** `search_history` returns the SQL, timing,
+row count and error message of past runs on every connection. Pharos cuts long
+SQL to 2,000 characters by default. It does not return the rows of past runs.
+
 **Pharos asks for passwords as usual.** If a connection needs a password, or
 needs Touch ID, Pharos asks you in its window. The AI app never sees the
 password.
@@ -151,6 +164,8 @@ app's connection at once and removes the socket.
 | `list_tabs` | Lists the open query tabs in every window, with the connection, the bound Session and the card count. |
 | `list_saved_sessions` | Lists the saved Sessions in the library. You can filter by name or folder. |
 | `list_workspaces` | Lists recent Results History workspaces, newest first. |
+| `search_history` | Searches past runs, newest first, by words in their SQL (full-text), connection and status (`all`, `succeeded`, `failed`). Returns each run's SQL, time, duration, and row count or error. Pages with `offset` and `next_offset`. |
+| `list_variables` | Lists the query variables, or those that a tab on one connection can use: name, type, global or linked. Values only if you allow it. |
 | `open_session` | Opens a saved Session (with its saved results) or a workspace in a tab. Nothing runs. |
 | `create_tab` | Opens a new, empty tab on a connection. |
 | `list_cards` / `get_card` | Gives each card's id, name, version, lock, SQL, notes, and status: `never_run`, `queued`, `running`, `awaiting_confirmation`, `succeeded` or `failed`. Also gives the last run's row count or error. |

@@ -158,7 +158,8 @@ private func testCatalog() {
     let tools = MCPToolCatalog.tools
     let names = tools.map(\.name)
     expect(Set(names).count == names.count, "catalog: tool names are unique")
-    let wanted = ["list_connections", "connect", "list_tabs", "list_saved_sessions", "list_workspaces", "open_session",
+    let wanted = ["list_connections", "connect", "list_tabs", "list_saved_sessions", "list_workspaces", "search_history",
+                  "list_variables", "open_session",
                   "create_tab", "list_cards", "get_card", "create_card", "update_card", "run_card", "get_card_result",
                   "cancel_card", "save_session"]
     expect(names == wanted, "catalog: the tools, in order", "\(names)")
@@ -176,6 +177,11 @@ private func testCatalog() {
     expect(MCPToolCatalog.tool(named: "run_card")?.destructive == true, "catalog: run_card is marked destructive")
     expect(tools.filter(\.readOnly).map(\.name).contains("get_card_result"), "catalog: reads are marked read-only")
     expect(!(MCPToolCatalog.tool(named: "create_card")?.readOnly ?? true), "catalog: create_card is not read-only")
+    expect(MCPToolCatalog.tool(named: "search_history")?.readOnly == true
+           && MCPToolCatalog.tool(named: "list_variables")?.readOnly == true, "catalog: history and variables are read-only")
+    expect(MCPToolCatalog.tool(named: "search_history")?.properties["status"]?["enum"] == ["all", "succeeded", "failed"],
+           "catalog: search_history's status is an enum of the three scopes")
+    expect(MCPToolCatalog.tool(named: "list_variables")?.required.isEmpty == true, "catalog: list_variables needs no arguments")
     let session = MCPSession(host: StubHost(), serverVersion: "1")
     let list = respond(session, #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)
     expect(list?["result"]?["tools"]?.arrayValue?.count == tools.count, "tools/list: every tool")

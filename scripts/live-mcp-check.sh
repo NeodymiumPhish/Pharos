@@ -12,8 +12,9 @@
 #
 # Before the measured launch the store is seeded, with the app stopped: the
 # MCP server and MCP writes on, Settings ▸ Query's own destructive
-# confirmation OFF (an MCP run must ask anyway), and a DuckDB connection
-# `mcp-duck` to a scratch file holding a three-row `people` table.
+# confirmation OFF (an MCP run must ask anyway), variable values NOT shared,
+# a DuckDB connection `mcp-duck` to a scratch file holding a three-row
+# `people` table, and a global number variable `person_id` = 2.
 #
 # The last check leaves a confirmation sheet on screen; the script then
 # kills the copy, so the DELETE never runs.
@@ -76,6 +77,8 @@ INSERT INTO app_settings (id, settings_json, updated_at) VALUES (1, '$(printf '%
   ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json;
 INSERT INTO connections (id, name, host, port, database, username, engine, saved)
   VALUES ('mcp-duck', 'MCP Check', '', 0, '$WORK/check.duckdb', '', 'duckdb', 1);
+INSERT INTO query_variables (id, name, value, type, position)
+  VALUES ('$(uuidgen)', 'person_id', '2', 'number', 0);
 SQL
 
 # 3. The measured launch: wait for the socket.

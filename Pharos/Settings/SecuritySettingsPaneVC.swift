@@ -64,6 +64,13 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                     kind: .toggle(.settings(\.security.mcpAllowWrites)),
                     dependsOn: "mcpServerEnabled"),
                 SettingsItem(
+                    id: "mcpShareVariableValues",
+                    title: String(localized: "Let AI apps read query variable values"),
+                    caption: String(localized: "Off, AI apps see each variable's name and type, not its value. Values are still filled in when a card runs."),
+                    icon: "curlybraces",
+                    kind: .toggle(.settings(\.security.mcpShareVariableValues)),
+                    dependsOn: "mcpServerEnabled"),
+                SettingsItem(
                     id: "mcpConfiguration",
                     title: String(localized: "Configuration for your AI app"),
                     caption: String(localized: "The mcpServers entry that adds Pharos to Claude desktop or LM Studio."),

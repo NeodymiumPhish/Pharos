@@ -187,7 +187,8 @@
     "collectPerformanceMetrics": false,
     "indexSavedQueriesInSpotlight": false,
     "mcpAllowWrites": true,
-    "mcpServerEnabled": true
+    "mcpServerEnabled": true,
+    "mcpShareVariableValues": true
   },
   "session": {
     "autosaveIntervalSeconds": 31,

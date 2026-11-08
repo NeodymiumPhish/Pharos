@@ -16,6 +16,8 @@ enum MCPToolHandlers {
         case "list_tabs": return listTabs()
         case "list_saved_sessions": return try listSavedSessions(args)
         case "list_workspaces": return try listWorkspaces(args)
+        case "search_history": return try searchHistory(args)
+        case "list_variables": return try listVariables(args)
         case "open_session": return try await openSession(args)
         case "create_tab": return try createTab(args, client: client)
         case "list_cards": return try listCards(args)
@@ -189,6 +191,73 @@ enum MCPToolHandlers {
             ]
         }
         return ["workspaces": .array(rows)]
+    }
+
+    private static func searchHistory(_ args: MCPArguments) throws -> JSONValue {
+        let limit = try args.int("limit", default: 25, range: 1...200)
+        let offset = try args.int("offset", default: 0, range: 0...Int(Int32.max))
+        let maxSQL = try args.int("max_sql_chars", default: 2_000, range: 50...MCPToolCatalog.maxCellChars)
+        let statusText = args.optionalString("status") ?? "all"
+        guard let status = QueryHistoryStatusScope(rawValue: statusText) else {
+            throw MCPToolError.invalidArgument("“status” must be all, succeeded or failed.")
+        }
+        let connectionId = args.optionalString("connection_id")
+        if let connectionId { _ = try connection(connectionId) }
+        let search = args.optionalString("search")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var filter = QueryHistoryFilter(connectionId: connectionId, search: (search?.isEmpty ?? true) ? nil : search,
+                                        limit: limit + 1, offset: offset)
+        filter.status = status
+        let entries: [QueryHistoryEntry]
+        do { entries = try PharosCore.loadQueryHistory(filter: filter) } catch {
+            throw MCPToolError.failed("Pharos could not read its query history: \(error.localizedDescription)")
+        }
+        // One more than asked for says whether there is a next page.
+        let page = entries.prefix(limit)
+        let rows: [JSONValue] = page.map { e in
+            let (sql, _) = MCPResultShaper.cut(e.sql, to: maxSQL)
+            var o: [String: JSONValue] = [
+                "id": .string(e.id),
+                "connection_id": .string(e.connectionId),
+                "connection_name": .string(e.connectionName),
+                "sql": .string(sql),
+                "executed_at": .string(e.executedAt),
+                "execution_time_ms": .int(Int(e.executionTimeMs)),
+                "status": .string(e.isSucceeded ? "succeeded" : e.status),
+                "schema": .optional(e.schema),
+                "tables": .optional(e.tableNames),
+            ]
+            if let n = e.rowCount { o["row_count"] = .int(Int(n)) }
+            if let error = e.errorMessage { o["error"] = .string(error) }
+            return .object(o)
+        }
+        return [
+            "entries": .array(rows),
+            "next_offset": entries.count > limit ? .int(offset + limit) : .null,
+        ]
+    }
+
+    private static func listVariables(_ args: MCPArguments) throws -> JSONValue {
+        let store = QueryVariableStore.shared
+        try? store.loadIfNeeded()
+        let connectionId = args.optionalString("connection_id")
+        if let connectionId { _ = try connection(connectionId) }
+        let variables = connectionId.map { store.available(for: $0) } ?? store.variables
+        let shareValues = state.settings.security.mcpShareVariableValues
+        let rows: [JSONValue] = variables.filter { !$0.name.isEmpty }.map { v in
+            var o: [String: JSONValue] = [
+                "name": .string(v.name),
+                "type": .string(v.type.rawValue),
+                "scope": .string(v.isGlobal ? "global" : "linked"),
+                "connection_ids": .array(v.connectionIds.map(JSONValue.string)),
+            ]
+            if shareValues { o["value"] = .string(v.value) }
+            return .object(o)
+        }
+        var out: [String: JSONValue] = ["variables": .array(rows), "values_shared": .bool(shareValues)]
+        if !shareValues {
+            out["message"] = "Values are not shared: the user can allow it in Pharos, Settings ▸ Security & Privacy ▸ Let AI apps read query variable values. run_card fills them in either way."
+        }
+        return .object(out)
     }
 
     private static func openSession(_ args: MCPArguments) async throws -> JSONValue {

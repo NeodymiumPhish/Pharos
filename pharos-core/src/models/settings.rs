@@ -709,6 +709,11 @@ pub struct SecuritySettings {
     /// they are queued; on still asks in Pharos every time.
     #[serde(default)]
     pub mcp_allow_writes: bool,
+    /// Whether an MCP client's `list_variables` returns the variables'
+    /// values. Off it returns names and types only: a value can be a token
+    /// or an address the user would not hand to a model.
+    #[serde(default)]
+    pub mcp_share_variable_values: bool,
 }
 
 impl Default for SecuritySettings {
@@ -719,6 +724,7 @@ impl Default for SecuritySettings {
             clear_password_cache_on_sleep: false,
             mcp_server_enabled: false,
             mcp_allow_writes: false,
+            mcp_share_variable_values: false,
         }
     }
 }
@@ -1457,6 +1463,7 @@ pub(crate) mod fixture {
                     clear_password_cache_on_sleep: true,
                     mcp_server_enabled: true,
                     mcp_allow_writes: true,
+                    mcp_share_variable_values: true,
                 },
                 navigator: NavigatorSettings {
                     schema_sort: SchemaSortMode::DefaultFirst,
