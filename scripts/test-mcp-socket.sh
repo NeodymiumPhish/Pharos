@@ -8,6 +8,7 @@ swiftc -o /tmp/pharos-mcp-socket-tests \
   Pharos/Core/MCP/MCPToolCatalog.swift \
   Pharos/Core/MCP/MCPProtocol.swift \
   Pharos/Core/MCP/MCPSocket.swift \
+  Pharos/Core/MCP/MCPAppIdentity.swift \
   Pharos/Core/MCP/MCPStdioBridge.swift \
   PharosTests/MCPSocketTests.swift \
   PharosTests/main.swift

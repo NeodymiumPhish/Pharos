@@ -143,7 +143,9 @@ final class MCPSocketServer {
     }
 
     let path: String
-    private let makeSession: () -> MCPSession
+    private let makeSession: (MCPAppIdentity?) -> MCPSession
+    /// The app at the other end of an accepted socket. The tests replace it.
+    private let identify: (Int32) -> MCPAppIdentity?
     private let queue = DispatchQueue(label: "com.pharos.mcp.server")
     private var listenFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
@@ -153,8 +155,10 @@ final class MCPSocketServer {
     /// the server's queue.
     var onConnectionsChanged: (([MCPClientInfo]) -> Void)?
 
-    init(path: String, makeSession: @escaping () -> MCPSession) {
+    init(path: String, identify: @escaping (Int32) -> MCPAppIdentity? = MCPAppIdentifier.forPeer,
+         makeSession: @escaping (MCPAppIdentity?) -> MCPSession) {
         self.path = path
+        self.identify = identify
         self.makeSession = makeSession
     }
 
@@ -245,7 +249,8 @@ final class MCPSocketServer {
             // wait for the source anyway; writes must block (on the write
             // queue), or a large response would stop at EAGAIN.
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
-            let connection = Connection(fd: fd, session: makeSession())
+            // Read now, while the bridge (and the app that launched it) runs.
+            let connection = Connection(fd: fd, session: makeSession(identify(fd)))
             connection.session.onInitialize = { [weak self] _ in
                 guard let self else { return }
                 self.queue.async { self.notifyChanged() }

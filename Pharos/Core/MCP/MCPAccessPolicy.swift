@@ -1,8 +1,8 @@
 import Foundation
 
-/// Which databases an MCP client may reach: only connections whose record
-/// has "Allow AI apps to use this connection" on (`ConnectionConfig.mcpAccess`),
-/// off by default.
+/// Which databases an MCP client may reach: only connections whose "AI apps"
+/// choice (`ConnectionConfig.mcpAccess`, off by default) includes the app's
+/// tier, Local or Cloud. The caller turns that into the `allowed` set.
 ///
 /// A client reaches a database through more than the connection: through a
 /// tab on it, through cards that ran on it (a tab keeps its cards when it

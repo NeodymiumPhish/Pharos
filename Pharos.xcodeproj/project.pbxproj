@@ -161,6 +161,7 @@
 		514860A1397A6B3F0A10D72A /* HistoryFailureFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B009A12281E9134DCCCF6D0 /* HistoryFailureFilter.swift */; };
 		528464E784C1FE488A25CA4F /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0182FE7779F9D5E0C098F576 /* AppIcon.icon */; };
 		5297D5CAC6DFD3D31076CA0E /* ShortcutCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F8F238B8B24412B49DBFDE0 /* ShortcutCatalog.swift */; };
+		52AA78ED22D7D1B9B406ECAF /* MCPAppIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44DF1BF05A9450991BCD5B0 /* MCPAppIdentity.swift */; };
 		530F655838A02C08ECC2B34F /* SettingsFormBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFED7D449B3FC4B06D1E076A /* SettingsFormBuilder.swift */; };
 		534CFEF37FE4D8027C4E016E /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E1A79C0687366CE6000F5A3 /* Workspace.swift */; };
 		536BAD4DFD936AD74404D0DD /* ChartConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C25DF8F9813C90CA3567012 /* ChartConfig.swift */; };
@@ -409,6 +410,7 @@
 		DA62FDE9A778D6A3B6FB94D8 /* ContentViewController+DataFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C0F5CA284EB37AF60EF47A /* ContentViewController+DataFiles.swift */; };
 		DD4B5437E848E45EA5D1F6C4 /* ResultsFindController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DEE8A90621927B4A546E936 /* ResultsFindController.swift */; };
 		DD8006A5C3C4B8F18BBED3E8 /* MCPStdioBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD5EC6AFDC60DE49C634DCA3 /* MCPStdioBridge.swift */; };
+		DE070A9F1C8D77DB54311DE3 /* MCPAppsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE9031E0BDD35ED932CB38A /* MCPAppsListView.swift */; };
 		DEEFA50C59D6E6E8EA90D8B7 /* MCPServerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27F66C5EDFD55B33C1F1FF6E /* MCPServerController.swift */; };
 		E02EA8A440A656E0CFDE8093 /* SchemaDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819E831FCE0F6F7280A28624 /* SchemaDetailSheet.swift */; };
 		E0EA67613142938E238898C7 /* ChartPalette+Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D30FCEFFB7D70B745C0B226 /* ChartPalette+Color.swift */; };
@@ -677,6 +679,7 @@
 		7B35EC2009F073EB57DC62C5 /* FailurePresentationRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailurePresentationRule.swift; sourceTree = "<group>"; };
 		7B832E30AFF53EE26EA14F13 /* ConnectionFormRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionFormRules.swift; sourceTree = "<group>"; };
 		7BE7B34EE17E4997F6314065 /* SettingsEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsEffects.swift; sourceTree = "<group>"; };
+		7BE9031E0BDD35ED932CB38A /* MCPAppsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPAppsListView.swift; sourceTree = "<group>"; };
 		7CBCFEF1E97E439A66848739 /* ResultsGridVC+Setup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ResultsGridVC+Setup.swift"; sourceTree = "<group>"; };
 		7DEC3690225F794408E62D29 /* ChartAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartAggregator.swift; sourceTree = "<group>"; };
 		7E1A79C0687366CE6000F5A3 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -741,6 +744,7 @@
 		A37DAEDE02644288DA49F1E0 /* SettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPaneVC.swift; sourceTree = "<group>"; };
 		A3979604AF599EDCF7C0B789 /* SettingsDetailVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsDetailVC.swift; sourceTree = "<group>"; };
 		A3FE87F7F072ADB56EDD132B /* ResizeDividerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResizeDividerView.swift; sourceTree = "<group>"; };
+		A44DF1BF05A9450991BCD5B0 /* MCPAppIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPAppIdentity.swift; sourceTree = "<group>"; };
 		A51B7E42D0E3720183013836 /* VariableValuePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableValuePreview.swift; sourceTree = "<group>"; };
 		A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DestructiveSQLScanner.swift; sourceTree = "<group>"; };
 		A66124BB8E69DF3917474F6F /* TagManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagManagerWindowController.swift; sourceTree = "<group>"; };
@@ -1419,6 +1423,7 @@
 				F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */,
 				A09286CAFDBE3E37132C6C4E /* IntelligenceSettingsPaneVC.swift */,
 				33D6BD6DA9528F17B400D1BA /* LibrarySettingsPaneVC.swift */,
+				7BE9031E0BDD35ED932CB38A /* MCPAppsListView.swift */,
 				22235FED412A763052DA524B /* NavigatorSettingsPaneVC.swift */,
 				E397BE99DB86FEB206E33A74 /* NotificationsSettingsPaneVC.swift */,
 				EB2464F55E715E65612B9E73 /* QuerySettingsPaneVC.swift */,
@@ -1465,6 +1470,7 @@
 			isa = PBXGroup;
 			children = (
 				0D58D02305DC2F9364FBFD5A /* MCPAccessPolicy.swift */,
+				A44DF1BF05A9450991BCD5B0 /* MCPAppIdentity.swift */,
 				367D7D654987217E13A12833 /* MCPJSON.swift */,
 				4B5CB3B286BA17A1E0C3D013 /* MCPProtocol.swift */,
 				27F66C5EDFD55B33C1F1FF6E /* MCPServerController.swift */,
@@ -1847,6 +1853,8 @@
 				467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */,
 				BDD0B35D5CC9DF83EB996451 /* Log.swift in Sources */,
 				4B949F80E559C95CAD1780D1 /* MCPAccessPolicy.swift in Sources */,
+				52AA78ED22D7D1B9B406ECAF /* MCPAppIdentity.swift in Sources */,
+				DE070A9F1C8D77DB54311DE3 /* MCPAppsListView.swift in Sources */,
 				E7238032F5E5FF7FDB011A20 /* MCPJSON.swift in Sources */,
 				EB996A942EFF6308D6485339 /* MCPProtocol.swift in Sources */,
 				DEEFA50C59D6E6E8EA90D8B7 /* MCPServerController.swift in Sources */,

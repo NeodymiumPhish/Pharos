@@ -84,7 +84,7 @@ enum MCPToolCatalog {
 
     static let tools: [Tool] = [
         Tool(name: "list_connections", title: "List connections",
-             description: "The database connections the user shares with AI apps: id, name, engine (postgres or duckdb), database, default schema and whether Pharos is connected. Connections the user has not shared are not listed, and their tabs, history, workspaces and Sessions are not available through any tool. Passwords and hosts are not included.",
+             description: "The database connections the user shares with this app: id, name, engine (postgres or duckdb), database, default schema and whether Pharos is connected. Connections the user has not shared are not listed, and their tabs, history, workspaces and Sessions are not available through any tool. Passwords and hosts are not included.",
              properties: [:], required: [], readOnly: true, destructive: false),
 
         Tool(name: "connect", title: "Connect",
@@ -217,7 +217,7 @@ enum MCPToolCatalog {
     Pharos is a SQL client for PostgreSQL and DuckDB. Its query tabs hold query cards: one SQL statement each, with a name, notes and the result of its last run. \
     Start with list_connections and list_tabs. To query, create_card (with connection_id for a new tab, or tab_id), then run_card, then page through get_card_result. \
     search_history finds queries the user ran before, and list_variables the {{name}} variables a card can use. \
-    You see only the connections the user shares with AI apps, and the tabs, history, workspaces and Sessions that ran against them. \
+    You see only the connections the user shares with your app, and the tabs, history, workspaces and Sessions that ran against them. \
     Everything you do appears in the user's Pharos window. Statements that change data need the user's permission in Pharos and their confirmation for each run. \
     Results are paged and long cells are cut short; prefer aggregates and LIMIT over reading many rows.
     """

@@ -1,12 +1,27 @@
 import Foundation
 
-/// Who is on the other end of an MCP connection, as its `initialize` said.
+/// The app that launched `Pharos --mcp`, by its code signature
+/// (`MCPAppIdentifier`). Pharos's permissions are keyed by `id`.
+struct MCPAppIdentity: Equatable {
+    /// `team:<team id>:<bundle id>`, or `path:<executable>` when unsigned.
+    let id: String
+    let name: String
+    /// The signing certificate's summary or team id, or the path.
+    let detail: String
+    let signed: Bool
+}
+
+/// Who is on the other end of an MCP connection: the app its signature names
+/// (`app`), and what its `initialize` said (`name`, `version`).
 struct MCPClientInfo: Equatable {
     var name: String?
     var version: String?
+    /// Nil when no app could be named (`Pharos --mcp` run from Terminal).
+    var app: MCPAppIdentity?
 
-    /// "Claude", or "An AI app" when the client gave no name.
+    /// The signed app's name, else the name the client gave, else "An AI app".
     var displayName: String {
+        if let app { return app.name }
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? String(localized: "An AI app") : trimmed
     }
@@ -49,9 +64,10 @@ final class MCPSession {
     /// Called once the client has said who it is.
     var onInitialize: ((MCPClientInfo) -> Void)?
 
-    init(host: MCPToolHost, serverVersion: String) {
+    init(host: MCPToolHost, serverVersion: String, app: MCPAppIdentity? = nil) {
         self.host = host
         self.serverVersion = serverVersion
+        _client.app = app
     }
 
     var client: MCPClientInfo { lock.withLock { _client } }
@@ -124,7 +140,9 @@ final class MCPSession {
         let version = asked.flatMap { Self.supportedProtocolVersions.contains($0) ? $0 : nil }
             ?? Self.supportedProtocolVersions[0]
         let info = params["clientInfo"]
-        let client = MCPClientInfo(name: info?["name"]?.stringValue, version: info?["version"]?.stringValue)
+        let client = lock.withLock { () -> MCPClientInfo in
+            MCPClientInfo(name: info?["name"]?.stringValue, version: info?["version"]?.stringValue, app: _client.app)
+        }
         lock.withLock {
             _client = client
             _protocolVersion = version

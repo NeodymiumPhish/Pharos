@@ -13,6 +13,12 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
     private var mcpObserver: NSObjectProtocol?
+    private lazy var mcpAppsView = MCPAppsListView()
+
+    override func reloadFromSettings() {
+        super.reloadFromSettings()
+        mcpAppsView.reload()
+    }
 
     override func loadView() {
         super.loadView()
@@ -57,18 +63,25 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                     help: String(localized: "AI apps on this Mac that speak the Model Context Protocol (Claude, LM Studio and others) can list your connections and Sessions, add query cards to your tabs, run them and read their results. Everything they do appears in the Pharos window. They connect through a file only your user account can open; nothing listens on the network."),
                     kind: .toggle(.settings(\.security.mcpServerEnabled))),
                 SettingsItem(
-                    id: "mcpAllowWrites",
-                    title: String(localized: "Let AI apps run statements that change data"),
-                    caption: String(localized: "INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE and GRANT. Off, Pharos refuses them. On, you still confirm each one in Pharos."),
-                    icon: "exclamationmark.shield",
-                    kind: .toggle(.settings(\.security.mcpAllowWrites)),
+                    id: "mcpApps",
+                    title: String(localized: "AI apps"),
+                    caption: String(localized: "Each app that has used Pharos, told apart by its code signature. Choose Local for an app whose model runs on this Mac, such as LM Studio, and Cloud for one whose model runs elsewhere, such as Claude."),
+                    icon: "app.badge.checkmark",
+                    kind: .custom { [unowned self] in self.mcpAppsView },
                     dependsOn: "mcpServerEnabled"),
                 SettingsItem(
-                    id: "mcpShareVariableValues",
-                    title: String(localized: "Let AI apps read query variable values"),
-                    caption: String(localized: "Off, AI apps see each variable's name and type, not its value. Values are still filled in when a card runs."),
+                    id: "mcpWrites",
+                    title: String(localized: "AI apps that can change data"),
+                    caption: String(localized: "INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE and GRANT. Other apps are refused; these still confirm each run in Pharos."),
+                    icon: "exclamationmark.shield",
+                    kind: .popup(.cases(\.security.mcpWrites, title: { $0.displayLabel })),
+                    dependsOn: "mcpServerEnabled"),
+                SettingsItem(
+                    id: "mcpVariableValues",
+                    title: String(localized: "AI apps that can read variable values"),
+                    caption: String(localized: "Other apps see each query variable's name and type, not its value. Values are filled in when a card runs either way."),
                     icon: "curlybraces",
-                    kind: .toggle(.settings(\.security.mcpShareVariableValues)),
+                    kind: .popup(.cases(\.security.mcpVariableValues, title: { $0.displayLabel })),
                     dependsOn: "mcpServerEnabled"),
                 SettingsItem(
                     id: "mcpConfiguration",

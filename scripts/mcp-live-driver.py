@@ -5,13 +5,17 @@ Used by scripts/live-mcp-check.sh, which launches a re-identified copy of the
 app with the MCP server on and a DuckDB connection `mcp-duck` holding a
 `people` table of three rows. Prints PASS/FAIL lines; exits 1 on a failure.
 
-Usage: mcp-live-driver.py <path to Pharos binary>
+Usage: mcp-live-driver.py <Pharos binary> <launcher> <unapproved|cloud|local>
+
+The launcher (scripts/mcp-fake-client.swift, built by the check) starts the
+bridge, so Pharos identifies the "app" by it. The mode says what the check
+has set that app to in Settings: not approved yet, Cloud, or Local.
 """
 import json
 import subprocess
 import sys
 
-BIN = sys.argv[1]
+BIN, LAUNCHER, MODE = sys.argv[1], sys.argv[2], sys.argv[3]
 failures = 0
 
 
@@ -24,7 +28,7 @@ def check(cond, name, detail=""):
         print(f"FAIL {name}" + (f"\n  {detail}" if detail else ""))
 
 
-proc = subprocess.Popen([BIN, "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+proc = subprocess.Popen([LAUNCHER, BIN, "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
 next_id = 0
 
 
@@ -64,6 +68,43 @@ check(init["result"]["serverInfo"]["name"] == "pharos", "initialize: Pharos answ
 tools = rpc("tools/list")["result"]["tools"]
 check(len(tools) == 17, "tools/list: 17 tools", str(len(tools)))
 
+
+def finish():
+    proc.stdin.close()
+    proc.wait(timeout=5)
+    print()
+    print(f"All live MCP checks passed ({MODE})." if failures == 0 else f"{failures} failure(s).")
+    sys.exit(1 if failures else 0)
+
+
+if MODE == "unapproved":
+    for attempt in ("first", "second"):
+        got, err = tool("list_tabs")
+        check(got is None and "not approved" in (err or ""),
+              f"unapproved: the {attempt} tool call from a new app is refused until the user approves it", err or "")
+    finish()
+
+if MODE == "cloud":
+    conns, err = tool("list_connections")
+    ids = sorted(c["id"] for c in (conns or {}).get("connections", []))
+    check(ids == ["mcp-duck"], "cloud: only the connection shared with all approved apps is listed", err or str(ids))
+    got, err = tool("create_card", connection_id="local-duck", sql="SELECT 1")
+    check(got is None and "shared with" in (err or ""), "cloud: a local-only connection is out of reach", err or "")
+    made, err = tool("create_card", connection_id="mcp-duck", sql="SELECT count(*) AS n FROM people")
+    ran, err = tool("run_card", tab_id=made["tab_id"], card_id=made["card"]["id"])
+    check(ran is not None and ran.get("result", {}).get("rows") == [["3"]], "cloud: a read on a shared connection runs",
+          err or json.dumps(ran))
+    delete, _ = tool("create_card", tab_id=made["tab_id"], sql="DELETE FROM people")
+    refused, err = tool("run_card", tab_id=made["tab_id"], card_id=delete["card"]["id"])
+    check(refused is None and "change data" in (err or ""), "cloud: writes are for local apps only, so refused", err or "")
+    variables, _ = tool("list_variables")
+    pv = [v for v in variables["variables"] if v["name"] == "person_id"]
+    check(pv and "value" not in pv[0] and variables["values_shared"] is False, "cloud: variable values are for local apps only",
+          json.dumps(variables))
+    finish()
+
+# MODE == "local": everything below.
+
 conns, err = tool("list_connections")
 names = [c["name"] for c in (conns or {}).get("connections", [])]
 check("MCP Check" in names, "list_connections: the seeded connection", err or str(names))
@@ -73,6 +114,8 @@ check(all("password" not in c and "host" not in c for c in (conns or {}).get("co
 # A connection the user has not shared is out of reach everywhere.
 check(not any(c["id"] == "hidden-duck" for c in (conns or {}).get("connections", [])),
       "list_connections: a connection that is not shared is not listed")
+check(any(c["id"] == "local-duck" for c in (conns or {}).get("connections", [])),
+      "list_connections: a local app also sees the local-only connection")
 for name, args in [("connect", {"connection_id": "hidden-duck"}),
                    ("create_tab", {"connection_id": "hidden-duck"}),
                    ("create_card", {"connection_id": "hidden-duck", "sql": "SELECT secret FROM vault"}),
@@ -80,7 +123,7 @@ for name, args in [("connect", {"connection_id": "hidden-duck"}),
                    ("list_variables", {"connection_id": "hidden-duck"}),
                    ("open_session", {"saved_session_id": "hidden-session"})]:
     got, err = tool(name, **args)
-    check(got is None and "shared with AI apps" in (err or ""), f"{name}: refused for a connection that is not shared",
+    check(got is None and "shared with this app" in (err or ""), f"{name}: refused for a connection that is not shared",
           err or json.dumps(got))
 hidden_hist, _ = tool("search_history", search="vault")
 check(hidden_hist["entries"] == [], "search_history: the unshared connection's queries are not found",
@@ -178,8 +221,8 @@ variables, err = tool("list_variables", connection_id="mcp-duck")
 pv = [v for v in (variables or {}).get("variables", []) if v["name"] == "person_id"]
 check(len(pv) == 1 and pv[0]["type"] == "number" and pv[0]["scope"] == "global",
       "list_variables: the seeded variable, its type and scope", err or json.dumps(variables))
-check(pv and "value" not in pv[0] and variables["values_shared"] is False,
-      "list_variables: values are not shared unless the user allows it", json.dumps(variables))
+check(pv and pv[0].get("value") == "2" and variables["values_shared"] is True,
+      "list_variables: a local app is given values, as Settings allows local apps", json.dumps(variables))
 
 withvar, _ = tool("create_card", tab_id=tab, sql="SELECT name FROM people WHERE id = {{person_id}}", name="Person By Id")
 filled, err = tool("run_card", tab_id=tab, card_id=withvar["card"]["id"])
@@ -202,8 +245,4 @@ check(followed["card"]["status"] == "awaiting_confirmation", "get_card: still aw
 blocked, err = tool("cancel_card", tab_id=tab, card_id=delete["card"]["id"])
 check(blocked is None and "confirmation" in (err or ""), "cancel_card: only the user can answer the sheet", err or "")
 
-proc.stdin.close()
-proc.wait(timeout=5)
-print()
-print("All live MCP checks passed." if failures == 0 else f"{failures} failure(s).")
-sys.exit(1 if failures else 0)
+finish()

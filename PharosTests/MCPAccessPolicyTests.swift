@@ -99,7 +99,49 @@ private func testFilteredPage() {
            "\(capped), \(fetches) fetches")
 }
 
+// MARK: - Which app launched the bridge
+
+private typealias Facts = MCPAppIdentifier.ProcessFacts
+
+private func walk(_ table: [pid_t: Facts], bundles: [String: (id: String, name: String)] = [:]) -> MCPAppIdentity? {
+    MCPAppIdentifier.identify(bridgePid: 100, facts: { table[$0] }, bundle: { path in
+        bundles.first { path.hasPrefix($0.key) }?.value
+    })
+}
+
+private func testIdentify() {
+    let bridge = Facts(parent: 50, path: "/Applications/Pharos.app/Contents/MacOS/Pharos", signer: .unsigned)
+    let shell = Facts(parent: 40, path: "/bin/zsh", signer: .apple)
+    let claudeHelper = Facts(parent: 30, path: "/Applications/Claude.app/Contents/Helpers/disclaimer",
+                             signer: .team(id: "Q6L2SF6YDW", identifier: "disclaimer", summary: "Developer ID Application: Anthropic PBC (Q6L2SF6YDW)"))
+    let claude = [pid_t(100): bridge, 50: shell, 40: claudeHelper]
+    let bundles = ["/Applications/Claude.app": (id: "com.anthropic.claudefordesktop", name: "Claude")]
+    let found = walk(claude, bundles: bundles)
+    expect(found == MCPAppIdentity(id: "team:Q6L2SF6YDW:com.anthropic.claudefordesktop", name: "Claude",
+                                   detail: "Developer ID Application: Anthropic PBC (Q6L2SF6YDW)", signed: true),
+           "identify: past the shell, a helper inside Claude.app is Claude, by team and bundle", "\(String(describing: found))")
+    let noBundle = walk([100: bridge, 50: Facts(parent: 1, path: "/usr/local/bin/tool", signer: .team(id: "T1", identifier: "com.x.tool", summary: nil))])
+    expect(noBundle?.id == "team:T1:com.x.tool" && noBundle?.name == "com.x.tool" && noBundle?.detail == "T1",
+           "identify: a signed tool outside an app goes by its signing identifier", "\(String(describing: noBundle))")
+    let unsigned = walk([100: bridge, 50: Facts(parent: 1, path: "/opt/homebrew/bin/node", signer: .unsigned)])
+    expect(unsigned == MCPAppIdentity(id: "path:/opt/homebrew/bin/node", name: "node", detail: "/opt/homebrew/bin/node", signed: false),
+           "identify: an unsigned launcher is named by its path, and marked unsigned")
+    expect(walk([100: bridge, 50: shell, 40: Facts(parent: 1, path: "/System/Applications/Utilities/Terminal.app", signer: .apple)]) == nil,
+           "identify: Apple's programs all the way up (Terminal) → no app")
+    expect(walk([100: bridge, 50: Facts(parent: 50, path: "/bin/sh", signer: .apple)]) == nil,
+           "identify: a loop in the parents ends the walk")
+    expect(walk([100: bridge]) == nil, "identify: a parent that cannot be read → no app")
+    let spoof = walk([100: bridge, 50: Facts(parent: 1, path: "/tmp/LM Studio.app/Contents/MacOS/LM Studio", signer: .unsigned)],
+                     bundles: ["/tmp/LM Studio.app": (id: "ai.elementlabs.lmstudio", name: "LM Studio")])
+    expect(spoof?.signed == false && spoof?.id == "path:/tmp/LM Studio.app/Contents/MacOS/LM Studio",
+           "identify: an unsigned copy calling itself LM Studio is not LM Studio's signed identity")
+    let real = MCPAppIdentifier.systemFacts(getpid())
+    expect(real?.path?.hasSuffix("pharos-mcp-access-policy-tests") == true && (real?.parent ?? 0) > 0,
+           "facts: the real reader finds this test's own path and parent", "\(String(describing: real))")
+}
+
 func runTests() {
+    testIdentify()
     testTabs()
     testSessionsWorkspacesHistory()
     testVariables()

@@ -1,5 +1,39 @@
 use serde::{Deserialize, Serialize};
 
+/// Which AI apps a grant reaches: none, those the user marks Local (their
+/// model runs on this Mac), or every approved one. The connection form's
+/// "AI apps" pop-up and Settings ▸ Security & Privacy's write and
+/// variable-value grants.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum McpScope {
+    #[default]
+    Off,
+    Local,
+    All,
+}
+
+impl McpScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            McpScope::Off => "off",
+            McpScope::Local => "local",
+            McpScope::All => "all",
+        }
+    }
+
+    /// The stored column: text, or the 0/1 an earlier development build wrote.
+    pub fn from_column(value: rusqlite::types::Value) -> McpScope {
+        use rusqlite::types::Value;
+        match value {
+            Value::Text(t) if t == "local" => McpScope::Local,
+            Value::Text(t) if t == "all" => McpScope::All,
+            Value::Integer(1) => McpScope::All,
+            _ => McpScope::Off,
+        }
+    }
+}
+
 /// The `sslmode` the connection asks for.
 ///
 /// `VerifyCa` and `VerifyFull` are the two libpq modes that actually CHECK the
@@ -205,11 +239,11 @@ pub struct ConnectionConfig {
     /// Connect to this database when Pharos starts.
     #[serde(default)]
     pub connect_on_launch: bool,
-    /// Let AI apps (the MCP server) see this connection, its tabs, and the
-    /// history, workspaces and Sessions that ran against it. Off: they
-    /// cannot. Off for every record written before the flag.
+    /// Which AI apps (the MCP server) may see this connection, its tabs, and
+    /// the history, workspaces and Sessions that ran against it. Off for
+    /// every record written before the field.
     #[serde(default)]
-    pub mcp_access: bool,
+    pub mcp_access: McpScope,
     /// False for a DuckDB file or an in-memory database that was OPENED, not
     /// saved: it stays out of the Connections Manager and the Shortcuts list,
     /// and the user saves it with Save as Connection. The record still exists,
@@ -376,7 +410,7 @@ mod ssh_tunnel_json_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
-            mcp_access: false,
+            mcp_access: Default::default(),
             saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,

@@ -186,9 +186,19 @@
     "clearPasswordCacheOnSleep": true,
     "collectPerformanceMetrics": false,
     "indexSavedQueriesInSpotlight": false,
-    "mcpAllowWrites": true,
+    "mcpApps": [
+      {
+        "detail": "D65G88RHWN",
+        "firstSeenAt": "2026-11-08T10:00:00Z",
+        "id": "team:D65G88RHWN:ai.elementlabs.lmstudio",
+        "name": "LM Studio",
+        "signed": true,
+        "trust": "local"
+      }
+    ],
     "mcpServerEnabled": true,
-    "mcpShareVariableValues": true
+    "mcpVariableValues": "all",
+    "mcpWrites": "local"
   },
   "session": {
     "autosaveIntervalSeconds": 31,

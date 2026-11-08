@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::models::connection::McpScope;
 use crate::models::export_import::{CsvDialect, ExportFormat, ImportErrorPolicy};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -704,16 +705,55 @@ pub struct SecuritySettings {
     /// can run SQL on the user's databases is something to choose, not find.
     #[serde(default)]
     pub mcp_server_enabled: bool,
-    /// Whether an MCP client may run statements that change data (the
-    /// keywords the destructive-SQL scanner flags). Off refuses them before
-    /// they are queued; on still asks in Pharos every time.
+    /// Which AI apps may run statements that change data (the keywords the
+    /// destructive-SQL scanner flags). Others are refused before the run is
+    /// queued; those allowed still confirm each run in Pharos.
     #[serde(default)]
-    pub mcp_allow_writes: bool,
-    /// Whether an MCP client's `list_variables` returns the variables'
-    /// values. Off it returns names and types only: a value can be a token
-    /// or an address the user would not hand to a model.
+    pub mcp_writes: McpScope,
+    /// Which AI apps' `list_variables` returns the variables' values. Others
+    /// get names and types only: a value can be a token or an address.
     #[serde(default)]
-    pub mcp_share_variable_values: bool,
+    pub mcp_variable_values: McpScope,
+    /// The AI apps that have reached the MCP server, by the signature of the
+    /// app that launched `Pharos --mcp`, and how far the user trusts each.
+    /// A new one is recorded `Unapproved` and refused until the user picks.
+    #[serde(default)]
+    pub mcp_apps: Vec<McpApp>,
+}
+
+/// How far the user trusts an AI app (Settings ▸ Security & Privacy).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum McpTrust {
+    /// Seen, not yet chosen: refused, like Blocked.
+    #[default]
+    Unapproved,
+    /// Its model runs on this Mac: the "local AI apps" grants apply.
+    Local,
+    /// Its model runs elsewhere: only the "all AI apps" grants apply.
+    Cloud,
+    Blocked,
+}
+
+/// One AI app the MCP server has seen.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpApp {
+    /// `team:<team id>:<bundle id>` for a signed app, `path:<executable>`
+    /// for an unsigned one.
+    pub id: String,
+    pub name: String,
+    /// The team id, or the executable's path.
+    #[serde(default)]
+    pub detail: String,
+    /// Signed with a Developer ID team. An unsigned launcher is named by its
+    /// path, so any program run with it gets the same access.
+    #[serde(default)]
+    pub signed: bool,
+    #[serde(default)]
+    pub trust: McpTrust,
+    #[serde(default)]
+    pub first_seen_at: String,
 }
 
 impl Default for SecuritySettings {
@@ -723,8 +763,9 @@ impl Default for SecuritySettings {
             collect_performance_metrics: true,
             clear_password_cache_on_sleep: false,
             mcp_server_enabled: false,
-            mcp_allow_writes: false,
-            mcp_share_variable_values: false,
+            mcp_writes: McpScope::Off,
+            mcp_variable_values: McpScope::Off,
+            mcp_apps: Vec::new(),
         }
     }
 }
@@ -1462,8 +1503,16 @@ pub(crate) mod fixture {
                     collect_performance_metrics: false,
                     clear_password_cache_on_sleep: true,
                     mcp_server_enabled: true,
-                    mcp_allow_writes: true,
-                    mcp_share_variable_values: true,
+                    mcp_writes: McpScope::Local,
+                    mcp_variable_values: McpScope::All,
+                    mcp_apps: vec![McpApp {
+                        id: "team:D65G88RHWN:ai.elementlabs.lmstudio".to_string(),
+                        name: "LM Studio".to_string(),
+                        detail: "D65G88RHWN".to_string(),
+                        signed: true,
+                        trust: McpTrust::Local,
+                        first_seen_at: "2026-11-08T10:00:00Z".to_string(),
+                    }],
                 },
                 navigator: NavigatorSettings {
                     schema_sort: SchemaSortMode::DefaultFirst,

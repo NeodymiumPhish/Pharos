@@ -32,9 +32,9 @@ extension ContentViewController {
     }
 
     /// Say in the window what a client did.
-    func showAgentNotice(_ message: String) {
+    func showAgentNotice(_ message: String, duration: TimeInterval = 3.0, onClick: (() -> Void)? = nil) {
         guard isViewLoaded else { return }
-        Toast.show(in: view, message: message, style: .info, duration: 3.0)
+        Toast.show(in: view, message: message, style: .info, duration: duration, onClick: onClick)
     }
 
     /// A client's run waits on the destructive confirmation: put its window in

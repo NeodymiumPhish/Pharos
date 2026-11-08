@@ -18,10 +18,11 @@ private func expect(_ condition: Bool, _ name: String, _ detail: @autoclosure ()
 private final class StubHost: MCPToolHost, @unchecked Sendable {
     let lock = NSLock()
     var clients: [String?] = []
+    var apps: [MCPAppIdentity?] = []
     let release = DispatchSemaphore(value: 0)
 
     func callTool(name: String, arguments: MCPArguments, client: MCPClientInfo) async throws -> JSONValue {
-        lock.withLock { clients.append(client.name) }
+        lock.withLock { clients.append(client.name); apps.append(client.app) }
         if name == "run_card" {
             // Held until the test lets it go: a long query.
             await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
@@ -56,6 +57,8 @@ private final class LineReader {
     }
 }
 
+private let fakeApp = MCPAppIdentity(id: "team:T:com.example.app", name: "Example", detail: "T", signed: true)
+
 private func send(_ fd: Int32, _ line: String) {
     MCPSocketIO.writeAll(fd, Data((line + "\n").utf8))
 }
@@ -71,8 +74,9 @@ private func permissions(_ path: String) -> Int {
     ((try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? NSNumber)?.intValue ?? -1
 }
 
-private func makeServer(_ path: String, _ host: StubHost) -> MCPSocketServer {
-    MCPSocketServer(path: path) { MCPSession(host: host, serverVersion: "1.2.3") }
+private func makeServer(_ path: String, _ host: StubHost,
+                        identify: @escaping (Int32) -> MCPAppIdentity? = MCPAppIdentifier.forPeer) -> MCPSocketServer {
+    MCPSocketServer(path: path, identify: identify) { MCPSession(host: host, serverVersion: "1.2.3", app: $0) }
 }
 
 // MARK: - Line buffer
@@ -90,7 +94,7 @@ private func testLineBuffer() {
 private func testServer() {
     let path = tempSocketPath("server")
     let host = StubHost()
-    let server = makeServer(path, host)
+    let server = makeServer(path, host, identify: { _ in fakeApp })
     var changes: [[MCPClientInfo]] = []
     let changeLock = NSLock()
     server.onConnectionsChanged = { c in changeLock.withLock { changes.append(c) } }
@@ -118,6 +122,7 @@ private func testServer() {
     expect(slow?["id"]?.intValue == 2 && slow?["result"]?["structuredContent"]?["status"] == "succeeded",
            "server: the slow call answers when it ends")
     expect(host.clients.allSatisfy { $0 == "Test Client" }, "server: tool calls carry the client's name")
+    expect(host.apps.allSatisfy { $0 == fakeApp }, "server: tool calls carry the app the server identified")
 
     // A large response is written whole.
     send(fd, #"{"jsonrpc":"2.0","id":4,"method":"tools/list"}"#)

@@ -750,12 +750,74 @@ struct SecuritySettings: Codable, Equatable {
     /// (`MCPServerController`). OFF: an app that can run SQL on the user's
     /// databases is something to choose, not to find already on.
     var mcpServerEnabled: Bool = false
-    /// Whether an MCP client may run what `DestructiveSQLScanner` flags. Off
-    /// refuses it before it is queued; on still asks every time.
-    var mcpAllowWrites: Bool = false
-    /// Whether an MCP client's `list_variables` returns values. Off: names
-    /// and types only, since a value can be a token or an address.
-    var mcpShareVariableValues: Bool = false
+    /// Which AI apps may run what `DestructiveSQLScanner` flags. Others are
+    /// refused before the run is queued; those allowed still confirm each run.
+    var mcpWrites: MCPGrant = .off
+    /// Which AI apps' `list_variables` returns values. Others get names and
+    /// types only, since a value can be a token or an address.
+    var mcpVariableValues: MCPGrant = .off
+    /// Every AI app the MCP server has seen, by the signature of the app that
+    /// launched `Pharos --mcp`, and how far the user trusts it.
+    var mcpApps: [MCPAppRecord] = []
+}
+
+/// Which AI apps a Security & Privacy grant reaches. The same three values
+/// as `MCPScope` (Connection.swift), kept apart so each file compiles alone
+/// in the test scripts. The core's `McpScope`.
+enum MCPGrant: String, Codable, CaseIterable {
+    case off
+    case local
+    case all
+
+    func allows(isLocal: Bool) -> Bool {
+        switch self {
+        case .off: return false
+        case .local: return isLocal
+        case .all: return true
+        }
+    }
+
+    var displayLabel: String {
+        switch self {
+        case .off: return String(localized: "No AI apps")
+        case .local: return String(localized: "Local AI apps only")
+        case .all: return String(localized: "All approved AI apps")
+        }
+    }
+}
+
+/// How far the user trusts an AI app. The core's `McpTrust`.
+enum MCPTrust: String, Codable, CaseIterable {
+    /// Seen, not yet chosen: refused, like `blocked`.
+    case unapproved
+    /// Its model runs on this Mac.
+    case local
+    /// Its model runs on someone else's servers.
+    case cloud
+    case blocked
+
+    var displayLabel: String {
+        switch self {
+        case .unapproved: return String(localized: "Not approved")
+        case .local: return String(localized: "Local")
+        case .cloud: return String(localized: "Cloud")
+        case .blocked: return String(localized: "Blocked")
+        }
+    }
+}
+
+/// One AI app the MCP server has seen (`MCPAppIdentity`).
+struct MCPAppRecord: Codable, Equatable, Identifiable {
+    /// `team:<team id>:<bundle id>`, or `path:<executable>` when unsigned.
+    var id: String
+    var name: String
+    /// The team id, or the executable's path.
+    var detail: String = ""
+    /// Signed with a Developer ID team. An unsigned launcher is known only by
+    /// its path, so any program run with it gets the same access.
+    var signed: Bool = false
+    var trust: MCPTrust = .unapproved
+    var firstSeenAt: String = ""
 }
 
 // MARK: - Database Navigator

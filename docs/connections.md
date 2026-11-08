@@ -101,11 +101,12 @@ Edits are made inline — click **Save** to persist, or **Revert** to discard. U
 
 ## AI apps (MCP)
 
-**Allow AI apps to use this connection**, in the **AI Apps (MCP)** section of
-the form, lets AI apps that use Pharos's MCP server (such as Claude desktop or
-LM Studio) work with this database. It is off for every connection. While it is
-off, AI apps cannot see the connection, its tabs, or the history, workspaces
-and Sessions that ran against it. The switch takes effect only while
+**AI apps**, in the **AI Apps (MCP)** section of the form, chooses which AI apps
+that use Pharos's MCP server can work with this database: **Off**, **Local AI
+apps only** (apps such as LM Studio that you mark **Local** in Settings), or
+**All approved AI apps**. It is **Off** for every connection. An app that cannot
+use the connection cannot see it, its tabs, or the history, workspaces and
+Sessions that ran against it. The choice takes effect only while
 **Settings ▸ Security & Privacy ▸ Allow AI apps to use Pharos** is on. See
 [AI Apps (MCP)](mcp.md).
 

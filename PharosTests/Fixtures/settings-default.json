@@ -182,9 +182,10 @@
     "clearPasswordCacheOnSleep": false,
     "collectPerformanceMetrics": true,
     "indexSavedQueriesInSpotlight": true,
-    "mcpAllowWrites": false,
+    "mcpApps": [],
     "mcpServerEnabled": false,
-    "mcpShareVariableValues": false
+    "mcpVariableValues": "off",
+    "mcpWrites": "off"
   },
   "session": {
     "autosaveIntervalSeconds": 30,

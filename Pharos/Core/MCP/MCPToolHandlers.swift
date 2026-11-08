@@ -43,9 +43,18 @@ enum MCPToolHandlers {
         let controller: ContentViewController
     }
 
-    /// The connections the user shares with AI apps (`ConnectionConfig.mcpAccess`).
+    /// Whether this call comes from an app the user marked Local.
+    private static var isLocal: Bool { MCPCallContext.isLocal }
+
+    /// Whether the user shares `config` with this call's app.
+    private static func shares(_ config: ConnectionConfig) -> Bool {
+        config.mcpAccess.allows(isLocal: isLocal)
+    }
+
+    /// The connections the user shares with this call's app
+    /// (`ConnectionConfig.mcpAccess`).
     private static var allowed: Set<String> {
-        Set(state.connections.filter(\.mcpAccess).map(\.id))
+        Set(state.connections.filter(shares).map(\.id))
     }
 
     /// The workspace connections of a tab bound to a workspace, nil for one
@@ -67,7 +76,7 @@ enum MCPToolHandlers {
               let tab = session.tabs.first(where: { $0.id == tabId }),
               isShared(tab, allowed: allowed),
               let controller = delegate?.contentController(for: session) else {
-            throw MCPToolError.notFound("No open tab shared with AI apps has the id \(tabId). Call list_tabs for the tabs you can use.")
+            throw MCPToolError.notFound("No open tab shared with this app has the id \(tabId). Call list_tabs for the tabs you can use.")
         }
         return Located(session: session, tab: tab, controller: controller)
     }
@@ -82,8 +91,8 @@ enum MCPToolHandlers {
     /// A connection the client may use. One the user has not shared reads
     /// as one that does not exist.
     private static func connection(_ id: String) throws -> ConnectionConfig {
-        guard let config = state.connections.first(where: { $0.id == id }), config.mcpAccess else {
-            throw MCPToolError.notFound("No connection shared with AI apps has the id \(id). Call list_connections for the ones you can use.")
+        guard let config = state.connections.first(where: { $0.id == id }), shares(config) else {
+            throw MCPToolError.notFound("No connection shared with this app has the id \(id). Call list_connections for the ones you can use.")
         }
         return config
     }
@@ -110,7 +119,7 @@ enum MCPToolHandlers {
     // MARK: - Connections
 
     private static func listConnections() -> JSONValue {
-        let rows: [JSONValue] = state.connections.filter(\.mcpAccess).map { c in
+        let rows: [JSONValue] = state.connections.filter(shares).map { c in
             [
                 "id": .string(c.id),
                 "name": .string(c.name),
@@ -123,7 +132,7 @@ enum MCPToolHandlers {
         }
         var out: [String: JSONValue] = ["connections": .array(rows)]
         if rows.isEmpty {
-            out["message"] = "The user has not shared any connection with AI apps. In Pharos, File ▸ Manage Connections… has “Allow AI apps to use this connection” for each one."
+            out["message"] = .string("The user has not shared any connection with \(isLocal ? "local" : "cloud") AI apps. In Pharos, File ▸ Manage Connections… has an “AI apps” choice for each connection.")
         }
         return .object(out)
     }
@@ -291,7 +300,7 @@ enum MCPToolHandlers {
         let connectionId = args.optionalString("connection_id")
         if let connectionId { _ = try connection(connectionId) }
         let variables = connectionId.map { store.available(for: $0) } ?? store.variables
-        let shareValues = state.settings.security.mcpShareVariableValues
+        let shareValues = state.settings.security.mcpVariableValues.allows(isLocal: isLocal)
         let allowed = allowed
         let rows: [JSONValue] = variables.filter { !$0.name.isEmpty }.compactMap { v in
             // A variable linked only to connections the user has not shared
@@ -309,7 +318,7 @@ enum MCPToolHandlers {
         }
         var out: [String: JSONValue] = ["variables": .array(rows), "values_shared": .bool(shareValues)]
         if !shareValues {
-            out["message"] = "Values are not shared: the user can allow it in Pharos, Settings ▸ Security & Privacy ▸ Let AI apps read query variable values. run_card fills them in either way."
+            out["message"] = "Values are not shared with this app: the user can allow it in Pharos, Settings ▸ Security & Privacy ▸ AI apps that can read variable values. run_card fills them in either way."
         }
         return .object(out)
     }
@@ -323,7 +332,7 @@ enum MCPToolHandlers {
         ensureWindow()
         if let sessionId {
             guard let stored = SavedQueryEntity.stored(id: sessionId), isShared(stored, allowed: allowed) else {
-                throw MCPToolError.notFound("No saved Session shared with AI apps has the id \(sessionId). Call list_saved_sessions.")
+                throw MCPToolError.notFound("No saved Session shared with this app has the id \(sessionId). Call list_saved_sessions.")
             }
             // "Open in Tab", the sidebar's own path: an open tab is fronted,
             // not opened twice.
@@ -338,7 +347,7 @@ enum MCPToolHandlers {
         }
         let id = workspaceId!
         guard isShared(workspaceId: id, allowed: allowed) else {
-            throw MCPToolError.notFound("No workspace shared with AI apps has the id \(id). Call list_workspaces.")
+            throw MCPToolError.notFound("No workspace shared with this app has the id \(id). Call list_workspaces.")
         }
         NotificationCenter.default.post(name: .openWorkspace, object: nil, userInfo: ["workspaceId": id])
         guard await wait(seconds: 5, until: { state.findTab { $0.workspaceId == id } != nil }),
@@ -539,8 +548,8 @@ enum MCPToolHandlers {
                 throw MCPToolError.refused("The card's variables cannot be filled in: \(parts.joined(separator: "; ")). The user defines variables in Pharos's Variable Manager.")
             }
             let keywords = DestructiveSQLScanner.destructiveKeywords(in: rendered.sql)
-            if !keywords.isEmpty && !state.settings.security.mcpAllowWrites {
-                throw MCPToolError.refused("Pharos does not let AI apps run statements that change data (\(keywords.joined(separator: ", "))). The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ Let AI apps run statements that change data. Each run is still confirmed in Pharos.")
+            if !keywords.isEmpty && !state.settings.security.mcpWrites.allows(isLocal: isLocal) {
+                throw MCPToolError.refused("Pharos does not let this app run statements that change data (\(keywords.joined(separator: ", "))). The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ AI apps that can change data. Each run is still confirmed in Pharos.")
             }
             try await ensureConnected(connectionId)
             located = try locate(tabId)

@@ -335,10 +335,11 @@ struct ConnectionConfig: Codable, Identifiable {
     /// uses it (`DuckDBCloseRule`).
     var connectOnLaunch: Bool = false
 
-    /// Let AI apps (the MCP server, `MCPAccessPolicy`) see this connection,
-    /// its tabs, and the history, workspaces and Sessions that ran against
-    /// it. Off by default, and off for every record written before it.
-    var mcpAccess: Bool = false
+    /// Which AI apps (the MCP server, `MCPAccessPolicy`) may see this
+    /// connection, its tabs, and the history, workspaces and Sessions that
+    /// ran against it. Off by default, and off for every record written
+    /// before it.
+    var mcpAccess: MCPScope = .off
 
     /// False for a DuckDB file or an in-memory database that was OPENED, not
     /// saved (`ConnectionConfig.duckDB(path:)`). It stays out of the
@@ -385,7 +386,12 @@ struct ConnectionConfig: Codable, Identifiable {
         readOnly = try c.decodeIfPresent(Bool.self, forKey: .readOnly) ?? false
         rememberPassword = try c.decodeIfPresent(Bool.self, forKey: .rememberPassword) ?? true
         connectOnLaunch = try c.decodeIfPresent(Bool.self, forKey: .connectOnLaunch) ?? false
-        mcpAccess = try c.decodeIfPresent(Bool.self, forKey: .mcpAccess) ?? false
+        // The text the core writes; a development build once sent a Bool.
+        if let scope = try? c.decodeIfPresent(MCPScope.self, forKey: .mcpAccess) {
+            mcpAccess = scope
+        } else {
+            mcpAccess = (try? c.decodeIfPresent(Bool.self, forKey: .mcpAccess)) == true ? .all : .off
+        }
         // Absent from an older producer: saved, as every record was before.
         saved = try c.decodeIfPresent(Bool.self, forKey: .saved) ?? true
         sessionTimeZone = try c.decodeIfPresent(String.self, forKey: .sessionTimeZone)
@@ -424,6 +430,34 @@ struct ConnectionConfig: Codable, Identifiable {
         case requiresAuthentication, sshTunnel
         case readOnly, rememberPassword, connectOnLaunch, sessionTimeZone, sslRootCertPath
         case saved, mcpAccess
+    }
+}
+
+// MARK: - AI apps
+
+/// Which AI apps a connection is shared with: none, those the user marks
+/// Local in Settings ▸ Security & Privacy (their model runs on this Mac), or
+/// every approved one. The core's `McpScope`.
+enum MCPScope: String, Codable, CaseIterable {
+    case off
+    case local
+    case all
+
+    /// Whether an app the user marked Local (`isLocal`) or Cloud reaches it.
+    func allows(isLocal: Bool) -> Bool {
+        switch self {
+        case .off: return false
+        case .local: return isLocal
+        case .all: return true
+        }
+    }
+
+    var displayLabel: String {
+        switch self {
+        case .off: return String(localized: "Off")
+        case .local: return String(localized: "Local AI apps only")
+        case .all: return String(localized: "All approved AI apps")
+        }
     }
 }
 

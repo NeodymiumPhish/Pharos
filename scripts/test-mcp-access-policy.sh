@@ -7,6 +7,10 @@ cd "$(dirname "$0")/.."
 swiftc -o /tmp/pharos-mcp-access-policy-tests \
   Pharos/Models/CardDocument.swift \
   Pharos/Core/MCP/MCPAccessPolicy.swift \
+  Pharos/Core/MCP/MCPJSON.swift \
+  Pharos/Core/MCP/MCPToolCatalog.swift \
+  Pharos/Core/MCP/MCPProtocol.swift \
+  Pharos/Core/MCP/MCPAppIdentity.swift \
   PharosTests/MCPAccessPolicyTests.swift \
   PharosTests/main.swift
 /tmp/pharos-mcp-access-policy-tests
