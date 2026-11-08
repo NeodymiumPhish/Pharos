@@ -12,6 +12,31 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
+    private var mcpObserver: NSObjectProtocol?
+
+    override func loadView() {
+        super.loadView()
+        // Who is connected changes without a settings change.
+        mcpObserver = NotificationCenter.default.addObserver(
+            forName: MCPServerController.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadFromSettings() }
+        }
+    }
+
+    deinit {
+        if let mcpObserver { NotificationCenter.default.removeObserver(mcpObserver) }
+    }
+
+    /// Put the `mcpServers` entry for Claude desktop and LM Studio on the
+    /// pasteboard.
+    private func copyMCPConfiguration() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(MCPServerController.clientConfigJSON, forType: .string)
+        Toast.show(in: view, message: String(localized: "Configuration copied. Paste it into your AI app's MCP settings."),
+                   style: .success)
+    }
+
     override var sections: [SettingsSection] {
         [
             SettingsSection(title: String(localized: "Privacy"), items: [
@@ -22,6 +47,30 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                     icon: "lock.shield",
                     help: String(localized: "Everything below is written to your own disk and read by your own Mac."),
                     kind: .display),
+            ]),
+            SettingsSection(title: String(localized: "AI Apps (MCP)"), items: [
+                SettingsItem(
+                    id: "mcpServerEnabled",
+                    title: String(localized: "Allow AI apps to use Pharos"),
+                    dynamicCaption: { MCPServerController.shared.statusText },
+                    icon: "sparkles",
+                    help: String(localized: "AI apps on this Mac that speak the Model Context Protocol (Claude, LM Studio and others) can list your connections and Sessions, add query cards to your tabs, run them and read their results. Everything they do appears in the Pharos window. They connect through a file only your user account can open; nothing listens on the network."),
+                    kind: .toggle(.settings(\.security.mcpServerEnabled))),
+                SettingsItem(
+                    id: "mcpAllowWrites",
+                    title: String(localized: "Let AI apps run statements that change data"),
+                    caption: String(localized: "INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE and GRANT. Off, Pharos refuses them. On, you still confirm each one in Pharos."),
+                    icon: "exclamationmark.shield",
+                    kind: .toggle(.settings(\.security.mcpAllowWrites)),
+                    dependsOn: "mcpServerEnabled"),
+                SettingsItem(
+                    id: "mcpConfiguration",
+                    title: String(localized: "Configuration for your AI app"),
+                    caption: String(localized: "The mcpServers entry that adds Pharos to Claude desktop or LM Studio."),
+                    icon: "doc.on.clipboard",
+                    kind: .action(title: String(localized: "Copy"), destructive: false) { [weak self] in
+                        self?.copyMCPConfiguration()
+                    }),
             ]),
             SettingsSection(title: String(localized: "Spotlight"), items: [
                 SettingsItem(

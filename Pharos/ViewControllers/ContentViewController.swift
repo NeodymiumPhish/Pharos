@@ -114,6 +114,11 @@ class ContentViewController: NSViewController {
     /// Each editor tab's runs, one at a time: every card of a tab runs on the
     /// tab's connection in turn (`CardRunQueue`).
     private var runQueues: [String: CardRunQueue] = [:]
+    /// Cards an MCP client asked to run (`MCPToolHandlers.runCard`), until
+    /// their job starts. Their destructive statements are confirmed whatever
+    /// Settings ▸ Query ▸ Safety says: an AI app is not the user at the
+    /// keyboard.
+    var agentRunCardIds: [String: MCPClientInfo] = [:]
     /// Tabs whose DuckDB cards changed the catalog since the last refresh (N1).
     private var catalogChangedTabs: Set<String> = []
 
@@ -1761,17 +1766,20 @@ class ContentViewController: NSViewController {
 
         // Editor-level destructive guard, mirroring the schema browser's.
         // Checked on the rendered SQL so variable values can't sneak past it.
-        if stateManager.settings.query.confirmDestructive {
+        // A run an MCP client asked for always asks, every kind of statement.
+        let agent = agentRunCardIds.removeValue(forKey: card.id)
+        if stateManager.settings.query.confirmDestructive || agent != nil {
             // Which KINDS still ask is Settings ▸ Query ▸ Safety. Every kind
             // is on by default, so this filter changes nothing until the user
             // turns one off.
-            let keywords = stateManager.settings.query.destructiveConfirmations
-                .filtered(DestructiveSQLScanner.destructiveKeywords(in: sql))
+            let found = DestructiveSQLScanner.destructiveKeywords(in: sql)
+            let keywords = agent != nil ? found : stateManager.settings.query.destructiveConfirmations.filtered(found)
             if !keywords.isEmpty {
+                if let agent { bringForwardForAgentConfirmation(agent) }
                 // On confirm, run the exact SQL the sheet displayed against the
                 // captured tab/connection — never re-derive from the active tab,
                 // which could have changed while the sheet was up.
-                presentDestructiveQueryConfirmation(keywords: keywords, sql: sql, onConfirm: { [weak self] in
+                presentDestructiveQueryConfirmation(keywords: keywords, sql: sql, requestedBy: agent, onConfirm: { [weak self] in
                     self?.sendCardRun(ticket, jobId: job.id, sql: sql, tabId: tabId, connectionId: connectionId)
                 }, onCancel: { [weak self] in
                     self?.finishJob(job.id, inTab: tabId, .cancelled)
@@ -2013,6 +2021,7 @@ class ContentViewController: NSViewController {
     private func presentDestructiveQueryConfirmation(
         keywords: [String],
         sql: String,
+        requestedBy agent: MCPClientInfo? = nil,
         onConfirm: @escaping () -> Void,
         onCancel: @escaping () -> Void = {}
     ) {
@@ -2022,6 +2031,12 @@ class ContentViewController: NSViewController {
         // already substituted, so a hostile variable value could otherwise
         // make the preview read as a different statement than will run.
         alert.informativeText = DestructiveConfirmationText.destructiveQueryMessage(keywords: keywords, sql: sql)
+        if let agent {
+            // The client's name is its own claim: escaped, and said as one.
+            let who = DisplayEscape.escaped(agent.displayName)
+            alert.informativeText = String(localized: "\(who) asked to run this through MCP.")
+                + "\n\n" + alert.informativeText
+        }
         alert.alertStyle = .critical
         alert.addButton(withTitle: "Run")
         alert.addButton(withTitle: "Cancel")
@@ -4987,6 +5002,41 @@ extension ContentViewController {
     func hasRunsInProgress(inTab tabId: String) -> Bool {
         guard let queue = runQueues[tabId] else { return false }
         return queue.running != nil || !queue.waiting.isEmpty
+    }
+
+    /// Where a card is in its tab's run queue (`MCPToolHandlers`).
+    func runPhase(ofCard cardId: String, inTab tabId: String) -> CardRunPhase {
+        guard let queue = runQueues[tabId] else { return .idle }
+        if queue.isRunning(cardId: cardId) {
+            // Started but not sent: `startJob` records the ticket only when it
+            // sends, so a job without one waits on the confirmation sheet.
+            if let job = queue.running, let entry = runningJobs[job.id], entry.ticket == nil {
+                return .awaitingConfirmation
+            }
+            return .running
+        }
+        return queue.isWaiting(cardId: cardId) ? .queued : .idle
+    }
+
+    /// Cancel a card of tab `tabId`, on screen or not: a waiting card leaves
+    /// the queue, a running one is cancelled on the server.
+    func cancelCard(_ cardId: String, inTab tabId: String) -> CardCancelOutcome {
+        if var queue = runQueues[tabId], queue.cancelWaiting(cardId: cardId) {
+            runQueues[tabId] = queue
+            agentRunCardIds[cardId] = nil
+            if editorPane.showsTab(tabId) { editorPane.refreshCards() }
+            return .removedFromQueue
+        }
+        if runPhase(ofCard: cardId, inTab: tabId) == .awaitingConfirmation { return .awaitingConfirmation }
+        guard let tab = session.tabs.first(where: { $0.id == tabId }), let connectionId = tab.connectionId else {
+            return .notRunning
+        }
+        let running = tab.runningQueries.filter { $0.cardId == cardId }
+        for query in running {
+            cancelledQueryIds.insert(query.id)
+            Task { _ = try? await PharosCore.cancelQuery(connectionId: connectionId, queryId: query.id) }
+        }
+        return running.isEmpty ? .notRunning : .cancelling
     }
 
     @objc func menuRunAllQueries(_: Any?) {

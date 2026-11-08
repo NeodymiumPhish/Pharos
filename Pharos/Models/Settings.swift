@@ -746,6 +746,13 @@ struct SecuritySettings: Codable, Equatable {
     /// touches the Keychain — only the core's process-only map, which holds
     /// what a password prompt was answered with.
     var clearPasswordCacheOnSleep: Bool = false
+    /// Whether AI apps on this Mac may work with query cards over MCP
+    /// (`MCPServerController`). OFF: an app that can run SQL on the user's
+    /// databases is something to choose, not to find already on.
+    var mcpServerEnabled: Bool = false
+    /// Whether an MCP client may run what `DestructiveSQLScanner` flags. Off
+    /// refuses it before it is queued; on still asks every time.
+    var mcpAllowWrites: Bool = false
 }
 
 // MARK: - Database Navigator

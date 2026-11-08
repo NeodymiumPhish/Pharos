@@ -108,7 +108,7 @@ extension ContentViewController {
     }
 
     /// A stored result's rows, read synchronously (the write queue).
-    private static func loadStoredRows(_ result: CardResult) -> QueryResult? {
+    nonisolated static func loadStoredRows(_ result: CardResult) -> QueryResult? {
         switch result.storedSource {
         case .history(let id):
             return (try? PharosCore.getQueryHistoryResult(id: id)).map {

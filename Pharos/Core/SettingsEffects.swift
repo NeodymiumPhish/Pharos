@@ -95,6 +95,14 @@ final class SettingsEffects {
             }
             .store(in: &cancellables)
 
+        // The MCP server. On listens on the socket; off closes every client
+        // and removes it. No `dropFirst`: the launch delivery starts it.
+        settings
+            .map(\.security.mcpServerEnabled)
+            .removeDuplicates()
+            .sink { MCPServerController.shared.setEnabled($0) }
+            .store(in: &cancellables)
+
         // Forget typed passwords on sleep. The observer exists only while the
         // switch is on, so the off state costs nothing and cannot fire.
         settings

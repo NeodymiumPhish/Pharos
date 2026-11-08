@@ -415,6 +415,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// when the app is quit with the panel still open — or after a crash left
     /// a folder behind, which the next quit then sweeps.
     func applicationWillTerminate(_ notification: Notification) {
+        // Close the MCP clients' connections and remove the socket file.
+        MCPServerController.shared.stop()
         QuickLookItemBuilder.cleanUp()
         ResultsCopyExport.cleanUpShareFiles()
     }

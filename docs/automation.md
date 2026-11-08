@@ -110,3 +110,4 @@ history record that mean nothing on another Mac.
 - [Saved Sessions]({{ site.baseurl }}/saved-queries) — creating and organising the Sessions these actions run
 - [Query Variables]({{ site.baseurl }}/query-variables) — the `{% raw %}{{name}}{% endraw %}` tokens that are substituted on every run
 - [Data Export]({{ site.baseurl }}/data-export) — what the export panel offers
+- [AI Apps (MCP)]({{ site.baseurl }}/mcp) — letting Claude desktop or LM Studio work with your query cards

@@ -181,7 +181,9 @@
   "security": {
     "clearPasswordCacheOnSleep": false,
     "collectPerformanceMetrics": true,
-    "indexSavedQueriesInSpotlight": true
+    "indexSavedQueriesInSpotlight": true,
+    "mcpAllowWrites": false,
+    "mcpServerEnabled": false
   },
   "session": {
     "autosaveIntervalSeconds": 30,

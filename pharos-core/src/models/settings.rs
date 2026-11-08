@@ -698,6 +698,17 @@ pub struct SecuritySettings {
     /// process-only map a password prompt fills.
     #[serde(default)]
     pub clear_password_cache_on_sleep: bool,
+    /// Let AI apps on this Mac (Claude, LM Studio, other MCP clients) work
+    /// with query cards through `Pharos --mcp`, over a socket only this user
+    /// can open. OFF: nothing listened before this existed, and an app that
+    /// can run SQL on the user's databases is something to choose, not find.
+    #[serde(default)]
+    pub mcp_server_enabled: bool,
+    /// Whether an MCP client may run statements that change data (the
+    /// keywords the destructive-SQL scanner flags). Off refuses them before
+    /// they are queued; on still asks in Pharos every time.
+    #[serde(default)]
+    pub mcp_allow_writes: bool,
 }
 
 impl Default for SecuritySettings {
@@ -706,6 +717,8 @@ impl Default for SecuritySettings {
             index_saved_queries_in_spotlight: true,
             collect_performance_metrics: true,
             clear_password_cache_on_sleep: false,
+            mcp_server_enabled: false,
+            mcp_allow_writes: false,
         }
     }
 }
@@ -1442,6 +1455,8 @@ pub(crate) mod fixture {
                     index_saved_queries_in_spotlight: false,
                     collect_performance_metrics: false,
                     clear_password_cache_on_sleep: true,
+                    mcp_server_enabled: true,
+                    mcp_allow_writes: true,
                 },
                 navigator: NavigatorSettings {
                     schema_sort: SchemaSortMode::DefaultFirst,

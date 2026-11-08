@@ -47,6 +47,7 @@ Pharos is a native macOS PostgreSQL client built with Swift and Rust. It provide
 - **[Saved Sessions](saved-queries.md)** — Save a whole tab with its query results, in folders, and open it again with its rows or as a template
 - **[History & Workspaces](query-history.md)** — Every session recorded as a restorable workspace with cached results
 - **[Table Operations](table-operations.md)** — View DDL, clone tables, import CSV, and export table contents
+- **[AI Apps (MCP)](mcp.md)** — Let Claude desktop, LM Studio and other MCP apps on this Mac add, run and read query cards, with your confirmation for every change
 - **[Settings](settings.md)** — Appearance, editor, and query behavior preferences
 - **[Keyboard Shortcuts](keyboard-shortcuts.md)** — Complete shortcut reference
 
