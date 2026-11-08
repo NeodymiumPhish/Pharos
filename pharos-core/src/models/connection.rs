@@ -205,6 +205,11 @@ pub struct ConnectionConfig {
     /// Connect to this database when Pharos starts.
     #[serde(default)]
     pub connect_on_launch: bool,
+    /// Let AI apps (the MCP server) see this connection, its tabs, and the
+    /// history, workspaces and Sessions that ran against it. Off: they
+    /// cannot. Off for every record written before the flag.
+    #[serde(default)]
+    pub mcp_access: bool,
     /// False for a DuckDB file or an in-memory database that was OPENED, not
     /// saved: it stays out of the Connections Manager and the Shortcuts list,
     /// and the user saves it with Save as Connection. The record still exists,
@@ -371,6 +376,7 @@ mod ssh_tunnel_json_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            mcp_access: false,
             saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,

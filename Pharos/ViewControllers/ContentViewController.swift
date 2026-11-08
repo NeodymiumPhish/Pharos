@@ -1856,7 +1856,7 @@ class ContentViewController: NSViewController {
                         cr.totalRowCountHint = result.rowCount
                         cr.historyResultId = result.historyEntryId
                         self.completeCardRun(
-                            ticket, jobId: jobId, tabId: tabId, workspaceId: workspaceId, result: cr,
+                            ticket, jobId: jobId, tabId: tabId, workspaceId: workspaceId, connectionId: connectionId, result: cr,
                             summary: .rows(count: result.rowCount, hasMore: result.hasMore))
                         self.fireCompletionNotification(
                             tabId: tabId, connectionId: connectionId,
@@ -1873,7 +1873,7 @@ class ContentViewController: NSViewController {
                         cr.executionTimeMs = result.executionTimeMs
                         cr.historyResultId = result.historyEntryId
                         self.completeCardRun(
-                            ticket, jobId: jobId, tabId: tabId, workspaceId: workspaceId, result: cr,
+                            ticket, jobId: jobId, tabId: tabId, workspaceId: workspaceId, connectionId: connectionId, result: cr,
                             summary: .affected(Int(result.rowsAffected)))
                         self.fireCompletionNotification(
                             tabId: tabId, connectionId: connectionId,
@@ -1918,7 +1918,7 @@ class ContentViewController: NSViewController {
     /// results belong to (the same card, or the new version an edit made),
     /// keep them there, and show them.
     private func completeCardRun(
-        _ ticket: CardRunTicket, jobId: String, tabId: String, workspaceId: String?,
+        _ ticket: CardRunTicket, jobId: String, tabId: String, workspaceId: String?, connectionId: String,
         result: CardResult, summary: CardRunRecord.Summary
     ) {
         session.updateTab(id: tabId) { tab in
@@ -1949,6 +1949,12 @@ class ContentViewController: NSViewController {
         case .dropped, .failed, .cancelled:
             finishJob(jobId, inTab: tabId, .succeeded)
             return
+        }
+        // Which database the result came from: a tab can change connection
+        // and keep its cards, and the MCP server shares a card's run only when
+        // it may share that database (`MCPAccessPolicy`).
+        session.updateTab(id: tabId) { tab in
+            if let i = tab.document.index(of: ownerId) { tab.document.cards[i].lastRun?.connectionId = connectionId }
         }
         markSessionResultsChanged(tabId: tabId)
         // The result belongs to the card that owns it now.
@@ -3708,7 +3714,8 @@ extension ContentViewController {
             runId: UUID().uuidString, rawSQL: entry.sql, renderedSQL: entry.sql,
             finishedAt: ISO8601DateFormatter().date(from: entry.executedAt) ?? Date(),
             executionTimeMs: UInt64(entry.executionTimeMs),
-            summary: .rows(count: result.rowCount, hasMore: result.hasMore), historyResultId: entry.id)
+            summary: .rows(count: result.rowCount, hasMore: result.hasMore), historyResultId: entry.id,
+            connectionId: entry.connectionId)
         var doc = CardDocument(cards: [card])
         doc.displayedCardId = card.id
 

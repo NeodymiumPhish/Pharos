@@ -87,9 +87,13 @@ final class MCPServerController {
     var statusText: String {
         if let lastError { return String(localized: "The server could not start: \(lastError)") }
         guard isRunning else { return String(localized: "Off. AI apps cannot reach Pharos.") }
+        let shared = AppStateManager.shared.connections.filter(\.mcpAccess).count
+        let sharing = shared == 0
+            ? String(localized: "No connection is shared yet: turn on “Allow AI apps to use this connection” for a connection in File ▸ Manage Connections….")
+            : CountedNounText.phrase(shared, "connection") + " " + String(localized: "shared.")
         let names = Array(Set(clients.map(\.displayName))).sorted()
-        if names.isEmpty { return String(localized: "On. No AI app is connected.") }
-        return String(localized: "Connected: \(names.joined(separator: ", "))")
+        if names.isEmpty { return String(localized: "On. No AI app is connected.") + " " + sharing }
+        return String(localized: "Connected: \(names.joined(separator: ", ")).") + " " + sharing
     }
 }
 

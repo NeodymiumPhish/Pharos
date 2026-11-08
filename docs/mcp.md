@@ -41,12 +41,16 @@ The server is **off** until you turn it on.
 
 1. Open **Settings ▸ Security & Privacy**.
 2. Turn on **Allow AI apps to use Pharos**. The caption under it shows which apps
-   are connected.
-3. If the app should be able to change data, also turn on **Let AI apps run
+   are connected and how many connections you share.
+3. Choose the connections that AI apps can use. Open **File ▸ Manage
+   Connections…**, select a connection, and turn on **Allow AI apps to use this
+   connection** in its **AI Apps (MCP)** section. Every connection is off until
+   you turn it on (see [Which connections AI apps can use](#which-connections-ai-apps-can-use)).
+4. If the app should be able to change data, also turn on **Let AI apps run
    statements that change data** (see [Safety](#safety)).
-4. If the app should see your query variables' values, also turn on **Let AI
+5. If the app should see your query variables' values, also turn on **Let AI
    apps read query variable values**.
-5. Click **Copy** beside **Configuration for your AI app**. This puts the
+6. Click **Copy** beside **Configuration for your AI app**. This puts the
    configuration below on the clipboard, with the path of your copy of Pharos.
 
 Pharos must be running for an AI app to use it. If Pharos is not running, or the
@@ -101,6 +105,38 @@ puts in the correct path for you.
 Any client that can start a local (stdio) MCP server can use the same command and
 argument. Pharos supports MCP protocol versions 2025-06-18, 2025-03-26 and
 2024-11-05.
+
+---
+
+## Which connections AI apps can use
+
+AI apps can use only the connections that you share. To share a connection,
+turn on **Allow AI apps to use this connection** in the connection's
+**AI Apps (MCP)** section of the Connections Manager. This switch is off for
+every connection, including connections that you saved before this setting
+existed.
+
+For a connection that you do not share, an AI app cannot:
+
+- see the connection in `list_connections`, connect to it, or open a tab on it
+- see or use a tab that is on that connection
+- see or use a tab that holds a card that ran on that connection, even if the
+  tab now uses a shared connection
+- see or open a workspace in which any query ran on that connection
+- see or open a saved Session that was saved on that connection, or that holds
+  a card that ran on it. A Session saved with no connection is also not shared.
+- find the connection's queries with `search_history`
+- see a query variable that is linked only to that connection. A variable that
+  is linked to several connections shows only the shared ones.
+
+A tab or a Session that is not shared looks the same to an AI app as one that
+does not exist. If you turn the switch off, the next tool call is refused. This
+applies to work that the AI app did before you turned the switch off.
+
+{: .note }
+Pharos records the connection of each run. A card that ran in an older version
+of Pharos does not have this record. Pharos then uses the connection of the
+card's tab or Session. A tab with no connection is never shared.
 
 ---
 
@@ -159,7 +195,7 @@ app's connection at once and removes the socket.
 
 | Tool | What it does |
 |---|---|
-| `list_connections` | Lists the saved connections: id, name, engine, database, default schema, and whether Pharos is connected. |
+| `list_connections` | Lists the connections that you share with AI apps: id, name, engine, database, default schema, and whether Pharos is connected. |
 | `connect` | Connects to a saved connection and waits for the result. |
 | `list_tabs` | Lists the open query tabs in every window, with the connection, the bound Session and the card count. |
 | `list_saved_sessions` | Lists the saved Sessions in the library. You can filter by name or folder. |
@@ -204,6 +240,7 @@ To help an AI app write good card names and notes, give it the
 | Symptom | What to check |
 |---|---|
 | Every tool call says that Pharos is not running, or that its MCP server is off | Open Pharos, and turn on **Settings ▸ Security & Privacy ▸ Allow AI apps to use Pharos**. |
+| `list_connections` is empty, or a tab or Session is "not found" | The connection is not shared. Turn on **Allow AI apps to use this connection** for it in **File ▸ Manage Connections…**. |
 | The caption says "The server could not start" | Another copy of Pharos with the same bundle identifier already has the socket. Quit the other copy. |
 | `run_card` returns `awaiting_confirmation` | Pharos is waiting for you to answer the confirmation sheet in its window. |
 | `run_card` says that the tab has no connection | Create the card with `connection_id`, or choose a connection for the tab in Pharos. |

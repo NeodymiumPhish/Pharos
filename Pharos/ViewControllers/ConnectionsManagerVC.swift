@@ -124,6 +124,8 @@ final class ConnectionsManagerVC: NSViewController {
     /// password, and the connection's own time zone.
     private let readOnlyCheckbox = NSSwitch()
     private let connectOnLaunchCheckbox = NSSwitch()
+    /// Lets AI apps (MCP) use this connection. Off by default.
+    private let mcpAccessCheckbox = NSSwitch()
     private let sessionTimeZonePopup = NSPopUpButton()
     private let defaultSchemaPopup = NSPopUpButton()
     private var readOnlyRow: SettingsRow?
@@ -476,6 +478,8 @@ final class ConnectionsManagerVC: NSViewController {
                         identifier: "connections.readOnly")
         configureSwitch(connectOnLaunchCheckbox, action: #selector(perConnectionFlagChanged),
                         identifier: "connections.connectOnLaunch")
+        configureSwitch(mcpAccessCheckbox, action: #selector(perConnectionFlagChanged),
+                        identifier: "connections.mcpAccess")
 
         sessionTimeZonePopup.target = self
         sessionTimeZonePopup.action = #selector(perConnectionFlagChanged)
@@ -651,8 +655,16 @@ final class ConnectionsManagerVC: NSViewController {
         timeZoneRow = zoneRow
         let sessionSection = section(String(localized: "Session"), rows: [readOnlyRow, launchRow, zoneRow])
 
+        // MARK: AI Apps — whether the MCP server may reach this database.
+        let mcpRow = row(String(localized: "Allow AI apps to use this connection"), control: mcpAccessCheckbox,
+                         caption: String(localized: "Off, AI apps connected to Pharos cannot see this connection, its tabs, or the history, workspaces and Sessions that ran against it."))
+        setToolTip(String(localized: "Applies only while Settings ▸ Security & Privacy ▸ Allow AI apps to use Pharos is on. Statements that change data still need that pane's permission and your confirmation in Pharos."),
+                   on: mcpRow)
+        let mcpSection = section(String(localized: "AI Apps (MCP)"), rows: [mcpRow])
+
         let scroll = SettingsFormScroll.makePane(sections: [header, generalSection, serverSection, dbSection,
-                                                            duckSection, authSection, sshSection, sessionSection])
+                                                            duckSection, authSection, sshSection, sessionSection,
+                                                            mcpSection])
 
         // Test Connection, Revert and Save live in a bar pinned to the bottom
         // of the pane, OUTSIDE the scroll view. An action the user must reach
@@ -1233,6 +1245,7 @@ final class ConnectionsManagerVC: NSViewController {
         applySslRowVisibility()
         readOnlyCheckbox.state = config.readOnly ? .on : .off
         connectOnLaunchCheckbox.state = config.connectOnLaunch ? .on : .off
+        mcpAccessCheckbox.state = config.mcpAccess ? .on : .off
         applyEngineVisibility(config.engine)
         // `selectValue` leaves the selection alone when there is no such row,
         // so the empty case has to pick the sentinel itself — otherwise a
@@ -1616,6 +1629,7 @@ final class ConnectionsManagerVC: NSViewController {
         d.sslRootCertPath = (d.sslMode.verifiesCertificate && !certPath.isEmpty) ? certPath : nil
         d.readOnly = readOnlyCheckbox.state == .on
         d.connectOnLaunch = connectOnLaunchCheckbox.state == .on
+        d.mcpAccess = mcpAccessCheckbox.state == .on
         // Cleared, this is a DESTRUCTIVE save: `save_connection` deletes the
         // password already in the keychain rather than merely stopping writing
         // new ones. That is the whole point — a switch that left the old one

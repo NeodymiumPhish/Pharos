@@ -70,6 +70,31 @@ check("MCP Check" in names, "list_connections: the seeded connection", err or st
 check(all("password" not in c and "host" not in c for c in (conns or {}).get("connections", [])),
       "list_connections: no passwords or hosts")
 
+# A connection the user has not shared is out of reach everywhere.
+check(not any(c["id"] == "hidden-duck" for c in (conns or {}).get("connections", [])),
+      "list_connections: a connection that is not shared is not listed")
+for name, args in [("connect", {"connection_id": "hidden-duck"}),
+                   ("create_tab", {"connection_id": "hidden-duck"}),
+                   ("create_card", {"connection_id": "hidden-duck", "sql": "SELECT secret FROM vault"}),
+                   ("search_history", {"connection_id": "hidden-duck"}),
+                   ("list_variables", {"connection_id": "hidden-duck"}),
+                   ("open_session", {"saved_session_id": "hidden-session"})]:
+    got, err = tool(name, **args)
+    check(got is None and "shared with AI apps" in (err or ""), f"{name}: refused for a connection that is not shared",
+          err or json.dumps(got))
+hidden_hist, _ = tool("search_history", search="vault")
+check(hidden_hist["entries"] == [], "search_history: the unshared connection's queries are not found",
+      json.dumps(hidden_hist))
+all_hist, _ = tool("search_history", limit=200)
+check(not any(e["connection_id"] == "hidden-duck" for e in all_hist["entries"]),
+      "search_history: nor listed without a search")
+lib, _ = tool("list_saved_sessions")
+check(not any(s["id"] == "hidden-session" for s in lib["saved_sessions"]),
+      "list_saved_sessions: a Session on the unshared connection is not listed")
+allvars, _ = tool("list_variables")
+check(not any(v["name"] == "vault_key" for v in allvars["variables"]),
+      "list_variables: a variable linked only to the unshared connection is not listed")
+
 made, err = tool("create_card", connection_id="mcp-duck", sql="SELECT id, name FROM people ORDER BY id",
                  name="People By Id")
 check(made is not None, "create_card: a new tab on the connection", err or "")

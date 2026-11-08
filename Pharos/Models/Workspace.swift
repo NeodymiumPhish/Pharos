@@ -96,4 +96,7 @@ struct WorkspaceDetail: Codable {
     /// True when `name` is one the user gave it in Results History. The
     /// reopened tab keeps it; otherwise the tab is named automatically.
     var nameIsCustom: Bool = false
+    /// Every connection the workspace's results ran on, and its own. Nil
+    /// from a core older than the field.
+    var connectionIds: [String]? = nil
 }

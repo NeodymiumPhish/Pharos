@@ -410,6 +410,7 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
         ("read_only", "ALTER TABLE connections ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0"),
         ("remember_password", "ALTER TABLE connections ADD COLUMN remember_password INTEGER NOT NULL DEFAULT 1"),
         ("connect_on_launch", "ALTER TABLE connections ADD COLUMN connect_on_launch INTEGER NOT NULL DEFAULT 0"),
+        ("mcp_access", "ALTER TABLE connections ADD COLUMN mcp_access INTEGER NOT NULL DEFAULT 0"),
         ("session_time_zone", "ALTER TABLE connections ADD COLUMN session_time_zone TEXT"),
         ("ssl_root_cert_path", "ALTER TABLE connections ADD COLUMN ssl_root_cert_path TEXT"),
     ] {
@@ -1138,8 +1139,8 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
 
     conn.execute(
         r#"
-        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, engine, saved, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, CURRENT_TIMESTAMP)
+        INSERT INTO connections (id, name, host, port, database, username, ssl_mode, sort_order, default_schema, requires_authentication, ssh_tunnel, read_only, remember_password, connect_on_launch, session_time_zone, ssl_root_cert_path, engine, saved, mcp_access, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             host = excluded.host,
@@ -1157,6 +1158,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             ssl_root_cert_path = excluded.ssl_root_cert_path,
             engine = excluded.engine,
             saved = excluded.saved,
+            mcp_access = excluded.mcp_access,
             updated_at = CURRENT_TIMESTAMP
         "#,
         rusqlite::params![
@@ -1180,6 +1182,7 @@ pub fn save_connection(conn: &Connection, config: &ConnectionConfig) -> SqliteRe
             config.ssl_root_cert_path.as_deref().filter(|s| !s.trim().is_empty()),
             config.engine.as_str(),
             config.saved,
+            config.mcp_access,
         ],
     )?;
     // History and workspaces keep the name the connection had when they
@@ -1224,7 +1227,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
     let mut stmt = conn.prepare(
         "SELECT id, name, host, port, database, username, COALESCE(ssl_mode, 'prefer') as ssl_mode, default_schema, COALESCE(requires_authentication, 0), ssh_tunnel, \
          COALESCE(read_only, 0), COALESCE(remember_password, 1), COALESCE(connect_on_launch, 0), session_time_zone, ssl_root_cert_path, \
-         COALESCE(engine, 'postgres'), COALESCE(saved, 1) \
+         COALESCE(engine, 'postgres'), COALESCE(saved, 1), COALESCE(mcp_access, 0) \
          FROM connections ORDER BY sort_order, name",
     )?;
 
@@ -1247,6 +1250,7 @@ pub fn load_connections(conn: &Connection) -> SqliteResult<Vec<ConnectionConfig>
             read_only: row.get(10)?,
             remember_password: row.get(11)?,
             connect_on_launch: row.get(12)?,
+            mcp_access: row.get(17)?,
             saved: row.get(16)?,
             session_time_zone: row.get(13)?,
             ssl_root_cert_path: row.get(14)?,
@@ -1307,6 +1311,7 @@ mod connection_auth_flag_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            mcp_access: false,
             saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,
@@ -1488,6 +1493,7 @@ mod connection_ssh_tunnel_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            mcp_access: false,
             saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,
@@ -3133,6 +3139,14 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
 
+    let mut connection_ids: Vec<String> = conn
+        .prepare("SELECT DISTINCT connection_id FROM query_history WHERE workspace_id = ?1")?
+        .query_map([id], |row| row.get::<_, String>(0))?
+        .collect::<SqliteResult<Vec<_>>>()?;
+    connection_ids.push(connection_id.clone());
+    connection_ids.sort();
+    connection_ids.dedup();
+
     Ok(Some(crate::models::WorkspaceDetail {
         id: wid,
         name: resolved_name,
@@ -3144,6 +3158,7 @@ pub fn load_workspace(conn: &Connection, id: &str) -> SqliteResult<Option<crate:
         results,
         cards_json,
         name_is_custom,
+        connection_ids,
     }))
 }
 
@@ -3836,6 +3851,8 @@ mod workspace_roundtrip_tests {
         let detail = load_workspace(&conn, "ws1").expect("load_workspace").expect("ws1 exists");
         assert_eq!(detail.id, "ws1");
         assert_eq!(detail.connection_id, "c1");
+        assert_eq!(detail.connection_ids, vec!["c1".to_string(), "c2".to_string()],
+                   "every connection the workspace's results ran on");
         assert_eq!(detail.connection_name, "prod-db");
         assert_eq!(detail.editor_text, "SELECT 1");
         assert_eq!(detail.variables_json, ws.variables_json);
@@ -5979,6 +5996,7 @@ mod connection_slice_column_tests {
             read_only: true,
             remember_password: false,
             connect_on_launch: true,
+            mcp_access: true,
             saved: true,
             session_time_zone: Some("Asia/Tokyo".to_string()),
             ssl_root_cert_path: Some("/etc/ssl/root.crt".to_string()),
@@ -6004,6 +6022,7 @@ mod connection_slice_column_tests {
         assert!(back.read_only, "read_only");
         assert!(!back.remember_password, "remember_password");
         assert!(back.connect_on_launch, "connect_on_launch");
+        assert!(back.mcp_access, "mcp_access");
         assert_eq!(back.session_time_zone.as_deref(), Some("Asia/Tokyo"));
         assert_eq!(back.ssl_root_cert_path.as_deref(), Some("/etc/ssl/root.crt"));
         assert_eq!(back.ssl_mode, SslMode::VerifyFull, "verify-full survives the column");
@@ -6025,6 +6044,7 @@ mod connection_slice_column_tests {
         changed.read_only = false;
         changed.remember_password = true;
         changed.connect_on_launch = false;
+        changed.mcp_access = false;
         changed.session_time_zone = None;
         changed.ssl_root_cert_path = None;
         changed.ssl_mode = SslMode::VerifyCa;
@@ -6034,6 +6054,7 @@ mod connection_slice_column_tests {
         assert!(!back.read_only);
         assert!(back.remember_password);
         assert!(!back.connect_on_launch);
+        assert!(!back.mcp_access, "MCP access can be taken away again");
         assert_eq!(back.session_time_zone, None);
         assert_eq!(back.ssl_root_cert_path, None);
         assert_eq!(back.ssl_mode, SslMode::VerifyCa);
@@ -6083,6 +6104,7 @@ mod connection_slice_column_tests {
             "read_only",
             "remember_password",
             "connect_on_launch",
+            "mcp_access",
             "session_time_zone",
             "ssl_root_cert_path",
         ] {
@@ -6098,6 +6120,7 @@ mod connection_slice_column_tests {
         assert!(!back.read_only, "an untouched record still writes");
         assert!(back.remember_password, "an untouched record still remembers its password");
         assert!(!back.connect_on_launch, "an untouched record does not connect at launch");
+        assert!(!back.mcp_access, "an untouched record is not shared with AI apps");
         assert_eq!(back.session_time_zone, None);
         assert_eq!(back.ssl_root_cert_path, None);
 
@@ -6237,6 +6260,7 @@ mod connection_saved_flag_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            mcp_access: false,
             saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,

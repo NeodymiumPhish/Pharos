@@ -34,6 +34,9 @@ struct CardRunRecord: Equatable, Codable {
     var summary: Summary
     /// The `query_history` row of this run, when it has one.
     var historyResultId: String?
+    /// The connection the run went to. Nil for a run recorded before this
+    /// was kept; `MCPAccessPolicy` then goes by the tab or Session's own.
+    var connectionId: String? = nil
 }
 
 /// One statement with a name, and the run its results came from.

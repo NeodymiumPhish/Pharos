@@ -43,11 +43,31 @@ enum MCPToolHandlers {
         let controller: ContentViewController
     }
 
+    /// The connections the user shares with AI apps (`ConnectionConfig.mcpAccess`).
+    private static var allowed: Set<String> {
+        Set(state.connections.filter(\.mcpAccess).map(\.id))
+    }
+
+    /// The workspace connections of a tab bound to a workspace, nil for one
+    /// that is not. Read per call: a run adds to them.
+    private static func workspaceConnections(_ workspaceId: String?) -> [String]? {
+        guard let workspaceId, let detail = (try? PharosCore.loadWorkspace(id: workspaceId)) ?? nil else { return nil }
+        return detail.connectionIds ?? [detail.connectionId]
+    }
+
+    private static func isShared(_ tab: QueryTab, allowed: Set<String>) -> Bool {
+        MCPAccessPolicy.allowsTab(connectionId: tab.connectionId, document: tab.document,
+                                  workspaceConnectionIds: workspaceConnections(tab.workspaceId), allowed: allowed)
+    }
+
+    /// A tab the client may use. A tab that is not shared reads as one that
+    /// does not exist, so a client cannot learn what it cannot see.
     private static func locate(_ tabId: String) throws -> Located {
         guard let session = state.session(owningTabId: tabId),
               let tab = session.tabs.first(where: { $0.id == tabId }),
+              isShared(tab, allowed: allowed),
               let controller = delegate?.contentController(for: session) else {
-            throw MCPToolError.notFound("No open tab has the id \(tabId). Call list_tabs for the open tabs.")
+            throw MCPToolError.notFound("No open tab shared with AI apps has the id \(tabId). Call list_tabs for the tabs you can use.")
         }
         return Located(session: session, tab: tab, controller: controller)
     }
@@ -59,9 +79,11 @@ enum MCPToolHandlers {
         return card
     }
 
+    /// A connection the client may use. One the user has not shared reads
+    /// as one that does not exist.
     private static func connection(_ id: String) throws -> ConnectionConfig {
-        guard let config = state.connections.first(where: { $0.id == id }) else {
-            throw MCPToolError.notFound("No saved connection has the id \(id). Call list_connections.")
+        guard let config = state.connections.first(where: { $0.id == id }), config.mcpAccess else {
+            throw MCPToolError.notFound("No connection shared with AI apps has the id \(id). Call list_connections for the ones you can use.")
         }
         return config
     }
@@ -88,7 +110,7 @@ enum MCPToolHandlers {
     // MARK: - Connections
 
     private static func listConnections() -> JSONValue {
-        let rows: [JSONValue] = state.connections.map { c in
+        let rows: [JSONValue] = state.connections.filter(\.mcpAccess).map { c in
             [
                 "id": .string(c.id),
                 "name": .string(c.name),
@@ -99,7 +121,11 @@ enum MCPToolHandlers {
                 "read_only": .bool(c.readOnly),
             ]
         }
-        return ["connections": .array(rows)]
+        var out: [String: JSONValue] = ["connections": .array(rows)]
+        if rows.isEmpty {
+            out["message"] = "The user has not shared any connection with AI apps. In Pharos, File ▸ Manage Connections… has “Allow AI apps to use this connection” for each one."
+        }
+        return .object(out)
     }
 
     private static func connect(_ args: MCPArguments) async throws -> JSONValue {
@@ -137,8 +163,9 @@ enum MCPToolHandlers {
 
     private static func listTabs() -> JSONValue {
         let key = state.keySession
+        let allowed = allowed
         let tabs: [JSONValue] = state.sessions.flatMap { session in
-            session.tabs.map { tab -> JSONValue in
+            session.tabs.filter { isShared($0, allowed: allowed) }.map { tab -> JSONValue in
                 guard case var .object(o) = describe(tab: tab) else { return .null }
                 o["is_front"] = .bool(session === key)
                 return .object(o)
@@ -153,10 +180,12 @@ enum MCPToolHandlers {
             throw MCPToolError.failed("Pharos could not read its library: \(error.localizedDescription)")
         }
         let search = args.optionalString("search")?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        let allowed = allowed
         let rows: [JSONValue] = all
             .filter { search.isEmpty || $0.name.lowercased().contains(search) || ($0.folder ?? "").lowercased().contains(search) }
+            .filter { isShared($0, allowed: allowed) }
             .map { q in
-                let open = state.findTab { $0.savedQueryId == q.id }?.tab.id
+                let open = state.findTab { $0.savedQueryId == q.id && isShared($0, allowed: allowed) }?.tab.id
                 return [
                     "id": .string(q.id),
                     "name": .string(q.name),
@@ -170,24 +199,38 @@ enum MCPToolHandlers {
         return ["saved_sessions": .array(rows)]
     }
 
+    private static func isShared(_ session: SavedQuery, allowed: Set<String>) -> Bool {
+        MCPAccessPolicy.allowsSession(connectionId: session.connectionId,
+                                      document: CardPersistence.decode(json: session.cardsJson, text: session.sql),
+                                      allowed: allowed)
+    }
+
+    private static func isShared(workspaceId: String, allowed: Set<String>) -> Bool {
+        guard let ids = workspaceConnections(workspaceId) else { return false }
+        return MCPAccessPolicy.allowsWorkspace(connectionIds: ids, allowed: allowed)
+    }
+
     private static func listWorkspaces(_ args: MCPArguments) throws -> JSONValue {
         let limit = try args.int("limit", default: 25, range: 1...200)
         let search = args.optionalString("search")?.trimmingCharacters(in: .whitespaces)
+        let allowed = allowed
         let summaries: [WorkspaceSummary]
         do {
-            summaries = try PharosCore.loadWorkspaces(filter: .init(search: (search?.isEmpty ?? true) ? nil : search,
-                                                                     limit: limit, offset: 0))
+            summaries = try MCPAccessPolicy.filteredPage(offset: 0, limit: limit, fetch: { offset, count in
+                try PharosCore.loadWorkspaces(filter: .init(search: (search?.isEmpty ?? true) ? nil : search,
+                                                            limit: count, offset: offset))
+            }, keep: { isShared(workspaceId: $0.id, allowed: allowed) }).items
         } catch {
             throw MCPToolError.failed("Pharos could not read its Results History: \(error.localizedDescription)")
         }
-        let rows: [JSONValue] = summaries.map { w in
+        let rows: [JSONValue] = summaries.map { w -> JSONValue in
             [
                 "id": .string(w.id),
                 "name": .string(w.name),
                 "connection_name": .string(w.connectionName),
                 "query_count": .int(w.queryCount),
                 "last_activity_at": .string(w.lastActivityAt),
-                "open_tab_id": .optional(state.findTab { $0.workspaceId == w.id }?.tab.id),
+                "open_tab_id": .optional(state.findTab { $0.workspaceId == w.id && isShared($0, allowed: allowed) }?.tab.id),
             ]
         }
         return ["workspaces": .array(rows)]
@@ -204,16 +247,22 @@ enum MCPToolHandlers {
         let connectionId = args.optionalString("connection_id")
         if let connectionId { _ = try connection(connectionId) }
         let search = args.optionalString("search")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var filter = QueryHistoryFilter(connectionId: connectionId, search: (search?.isEmpty ?? true) ? nil : search,
-                                        limit: limit + 1, offset: offset)
-        filter.status = status
-        let entries: [QueryHistoryEntry]
-        do { entries = try PharosCore.loadQueryHistory(filter: filter) } catch {
+        let allowed = allowed
+        let page: (items: [QueryHistoryEntry], next: Int?)
+        do {
+            // Read in pages and keep the shared connections' entries; offsets
+            // count history rows, so paging on never repeats or skips one.
+            page = try MCPAccessPolicy.filteredPage(offset: offset, limit: limit, fetch: { from, count in
+                var filter = QueryHistoryFilter(connectionId: connectionId,
+                                                search: (search?.isEmpty ?? true) ? nil : search,
+                                                limit: count, offset: from)
+                filter.status = status
+                return try PharosCore.loadQueryHistory(filter: filter)
+            }, keep: { MCPAccessPolicy.allowsHistoryEntry(connectionId: $0.connectionId, allowed: allowed) })
+        } catch {
             throw MCPToolError.failed("Pharos could not read its query history: \(error.localizedDescription)")
         }
-        // One more than asked for says whether there is a next page.
-        let page = entries.prefix(limit)
-        let rows: [JSONValue] = page.map { e in
+        let rows: [JSONValue] = page.items.map { e in
             let (sql, _) = MCPResultShaper.cut(e.sql, to: maxSQL)
             var o: [String: JSONValue] = [
                 "id": .string(e.id),
@@ -232,7 +281,7 @@ enum MCPToolHandlers {
         }
         return [
             "entries": .array(rows),
-            "next_offset": entries.count > limit ? .int(offset + limit) : .null,
+            "next_offset": .optional(page.next),
         ]
     }
 
@@ -243,12 +292,17 @@ enum MCPToolHandlers {
         if let connectionId { _ = try connection(connectionId) }
         let variables = connectionId.map { store.available(for: $0) } ?? store.variables
         let shareValues = state.settings.security.mcpShareVariableValues
-        let rows: [JSONValue] = variables.filter { !$0.name.isEmpty }.map { v in
+        let allowed = allowed
+        let rows: [JSONValue] = variables.filter { !$0.name.isEmpty }.compactMap { v in
+            // A variable linked only to connections the user has not shared
+            // is not shown; a linked one shows only its shared links.
+            let access = MCPAccessPolicy.variableLinks(v.connectionIds, allowed: allowed)
+            guard access.shared else { return nil }
             var o: [String: JSONValue] = [
                 "name": .string(v.name),
                 "type": .string(v.type.rawValue),
                 "scope": .string(v.isGlobal ? "global" : "linked"),
-                "connection_ids": .array(v.connectionIds.map(JSONValue.string)),
+                "connection_ids": .array(access.links.map(JSONValue.string)),
             ]
             if shareValues { o["value"] = .string(v.value) }
             return .object(o)
@@ -268,8 +322,8 @@ enum MCPToolHandlers {
         }
         ensureWindow()
         if let sessionId {
-            guard let stored = SavedQueryEntity.stored(id: sessionId) else {
-                throw MCPToolError.notFound("No saved Session has the id \(sessionId). Call list_saved_sessions.")
+            guard let stored = SavedQueryEntity.stored(id: sessionId), isShared(stored, allowed: allowed) else {
+                throw MCPToolError.notFound("No saved Session shared with AI apps has the id \(sessionId). Call list_saved_sessions.")
             }
             // "Open in Tab", the sidebar's own path: an open tab is fronted,
             // not opened twice.
@@ -279,16 +333,26 @@ enum MCPToolHandlers {
                   let found = state.findTab(where: { $0.savedQueryId == sessionId }) else {
                 throw MCPToolError.failed("Pharos did not open “\(stored.name)”.")
             }
+            guard isShared(found.tab, allowed: allowed) else { throw notSharedAfterOpening }
             return ["tab": describe(tab: found.tab)]
         }
         let id = workspaceId!
+        guard isShared(workspaceId: id, allowed: allowed) else {
+            throw MCPToolError.notFound("No workspace shared with AI apps has the id \(id). Call list_workspaces.")
+        }
         NotificationCenter.default.post(name: .openWorkspace, object: nil, userInfo: ["workspaceId": id])
         guard await wait(seconds: 5, until: { state.findTab { $0.workspaceId == id } != nil }),
               let found = state.findTab(where: { $0.workspaceId == id }) else {
             throw MCPToolError.notFound("Pharos did not open a workspace with the id \(id). Call list_workspaces.")
         }
+        guard isShared(found.tab, allowed: allowed) else { throw notSharedAfterOpening }
         return ["tab": describe(tab: found.tab)]
     }
+
+    /// The item was already open in a tab the user has since moved to a
+    /// connection they do not share.
+    private static let notSharedAfterOpening = MCPToolError.refused(
+        "Pharos showed it in a tab that is not shared with AI apps (its connection, or a result in it, is on a connection the user has not shared).")
 
     /// A new tab on `connectionId`, connecting in the background.
     private static func makeTab(connectionId: String, name: String?) throws -> Located {

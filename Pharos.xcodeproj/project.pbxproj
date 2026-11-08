@@ -147,6 +147,7 @@
 		4B0B8CFAFFFE974941B76BC8 /* SQLStatementScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E4D8BB54E620DAB642CDC4 /* SQLStatementScope.swift */; };
 		4B20DA7853C3442C5BCE2152 /* HistoryRowText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267FBF59C6FA236284E961CC /* HistoryRowText.swift */; };
 		4B3FD470B22989F8B446F4C4 /* DuckDBAttachRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B9E7C1E552BBD06043E902 /* DuckDBAttachRules.swift */; };
+		4B949F80E559C95CAD1780D1 /* MCPAccessPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D58D02305DC2F9364FBFD5A /* MCPAccessPolicy.swift */; };
 		4C3EE67E727E2EAC99388180 /* TagFunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17A06CCCFF6DC17400FC0783 /* TagFunnel.swift */; };
 		4C7E553E5E47C3132C5D59A9 /* ChartsSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */; };
 		4C8E251BE4AB6F08307B8F32 /* WindowTabPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AC1C0351D90429040B7D046 /* WindowTabPresenter.swift */; };
@@ -486,6 +487,7 @@
 		0B4DF712BE5E256C3E932817 /* TagPredicate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPredicate.swift; sourceTree = "<group>"; };
 		0BDFE9FF81987220FD4C89BC /* EditorResultsSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorResultsSplitView.swift; sourceTree = "<group>"; };
 		0CBD4D1F97E1EA34FE8CFEC4 /* SettingsFormDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFormDocumentView.swift; sourceTree = "<group>"; };
+		0D58D02305DC2F9364FBFD5A /* MCPAccessPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPAccessPolicy.swift; sourceTree = "<group>"; };
 		0D6BEBF74D81C05BBDEC18B2 /* QueryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryTab.swift; sourceTree = "<group>"; };
 		0D74DCCBF440921962842366 /* PharosCore+TableOps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+TableOps.swift"; sourceTree = "<group>"; };
 		0DF4DAC8AEBF5E94CCF30EFB /* SQLOrderStability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLOrderStability.swift; sourceTree = "<group>"; };
@@ -1462,6 +1464,7 @@
 		C27CAE50F8FCB0043BEA1CFF /* MCP */ = {
 			isa = PBXGroup;
 			children = (
+				0D58D02305DC2F9364FBFD5A /* MCPAccessPolicy.swift */,
 				367D7D654987217E13A12833 /* MCPJSON.swift */,
 				4B5CB3B286BA17A1E0C3D013 /* MCPProtocol.swift */,
 				27F66C5EDFD55B33C1F1FF6E /* MCPServerController.swift */,
@@ -1843,6 +1846,7 @@
 				FD17E65243347D79EE2DAD43 /* LibrarySettingsPaneVC.swift in Sources */,
 				467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */,
 				BDD0B35D5CC9DF83EB996451 /* Log.swift in Sources */,
+				4B949F80E559C95CAD1780D1 /* MCPAccessPolicy.swift in Sources */,
 				E7238032F5E5FF7FDB011A20 /* MCPJSON.swift in Sources */,
 				EB996A942EFF6308D6485339 /* MCPProtocol.swift in Sources */,
 				DEEFA50C59D6E6E8EA90D8B7 /* MCPServerController.swift in Sources */,

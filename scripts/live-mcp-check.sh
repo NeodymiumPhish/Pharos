@@ -14,7 +14,10 @@
 # MCP server and MCP writes on, Settings ▸ Query's own destructive
 # confirmation OFF (an MCP run must ask anyway), variable values NOT shared,
 # a DuckDB connection `mcp-duck` to a scratch file holding a three-row
-# `people` table, and a global number variable `person_id` = 2.
+# `people` table, shared with AI apps, and a global number variable
+# `person_id` = 2. Beside it, a connection `hidden-duck` that is NOT shared,
+# with a history entry, a Session and a variable linked to it, none of which
+# a client may see.
 #
 # The last check leaves a confirmation sheet on screen; the script then
 # kills the copy, so the DELETE never runs.
@@ -62,6 +65,7 @@ stop
 [ -f "$STORE/pharos.db" ] || { echo "FAIL the app made no store" >&2; exit 1; }
 
 # 2. Seed it.
+duckdb "$WORK/hidden.duckdb" "CREATE TABLE vault (secret TEXT); INSERT INTO vault VALUES ('s3cret');"
 duckdb "$WORK/check.duckdb" "CREATE TABLE people (id INTEGER, name TEXT); INSERT INTO people VALUES (1, 'Ada'), (2, 'Grace'), (3, 'Edsger');"
 CURRENT="$(sqlite3 "$STORE/pharos.db" "SELECT settings_json FROM app_settings WHERE id = 1" || true)"
 [ -n "$CURRENT" ] || CURRENT="$(cat PharosTests/Fixtures/settings-default.json)"
@@ -75,10 +79,18 @@ print(json.dumps(s))')"
 sqlite3 "$STORE/pharos.db" <<SQL
 INSERT INTO app_settings (id, settings_json, updated_at) VALUES (1, '$(printf '%s' "$SETTINGS" | sed "s/'/''/g")', CURRENT_TIMESTAMP)
   ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json;
-INSERT INTO connections (id, name, host, port, database, username, engine, saved)
-  VALUES ('mcp-duck', 'MCP Check', '', 0, '$WORK/check.duckdb', '', 'duckdb', 1);
+INSERT INTO connections (id, name, host, port, database, username, engine, saved, mcp_access)
+  VALUES ('mcp-duck', 'MCP Check', '', 0, '$WORK/check.duckdb', '', 'duckdb', 1, 1);
+INSERT INTO connections (id, name, host, port, database, username, engine, saved, mcp_access)
+  VALUES ('hidden-duck', 'Not Shared', '', 0, '$WORK/hidden.duckdb', '', 'duckdb', 1, 0);
 INSERT INTO query_variables (id, name, value, type, position)
   VALUES ('$(uuidgen)', 'person_id', '2', 'number', 0);
+INSERT INTO query_variables (id, name, value, type, position, connection_ids)
+  VALUES ('$(uuidgen)', 'vault_key', 'k', 'text', 1, '["hidden-duck"]');
+INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at)
+  VALUES ('hidden-run', 'hidden-duck', 'Not Shared', 'SELECT secret FROM vault', 1, 1, '2026-11-01T10:00:00Z');
+INSERT INTO saved_queries (id, name, folder, sql, connection_id)
+  VALUES ('hidden-session', 'Vault Session', NULL, 'SELECT secret FROM vault;', 'hidden-duck');
 SQL
 
 # 3. The measured launch: wait for the socket.

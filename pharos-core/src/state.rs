@@ -982,6 +982,7 @@ mod settings_cache_tests {
             read_only: false,
             remember_password: true,
             connect_on_launch: false,
+            mcp_access: false,
             saved: true,
             session_time_zone: None,
             ssl_root_cert_path: None,

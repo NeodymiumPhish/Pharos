@@ -138,6 +138,10 @@ pub struct WorkspaceDetail {
     /// custom name; otherwise it is named after its database and schema.
     #[serde(default)]
     pub name_is_custom: bool,
+    /// Every connection this workspace's results ran on, and its own: the
+    /// MCP server shares a workspace only when it may share all of them.
+    #[serde(default)]
+    pub connection_ids: Vec<String>,
 }
 
 #[cfg(test)]

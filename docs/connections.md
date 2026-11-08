@@ -99,6 +99,16 @@ Like the other session rows, it applies the next time the connection opens.
 
 Edits are made inline — click **Save** to persist, or **Revert** to discard. Unsaved new connections are marked "Not saved" until saved.
 
+## AI apps (MCP)
+
+**Allow AI apps to use this connection**, in the **AI Apps (MCP)** section of
+the form, lets AI apps that use Pharos's MCP server (such as Claude desktop or
+LM Studio) work with this database. It is off for every connection. While it is
+off, AI apps cannot see the connection, its tabs, or the history, workspaces
+and Sessions that ran against it. The switch takes effect only while
+**Settings ▸ Security & Privacy ▸ Allow AI apps to use Pharos** is on. See
+[AI Apps (MCP)](mcp.md).
+
 ## Connecting at launch
 
 **Connect when Pharos starts** opens this connection as the app starts, once the saved tabs are back. Restoring the saved tabs opens the DuckDB files they use again, but no server connection; a connection that is already open or opening is left alone rather than opened twice.
