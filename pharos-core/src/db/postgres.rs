@@ -16,6 +16,12 @@ fn escape_sql_literal(s: &str) -> String {
     s.replace('\'', "''")
 }
 
+/// `information_schema.columns.is_nullable`. The standard says `YES`/`NO`;
+/// ClickHouse answers `1`/`0`, which read as "NOT NULL" for every column.
+fn says_nullable(value: Option<&str>) -> bool {
+    matches!(value, Some("YES") | Some("1"))
+}
+
 /// Read a column value as a raw text string, bypassing type OID checks.
 /// Works reliably with non-PG servers (ClickHouse, CockroachDB) that may
 /// report non-standard type OIDs via the simple query protocol.
@@ -1475,7 +1481,7 @@ pub async fn get_columns(
                 Some(ColumnInfo {
                     name: raw_str(&row, "column_name")?,
                     data_type: raw_str(&row, "data_type").unwrap_or_default(),
-                    is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                    is_nullable: says_nullable(raw_str(&row, "is_nullable").as_deref()),
                     is_primary_key: matches!(is_pk_str.as_str(), "t" | "true" | "1"),
                     ordinal_position: raw_str(&row, "ordinal_position")
                         .and_then(|s| s.parse().ok())
@@ -1512,7 +1518,7 @@ pub async fn get_columns(
             Some(ColumnInfo {
                 name: raw_str(&row, "column_name")?,
                 data_type: raw_str(&row, "data_type").unwrap_or_default(),
-                is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                is_nullable: says_nullable(raw_str(&row, "is_nullable").as_deref()),
                 is_primary_key: false,
                 ordinal_position: raw_str(&row, "ordinal_position")
                     .and_then(|s| s.parse().ok())
@@ -1567,7 +1573,7 @@ pub async fn get_schema_columns(
                     table_name: raw_str(&row, "table_name")?,
                     name: raw_str(&row, "column_name")?,
                     data_type: raw_str(&row, "data_type").unwrap_or_default(),
-                    is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                    is_nullable: says_nullable(raw_str(&row, "is_nullable").as_deref()),
                     is_primary_key: matches!(is_pk_str.as_str(), "t" | "true" | "1"),
                     ordinal_position: raw_str(&row, "ordinal_position")
                         .and_then(|s| s.parse().ok())
@@ -1605,7 +1611,7 @@ pub async fn get_schema_columns(
                 table_name: raw_str(&row, "table_name")?,
                 name: raw_str(&row, "column_name")?,
                 data_type: raw_str(&row, "data_type").unwrap_or_default(),
-                is_nullable: raw_str(&row, "is_nullable").as_deref() == Some("YES"),
+                is_nullable: says_nullable(raw_str(&row, "is_nullable").as_deref()),
                 is_primary_key: false,
                 ordinal_position: raw_str(&row, "ordinal_position")
                     .and_then(|s| s.parse().ok())

@@ -140,6 +140,12 @@ pub struct AppState {
     /// Cleared on disconnect.
     pub key_cache: Mutex<HashMap<String, HashMap<u32, TableKeyInfo>>>,
 
+    /// Whether each pooled connection's server is ClickHouse behind its
+    /// PostgreSQL-compatible port (`commands::clickhouse`), keyed by
+    /// connection id. Asked once per pool; cleared when the pool is added or
+    /// removed, so a reconnect — perhaps to a different server — asks again.
+    pub clickhouse_servers: Mutex<HashMap<String, bool>>,
+
     /// Live row counters for in-progress CSV imports.
     /// Keyed by `"{connection_id}|{schema}|{table}"`.
     pub import_progress: Mutex<HashMap<String, Arc<AtomicU64>>>,
@@ -209,6 +215,7 @@ impl AppState {
             session_passwords: Mutex::new(HashMap::new()),
             analyze_denied: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
+            clickhouse_servers: Mutex::new(HashMap::new()),
             import_progress: Mutex::new(HashMap::new()),
             tunnels: Mutex::new(HashMap::new()),
             tunnel_failures: Mutex::new(HashMap::new()),
@@ -332,14 +339,33 @@ impl AppState {
 
     /// Add a connection pool
     pub fn add_pool(&self, connection_id: String, pool: PgPool) {
+        self.forget_server_kind(&connection_id);
         let mut connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.insert(connection_id, pool);
     }
 
     /// Remove a connection pool
     pub fn remove_pool(&self, connection_id: &str) -> Option<PgPool> {
+        self.forget_server_kind(connection_id);
         let mut connections = self.connections.lock().unwrap_or_else(|e| e.into_inner());
         connections.remove(connection_id)
+    }
+
+    /// Whether this connection's server is ClickHouse, if it has been asked
+    /// since the pool was opened.
+    pub fn server_is_clickhouse(&self, connection_id: &str) -> Option<bool> {
+        let servers = self.clickhouse_servers.lock().unwrap_or_else(|e| e.into_inner());
+        servers.get(connection_id).copied()
+    }
+
+    pub fn set_server_is_clickhouse(&self, connection_id: &str, is_clickhouse: bool) {
+        let mut servers = self.clickhouse_servers.lock().unwrap_or_else(|e| e.into_inner());
+        servers.insert(connection_id.to_string(), is_clickhouse);
+    }
+
+    fn forget_server_kind(&self, connection_id: &str) {
+        let mut servers = self.clickhouse_servers.lock().unwrap_or_else(|e| e.into_inner());
+        servers.remove(connection_id);
     }
 
     /// Check if a connection pool exists

@@ -301,6 +301,13 @@ func runTests() {
         ("real", .float),
         ("double precision", .float),
         ("  TIMESTAMPTZ ", .timestampTZ),
+        // ClickHouse: a zoned DateTime is printed with no offset.
+        ("Nullable(DateTime64(0))", .timestamp),
+        ("DateTime('UTC')", .timestamp),
+        ("UInt64", .decimal),
+        ("Int32", .integer),
+        ("Float64", .float),
+        ("String", .other),
         // Never formatted.
         ("interval", .other),
         ("money", .other),

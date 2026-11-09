@@ -17,6 +17,11 @@ enum SQLTypeName {
 
     static func postgresEquivalent(_ raw: String) -> String {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // ClickHouse wraps a type to say how it is stored, not what it is:
+        // `Nullable(DateTime64(0))`, `LowCardinality(Nullable(String))`.
+        for wrapper in ["nullable(", "lowcardinality("] where t.hasPrefix(wrapper) && t.hasSuffix(")") {
+            return postgresEquivalent(String(t.dropFirst(wrapper.count).dropLast()))
+        }
         // A list `INTEGER[]` or a fixed-size array `INTEGER[3]`: map the element.
         if t.hasSuffix("]"), let open = t.lastIndex(of: "[") {
             let size = t[t.index(after: open)..<t.index(before: t.endIndex)]
@@ -42,6 +47,32 @@ enum SQLTypeName {
         // Nested values are text to every site; the bare keyword keeps
         // `STRUCT(a INTEGER)` from matching "int" anywhere downstream.
         case "struct", "map", "union", "enum", "variant": return base
+        // ClickHouse, through its PostgreSQL port (`commands::clickhouse` in
+        // the core puts its own type names on a result). A `DateTime('UTC')`
+        // is printed with no offset, so it is a `timestamp`, not a
+        // `timestamptz`, whatever its zone. ClickHouse's `Int8` lowercases to
+        // PostgreSQL's 8-byte `int8`; both are integers, so it passes through.
+        case "datetime", "datetime64": return "timestamp"
+        case "date32": return "date"
+        case "time64": return "time"
+        case "string", "fixedstring": return "text"
+        case "uint8", "int16": return "int2"
+        case "uint16", "int32": return "int4"
+        case "uint32", "int64": return "int8"
+        case "uint64", "int128", "uint128", "int256", "uint256",
+             "decimal32", "decimal64", "decimal128", "decimal256": return "numeric"
+        case "float32", "bfloat16": return "float4"
+        case "float64": return "float8"
+        case "enum8", "enum16": return "enum"
+        case "json", "object": return "json"
+        // Composite values are text; the bare keyword keeps
+        // `Array(UInt32)` or `Tuple(a Int64)` from matching "int" downstream.
+        case "array", "tuple", "nested", "dynamic",
+             "aggregatefunction", "simpleaggregatefunction": return base
+        // `IntervalDay`, `IntervalSecond` …: a count of one unit, which no
+        // site can read as PostgreSQL's `interval` (`interval day to second`
+        // has spaces, so it is not caught here).
+        case _ where base.hasPrefix("interval") && base != "interval" && !base.contains(" "): return "text"
         default: return t
         }
     }

@@ -744,13 +744,16 @@ pub async fn execute_query(
     let execution_time_ms = start.elapsed().as_millis() as u64;
 
     if rows.is_empty() {
-        let columns = match (&mut *conn).describe(sql.as_str()).await {
+        let mut columns = match (&mut *conn).describe(sql.as_str()).await {
             Ok(desc) => pg_columns_to_defs(desc.columns()),
             // describe() uses the extended query protocol, which non-PG
             // servers (ClickHouse) do not support. A clean empty list here
             // means a clean None for the identity block.
             Err(_) => vec![],
         };
+        // ClickHouse: its own DESCRIBE names the columns describe() could not.
+        drop(conn);
+        super::clickhouse::apply_result_types(state, &pool, &connection_id, &sql, &mut columns).await;
         return Ok(QueryResult {
             columns,
             rows: Rows::empty(),
@@ -768,7 +771,7 @@ pub async fn execute_query(
 
     // Extract column information from the first row
     let first_row = &rows[0];
-    let columns: Vec<ColumnDef> = pg_columns_to_defs(first_row.columns());
+    let mut columns: Vec<ColumnDef> = pg_columns_to_defs(first_row.columns());
 
     let row_limit = std::cmp::min(rows.len(), limit as usize);
 
@@ -785,6 +788,10 @@ pub async fn execute_query(
     } else {
         drop(conn);
     }
+
+    // ClickHouse sends `varchar` for its DateTime, String, Enum … columns; its
+    // own DESCRIBE, on a connection of its own, has the real types.
+    super::clickhouse::apply_result_types(state, &pool, &connection_id, &sql, &mut columns).await;
 
     let row_identity = build_row_identity(&pool, &connection_id, &columns, &json_rows, state).await;
 

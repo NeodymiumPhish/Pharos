@@ -325,6 +325,12 @@ pub async fn generate_table_ddl(
     }
     let pool = state.require_pool(&connection_id)?;
 
+    // ClickHouse emulates only part of pg_catalog (no pg_attrdef or
+    // pg_constraint), so the DDL cannot be reconstructed; it states its own.
+    if super::clickhouse::is_clickhouse(state, &pool, &connection_id).await {
+        return super::clickhouse::table_ddl(&pool, &schema_name, &table_name).await;
+    }
+
     // No identifier validation here: this is a read-only path, like the sibling
     // metadata reads (get_columns / get_table_constraints), which also skip it.
     // The catalog queries escape names as SQL string literals and the composer

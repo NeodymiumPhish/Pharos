@@ -17,6 +17,7 @@ pub mod row_edit;
 pub mod row_identity;
 pub mod saved_query;
 pub mod cards;
+pub mod clickhouse;
 pub mod session;
 pub mod sql_lexer;
 pub mod tab_session;
