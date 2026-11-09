@@ -106,7 +106,7 @@ private enum TransferLayout {
     }
 
     /// The width of the form's column: the window, less its margins.
-    static let columnWidth: CGFloat = 480
+    nonisolated static let columnWidth: CGFloat = 480
     static let indent: CGFloat = 20
 
     /// A small secondary label that wraps at `width` (the column, or the
