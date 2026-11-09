@@ -49,6 +49,14 @@ enum MCPAccessPolicy {
         return (!links.isEmpty, links)
     }
 
+    /// Whether a client may change or delete a query variable: every
+    /// connection it is linked to is shared. A variable also linked to one
+    /// the client cannot see would change there unseen. A global one names
+    /// no database and is allowed; the user confirms each change.
+    static func allowsVariableChange(_ connectionIds: [String], allowed: Set<String>) -> Bool {
+        connectionIds.allSatisfy(allowed.contains)
+    }
+
     /// Every card whose run records its connection ran on a shared one. A
     /// run recorded before runs kept their connection goes by its tab's or
     /// Session's own, which the caller has checked.

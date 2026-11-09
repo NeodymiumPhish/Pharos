@@ -714,6 +714,15 @@ pub struct SecuritySettings {
     /// get names and types only: a value can be a token or an address.
     #[serde(default)]
     pub mcp_variable_values: McpScope,
+    /// Which AI apps' data-changing runs skip the confirmation sheet. Only
+    /// reaches apps `mcp_writes` allows; the others are refused first. OFF:
+    /// before this existed, every such run asked.
+    #[serde(default)]
+    pub mcp_unconfirmed_writes: McpScope,
+    /// Which AI apps create, change and delete query variables without the
+    /// confirmation sheet. OFF: before this existed, every change asked.
+    #[serde(default)]
+    pub mcp_unconfirmed_variable_changes: McpScope,
     /// The AI apps that have reached the MCP server, by the signature of the
     /// app that launched `Pharos --mcp`, and how far the user trusts each.
     /// A new one is recorded `Unapproved` and refused until the user picks.
@@ -765,6 +774,8 @@ impl Default for SecuritySettings {
             mcp_server_enabled: false,
             mcp_writes: McpScope::Off,
             mcp_variable_values: McpScope::Off,
+            mcp_unconfirmed_writes: McpScope::Off,
+            mcp_unconfirmed_variable_changes: McpScope::Off,
             mcp_apps: Vec::new(),
         }
     }
@@ -1505,6 +1516,8 @@ pub(crate) mod fixture {
                     mcp_server_enabled: true,
                     mcp_writes: McpScope::Local,
                     mcp_variable_values: McpScope::All,
+                    mcp_unconfirmed_writes: McpScope::Local,
+                    mcp_unconfirmed_variable_changes: McpScope::All,
                     mcp_apps: vec![McpApp {
                         id: "team:D65G88RHWN:ai.elementlabs.lmstudio".to_string(),
                         name: "LM Studio".to_string(),

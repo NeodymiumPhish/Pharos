@@ -215,13 +215,15 @@ same check for its own [destructive-query confirmation](query-execution.md). The
 check looks at the SQL after query variables are filled in, and it finds these
 words even inside a CTE.
 
-**You confirm every change.** If an app can change data, each such run still shows Pharos's confirmation sheet. The sheet
+**You confirm every change, unless you turn that off.** If an app can change data, each such run still shows Pharos's confirmation sheet. The sheet
 names the app that asked for the run, and Pharos bounces its Dock icon so that
 you see the sheet. A run that an AI app asks for always shows the sheet, even
 if you turned off the confirmation for your own runs in **Settings ▸ Query**.
 While the sheet is open, the app sees the status `awaiting_confirmation`. Only
 you can answer the sheet. The app cannot press **Run**, and it cannot cancel the
-run for you.
+run for you. To let an app's changes run without the sheet, choose it in
+**AI apps that can change data without asking**. This reaches only apps that
+**AI apps that can change data** already includes.
 
 **The app sees only what it asks for.** `list_connections` returns each
 connection's name, engine, database and default schema. It does not return
@@ -234,6 +236,16 @@ each variable's name, type and scope. It returns values only to the apps that
 **AI apps that can read variable values** includes. For other apps, a card that
 uses `{{name}}` still runs with your value, and `get_card` shows the SQL that
 ran, so an app can see a value after it uses one.
+
+**You confirm every change to a variable, unless you turn that off.**
+`create_variable`, `update_variable` and `delete_variable` each show a sheet in
+Pharos that names the app and shows the change. Nothing changes unless you press
+the button. To skip the sheet for an app, choose it in **AI apps that can change
+variables without asking**; Pharos then says in its window what the app changed. If
+you don't answer within 45 seconds, the sheet closes and nothing changes. An
+app can't change or delete a variable that is also linked to a connection it
+can't use. An app that can't read values must give a new value when it changes
+a variable's type.
 
 **Query history follows the connections.** `search_history` returns the SQL,
 timing, row count and error message of past runs on the connections that the app
@@ -259,7 +271,10 @@ app's connection at once and removes the socket.
 | `list_saved_sessions` | Lists the saved Sessions in the library. You can filter by name or folder. |
 | `list_workspaces` | Lists recent Results History workspaces, newest first. |
 | `search_history` | Searches past runs, newest first, by words in their SQL (full-text), connection and status (`all`, `succeeded`, `failed`). Returns each run's SQL, time, duration, and row count or error. Pages with `offset` and `next_offset`. |
-| `list_variables` | Lists the query variables, or those that a tab on one connection can use: name, type, global or linked. Values only to the apps that you allow. |
+| `list_variables` | Lists the query variables, or those that a tab on one connection can use: id, name, type, global or linked. Values only to the apps that you allow. |
+| `create_variable` | Defines a new variable: name, type, value, and optionally the connections it's linked to. You confirm it in Pharos. |
+| `update_variable` | Changes a variable's name, type, value or connections. You confirm it in Pharos. A rename doesn't rewrite the cards that use the old name. |
+| `delete_variable` | Deletes a variable. You confirm it in Pharos. |
 | `open_session` | Opens a saved Session (with its saved results) or a workspace in a tab. Nothing runs. |
 | `create_tab` | Opens a new, empty tab on a connection. |
 | `list_cards` / `get_card` | Gives each card's id, name, version, lock, SQL, notes, and status: `never_run`, `queued`, `running`, `awaiting_confirmation`, `succeeded` or `failed`. Also gives the last run's row count or error. |
@@ -287,8 +302,11 @@ limit in **Settings ▸ Query**. If `server_has_more` is true, the database has
 more rows. Ask the app to aggregate, or to add `LIMIT` and `OFFSET` to the
 query.
 
+Pharos tells each app how to write card names and notes and how to use
+variables, so you don't need to explain them.
+
 {: .note }
-To help an AI app write good card names and notes, give it the
+If an AI app drafts a `.sql` script instead of using these tools, give it the
 [Query Format for AI Agents](ai-agent-query-format.md).
 
 ---

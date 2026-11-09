@@ -184,6 +184,8 @@
     "indexSavedQueriesInSpotlight": true,
     "mcpApps": [],
     "mcpServerEnabled": false,
+    "mcpUnconfirmedVariableChanges": "off",
+    "mcpUnconfirmedWrites": "off",
     "mcpVariableValues": "off",
     "mcpWrites": "off"
   },

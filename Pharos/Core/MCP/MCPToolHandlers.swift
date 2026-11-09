@@ -18,6 +18,9 @@ enum MCPToolHandlers {
         case "list_workspaces": return try listWorkspaces(args)
         case "search_history": return try searchHistory(args)
         case "list_variables": return try listVariables(args)
+        case "create_variable": return try await createVariable(args, client: client)
+        case "update_variable": return try await updateVariable(args, client: client)
+        case "delete_variable": return try await deleteVariable(args, client: client)
         case "open_session": return try await openSession(args)
         case "create_tab": return try createTab(args, client: client)
         case "list_cards": return try listCards(args)
@@ -300,27 +303,258 @@ enum MCPToolHandlers {
         let connectionId = args.optionalString("connection_id")
         if let connectionId { _ = try connection(connectionId) }
         let variables = connectionId.map { store.available(for: $0) } ?? store.variables
-        let shareValues = state.settings.security.mcpVariableValues.allows(isLocal: isLocal)
+        let shareValues = sharesVariableValues
         let allowed = allowed
         let rows: [JSONValue] = variables.filter { !$0.name.isEmpty }.compactMap { v in
             // A variable linked only to connections the user has not shared
             // is not shown; a linked one shows only its shared links.
             let access = MCPAccessPolicy.variableLinks(v.connectionIds, allowed: allowed)
             guard access.shared else { return nil }
-            var o: [String: JSONValue] = [
-                "name": .string(v.name),
-                "type": .string(v.type.rawValue),
-                "scope": .string(v.isGlobal ? "global" : "linked"),
-                "connection_ids": .array(access.links.map(JSONValue.string)),
-            ]
-            if shareValues { o["value"] = .string(v.value) }
-            return .object(o)
+            return describe(variable: v, links: access.links, shareValues: shareValues)
         }
         var out: [String: JSONValue] = ["variables": .array(rows), "values_shared": .bool(shareValues)]
         if !shareValues {
             out["message"] = "Values are not shared with this app: the user can allow it in Pharos, Settings ▸ Security & Privacy ▸ AI apps that can read variable values. run_card fills them in either way."
         }
         return .object(out)
+    }
+
+    private static var sharesVariableValues: Bool {
+        state.settings.security.mcpVariableValues.allows(isLocal: isLocal)
+    }
+
+    private static func describe(variable v: QueryVariable, links: [String], shareValues: Bool) -> JSONValue {
+        var o: [String: JSONValue] = [
+            "id": .string(v.id.uuidString),
+            "name": .string(v.name),
+            "type": .string(v.type.rawValue),
+            "scope": .string(v.isGlobal ? "global" : "linked"),
+            "connection_ids": .array(links.map(JSONValue.string)),
+        ]
+        if shareValues { o["value"] = .string(v.value) }
+        return .object(o)
+    }
+
+    /// The loaded store. Unlike a read, a write must not go on after a failed
+    /// load: every save writes the whole list, so it would erase the rest.
+    private static func loadedVariables() throws -> QueryVariableStore {
+        let store = QueryVariableStore.shared
+        do { try store.loadIfNeeded() } catch {
+            throw MCPToolError.failed("Pharos could not read its variables: \(error.localizedDescription)")
+        }
+        return store
+    }
+
+    /// A variable the client may change or delete. One it cannot see reads
+    /// as one that does not exist.
+    private static func changeableVariable(_ id: String, in store: QueryVariableStore) throws -> QueryVariable {
+        let allowed = allowed
+        guard let uuid = UUID(uuidString: id),
+              let variable = store.variables.first(where: { $0.id == uuid }), !variable.name.isEmpty,
+              MCPAccessPolicy.variableLinks(variable.connectionIds, allowed: allowed).shared else {
+            throw MCPToolError.notFound("No variable shared with this app has the id \(id). Call list_variables for the ones you can use.")
+        }
+        guard MCPAccessPolicy.allowsVariableChange(variable.connectionIds, allowed: allowed) else {
+            throw MCPToolError.refused("{{\(variable.name)}} is also linked to a connection that is not shared with this app, so only the user can change it, in Pharos's Variable Manager.")
+        }
+        return variable
+    }
+
+    private static func checkVariableName(_ name: String, in variables: [QueryVariable], excluding id: UUID?) throws {
+        guard VariableSubstitutor.isValidName(name) else {
+            throw MCPToolError.invalidArgument("“\(name)” is not a variable name: use letters, digits and underscores, with at least one letter or underscore, and no {{ }}.")
+        }
+        // As the Variable Manager: exact, once the stored name is trimmed.
+        if variables.contains(where: { $0.id != id && $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name }) {
+            throw MCPToolError.refused("A variable named {{\(name)}} already exists, though it may be one this app cannot see. Choose another name.")
+        }
+    }
+
+    private static func checkVariableValue(_ value: String, as type: VariableType) throws {
+        if case let .invalid(reason) = VariableValueRules.render(value, as: type) {
+            throw MCPToolError.invalidArgument("That value does not fit the type \(type.rawValue): the value is \(reason).")
+        }
+    }
+
+    private static func variableType(_ args: MCPArguments) throws -> VariableType {
+        guard let type = VariableType(rawValue: try args.string("type")) else {
+            let names = VariableType.allCases.map(\.rawValue).joined(separator: ", ")
+            throw MCPToolError.invalidArgument("“type” must be one of: \(names).")
+        }
+        return type
+    }
+
+    private static func variableValue(_ args: MCPArguments) throws -> String {
+        guard let value = args.optionalString("value") else {
+            throw MCPToolError.invalidArgument("“value” must be a string, even for a number or a date.")
+        }
+        return value
+    }
+
+    /// The `connection_ids` asked for: each one shared with this app.
+    private static func variableLinks(_ args: MCPArguments) throws -> [String] {
+        var links: [String] = []
+        for id in try args.stringArray("connection_ids") where !links.contains(id) {
+            links.append(try connection(id).id)
+        }
+        return links
+    }
+
+    private static func saveVariables(_ variables: [QueryVariable], in store: QueryVariableStore) throws {
+        do { try store.save(variables) } catch {
+            throw MCPToolError.failed("Pharos could not save its variables: \(error.localizedDescription)")
+        }
+    }
+
+    // What the user reads in the confirmation. A variable's text came from
+    // the client or from a database: escaped, like the client's name.
+
+    private static func sheetText(forValue value: String) -> String {
+        guard !value.isEmpty else { return String(localized: "(empty)") }
+        return DisplayEscape.escaped(MCPResultShaper.cut(value, to: 200).0)
+    }
+
+    private static func sheetText(forLinks links: [String]) -> String {
+        guard !links.isEmpty else { return String(localized: "every connection") }
+        let names = links.map { id in DisplayEscape.escaped(state.connections.first { $0.id == id }?.name ?? id) }
+        return ListFormatter.localizedString(byJoining: names)
+    }
+
+    private static func sheetLine(_ label: String, from old: String? = nil, to new: String) -> String {
+        guard let old, old != new else { return "\(label): \(new)" }
+        return "\(label): \(old) → \(new)"
+    }
+
+    /// Ask the user, in Pharos, to allow a variable change. Returns only when
+    /// they did (false), or when they let this app change variables without
+    /// asking (true); anything else throws, and nothing has changed.
+    private static func confirmVariableChange(_ client: MCPClientInfo, message: String, lines: [String],
+                                              action: String, destructive: Bool) async throws -> Bool {
+        if state.settings.security.mcpUnconfirmedVariableChanges.allows(isLocal: isLocal) { return true }
+        ensureWindow()
+        guard let session = state.keySession, let controller = delegate?.contentController(for: session) else {
+            throw MCPToolError.failed("Pharos has no window to ask the user in.")
+        }
+        let seconds = MCPToolCatalog.variableConfirmationSeconds
+        switch await controller.confirmAgentChange(client, message: message, detail: lines.joined(separator: "\n"),
+                                                   action: action, destructive: destructive, timeoutSeconds: seconds) {
+        case .approved: return false
+        case .declined:
+            throw MCPToolError.refused("The user declined this in Pharos. Nothing was changed.")
+        case .timedOut:
+            throw MCPToolError.refused("The user did not answer Pharos's confirmation within \(seconds) seconds, so nothing was changed. Check with them before trying again.")
+        case .busy:
+            throw MCPToolError.refused("Pharos is waiting for the user to answer another dialog. Nothing was changed. Try again once they have.")
+        }
+    }
+
+    /// Say in the window what a client changed without asking, once it is saved.
+    private static func noteUnaskedVariableChange(_ message: String) {
+        guard let session = state.keySession, let controller = delegate?.contentController(for: session) else { return }
+        controller.showAgentNotice(message, duration: 5)
+    }
+
+    /// The Variable Manager stays usable behind the sheet, and what the user
+    /// allowed was the variable as the sheet showed it.
+    private static let variableChangedMeanwhile = MCPToolError.refused(
+        "The variable changed while Pharos was waiting for the user's answer, so nothing was saved. Call list_variables and try again.")
+
+    private static func createVariable(_ args: MCPArguments, client: MCPClientInfo) async throws -> JSONValue {
+        let store = try loadedVariables()
+        let name = try args.string("name")
+        try checkVariableName(name, in: store.variables, excluding: nil)
+        let type = try variableType(args)
+        let value = try variableValue(args)
+        try checkVariableValue(value, as: type)
+        let links = args.has("connection_ids") ? try variableLinks(args) : []
+
+        let who = DisplayEscape.escaped(client.displayName)
+        let unasked = try await confirmVariableChange(
+            client, message: String(localized: "\(who) wants to create the variable {{\(name)}}"),
+            lines: [sheetLine(String(localized: "Type"), to: type.displayName),
+                    sheetLine(String(localized: "Value"), to: sheetText(forValue: value)),
+                    sheetLine(String(localized: "Available on"), to: sheetText(forLinks: links))],
+            action: String(localized: "Create"), destructive: false)
+
+        try checkVariableName(name, in: store.variables, excluding: nil)
+        let variable = QueryVariable(name: name, value: value, type: type, connectionIds: links)
+        try saveVariables(store.variables + [variable], in: store)
+        Log.ui.info("MCP client \(client.displayName, privacy: .public) created a variable")
+        if unasked { noteUnaskedVariableChange(String(localized: "\(who) created the variable {{\(name)}}.")) }
+        return ["variable": describe(variable: variable, links: links, shareValues: sharesVariableValues),
+                "values_shared": .bool(sharesVariableValues)]
+    }
+
+    private static func updateVariable(_ args: MCPArguments, client: MCPClientInfo) async throws -> JSONValue {
+        let store = try loadedVariables()
+        let id = try args.string("variable_id")
+        let original = try changeableVariable(id, in: store)
+        guard args.has("name") || args.has("type") || args.has("value") || args.has("connection_ids") else {
+            throw MCPToolError.invalidArgument("Give name, type, value or connection_ids to change.")
+        }
+        let name = args.has("name") ? try args.string("name") : nil
+        let type = args.has("type") ? try variableType(args) : nil
+        let value = args.has("value") ? try variableValue(args) : nil
+        let links = args.has("connection_ids") ? try variableLinks(args) : nil
+
+        if let name { try checkVariableName(name, in: store.variables, excluding: original.id) }
+        if let value {
+            try checkVariableValue(value, as: type ?? original.type)
+        } else if let type, type != original.type {
+            // Whether the hidden value fits a type says something about it.
+            guard sharesVariableValues else {
+                throw MCPToolError.refused("This app cannot read variable values, so give a value along with the new type.")
+            }
+            try checkVariableValue(original.value, as: type)
+        }
+
+        var updated = original
+        updated.name = name ?? original.name
+        updated.type = type ?? original.type
+        updated.value = value ?? original.value
+        updated.connectionIds = links ?? original.connectionIds
+
+        var lines: [String] = []
+        if name != nil { lines.append(sheetLine(String(localized: "Name"), from: original.name, to: updated.name)) }
+        if type != nil { lines.append(sheetLine(String(localized: "Type"), from: original.type.displayName, to: updated.type.displayName)) }
+        if value != nil { lines.append(sheetLine(String(localized: "Value"), from: sheetText(forValue: original.value), to: sheetText(forValue: updated.value))) }
+        lines.append(sheetLine(String(localized: "Available on"), from: sheetText(forLinks: original.connectionIds),
+                               to: sheetText(forLinks: updated.connectionIds)))
+        if name != nil && updated.name != original.name {
+            lines.append(String(localized: "Cards that use {{\(original.name)}} are not rewritten."))
+        }
+
+        let who = DisplayEscape.escaped(client.displayName)
+        let unasked = try await confirmVariableChange(
+            client, message: String(localized: "\(who) wants to change the variable {{\(original.name)}}"),
+            lines: lines, action: String(localized: "Change"), destructive: true)
+
+        guard try changeableVariable(id, in: store) == original else { throw variableChangedMeanwhile }
+        if name != nil { try checkVariableName(updated.name, in: store.variables, excluding: original.id) }
+        try saveVariables(store.variables.map { $0.id == original.id ? updated : $0 }, in: store)
+        Log.ui.info("MCP client \(client.displayName, privacy: .public) changed a variable")
+        if unasked { noteUnaskedVariableChange(String(localized: "\(who) changed the variable {{\(original.name)}}.")) }
+        return ["variable": describe(variable: updated, links: updated.connectionIds, shareValues: sharesVariableValues),
+                "values_shared": .bool(sharesVariableValues)]
+    }
+
+    private static func deleteVariable(_ args: MCPArguments, client: MCPClientInfo) async throws -> JSONValue {
+        let store = try loadedVariables()
+        let id = try args.string("variable_id")
+        let original = try changeableVariable(id, in: store)
+
+        let who = DisplayEscape.escaped(client.displayName)
+        let unasked = try await confirmVariableChange(
+            client, message: String(localized: "\(who) wants to delete the variable {{\(original.name)}}"),
+            lines: [sheetLine(String(localized: "Available on"), to: sheetText(forLinks: original.connectionIds)),
+                    String(localized: "Cards that use it cannot run until it is defined again.")],
+            action: String(localized: "Delete"), destructive: true)
+
+        guard try changeableVariable(id, in: store) == original else { throw variableChangedMeanwhile }
+        try saveVariables(store.variables.filter { $0.id != original.id }, in: store)
+        Log.ui.info("MCP client \(client.displayName, privacy: .public) deleted a variable")
+        if unasked { noteUnaskedVariableChange(String(localized: "\(who) deleted the variable {{\(original.name)}}.")) }
+        return ["deleted": true, "name": .string(original.name)]
     }
 
     private static func openSession(_ args: MCPArguments) async throws -> JSONValue {
@@ -545,11 +779,11 @@ enum MCPToolHandlers {
             if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
                 let parts = rendered.unresolved.map { "{{\($0)}} is not defined for this connection" }
                     + rendered.invalid.map { "{{\($0.name)}}: \($0.reason)" }
-                throw MCPToolError.refused("The card's variables cannot be filled in: \(parts.joined(separator: "; ")). The user defines variables in Pharos's Variable Manager.")
+                throw MCPToolError.refused("The card's variables cannot be filled in: \(parts.joined(separator: "; ")). Fix them with list_variables and create_variable or update_variable, which the user confirms, or ask the user to in Pharos's Variable Manager.")
             }
             let keywords = DestructiveSQLScanner.destructiveKeywords(in: rendered.sql)
             if !keywords.isEmpty && !state.settings.security.mcpWrites.allows(isLocal: isLocal) {
-                throw MCPToolError.refused("Pharos does not let this app run statements that change data (\(keywords.joined(separator: ", "))). The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ AI apps that can change data. Each run is still confirmed in Pharos.")
+                throw MCPToolError.refused("Pharos does not let this app run statements that change data (\(keywords.joined(separator: ", "))). The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ AI apps that can change data. Each run is then confirmed in Pharos, unless the user also lets this app change data without asking.")
             }
             try await ensureConnected(connectionId)
             located = try locate(tabId)
@@ -559,6 +793,9 @@ enum MCPToolHandlers {
             runIdsBefore = Set(located.tab.document.cards.compactMap { $0.lastRun?.runId })
             failureBefore = located.tab.document.card(cardId)?.lastFailureId
             controller.agentRunCardIds[cardId] = client
+            if state.settings.security.mcpUnconfirmedWrites.allows(isLocal: isLocal) {
+                controller.agentUnconfirmedCardIds.insert(cardId)
+            }
             controller.runCard(cardId, mode: replace ? .replace : .run, inTab: tabId)
             controller.showAgentNotice(String(localized: "\(client.displayName) ran a card."))
         }

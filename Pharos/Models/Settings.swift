@@ -756,6 +756,12 @@ struct SecuritySettings: Codable, Equatable {
     /// Which AI apps' `list_variables` returns values. Others get names and
     /// types only, since a value can be a token or an address.
     var mcpVariableValues: MCPGrant = .off
+    /// Which AI apps' data-changing runs skip the confirmation sheet. Only
+    /// reaches apps `mcpWrites` allows; the others are refused first.
+    var mcpUnconfirmedWrites: MCPGrant = .off
+    /// Which AI apps create, change and delete query variables without the
+    /// confirmation sheet.
+    var mcpUnconfirmedVariableChanges: MCPGrant = .off
     /// Every AI app the MCP server has seen, by the signature of the app that
     /// launched `Pharos --mcp`, and how far the user trusts it.
     var mcpApps: [MCPAppRecord] = []

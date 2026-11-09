@@ -71,6 +71,10 @@ private func testVariables() {
     let mixed = MCPAccessPolicy.variableLinks(["B", "A"], allowed: shared)
     expect(mixed.shared && mixed.links == ["A"], "variable: linked to a shared connection → shown, with only that link")
     expect(!MCPAccessPolicy.variableLinks(["B"], allowed: shared).shared, "variable: linked only to others → hidden")
+    expect(MCPAccessPolicy.allowsVariableChange([], allowed: shared), "variable change: a global one may change")
+    expect(MCPAccessPolicy.allowsVariableChange(["A"], allowed: shared), "variable change: linked only to shared connections")
+    expect(!MCPAccessPolicy.allowsVariableChange(["A", "B"], allowed: shared), "variable change: also linked to a hidden connection → refused")
+    expect(!MCPAccessPolicy.allowsVariableChange(["B"], allowed: shared), "variable change: linked only to a hidden connection → refused")
 }
 
 private func testFilteredPage() {

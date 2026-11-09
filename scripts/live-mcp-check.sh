@@ -20,8 +20,9 @@
 # global number variable `person_id` = 2. Writes and variable values are for
 # local AI apps only.
 #
-# The last check leaves a confirmation sheet on screen; the script then
-# kills the copy, so the DELETE never runs.
+# The local launch's last check leaves a confirmation sheet on screen; the
+# script then kills the copy, so that DELETE never runs. A fourth launch lets
+# the app change data and variables without asking, and its DELETE runs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -149,5 +150,20 @@ python3 -I scripts/mcp-live-driver.py "$BIN" "$CLIENT" local || STATUS=$?
 stop
 rows="$(duckdb -noheader -list "$WORK/check.duckdb" "SELECT count(*) FROM people")"
 [ "$rows" = "3" ] && echo "PASS the unconfirmed DELETE never ran" || { echo "FAIL people has $rows rows"; STATUS=1; }
+
+python3 -I - "$STORE/pharos.db" <<'PY'
+import json, sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+s = json.loads(conn.execute("SELECT settings_json FROM app_settings WHERE id = 1").fetchone()[0])
+s["security"]["mcpUnconfirmedWrites"] = "local"
+s["security"]["mcpUnconfirmedVariableChanges"] = "local"
+conn.execute("UPDATE app_settings SET settings_json = ? WHERE id = 1", (json.dumps(s),))
+conn.commit()
+PY
+launch_and_wait
+python3 -I scripts/mcp-live-driver.py "$BIN" "$CLIENT" unconfirmed || STATUS=$?
+stop
+rows="$(duckdb -noheader -list "$WORK/check.duckdb" "SELECT count(*) FROM people")"
+[ "$rows" = "2" ] && echo "PASS the DELETE let through without asking ran" || { echo "FAIL people has $rows rows, not 2"; STATUS=1; }
 rm -rf "$STORE" "$HOME/Library/Preferences/$BUNDLE.plist"
 exit $STATUS

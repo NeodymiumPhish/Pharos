@@ -87,4 +87,13 @@ final class QueryVariableStore {
             Log.state.error("Failed to save query variables: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    /// Persist `variables`, then adopt them: for a caller with no field to
+    /// keep and someone to tell when the write fails (`MCPToolHandlers`).
+    func save(_ variables: [QueryVariable]) throws {
+        try PharosCore.saveQueryVariables(variables)
+        self.variables = variables
+        loaded = true
+        postChange()
+    }
 }

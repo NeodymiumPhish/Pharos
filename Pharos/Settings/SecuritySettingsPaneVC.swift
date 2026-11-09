@@ -77,11 +77,25 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                     kind: .popup(.cases(\.security.mcpWrites, title: { $0.displayLabel })),
                     dependsOn: "mcpServerEnabled"),
                 SettingsItem(
+                    id: "mcpUnconfirmedWrites",
+                    title: String(localized: "AI apps that can change data without asking"),
+                    caption: String(localized: "These apps' INSERT, UPDATE, DELETE and other changes run without the confirmation sheet. Only apps that can change data are affected."),
+                    icon: "exclamationmark.triangle",
+                    kind: .popup(.cases(\.security.mcpUnconfirmedWrites, title: { $0.displayLabel })),
+                    dependsOn: "mcpServerEnabled"),
+                SettingsItem(
                     id: "mcpVariableValues",
                     title: String(localized: "AI apps that can read variable values"),
                     caption: String(localized: "Other apps see each query variable's name and type, not its value. Values are filled in when a card runs either way."),
                     icon: "curlybraces",
                     kind: .popup(.cases(\.security.mcpVariableValues, title: { $0.displayLabel })),
+                    dependsOn: "mcpServerEnabled"),
+                SettingsItem(
+                    id: "mcpUnconfirmedVariableChanges",
+                    title: String(localized: "AI apps that can change variables without asking"),
+                    caption: String(localized: "These apps create, change and delete query variables without the confirmation sheet. Pharos says in its window what they changed."),
+                    icon: "curlybraces.square",
+                    kind: .popup(.cases(\.security.mcpUnconfirmedVariableChanges, title: { $0.displayLabel })),
                     dependsOn: "mcpServerEnabled"),
                 SettingsItem(
                     id: "mcpConfiguration",

@@ -5,15 +5,17 @@ Used by scripts/live-mcp-check.sh, which launches a re-identified copy of the
 app with the MCP server on and a DuckDB connection `mcp-duck` holding a
 `people` table of three rows. Prints PASS/FAIL lines; exits 1 on a failure.
 
-Usage: mcp-live-driver.py <Pharos binary> <launcher> <unapproved|cloud|local>
+Usage: mcp-live-driver.py <Pharos binary> <launcher> <unapproved|cloud|local|unconfirmed>
 
 The launcher (scripts/mcp-fake-client.swift, built by the check) starts the
 bridge, so Pharos identifies the "app" by it. The mode says what the check
-has set that app to in Settings: not approved yet, Cloud, or Local.
+has set that app to in Settings: not approved yet, Cloud, Local, or Local with
+its changes to data and variables let through without asking.
 """
 import json
 import subprocess
 import sys
+import time
 
 BIN, LAUNCHER, MODE = sys.argv[1], sys.argv[2], sys.argv[3]
 failures = 0
@@ -66,7 +68,7 @@ proc.stdin.flush()
 check(init["result"]["serverInfo"]["name"] == "pharos", "initialize: Pharos answers")
 
 tools = rpc("tools/list")["result"]["tools"]
-check(len(tools) == 17, "tools/list: 17 tools", str(len(tools)))
+check(len(tools) == 20, "tools/list: 20 tools", str(len(tools)))
 
 
 def finish():
@@ -101,6 +103,27 @@ if MODE == "cloud":
     pv = [v for v in variables["variables"] if v["name"] == "person_id"]
     check(pv and "value" not in pv[0] and variables["values_shared"] is False, "cloud: variable values are for local apps only",
           json.dumps(variables))
+    finish()
+
+if MODE == "unconfirmed":
+    made, err = tool("create_variable", name="quick_one", type="number", value="7")
+    check(made is not None and made["variable"].get("value") == "7", "unconfirmed: create_variable needs no answer",
+          err or json.dumps(made))
+    if made:
+        vid = made["variable"]["id"]
+        changed, err = tool("update_variable", variable_id=vid, value="8")
+        check(changed is not None and changed["variable"].get("value") == "8", "unconfirmed: update_variable needs no answer",
+              err or json.dumps(changed))
+        gone, err = tool("delete_variable", variable_id=vid)
+        check(gone is not None and gone.get("deleted") is True, "unconfirmed: delete_variable needs no answer", err or "")
+        left, _ = tool("list_variables")
+        check(not any(v["name"] == "quick_one" for v in left["variables"]), "unconfirmed: the deleted variable is gone",
+              json.dumps(left))
+    card, err = tool("create_card", connection_id="mcp-duck", sql="DELETE FROM people WHERE id = 1", name="Remove Ada")
+    ran, err = tool("run_card", tab_id=card["tab_id"], card_id=card["card"]["id"], wait_seconds=10)
+    check(ran is not None and ran.get("status") == "succeeded"
+          and ran.get("card", {}).get("last_run", {}).get("rows_affected") == 1,
+          "unconfirmed: a DELETE runs without the sheet", err or json.dumps(ran))
     finish()
 
 # MODE == "local": everything below.
@@ -223,6 +246,36 @@ check(len(pv) == 1 and pv[0]["type"] == "number" and pv[0]["scope"] == "global",
       "list_variables: the seeded variable, its type and scope", err or json.dumps(variables))
 check(pv and pv[0].get("value") == "2" and variables["values_shared"] is True,
       "list_variables: a local app is given values, as Settings allows local apps", json.dumps(variables))
+
+check(pv and pv[0].get("id"), "list_variables: each variable has an id", json.dumps(variables))
+# Refused before any sheet is shown, so none of these needs an answer.
+bad, err = tool("create_variable", name="has space", type="text", value="x")
+check(bad is None and "not a variable name" in (err or ""), "create_variable: a bad name is refused", err or "")
+bad, err = tool("create_variable", name="person_id", type="number", value="1")
+check(bad is None and "already exists" in (err or ""), "create_variable: a name in use is refused", err or "")
+bad, err = tool("create_variable", name="fresh_one", type="number", value="abc")
+check(bad is None and "does not fit" in (err or ""), "create_variable: a value that does not fit its type is refused", err or "")
+bad, err = tool("create_variable", name="fresh_one", type="nonsense", value="1")
+check(bad is None and "must be one of" in (err or ""), "create_variable: an unknown type is refused", err or "")
+bad, err = tool("create_variable", name="fresh_one", type="number", value="1", connection_ids=["hidden-duck"])
+check(bad is None and "list_connections" in (err or ""), "create_variable: an unshared connection reads as missing", err or "")
+bad, err = tool("update_variable", variable_id="00000000-0000-0000-0000-000000000000", value="1")
+check(bad is None and "list_variables" in (err or ""), "update_variable: an unknown id is refused", err or "")
+if pv:
+    bad, err = tool("update_variable", variable_id=pv[0]["id"])
+    check(bad is None and "to change" in (err or ""), "update_variable: nothing to change is refused", err or "")
+
+# A valid request shows the sheet. Nobody answers it here: it closes by itself
+# and nothing is created.
+started = time.monotonic()
+unanswered, err = tool("create_variable", name="fresh_one", type="number", value="1")
+waited = time.monotonic() - started
+check(unanswered is None and "did not answer" in (err or ""), "create_variable: an unanswered sheet closes and says so",
+      f"answered after {waited:.1f}s: {err or json.dumps(unanswered)}")
+check(waited > 40, "create_variable: the sheet waits for the user", f"answered after {waited:.1f}s")
+afterwards, _ = tool("list_variables")
+check(not any(v["name"] == "fresh_one" for v in afterwards["variables"]),
+      "create_variable: an unanswered sheet creates nothing", json.dumps(afterwards))
 
 withvar, _ = tool("create_card", tab_id=tab, sql="SELECT name FROM people WHERE id = {{person_id}}", name="Person By Id")
 filled, err = tool("run_card", tab_id=tab, card_id=withvar["card"]["id"])

@@ -119,6 +119,10 @@ class ContentViewController: NSViewController {
     /// Settings ▸ Query ▸ Safety says: an AI app is not the user at the
     /// keyboard.
     var agentRunCardIds: [String: MCPClientInfo] = [:]
+    /// Those of `agentRunCardIds` whose app the user lets change data without
+    /// asking (Settings ▸ Security & Privacy). Decided when the client asks,
+    /// since only its own call knows whether the app is Local.
+    var agentUnconfirmedCardIds: Set<String> = []
     /// Tabs whose DuckDB cards changed the catalog since the last refresh (N1).
     private var catalogChangedTabs: Set<String> = []
 
@@ -1768,7 +1772,11 @@ class ContentViewController: NSViewController {
         // Checked on the rendered SQL so variable values can't sneak past it.
         // A run an MCP client asked for always asks, every kind of statement.
         let agent = agentRunCardIds.removeValue(forKey: card.id)
-        if stateManager.settings.query.confirmDestructive || agent != nil {
+        let unconfirmed = agentUnconfirmedCardIds.remove(card.id) != nil && agent != nil
+        if unconfirmed, let agent {
+            Log.ui.info("MCP run from \(agent.displayName, privacy: .public) is not confirmed, as Settings allows")
+        }
+        if !unconfirmed && (stateManager.settings.query.confirmDestructive || agent != nil) {
             // Which KINDS still ask is Settings ▸ Query ▸ Safety. Every kind
             // is on by default, so this filter changes nothing until the user
             // turns one off.
@@ -5031,6 +5039,7 @@ extension ContentViewController {
         if var queue = runQueues[tabId], queue.cancelWaiting(cardId: cardId) {
             runQueues[tabId] = queue
             agentRunCardIds[cardId] = nil
+            agentUnconfirmedCardIds.remove(cardId)
             if editorPane.showsTab(tabId) { editorPane.refreshCards() }
             return .removedFromQueue
         }

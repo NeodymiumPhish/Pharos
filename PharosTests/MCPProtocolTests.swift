@@ -159,7 +159,7 @@ private func testCatalog() {
     let names = tools.map(\.name)
     expect(Set(names).count == names.count, "catalog: tool names are unique")
     let wanted = ["list_connections", "connect", "list_tabs", "list_saved_sessions", "list_workspaces", "search_history",
-                  "list_variables", "open_session",
+                  "list_variables", "create_variable", "update_variable", "delete_variable", "open_session",
                   "create_tab", "list_cards", "get_card", "create_card", "update_card", "run_card", "get_card_result",
                   "cancel_card", "save_session"]
     expect(names == wanted, "catalog: the tools, in order", "\(names)")
@@ -182,6 +182,33 @@ private func testCatalog() {
     expect(MCPToolCatalog.tool(named: "search_history")?.properties["status"]?["enum"] == ["all", "succeeded", "failed"],
            "catalog: search_history's status is an enum of the three scopes")
     expect(MCPToolCatalog.tool(named: "list_variables")?.required.isEmpty == true, "catalog: list_variables needs no arguments")
+    expect(MCPToolCatalog.tool(named: "create_variable")?.required == ["name", "type", "value"], "catalog: what create_variable needs")
+    expect(MCPToolCatalog.tool(named: "update_variable")?.required == ["variable_id"], "catalog: update_variable needs only the id")
+    expect(MCPToolCatalog.tool(named: "delete_variable")?.required == ["variable_id"], "catalog: delete_variable needs only the id")
+    for name in ["create_variable", "update_variable", "delete_variable"] {
+        let tool = MCPToolCatalog.tool(named: name)
+        expect(tool?.readOnly == false, "catalog: \(name) is not read-only")
+        expect(tool?.description.contains("confirm") == true, "catalog: \(name) says the user confirms it")
+    }
+    expect(MCPToolCatalog.tool(named: "update_variable")?.destructive == true
+           && MCPToolCatalog.tool(named: "delete_variable")?.destructive == true, "catalog: changing a variable is marked destructive")
+    expect(MCPToolCatalog.tool(named: "create_variable")?.properties["type"]?["enum"]?.arrayValue?.count == 9,
+           "catalog: every variable type is offered")
+    expect(MCPToolCatalog.tool(named: "create_variable")?.properties["connection_ids"]?["items"]?["type"] == "string",
+           "catalog: connection_ids is a list of strings")
+    func describes(_ tool: String, _ key: String) -> String {
+        MCPToolCatalog.tool(named: tool)?.properties[key]?["description"]?.stringValue ?? ""
+    }
+    for tool in ["create_card", "update_card"] {
+        expect(describes(tool, "name").contains("Title Case") && describes(tool, "name").contains("40 characters"),
+               "guidance: \(tool)'s name carries the naming rules")
+        expect(describes(tool, "notes").contains("Plain text") && describes(tool, "notes").contains("Q<n>."),
+               "guidance: \(tool)'s notes carry the notes rules")
+    }
+    let instructions = MCPToolCatalog.instructions
+    for phrase in ["Title Case", "Plain text", "create_variable", "update_variable", "delete_variable", "confirm"] {
+        expect(instructions.contains(phrase), "guidance: the server's instructions mention \(phrase)")
+    }
     let session = MCPSession(host: StubHost(), serverVersion: "1")
     let list = respond(session, #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)
     expect(list?["result"]?["tools"]?.arrayValue?.count == tools.count, "tools/list: every tool")
@@ -202,6 +229,12 @@ private func testArguments() {
     expect((try? args.string("t")) == "x", "args: a required string")
     expect((try? args.bool("b", default: false)) == nil, "args: a string is not a bool")
     expect(args.has("t") && !args.has("z") && !args.has("missing"), "args: has() ignores null and missing")
+    let lists = MCPArguments(["ok": ["a", "b"], "none": [], "mixed": ["a", 1], "text": "a"])
+    expect((try? lists.stringArray("ok")) == ["a", "b"], "args: a list of strings")
+    expect((try? lists.stringArray("none")) == [], "args: an empty list is a list")
+    expect((try? lists.stringArray("mixed")) == nil, "args: a list holding a non-string throws")
+    expect((try? lists.stringArray("text")) == nil, "args: a string is not a list")
+    expect((try? lists.stringArray("missing")) == nil, "args: a missing list throws")
     let tool = MCPToolCatalog.tool(named: "get_card")!
     expect(MCPArguments(["tab_id": "a", "card_id": "b"]).unknownKeys(for: tool).isEmpty, "args: known keys pass")
     expect(MCPArguments(["tab_id": "a", "cardid": "b"]).unknownKeys(for: tool) == ["cardid"], "args: unknown keys are named")

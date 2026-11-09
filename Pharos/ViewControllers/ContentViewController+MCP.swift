@@ -17,6 +17,16 @@ enum CardCancelOutcome {
     case notRunning
 }
 
+/// How the user answered a change an MCP client asked for.
+enum AgentConfirmation {
+    case approved
+    case declined
+    /// The sheet went away unanswered.
+    case timedOut
+    /// The window was already showing a sheet: nothing was asked.
+    case busy
+}
+
 /// What an MCP client's tool calls do to a window (`MCPToolHandlers`). Every
 /// change goes through the tab's document and the same views a keystroke
 /// does, so the user sees the client's cards appear and run.
@@ -44,7 +54,39 @@ extension ContentViewController {
     func bringForwardForAgentConfirmation(_ agent: MCPClientInfo) {
         (NSApp.delegate as? AppDelegate)?.front(session)
         NSApp.requestUserAttention(.criticalRequest)
-        Log.ui.info("MCP run from \(agent.displayName, privacy: .public) waits for confirmation")
+        Log.ui.info("A request from MCP client \(agent.displayName, privacy: .public) waits for confirmation")
+    }
+
+    /// Ask the user to allow a change a client wants, and wait for the answer.
+    /// The sheet closes by itself after `timeoutSeconds`, so that a client that
+    /// has stopped waiting cannot leave a change behind for the user to approve
+    /// later. `message` and `detail` must already be escaped.
+    func confirmAgentChange(_ agent: MCPClientInfo, message: String, detail: String, action: String,
+                            destructive: Bool, timeoutSeconds: Int) async -> AgentConfirmation {
+        guard isViewLoaded, let window = view.window, window.attachedSheet == nil else { return .busy }
+        bringForwardForAgentConfirmation(agent)
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = detail
+        alert.alertStyle = destructive ? .critical : .warning
+        alert.addButton(withTitle: action)
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.buttons.first?.hasDestructiveAction = destructive
+        return await withCheckedContinuation { (done: CheckedContinuation<AgentConfirmation, Never>) in
+            let expiry = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds) * 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                window.endSheet(alert.window, returnCode: .abort)
+            }
+            alert.beginSheetModal(for: window) { response in
+                expiry.cancel()
+                switch response {
+                case .alertFirstButtonReturn: done.resume(returning: .approved)
+                case .abort: done.resume(returning: .timedOut)
+                default: done.resume(returning: .declined)
+                }
+            }
+        }
     }
 
     /// Save tab `tabId` as a new Session, the way the Save sheet's Save does,
