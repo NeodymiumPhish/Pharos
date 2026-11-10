@@ -26,9 +26,14 @@ final class MCPStdioBridge {
 
     static let disconnectedMessage = "Pharos closed the connection (it quit, or its MCP server was turned off) before answering."
 
+    /// How long the bridge waits, once stdin closes, for the app to answer
+    /// what it already sent: the longest a `run_card` may wait, and a margin.
+    static let drainTimeout = TimeInterval(MCPToolCatalog.maxWaitSeconds + 15)
+
     private let socketPath: String
     private let output: Int32
-    private let lock = NSLock()
+    /// Guards the socket and `pending`; signalled when `pending` empties.
+    private let lock = NSCondition()
     private let outputLock = NSLock()
     private var socketFD: Int32?
     /// Ids (serialized) sent to the app and not yet answered.
@@ -52,8 +57,10 @@ final class MCPStdioBridge {
         exit(0)
     }
 
-    /// Read lines from `input` until it closes.
-    func pump(input: Int32) {
+    /// Read lines from `input` until it closes, then wait (up to
+    /// `drainTimeout`) for the app to answer the requests already sent to it,
+    /// so `printf '…' | Pharos --mcp` prints its answer.
+    func pump(input: Int32, drainTimeout: TimeInterval = MCPStdioBridge.drainTimeout) {
         var buffer = MCPLineBuffer()
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
@@ -62,6 +69,11 @@ final class MCPStdioBridge {
             if n <= 0 { break }
             guard let lines = buffer.append(Data(chunk[0..<n])) else { break }
             for line in lines { handle(line) }
+        }
+        let deadline = Date().addingTimeInterval(drainTimeout)
+        lock.withLock {
+            // `dropConnection` empties `pending` when the app goes away.
+            while !pending.isEmpty, lock.wait(until: deadline) {}
         }
         lock.withLock {
             if let fd = socketFD { close(fd) }
@@ -81,8 +93,9 @@ final class MCPStdioBridge {
         if let fd = connectedSocket(sendingInitialize: method == "initialize") {
             if let id { lock.withLock { _ = pending.insert(id.serialized) } }
             if MCPSocketIO.writeAll(fd, Data((trimmed + "\n").utf8)) { return }
-            dropConnection(fd)
+            // Answered below, not by `dropConnection`'s error.
             if let id { lock.withLock { _ = pending.remove(id.serialized) } }
+            dropConnection(fd)
         }
         // Not reachable: answer here.
         guard id != nil || message == nil else { return }
@@ -136,8 +149,14 @@ final class MCPStdioBridge {
             for line in lines {
                 let id = (try? JSONValue.parse(line))?["id"]
                 if id == .string(Self.replayId) { continue }
-                if let id { lock.withLock { _ = pending.remove(id.serialized) } }
+                // Emit first: once `pending` empties, `pump` may close and exit.
                 emit(line)
+                if let id {
+                    lock.withLock {
+                        _ = pending.remove(id.serialized)
+                        if pending.isEmpty { lock.broadcast() }
+                    }
+                }
             }
         }
         dropConnection(fd)
@@ -146,16 +165,23 @@ final class MCPStdioBridge {
     /// The app went away: answer what it left unanswered.
     private func dropConnection(_ fd: Int32) {
         var unanswered: Set<String> = []
+        var dropped = false
         lock.withLock {
             guard socketFD == fd else { return }
             close(fd)
             socketFD = nil
             unanswered = pending
-            pending.removeAll()
+            dropped = true
         }
+        guard dropped else { return }
         for raw in unanswered {
             let id = (try? JSONValue.parse(raw)) ?? .null
             emit(MCPSession.errorLine(id: id, code: MCPSession.ErrorCode.unavailable, message: Self.disconnectedMessage))
+        }
+        // Only now, so `pump` doesn't exit before these errors are out.
+        lock.withLock {
+            pending.subtract(unanswered)
+            lock.broadcast()
         }
     }
 

@@ -207,10 +207,49 @@ private func testBridge() {
     try? FileManager.default.removeItem(atPath: "/tmp/pharos-mcp-\(getpid())-bridge")
 }
 
+/// `printf '…' | Pharos --mcp`: stdin closes right after the request.
+private func testBridgeDrain() {
+    let path = tempSocketPath("drain")
+    let host = StubHost()
+    let server = makeServer(path, host, identify: { _ in fakeApp })
+    do { try server.start() } catch { expect(false, "drain: (server starts)", "\(error)"); return }
+    defer {
+        server.stop()
+        try? FileManager.default.removeItem(atPath: "/tmp/pharos-mcp-\(getpid())-drain")
+    }
+
+    func pumpOnce(_ lines: [String], drainTimeout: TimeInterval) -> (LineReader, TimeInterval, [Int32]) {
+        var input: [Int32] = [0, 0], output: [Int32] = [0, 0]
+        pipe(&input); pipe(&output)
+        for line in lines { send(input[1], line) }
+        close(input[1])
+        let bridge = MCPStdioBridge(socketPath: path, output: output[1], version: "7.0")
+        let start = Date()
+        bridge.pump(input: input[0], drainTimeout: drainTimeout)
+        close(input[0])
+        return (LineReader(output[0]), Date().timeIntervalSince(start), output)
+    }
+
+    let (out, _, fds) = pumpOnce([#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#], drainTimeout: 3)
+    let listed = out.next(timeout: 0.05)  // already in the pipe, or not at all
+    expect(listed?["id"]?.intValue == 1 && listed?["result"]?["tools"]?.arrayValue?.count == MCPToolCatalog.tools.count,
+           "drain: the app's answer is out before the bridge returns", listed?.serialized ?? "nothing")
+    fds.forEach { close($0) }
+
+    // A call that outlasts the drain: the bridge gives up and returns.
+    let call = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_card","arguments":{"tab_id":"t","card_id":"c"}}}"#
+    let (_, took, fds2) = pumpOnce([call], drainTimeout: 0.3)
+    expect(took >= 0.25 && took < 2, "drain: gives up on an unanswered call after the timeout", "took \(took)s")
+    fds2.forEach { close($0) }
+    host.release.signal()
+    usleep(100_000)
+}
+
 func runTests() {
     signal(SIGPIPE, SIG_IGN)
     testLineBuffer()
     testServer()
     testBridge()
+    testBridgeDrain()
     if failures == 0 { print("\nAll MCP socket tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
