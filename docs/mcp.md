@@ -96,6 +96,41 @@ puts in the correct path for you.
 3. Save the file and quit and reopen Claude.
 4. Pharos's tools are now in the tools menu of the message box.
 
+### Claude desktop in an organization
+
+An organization on a Claude Team or Enterprise plan can turn off **Allow local
+MCP servers**. Claude then doesn't start the `pharos` entry above. The
+organization can still give its members Pharos as a desktop extension (a
+`.mcpb` file), which Claude starts as before.
+
+The extension doesn't hold a copy of Pharos. It finds Pharos in
+`/Applications` or `~/Applications`, or with Spotlight, and runs
+`Pharos --mcp`. Each member still installs Pharos, turns on
+**Allow AI apps to use Pharos**, and approves Claude in Pharos.
+
+To build the extension, run this with the Pharos that your members use:
+
+```bash
+scripts/build-mcpb.sh /Applications/Pharos.app
+```
+
+It writes `build/Pharos-<version>.mcpb`. An Owner of the organization then:
+
+1. In Claude, opens **Organization settings ▸ Connectors**, and the **Desktop**
+   tab.
+2. Clicks **Add custom extension**, and chooses the `.mcpb` file. Pharos
+   appears under **Custom team extensions**.
+3. Clicks **…** beside it, then **Add to team**.
+
+Members then install Pharos from Claude's list of extensions. Claude doesn't
+start the extension if the organization chose **Block all desktop
+extensions**, or if the Mac has the `isDesktopExtensionEnabled` policy set to
+`false`.
+
+The extension runs whichever Pharos is installed, so most Pharos updates need
+no new extension. When an update adds, removes or renames a tool, build the
+extension again and choose **Upload new version** in its **…** menu.
+
 ### LM Studio
 
 1. In LM Studio, open the **Program** tab in the right-hand sidebar, click
@@ -322,6 +357,7 @@ If an AI app drafts a `.sql` script instead of using these tools, give it the
 | The caption says "The server could not start" | Another copy of Pharos with the same bundle identifier already has the socket. Quit the other copy. |
 | `run_card` returns `awaiting_confirmation` | Pharos is waiting for you to answer the confirmation sheet in its window. |
 | `run_card` says that the tab has no connection | Create the card with `connection_id`, or choose a connection for the tab in Pharos. |
+| Claude says that the Pharos extension could not start | Pharos is not installed, or Spotlight can't find it. Install it in `/Applications`, and restart Claude. |
 | Claude does not list Pharos | Look at the `mcp-server-pharos.log` file in `~/Library/Logs/Claude`. Make sure that the `command` path goes to the `Pharos` file inside the app. |
 
 To test the command by hand, run it in Terminal and paste one line. Pharos

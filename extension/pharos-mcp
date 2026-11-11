@@ -1,0 +1,33 @@
+#!/bin/sh
+# The Claude desktop extension's server: finds Pharos.app and runs its MCP
+# bridge, `Pharos --mcp` (MCPStdioBridge), in place of this shell.
+#
+# `exec` matters: the bridge's parent is then the AI app itself, which is how
+# Pharos names the app by its code signature (MCPAppIdentifier). /bin/sh is
+# Apple's, so Pharos would walk past it anyway.
+#
+# Looks in PHAROS_APP, /Applications, ~/Applications, then asks Spotlight for
+# the bundle id. Packed by scripts/build-mcpb.sh.
+
+try() {
+    if [ -n "$1" ] && [ -x "$1/Contents/MacOS/Pharos" ]; then
+        exec "$1/Contents/MacOS/Pharos" --mcp
+    fi
+}
+
+try "${PHAROS_APP:-}"
+try /Applications/Pharos.app
+try "$HOME/Applications/Pharos.app"
+
+# Not `mdfind | while read`: that loop's stdin would be mdfind's output, and
+# the bridge must inherit the AI app's stdin.
+found=$(/usr/bin/mdfind 'kMDItemCFBundleIdentifier == "com.pharos.client"' 2>/dev/null)
+set -f
+IFS='
+'
+for app in $found; do
+    try "$app"
+done
+
+echo "Pharos is not installed. Install it in /Applications (brew install --cask pharos), then restart Claude." >&2
+exit 1
