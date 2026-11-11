@@ -265,7 +265,7 @@ private func testFormStructure() {
     for section in ["variable", "value", "connections"] {
         expectTrue(ids.contains("settings.section.\(section)"), "form: a \(section) section header")
     }
-    expectEqual(host.rowTitles, ["Name", "Type", "Value", "Renders as"], "form: Literal rows, in order")
+    expectEqual(host.rowTitles, ["Name", "Type", "Value", "Renders as", "AI apps"], "form: Literal rows, in order")
     expectTrue(host.vc.connectionsView.map(host.shows) ?? false, "form: the Connections view is in the form")
     expectTrue(allDescendants(of: host.vc.view).contains { $0 is SettingsGroupBox && $0.subviews.first.map {
         allDescendants(of: $0).contains { $0 === host.vc.connectionsView } } ?? false },
@@ -289,11 +289,11 @@ private func testFormStructure() {
 
     let stamp = Hosted(QueryVariable(name: "at", value: "now", type: .timestamp))
     defer { stamp.close() }
-    expectEqual(stamp.rowTitles, ["Name", "Type", "With time zone", "Value", "Renders as"],
+    expectEqual(stamp.rowTitles, ["Name", "Type", "With time zone", "Value", "Renders as", "AI apps"],
                 "Timestamp: a With time zone switch; Now has no picker")
     let list = Hosted(QueryVariable(name: "ids", value: "a", type: .numberList))
     defer { list.close() }
-    expectEqual(list.rowTitles, ["Name", "Type", "Items are", "Items", "Renders as"], "List: an Items are pop-up")
+    expectEqual(list.rowTitles, ["Name", "Type", "Items are", "Items", "Renders as", "AI apps"], "List: an Items are pop-up")
     expectEqual(list.vc.listElementPopup.titleOfSelectedItem, "Number", "List: showing the element type")
 }
 
@@ -382,7 +382,7 @@ private func testDateEditor() {
     defer { host.close() }
     expectEqual(host.vc.dateModeControl.selectedSegment, 0, "Date: a fixed value shows Fixed")
     expectEqual(host.vc.dateModeControl.label(forSegment: 1), "Today", "Date: the other segment is Today")
-    expectEqual(host.rowTitles, ["Name", "Type", "Value", "Date", "Renders as"], "Date: a Date row under Fixed")
+    expectEqual(host.rowTitles, ["Name", "Type", "Value", "Date", "Renders as", "AI apps"], "Date: a Date row under Fixed")
     let picker = host.vc.dateControl.textualPicker
     expectEqual(picker.datePickerStyle, .textFieldAndStepper, "Date: a textual picker")
     expectEqual(picker.datePickerElements, [.yearMonthDay], "Date: year, month, day")
@@ -433,7 +433,7 @@ private func testDateEditor() {
 private func testTimestampWithZone() {
     let host = Hosted(QueryVariable(name: "at", value: "2026-10-28 14:30:00 Europe/Paris", type: .timestamptz))
     defer { host.close() }
-    expectEqual(host.rowTitles, ["Name", "Type", "With time zone", "Value", "Date and time", "Time zone", "Renders as"],
+    expectEqual(host.rowTitles, ["Name", "Type", "With time zone", "Value", "Date and time", "Time zone", "Renders as", "AI apps"],
                 "Timestamp tz: date-time and zone rows")
     expectEqual(host.vc.timeZoneSwitch.state, .on, "Timestamp tz: the switch is on")
     expectEqual(host.vc.timestampModeControl.label(forSegment: 1), "Now", "Timestamp: the other segment is Now")
@@ -663,7 +663,7 @@ private func testNameCollision() {
     expectEqual(host.vc.nameField.textColor, NSColor.systemRed, "collision: the name goes red")
     let notice = host.vc.collisionNoticeRow?.titleLabel.stringValue ?? ""
     expectTrue(notice.contains("\"limit\"") && notice.contains("already exists"), "collision: the Value box says so", notice)
-    expectEqual(host.rowTitles.count, 3, "collision: the notice stands in for the value rows")
+    expectEqual(host.rowTitles.count, 4, "collision: the notice stands in for the value rows (Name, Type, the notice, AI apps)")
     expectTrue(!host.shows(host.vc.textEditor), "collision: the value editor is gone")
 
     host.vc.cancelOperation(nil)

@@ -34,6 +34,12 @@ pub struct QueryHistoryEntry {
     /// `ok`. `None` on a successful row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
+    /// The pre-substitution `{{var}}` form, when the row keeps one. Read by
+    /// `load_query_history` only: the insert never writes it (a failed run's
+    /// comes with `FailedQueryRecord`, a card run's with its workspace
+    /// association).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_sql: Option<String>,
 }
 
 /// A run that produced a result. Everything recorded before the `status`
@@ -156,6 +162,7 @@ mod tests {
             source: None,
             status: HISTORY_STATUS_ERROR.to_string(),
             error_message: Some("syntax error".into()),
+            raw_sql: None,
         };
         let json = serde_json::to_string(&entry).expect("encode");
         assert!(json.contains(r#""status":"error""#), "got {}", json);

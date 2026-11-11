@@ -208,6 +208,7 @@ private func runAll() {
     testFilter()
     testDeleteKey()
     testContextMenu()
+    testMultipleSelection()
     testReorder()
     testCell()
     testMetricsMatchAppKit()
@@ -388,6 +389,86 @@ private func testContextMenu() {
     host.sidebar.filterText = "zzz"
     host.sidebar.populateContextMenu(menu, forRow: 0)
     expectTrue(menu.items.isEmpty, "menu: the No Matches row has no menu")
+}
+
+// MARK: 5b. Several rows
+
+@MainActor
+private func testMultipleSelection() {
+    let host = SidebarHost(items: sample)
+    defer { host.close() }
+    expectTrue(!host.table.allowsMultipleSelection, "many: off unless the owner asks")
+    host.sidebar.allowsMultipleSelection = true
+    expectTrue(host.table.allowsMultipleSelection, "many: on when the owner asks")
+
+    var singles: [String?] = []
+    var manys: [[String]] = []
+    var deleted: [[String]] = []
+    host.sidebar.onSelect = { singles.append($0) }
+    host.sidebar.onSelectMany = { manys.append($0) }
+    host.sidebar.onDelete = { deleted.append($0) }
+    host.sidebar.onDuplicate = { _ in }
+    host.sidebar.deleteTitle = { $0 == 1 ? "Delete" : "Delete \($0) Things" }
+    host.sidebar.contextMenuItems = { ids in [NSMenuItem(title: "Mark \(ids.count)", action: nil, keyEquivalent: "")] }
+    let ids = sample.map(\.id)
+
+    host.table.selectRowIndexes(IndexSet([0, 2]), byExtendingSelection: false)
+    expectEqual(manys, [[ids[0], ids[2]]], "many: two rows report through onSelectMany, in the order on show")
+    expectEqual(singles.count, 0, "many: and not through onSelect")
+    expectEqual(host.sidebar.selectedId, nil, "many: there is no single selected id")
+    expectEqual(host.sidebar.selectedIds, [ids[0], ids[2]], "many: selectedIds has both")
+
+    // The menu acts on the selection when the clicked row is part of it.
+    expectEqual(host.sidebar.contextMenuTargetIds(forRow: 2), [ids[0], ids[2]], "many: a click inside the selection targets all of it")
+    expectEqual(host.sidebar.contextMenuTargetIds(forRow: 1), [ids[1]], "many: a click outside it targets that row alone")
+    let menu = NSMenu()
+    func titles() -> [String] { menu.items.map { $0.isSeparatorItem ? "—" : $0.title } }
+    host.sidebar.populateContextMenu(menu, forRow: 0)
+    expectEqual(titles(), ["Mark 2", "—", "Delete 2 Things"], "many: the owner's items, no Duplicate, Delete with the count")
+    menu.performActionForItem(at: 2)
+    expectEqual(deleted, [[ids[0], ids[2]]], "many: Delete passes every selected id")
+    host.sidebar.populateContextMenu(menu, forRow: 1)
+    expectEqual(titles(), ["Mark 1", "—", "Duplicate", "—", "Delete"], "many: a row outside the selection gets the one-row menu")
+
+    // The Delete key takes the whole selection.
+    expectTrue(host.sidebar.deleteSelectedRows(), "many: the Delete key acts")
+    expectEqual(deleted.last, [ids[0], ids[2]], "many: on every selected row")
+
+    // The selection is kept by id across a reload.
+    host.sidebar.setItems(sample.reversed())
+    expectEqual(host.sidebar.selectedIds, [ids[0], ids[2]], "many: a reload keeps the selection by id")
+    expectEqual(host.table.selectedRowIndexes.count, 2, "many: and both rows stay selected")
+    host.sidebar.setItems(sample.filter { $0.id != ids[2] })
+    expectEqual(host.sidebar.selectedIds, [ids[0]], "many: a record that is gone leaves the selection")
+    expectEqual(host.sidebar.selectedId, ids[0], "many: one left is the single selection again")
+    host.sidebar.setItems(sample)
+
+    // Set from code: no callbacks.
+    let before = (singles.count, manys.count)
+    host.sidebar.selectedIds = [ids[1], ids[2], "nobody"]
+    expectEqual(host.sidebar.selectedIds, [ids[1], ids[2]], "many: selectedIds drops an unknown id")
+    expectEqual(host.table.selectedRowIndexes, IndexSet([1, 2]), "many: and selects the rows")
+    expectTrue((singles.count, manys.count) == before, "many: setting it from code calls nothing")
+
+    // Back to one row, then none: onSelect again.
+    host.table.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+    expectEqual(singles.last ?? nil, ids[1], "many: back to one row reports through onSelect")
+    host.table.deselectAll(nil)
+    expectTrue(singles.count == 2 && singles[1] == nil, "many: clearing the selection reports nil")
+
+    // Without onSelectMany, several rows report the first, as before.
+    host.sidebar.onSelectMany = nil
+    host.table.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+    expectEqual(singles.last ?? nil, ids[0], "many: with no onSelectMany the first row is reported")
+
+    // The owner's own filter: an empty list says No Matches.
+    host.sidebar.ownerIsFiltering = true
+    host.sidebar.setItems([])
+    expectTrue(host.sidebar.isShowingNoMatches, "owner filter: an empty list says No Matches")
+    expectEqual(host.table.numberOfRows, 1, "owner filter: in one row")
+    host.sidebar.ownerIsFiltering = false
+    expectTrue(!host.sidebar.isShowingNoMatches, "owner filter: off, an empty list is just empty")
+    expectEqual(host.table.numberOfRows, 0, "owner filter: with no row")
 }
 
 // MARK: 6. Drag reorder

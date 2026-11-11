@@ -53,9 +53,14 @@ The server is **off** until you turn it on.
    **All approved AI apps** for **AI apps** in its **AI Apps (MCP)** section.
    Every connection is **Off** until you choose (see
    [Which connections AI apps can use](#which-connections-ai-apps-can-use)).
-6. If you want, choose which apps can change data (**AI apps that can change
-   data**) and which can read your query variables' values (**AI apps that can
-   read variable values**). Both are **No AI apps** until you choose.
+6. Choose the query variables that AI apps can use. Open the **Variable
+   Manager**, select a variable, and choose **Local AI apps only** or **All
+   approved AI apps** for **AI apps**. Every variable is **Off** until you
+   choose (see [Which variables AI apps can use](#which-variables-ai-apps-can-use)).
+7. If you want, choose which apps can change data (**AI apps that can change
+   data**) and which can read the values of the variables that you share
+   (**AI apps that can read variable values**). Both are **No AI apps** until
+   you choose.
 
 Pharos must be running for an AI app to use it. If Pharos is not running, or the
 setting is off, the app still lists Pharos's tools. A tool call then returns a
@@ -159,16 +164,18 @@ Privacy ▸ AI apps**:
 | **Not approved** | The app has used Pharos, and you have not chosen a level yet. Every tool call is refused. A new app always starts here. |
 | **Blocked** | Every tool call is refused. |
 
-Three settings use these levels. Each one is **Off** (or **No AI apps**) until
+Four settings use these levels. Each one is **Off** (or **No AI apps**) until
 you choose **Local AI apps only** or **All approved AI apps**:
 
 - each connection's **AI apps** choice, in the Connections Manager
+- each query variable's **AI apps** choice, in the Variable Manager
 - **AI apps that can change data**
 - **AI apps that can read variable values**
 
 For example, you can share a production database with LM Studio only, share a
-development database with both apps, and let only LM Studio read your variable
-values.
+development database with both apps, keep a variable that holds a token away
+from both, and let only LM Studio read the values of the variables that you do
+share.
 
 **How Pharos tells the apps apart.** An app can send any name it wants to an MCP
 server, so Pharos does not use that name. When an app starts `Pharos --mcp`,
@@ -213,8 +220,8 @@ For a connection that an app cannot use, the app cannot:
 - see or open a saved Session that was saved on that connection, or that holds
   a card that ran on it. A Session saved with no connection is also not shared.
 - find the connection's queries with `search_history`
-- see a query variable that is linked only to that connection. A variable that
-  is linked to several connections shows only the shared ones.
+- see or use a query variable that is linked only to that connection. A
+  variable that is linked to several connections shows only the shared ones.
 
 A tab or a Session that an app cannot use looks the same to the app as one that
 does not exist. If you change a connection's choice, or an app's level, the next
@@ -225,6 +232,48 @@ change.
 Pharos records the connection of each run. A card that ran in an older version
 of Pharos does not have this record. Pharos then uses the connection of the
 card's tab or Session. A tab with no connection is never shared.
+
+---
+
+## Which variables AI apps can use
+
+A variable's value can be a token, an address or a name. So each query variable
+has its own **AI apps** choice: **Off**, **Local AI apps only**, or **All
+approved AI apps**. It is **Off** for every variable, including variables that
+you made before this setting existed.
+
+To change it, open the **Variable Manager** and choose **AI apps** in the
+variable's **AI Apps (MCP)** box. To change several variables at once, select
+their rows and right-click the selection. The **Sort and Filter** menu shows
+the variables with one choice, so you can check what each kind of app can use
+(see [Query Variables](query-variables.md#ai-apps)).
+
+For a variable that an app cannot use:
+
+- `list_variables` leaves it out, and the app cannot change or delete it.
+- `run_card` refuses a card that uses `{{name}}`. The app is told that the
+  variable is not defined or not shared, and not which of the two.
+- A card that you ran with the variable shows the app its SQL with `{{name}}`,
+  and not what the run sent, its rows or its error message. `get_card_result`
+  is refused for that card.
+- `search_history` leaves out the runs that used the variable.
+
+A variable that is deleted or renamed counts as one that the app cannot use,
+so what your earlier runs made with it stays hidden.
+
+An app must also be able to use a connection that the variable applies to: a
+global variable applies to all of them, and a linked variable must be linked
+to a shared connection.
+
+A variable that an app creates with `create_variable` is shared at that app's
+level: **Local AI apps only** for a Local app, **All approved AI apps** for a
+Cloud app. The confirmation sheet shows the level. An app cannot change a
+variable's choice.
+
+{: .note }
+Pharos goes by the `{{name}}` placeholders that a run recorded. A value that
+you typed into a card's SQL yourself is part of the card, and an app that can
+use the tab reads it.
 
 ---
 
@@ -266,11 +315,17 @@ passwords, hosts or user names. Rows come back a page at a time (50 rows by
 default, 500 at most). Pharos cuts long cells to 200 characters by default, and
 a page stops early when it reaches about 100 KB.
 
-**Variable values stay hidden unless you share them.** `list_variables` returns
-each variable's name, type and scope. It returns values only to the apps that
-**AI apps that can read variable values** includes. For other apps, a card that
-uses `{{name}}` still runs with your value, and `get_card` shows the SQL that
-ran, so an app can see a value after it uses one.
+**A variable is hidden unless you share it.** An app sees and uses only the
+variables whose **AI apps** choice includes it (see
+[Which variables AI apps can use](#which-variables-ai-apps-can-use)). Keep a
+variable that holds a secret **Off**.
+
+**The values of shared variables stay out of the list unless you allow them.**
+`list_variables` returns each shared variable's name, type and scope. It
+returns values only to the apps that **AI apps that can read variable values**
+includes. For other apps, a card that uses a shared `{{name}}` still runs with
+your value, and `get_card` shows the SQL that ran, so an app can see the value
+of a shared variable after it uses one.
 
 **You confirm every change to a variable, unless you turn that off.**
 `create_variable`, `update_variable` and `delete_variable` each show a sheet in
@@ -282,9 +337,10 @@ app can't change or delete a variable that is also linked to a connection it
 can't use. An app that can't read values must give a new value when it changes
 a variable's type.
 
-**Query history follows the connections.** `search_history` returns the SQL,
-timing, row count and error message of past runs on the connections that the app
-can use. Pharos cuts long
+**Query history follows the connections and the variables.** `search_history`
+returns the SQL, timing, row count and error message of past runs on the
+connections that the app can use. It leaves out a run that used a variable the
+app cannot use. Pharos cuts long
 SQL to 2,000 characters by default. It does not return the rows of past runs.
 
 **Pharos asks for passwords as usual.** If a connection needs a password, or
@@ -306,8 +362,8 @@ app's connection at once and removes the socket.
 | `list_saved_sessions` | Lists the saved Sessions in the library. You can filter by name or folder. |
 | `list_workspaces` | Lists recent Results History workspaces, newest first. |
 | `search_history` | Searches past runs, newest first, by words in their SQL (full-text), connection and status (`all`, `succeeded`, `failed`). Returns each run's SQL, time, duration, and row count or error. Pages with `offset` and `next_offset`. |
-| `list_variables` | Lists the query variables, or those that a tab on one connection can use: id, name, type, global or linked. Values only to the apps that you allow. |
-| `create_variable` | Defines a new variable: name, type, value, and optionally the connections it's linked to. You confirm it in Pharos. |
+| `list_variables` | Lists the query variables that you share with the app, or those of them that a tab on one connection can use: id, name, type, global or linked. Values only to the apps that you allow. |
+| `create_variable` | Defines a new variable: name, type, value, and optionally the connections it's linked to. It is shared at the app's own level. You confirm it in Pharos. |
 | `update_variable` | Changes a variable's name, type, value or connections. You confirm it in Pharos. A rename doesn't rewrite the cards that use the old name. |
 | `delete_variable` | Deletes a variable. You confirm it in Pharos. |
 | `open_session` | Opens a saved Session (with its saved results) or a workspace in a tab. Nothing runs. |
@@ -355,6 +411,8 @@ If an AI app drafts a `.sql` script instead of using these tools, give it the
 | Every tool call says that Pharos cannot tell which app started it | `Pharos --mcp` was started from Terminal or another Apple program. Start it from the AI app. |
 | `list_connections` is empty, or a tab or Session is "not found" | The connection is not shared with this app. In **File ▸ Manage Connections…**, choose **All approved AI apps** for it, or **Local AI apps only** if the app is **Local**. |
 | The caption says "The server could not start" | Another copy of Pharos with the same bundle identifier already has the socket. Quit the other copy. |
+| `list_variables` is empty, or `run_card` says that a variable is not defined or not shared | The variable's **AI apps** choice does not include this app. In the **Variable Manager**, choose **All approved AI apps** for it, or **Local AI apps only** if the app is **Local**. |
+| A card shows `withheld`, with no rows | Its last run used a variable that this app cannot use, or one that you deleted or renamed since. Share the variable, or run the card again without it. |
 | `run_card` returns `awaiting_confirmation` | Pharos is waiting for you to answer the confirmation sheet in its window. |
 | `run_card` says that the tab has no connection | Create the card with `connection_id`, or choose a connection for the tab in Pharos. |
 | Claude says that the Pharos extension could not start | Pharos is not installed, or Spotlight can't find it. Install it in `/Applications`, and restart Claude. |

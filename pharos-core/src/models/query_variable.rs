@@ -30,6 +30,12 @@ pub struct QueryVariable {
     /// JSON when empty, so a global variable's document is unchanged.
     #[serde(rename = "connectionIds", default, skip_serializing_if = "Vec::is_empty")]
     pub connection_ids: Vec<String>,
+    /// Which AI apps (MCP clients) may use the variable: Swift's
+    /// `VariableAIAccess` raw value, `local` or `all`. `None` is off, which
+    /// every older row is, and is left out of the JSON. An opaque string, as
+    /// `kind` is: Swift reads a value it does not know as off.
+    #[serde(rename = "mcpAccess", default, skip_serializing_if = "Option::is_none")]
+    pub mcp_access: Option<String>,
 }
 
 fn default_kind() -> String {

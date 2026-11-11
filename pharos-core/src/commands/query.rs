@@ -572,6 +572,7 @@ pub(crate) fn history_entry(
         source,
         status: crate::models::HISTORY_STATUS_OK.to_string(),
         error_message: None,
+        raw_sql: None,
     }
 }
 

@@ -113,6 +113,34 @@ enum VariableListElement: String, CaseIterable {
     }
 }
 
+/// Which AI apps (MCP clients) may use a variable: none, those the user
+/// marks Local in Settings ▸ Security & Privacy, or every approved one. The
+/// same three values as `MCPScope` (Connection.swift) and `MCPGrant`
+/// (Settings.swift), kept apart so each file compiles alone in the test
+/// scripts.
+enum VariableAIAccess: String, Codable, CaseIterable {
+    case off
+    case local
+    case all
+
+    /// Whether an app the user marked Local (`isLocal`) or Cloud may use it.
+    func allows(isLocal: Bool) -> Bool {
+        switch self {
+        case .off: return false
+        case .local: return isLocal
+        case .all: return true
+        }
+    }
+
+    var displayLabel: String {
+        switch self {
+        case .off: return String(localized: "Off")
+        case .local: return String(localized: "Local AI apps only")
+        case .all: return String(localized: "All approved AI apps")
+        }
+    }
+}
+
 /// A single user-defined query variable. `name` is stored WITHOUT the
 /// surrounding `{{ }}` braces (e.g. "target_ip").
 struct QueryVariable: Identifiable, Codable, Equatable {
@@ -124,20 +152,25 @@ struct QueryVariable: Identifiable, Codable, Equatable {
     /// every connection, the default. A tab on any other connection does not
     /// see a linked variable (`VariableScope`).
     var connectionIds: [String] = []
+    /// Which AI apps may use the variable over MCP (`MCPAccessPolicy`). Off
+    /// until the user chooses, in the Variable Manager: a value can be a
+    /// token or an address.
+    var mcpAccess: VariableAIAccess = .off
 
     var isGlobal: Bool { connectionIds.isEmpty }
 
     init(id: UUID = UUID(), name: String, value: String = "", type: VariableType = .literal,
-         connectionIds: [String] = []) {
+         connectionIds: [String] = [], mcpAccess: VariableAIAccess = .off) {
         self.id = id
         self.name = name
         self.value = value
         self.type = type
         self.connectionIds = connectionIds
+        self.mcpAccess = mcpAccess
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, value, type, connectionIds
+        case id, name, value, type, connectionIds, mcpAccess
     }
 
     // Written by hand so a global variable's document leaves the key out, as
@@ -149,6 +182,7 @@ struct QueryVariable: Identifiable, Codable, Equatable {
         try container.encode(value, forKey: .value)
         try container.encode(type, forKey: .type)
         if !connectionIds.isEmpty { try container.encode(connectionIds, forKey: .connectionIds) }
+        if mcpAccess != .off { try container.encode(mcpAccess, forKey: .mcpAccess) }
     }
 
     /// Decoding is written by hand for one reason: an unrecognised `type` must not
@@ -170,6 +204,10 @@ struct QueryVariable: Identifiable, Codable, Equatable {
         value = try container.decodeIfPresent(String.self, forKey: .value) ?? ""
         // Absent from every variable written before scopes: global.
         connectionIds = try container.decodeIfPresent([String].self, forKey: .connectionIds) ?? []
+        // Absent from every variable written before this choice, and a value
+        // a newer build wrote that this one does not know: off.
+        mcpAccess = (try? container.decodeIfPresent(String.self, forKey: .mcpAccess))
+            .flatMap { $0 }.flatMap(VariableAIAccess.init(rawValue:)) ?? .off
 
         let rawType = try container.decodeIfPresent(String.self, forKey: .type)
             ?? VariableType.literal.rawValue

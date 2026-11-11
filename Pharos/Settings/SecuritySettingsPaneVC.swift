@@ -86,7 +86,7 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "mcpVariableValues",
                     title: String(localized: "AI apps that can read variable values"),
-                    caption: String(localized: "Other apps see each query variable's name and type, not its value. Values are filled in when a card runs either way."),
+                    caption: String(localized: "Of the variables you share with AI apps (Variable Manager ▸ AI apps). Other apps see a shared variable's name and type, not its value. Values are filled in when a card runs either way."),
                     icon: "curlybraces",
                     kind: .popup(.cases(\.security.mcpVariableValues, title: { $0.displayLabel })),
                     dependsOn: "mcpServerEnabled"),

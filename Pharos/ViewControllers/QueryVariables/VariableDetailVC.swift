@@ -8,6 +8,7 @@ import AppKit
 /// - **Value**: the editor the type calls for, then "Renders as", the SQL the
 ///   value produces (or, in red, why it produces none).
 /// - **Connections**: the host's `VariableConnectionsView`, when it passes one.
+/// - **AI Apps (MCP)**: which AI apps may use the variable (`aiAccessPopup`).
 /// - Delete Variable.
 ///
 /// Edits apply live — there is no save/cancel model. Every control writes
@@ -46,6 +47,10 @@ final class VariableDetailVC: NSViewController {
     let typePopup = SettingsControlFactory.popup(titles: VariableTypeFamily.allCases.map(\.displayName))
     let timeZoneSwitch = SettingsControlFactory.toggle()
     let listElementPopup = SettingsControlFactory.popup(titles: VariableListElement.allCases.map(\.displayName))
+    /// AI apps: Off | Local AI apps only | All approved AI apps, the choices
+    /// a connection has (`VariableAIAccess.allCases` order).
+    let aiAccessPopup = SettingsControlFactory.popup(titles: VariableAIAccess.allCases.map(\.displayLabel))
+    private(set) var aiAccessRow: SettingsRow?
 
     /// Literal, Text and List.
     let textEditor = VariableGrowingTextEditor()
@@ -100,6 +105,11 @@ final class VariableDetailVC: NSViewController {
             let box = SettingsGroupBox(title: String(localized: "Connections"), rows: [connectionsView])
             sections.append(Self.section(String(localized: "Connections"), box))
         }
+        let aiRow = SettingsRow(title: String(localized: "AI apps"), caption: Self.aiAccessCaption,
+                                control: aiAccessPopup)
+        aiAccessRow = aiRow
+        sections.append(Self.section(String(localized: "AI Apps (MCP)"),
+                                     SettingsGroupBox(title: String(localized: "AI Apps (MCP)"), rows: [aiRow])))
         sections.append(SettingsFooterButtonRow(buttons: [deleteButton]))
 
         let scroll = SettingsFormScroll.makePane(sections: sections)
@@ -125,6 +135,12 @@ final class VariableDetailVC: NSViewController {
         rebuildVariableBox()
         rebuildValueBox()
     }
+
+    /// Under the AI apps choice: what the choice withholds, in the words the
+    /// Connections Manager uses for a connection's.
+    static let aiAccessCaption = String(
+        localized: "Which AI apps may see this variable and run cards that use it. For the others it does not exist, and what a run made with it is withheld. You mark each app Local or Cloud in Settings ▸ Security & Privacy.",
+        comment: "Variable Manager: the caption under a variable's AI apps choice.")
 
     /// A section: its bold header over its box, 8 pt apart, as
     /// `SettingsFormBuilder` builds them.
@@ -158,6 +174,11 @@ final class VariableDetailVC: NSViewController {
         listElementPopup.target = self
         listElementPopup.action = #selector(typeControlChanged(_:))
         listElementPopup.setAccessibilityIdentifier("variables.listElement")
+
+        aiAccessPopup.target = self
+        aiAccessPopup.action = #selector(aiAccessChanged(_:))
+        aiAccessPopup.setAccessibilityIdentifier("variables.aiAccess")
+        selectAIAccess()
 
         valueTextView.delegate = self
         valueTextView.setAccessibilityIdentifier("variables.value")
@@ -526,6 +547,13 @@ final class VariableDetailVC: NSViewController {
     /// in progress (lessons, 2026-09-16). The user's next keystroke writes the
     /// whole variable back anyway.
     func adoptExternalChange(_ incoming: QueryVariable) {
+        // The AI apps choice first, and even while the user types: it is a
+        // pop-up, not text an edit could be eaten from, and the next
+        // keystroke writes the whole variable back, a stale choice included.
+        if incoming.mcpAccess != variable.mcpAccess {
+            variable.mcpAccess = incoming.mcpAccess
+            selectAIAccess()
+        }
         var mine = variable
         mine.connectionIds = incoming.connectionIds
         guard incoming != mine, isViewLoaded, !isEditingText else { return }
@@ -551,6 +579,24 @@ final class VariableDetailVC: NSViewController {
     // MARK: - Actions
 
     @objc private func deleteTapped() { onDelete?() }
+
+    private func selectAIAccess() {
+        aiAccessPopup.selectItem(at: VariableAIAccess.allCases.firstIndex(of: variable.mcpAccess) ?? 0)
+    }
+
+    @objc private func aiAccessChanged(_ sender: Any?) {
+        let cases = VariableAIAccess.allCases
+        let index = aiAccessPopup.indexOfSelectedItem
+        applyAIAccess(cases.indices.contains(index) ? cases[index] : .off)
+    }
+
+    /// The user's choice of AI apps (the pop-up; the harness calls it too).
+    func applyAIAccess(_ access: VariableAIAccess) {
+        guard access != variable.mcpAccess else { return }
+        variable.mcpAccess = access
+        selectAIAccess()
+        onChange?(variable)
+    }
 
     @objc private func typeControlChanged(_ sender: Any?) {
         // A settle point: the user has moved on to another control.

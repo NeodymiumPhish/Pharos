@@ -27,6 +27,7 @@ swiftc -o /tmp/variable-manager-tests \
   Pharos/Views/EmptyStateView.swift \
   Pharos/Core/TimeZoneChoices.swift \
   Pharos/Core/VariableSubstitutor.swift \
+  Pharos/Core/VariableListOptions.swift \
   Pharos/Core/VariableValueRules.swift \
   Pharos/Core/VariableValuePreview.swift \
   Pharos/Core/DisplayEscape.swift \

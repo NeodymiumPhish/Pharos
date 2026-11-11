@@ -85,6 +85,13 @@ final class MCPServerController {
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
+    /// "No variable is shared." or "3 variables shared.": each variable has its
+    /// own AI apps choice in the Variable Manager, off until the user chooses.
+    static func sharedVariablesText(_ count: Int) -> String {
+        count == 0 ? String(localized: "No variable is shared.")
+            : CountedNounText.phrase(count, "variable") + " " + String(localized: "shared.")
+    }
+
     /// The Settings caption: who is connected, or why the server is not running.
     var statusText: String {
         if let lastError { return String(localized: "The server could not start: \(lastError)") }
@@ -93,6 +100,7 @@ final class MCPServerController {
         let sharing = shared == 0
             ? String(localized: "No connection is shared yet: choose who may use a connection under “AI apps” in File ▸ Manage Connections….")
             : CountedNounText.phrase(shared, "connection") + " " + String(localized: "shared.")
+                + " " + Self.sharedVariablesText(QueryVariableStore.shared.variables.filter { $0.mcpAccess != .off }.count)
         let names = Array(Set(clients.map(\.displayName))).sorted()
         if names.isEmpty { return String(localized: "On. No AI app is connected.") + " " + sharing }
         return String(localized: "Connected: \(names.joined(separator: ", ")).") + " " + sharing

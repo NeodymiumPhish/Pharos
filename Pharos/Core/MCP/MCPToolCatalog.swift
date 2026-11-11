@@ -141,7 +141,7 @@ enum MCPToolCatalog {
              required: [], readOnly: true, destructive: false),
 
         Tool(name: "search_history", title: "Search query history",
-             description: "Search the queries Pharos has run (Results History), newest first: the SQL, when it ran, how long it took, its row count or its error. search is a full-text match on the SQL. Use status \"failed\" to find errors. An entry's SQL longer than max_sql_chars is cut short.",
+             description: "Search the queries Pharos has run (Results History), newest first: the SQL, when it ran, how long it took, its row count or its error. search is a full-text match on the SQL. Use status \"failed\" to find errors. An entry's SQL longer than max_sql_chars is cut short. Runs that used a variable the user has not shared with this app are left out.",
              properties: [
                 "search": string("Words the SQL must contain (full-text, so whole words and prefixes such as orders*)."),
                 "connection_id": string("Only queries run on this connection (from list_connections)."),
@@ -155,12 +155,12 @@ enum MCPToolCatalog {
              required: [], readOnly: true, destructive: false),
 
         Tool(name: "list_variables", title: "List query variables",
-             description: "The query variables a card can use as {{name}}: each one's id, name, type (literal, text, number, bool, date, timestamp, timestamptz, list_text or list_number) and whether it is global or linked to particular connections. Give connection_id for the variables a tab on that connection sees. Values are included only if the user allows it in Pharos's settings; run_card fills them in either way.",
+             description: "The query variables a card can use as {{name}}: each one's id, name, type (literal, text, number, bool, date, timestamp, timestamptz, list_text or list_number) and whether it is global or linked to particular connections. Give connection_id for the variables a tab on that connection sees. Only the variables the user shares with this app are listed: they choose each variable's AI apps in Pharos's Variable Manager, and a card that uses any other {{name}} does not run for this app. Values are included only if the user allows it in Pharos's settings; run_card fills them in either way.",
              properties: ["connection_id": string("Only the variables available on this connection (global ones and those linked to it).")],
              required: [], readOnly: true, destructive: false),
 
         Tool(name: "create_variable", title: "Create a query variable",
-             description: "Define a new query variable that cards can use as {{name}}. Pharos asks the user to confirm in its window, unless they let this app change variables without asking, and this call waits for the answer; if they decline or do not answer, nothing is created.",
+             description: "Define a new query variable that cards can use as {{name}}. It is shared with this app; the user decides which other AI apps can use it. Pharos asks the user to confirm in its window, unless they let this app change variables without asking, and this call waits for the answer; if they decline or do not answer, nothing is created.",
              properties: [
                 "name": string("The variable's name. " + variableNameGuide),
                 "type": variableType,
@@ -278,6 +278,7 @@ enum MCPToolCatalog {
     Give each card notes: \(cardNotesGuide) \
     Use a {{name}} query variable for a value the user may want to change and run again, such as a date or an id. list_variables shows the ones that exist; reuse one before defining another. create_variable, update_variable and delete_variable each ask the user to confirm in Pharos, unless they let your app change variables without asking. If they decline, do not ask again unless they tell you to. \
     You see only the connections the user shares with your app, and the tabs, history, workspaces and Sessions that ran against them. \
+    You see and can use only the variables the user shares with your app. A card that uses another {{name}} does not run for you, and what an earlier run of it sent and returned is withheld; the user shares a variable in Pharos's Variable Manager. \
     Everything you do appears in the user's Pharos window. Statements that change data need the user's permission in Pharos and their confirmation for each run. \
     Results are paged and long cells are cut short; prefer aggregates and LIMIT over reading many rows.
     """

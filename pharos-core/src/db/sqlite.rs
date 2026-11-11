@@ -956,6 +956,9 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     // Migration: a variable can be linked to connections (JSON array of
     // record ids). NULL is global, which every older row is.
     add_column_if_missing(conn, "query_variables", "connection_ids", "TEXT")?;
+    // Migration: which AI apps may use a variable (`local` or `all`). NULL
+    // is off, which every older row is.
+    add_column_if_missing(conn, "query_variables", "mcp_access", "TEXT")?;
     mark_duckdb_records_not_saved(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
@@ -2305,7 +2308,7 @@ pub fn remove_recent_files(conn: &mut Connection, paths: &[String]) -> SqliteRes
 /// per-tab copies.
 pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, value, type, connection_ids FROM query_variables ORDER BY position ASC",
+        "SELECT id, name, value, type, connection_ids, mcp_access FROM query_variables ORDER BY position ASC",
     )?;
     let rows = stmt.query_map([], |row| {
         // NULL (every variable written before scopes) and an unreadable
@@ -2317,6 +2320,7 @@ pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable
             value: row.get(2)?,
             kind: row.get(3)?,
             connection_ids: ids.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
+            mcp_access: row.get(5)?,
         })
     })?;
     rows.collect()
@@ -2330,7 +2334,7 @@ pub fn save_query_variables(conn: &mut Connection, variables: &[QueryVariable]) 
     tx.execute("DELETE FROM query_variables", [])?;
     for (position, variable) in variables.iter().enumerate() {
         tx.execute(
-            "INSERT INTO query_variables (id, name, value, type, position, connection_ids) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO query_variables (id, name, value, type, position, connection_ids, mcp_access) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 variable.id,
                 variable.name,
@@ -2340,6 +2344,8 @@ pub fn save_query_variables(conn: &mut Connection, variables: &[QueryVariable]) 
                 // Global stays SQL NULL, as every row before scopes.
                 (!variable.connection_ids.is_empty())
                     .then(|| serde_json::to_string(&variable.connection_ids).unwrap_or_default()),
+                // Off stays SQL NULL, as every row before this column.
+                variable.mcp_access.as_deref().filter(|a| *a != "off"),
             ],
         )?;
     }
@@ -2364,7 +2370,43 @@ mod query_variable_tests {
             value: value.to_string(),
             kind: kind.to_string(),
             connection_ids: Vec::new(),
+            mcp_access: None,
         }
+    }
+
+    /// A shared variable keeps its AI apps choice; one that is off stays
+    /// NULL in the column and out of the JSON, so its document is unchanged.
+    #[test]
+    fn mcp_access_round_trip() {
+        let mut conn = db();
+        let shared = QueryVariable { mcp_access: Some("local".into()), ..variable("a", "env", "p", "text") };
+        let off = QueryVariable { mcp_access: Some("off".into()), ..variable("c", "region", "eu", "text") };
+        save_query_variables(&mut conn, &[shared.clone(), variable("b", "limit", "5", "number"), off]).unwrap();
+        let loaded = load_query_variables(&conn).unwrap();
+        assert_eq!(loaded[0].mcp_access.as_deref(), Some("local"));
+        assert_eq!(loaded[1].mcp_access, None, "never chosen");
+        assert_eq!(loaded[2].mcp_access, None, "off is stored as NULL");
+        let json = serde_json::to_string(&shared).unwrap();
+        assert!(json.contains(r#""mcpAccess":"local""#), "Swift's key: {json}");
+        let json = serde_json::to_string(&loaded[1]).unwrap();
+        assert!(!json.contains("mcpAccess"), "left out when off: {json}");
+        let old: QueryVariable = serde_json::from_str(r#"{"id":"x","name":"n"}"#).unwrap();
+        assert_eq!(old.mcp_access, None, "a document from before the key");
+    }
+
+    /// A store from before the column gains it, with every variable off.
+    #[test]
+    fn mcp_access_column_is_added_to_an_old_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE query_variables (id TEXT PRIMARY KEY, name TEXT NOT NULL, value TEXT NOT NULL DEFAULT '',
+                 type TEXT NOT NULL DEFAULT 'literal', position INTEGER NOT NULL);
+             INSERT INTO query_variables (id, name, value, type, position) VALUES ('a', 'token', 's3cret', 'text', 0);",
+        ).unwrap();
+        create_schema(&conn).unwrap();
+        let loaded = load_query_variables(&conn).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].mcp_access, None, "an older variable is not shared with AI apps");
     }
 
     /// A linked variable keeps its connections; a global one stays NULL in
@@ -3327,7 +3369,7 @@ pub fn load_query_history(
     status_scope: crate::models::HistoryStatusScope,
 ) -> SqliteResult<Vec<QueryHistoryEntry>> {
     let mut sql = String::from(
-        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source, status, error_message FROM query_history WHERE 1=1"
+        "SELECT id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at, (result_columns IS NOT NULL) as has_results, schema, column_count, table_names, source, status, error_message, raw_sql FROM query_history WHERE 1=1"
     );
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_idx = 1;
@@ -3388,6 +3430,7 @@ pub fn load_query_history(
             source: row.get(11)?,
             status: row.get(12)?,
             error_message: row.get(13)?,
+            raw_sql: row.get(14)?,
         })
     })?;
 
@@ -3561,6 +3604,7 @@ mod workspace_roundtrip_tests {
             source: None,
             status: crate::models::HISTORY_STATUS_OK.to_string(),
             error_message: None,
+            raw_sql: None,
         }
     }
 
@@ -4241,6 +4285,19 @@ mod workspace_roundtrip_tests {
         let r = detail.results.iter().find(|r| r.id == "h1").expect("h1 present");
         assert_eq!(r.raw_sql.as_deref(), Some("SELECT * FROM users WHERE id = {{id}}"));
 
+        // The history list carries it too: the MCP server goes by its
+        // `{{name}}` tokens to leave out a run that used a variable the app
+        // may not (Swift's `MCPVariableAccess`). A row that keeps none is None.
+        let h2 = history_entry("h2", "c1", "prod-db", &now_offset(1));
+        save_query_history(&conn, &h2, None, None, None).expect("save h2");
+        let listed = load_query_history(&conn, None, None, 50, 0, false, crate::models::HistoryStatusScope::All)
+            .expect("load_query_history");
+        let raw = |id: &str| listed.iter().find(|e| e.id == id).expect("listed").raw_sql.clone();
+        assert_eq!(raw("h1").as_deref(), Some("SELECT * FROM users WHERE id = {{id}}"));
+        assert_eq!(raw("h2"), None);
+        let json = serde_json::to_string(listed.iter().find(|e| e.id == "h1").unwrap()).unwrap();
+        assert!(json.contains(r#""rawSql":"SELECT * FROM users WHERE id = {{id}}""#), "Swift's key: {json}");
+
         drop(conn);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4920,6 +4977,7 @@ mod history_source_tests {
             source: source.map(|s| s.to_string()),
             status: crate::models::HISTORY_STATUS_OK.to_string(),
             error_message: None,
+            raw_sql: None,
         }
     }
 
@@ -5798,6 +5856,7 @@ mod clear_history_tests {
             source: None,
             status: crate::models::HISTORY_STATUS_OK.to_string(),
             error_message: None,
+            raw_sql: None,
         }
     }
 
@@ -6154,6 +6213,7 @@ mod history_redaction_tests {
             source: None,
             status: crate::models::HISTORY_STATUS_OK.to_string(),
             error_message: error.map(str::to_string),
+            raw_sql: None,
         }
     }
 
@@ -6398,6 +6458,7 @@ mod store_vacuum_tests {
             source: None,
             status: crate::models::HISTORY_STATUS_OK.to_string(),
             error_message: None,
+            raw_sql: None,
         }
     }
 

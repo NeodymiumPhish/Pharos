@@ -93,6 +93,7 @@ pub async fn record_failed_query(
         source: None,
         status: record.status.clone(),
         error_message: Some(record.message.clone()),
+        raw_sql: None,
     };
 
     let db = state.metadata_db.lock().map_err(|e| e.to_string())?;

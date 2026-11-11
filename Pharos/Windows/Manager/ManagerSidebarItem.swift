@@ -36,6 +36,10 @@ struct ManagerSidebarItem: Equatable {
         /// `TabConnectionDot` does for "not connected". The label is what
         /// VoiceOver reads, because the colour alone says nothing to it.
         case statusDot(NSColor?, accessibilityLabel: String)
+        /// A small SF Symbol in the secondary colour: a fact about the record
+        /// that is not a problem, such as "shared with AI apps". The label is
+        /// its tooltip and what VoiceOver reads.
+        case symbol(name: String, label: String)
     }
 
     /// Stable across reloads; selection is kept by it.

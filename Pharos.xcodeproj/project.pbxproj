@@ -34,6 +34,7 @@
 		0E0E85D8C94B0DAB137B60BB /* CardRunAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0EB5BB3232529EA8DB1DB2 /* CardRunAvailability.swift */; };
 		0E8D690F2C7087F550D5F0D2 /* ErrorBadgeButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1B46064F1BBE4B29F747B9 /* ErrorBadgeButton.swift */; };
 		0FBFBF80330AF6AEB8FF8795 /* ColumnFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */; };
+		102F942E3D331B677689CB57 /* MCPVariableAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24DEC04F042D0A41A351355 /* MCPVariableAccess.swift */; };
 		117CEE3272A068219CE092B0 /* ResultsSortKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = D378F6110DE0E3A4036C7FE3 /* ResultsSortKeys.swift */; };
 		13052D84D304A8C4B880F5ED /* PharosCore+QueryHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C9CF3BE23B90A563BA2971 /* PharosCore+QueryHistory.swift */; };
 		131D6EEE108B0D2C3C469E7F /* TagCopyScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0049BCEB06F52A03CA6823AC /* TagCopyScope.swift */; };
@@ -244,6 +245,7 @@
 		86FC97D059D4245D9F82F9ED /* UtilityWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C356BFC2A8AA57C701C7D7 /* UtilityWindow.swift */; };
 		8738BC6B2680F1D08514D538 /* GeneralSettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1290A9EC85D12E2D15A9750 /* GeneralSettingsPaneVC.swift */; };
 		87EC2934D48F980C58B3409E /* VariableScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = 181EB0CBF071F66B775B3788 /* VariableScope.swift */; };
+		880A464CDCC8D155EA23708D /* VariableListOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0366A1C9F414C744F86B5BBB /* VariableListOptions.swift */; };
 		8859849E6D15A46D85580748 /* SQLTypeName.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */; };
 		88788D92C373CA21CCA59CA6 /* CardFindBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C9B224684828CF1DD8E3EE /* CardFindBar.swift */; };
 		894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */; };
@@ -476,6 +478,7 @@
 		0182FE7779F9D5E0C098F576 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		028712E3F9210287025ADAE8 /* AppStateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateManager.swift; sourceTree = "<group>"; };
 		02A96A71AC4D54E03F4A8B52 /* SettingsSidebarVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSidebarVC.swift; sourceTree = "<group>"; };
+		0366A1C9F414C744F86B5BBB /* VariableListOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VariableListOptions.swift; sourceTree = "<group>"; };
 		03D4F88CC2D386BA8A9B317A /* PharosCore+Connection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+Connection.swift"; sourceTree = "<group>"; };
 		04B9008133779616D520BDAF /* RowUpdateSQLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowUpdateSQLBuilder.swift; sourceTree = "<group>"; };
 		04CEC5BCAB8956BCDD03C8FA /* PlanViewVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanViewVC.swift; sourceTree = "<group>"; };
@@ -802,6 +805,7 @@
 		C061E832235866E86FB1BD81 /* MainMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainMenu.swift; sourceTree = "<group>"; };
 		C16B8F24F7D7A88A8330BD06 /* SQLDraftPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLDraftPrompt.swift; sourceTree = "<group>"; };
 		C1B12A90407F4333607C559D /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		C24DEC04F042D0A41A351355 /* MCPVariableAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPVariableAccess.swift; sourceTree = "<group>"; };
 		C2C8ADB503C233C3EC173772 /* SavedQuerySpotlightIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedQuerySpotlightIndexer.swift; sourceTree = "<group>"; };
 		C37D2F0491A80DB1124E442A /* PendingEditsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingEditsBar.swift; sourceTree = "<group>"; };
 		C3A133A112CDC62FDBC82CB2 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
@@ -1373,6 +1377,7 @@
 				14CFBB80FC5A7752E101301E /* UnsavedWorkPolicy.swift */,
 				C1B12A90407F4333607C559D /* UpdateChecker.swift */,
 				6FE902A585FDD51D23B51B23 /* UpdateCheckPolicy.swift */,
+				0366A1C9F414C744F86B5BBB /* VariableListOptions.swift */,
 				6CA0901EAD7AC81B55DF2E06 /* VariableMenuPreview.swift */,
 				181EB0CBF071F66B775B3788 /* VariableScope.swift */,
 				B9C3F6A8754CE259FE3BF242 /* VariableSubstitutor.swift */,
@@ -1478,6 +1483,7 @@
 				DD5EC6AFDC60DE49C634DCA3 /* MCPStdioBridge.swift */,
 				5B84223AFC952DC12756C8BD /* MCPToolCatalog.swift */,
 				2954D7DFD61B2530DCAE75AA /* MCPToolHandlers.swift */,
+				C24DEC04F042D0A41A351355 /* MCPVariableAccess.swift */,
 			);
 			path = MCP;
 			sourceTree = "<group>";
@@ -1862,6 +1868,7 @@
 				DD8006A5C3C4B8F18BBED3E8 /* MCPStdioBridge.swift in Sources */,
 				BD596BB5CA0BCDA000FCECAA /* MCPToolCatalog.swift in Sources */,
 				E478A57FFA8671D4559BB093 /* MCPToolHandlers.swift in Sources */,
+				102F942E3D331B677689CB57 /* MCPVariableAccess.swift in Sources */,
 				1859F0D21F96E84B169BF6B9 /* MainMenu.swift in Sources */,
 				BB0BE290763FF8F637A390F2 /* MainToolbarController.swift in Sources */,
 				863180CE4A3ECA87F069BD55 /* MainWindow.swift in Sources */,
@@ -2132,6 +2139,7 @@
 				0D4788B0E6B6E339EC9CB225 /* VariableCompletion.swift in Sources */,
 				78B803929071123E9E002E24 /* VariableConnectionsView.swift in Sources */,
 				F11BA0BFE2ABEE96ABDCF959 /* VariableDetailVC.swift in Sources */,
+				880A464CDCC8D155EA23708D /* VariableListOptions.swift in Sources */,
 				3B8611FEBFF3E788C3879B99 /* VariableManagerVC.swift in Sources */,
 				7DAF182D398D3A908D8F3E8A /* VariableManagerWindowController.swift in Sources */,
 				A85D406B8C9FD7038E6C901E /* VariableMenuPreview.swift in Sources */,

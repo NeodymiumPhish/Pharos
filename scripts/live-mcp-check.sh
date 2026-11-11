@@ -16,9 +16,11 @@
 # a DuckDB connection `mcp-duck` to a scratch file holding a three-row
 # `people` table, shared with all approved AI apps; `local-duck`, shared
 # with local AI apps only; `hidden-duck`, not shared, with a history entry, a
-# Session and a variable linked to it, none of which a client may see; and a
-# global number variable `person_id` = 2. Writes and variable values are for
-# local AI apps only.
+# Session and a variable linked to it, none of which a client may see; and
+# four variables: `person_id` = 2 (number) for all approved AI apps,
+# `local_note` for local AI apps only, `api_token` left Off, and `vault_key`
+# linked to `hidden-duck`. The history holds one run that used each of the
+# first three. Writes and variable values are for local AI apps only.
 #
 # The local launch's last check leaves a confirmation sheet on screen; the
 # script then kills the copy, so that DELETE never runs. A fourth launch lets
@@ -90,10 +92,20 @@ INSERT INTO connections (id, name, host, port, database, username, engine, saved
   VALUES ('local-duck', 'Local Only', '', 0, '$WORK/local.duckdb', '', 'duckdb', 1, 'local');
 INSERT INTO connections (id, name, host, port, database, username, engine, saved, mcp_access)
   VALUES ('hidden-duck', 'Not Shared', '', 0, '$WORK/hidden.duckdb', '', 'duckdb', 1, 'off');
+INSERT INTO query_variables (id, name, value, type, position, mcp_access)
+  VALUES ('$(uuidgen)', 'person_id', '2', 'number', 0, 'all');
+INSERT INTO query_variables (id, name, value, type, position, connection_ids, mcp_access)
+  VALUES ('$(uuidgen)', 'vault_key', 'k', 'text', 1, '["hidden-duck"]', 'all');
 INSERT INTO query_variables (id, name, value, type, position)
-  VALUES ('$(uuidgen)', 'person_id', '2', 'number', 0);
-INSERT INTO query_variables (id, name, value, type, position, connection_ids)
-  VALUES ('$(uuidgen)', 'vault_key', 'k', 'text', 1, '["hidden-duck"]');
+  VALUES ('$(uuidgen)', 'api_token', 'tok-s3cret', 'text', 2);
+INSERT INTO query_variables (id, name, value, type, position, mcp_access)
+  VALUES ('$(uuidgen)', 'local_note', 'for-local', 'text', 3, 'local');
+INSERT INTO query_history (id, connection_id, connection_name, sql, raw_sql, row_count, execution_time_ms, executed_at)
+  VALUES ('token-run', 'mcp-duck', 'MCP Check', 'SELECT ''tok-s3cret'' AS t', 'SELECT {{api_token}} AS t', 1, 1, '2026-11-01T10:01:00Z');
+INSERT INTO query_history (id, connection_id, connection_name, sql, raw_sql, row_count, execution_time_ms, executed_at)
+  VALUES ('local-note-run', 'mcp-duck', 'MCP Check', 'SELECT ''for-local'' AS n', 'SELECT {{local_note}} AS n', 1, 1, '2026-11-01T10:02:00Z');
+INSERT INTO query_history (id, connection_id, connection_name, sql, raw_sql, row_count, execution_time_ms, executed_at)
+  VALUES ('shared-run', 'mcp-duck', 'MCP Check', 'SELECT 2 AS shared_marker', 'SELECT {{person_id}} AS shared_marker', 1, 1, '2026-11-01T10:03:00Z');
 INSERT INTO query_history (id, connection_id, connection_name, sql, row_count, execution_time_ms, executed_at)
   VALUES ('hidden-run', 'hidden-duck', 'Not Shared', 'SELECT secret FROM vault', 1, 1, '2026-11-01T10:00:00Z');
 INSERT INTO saved_queries (id, name, folder, sql, connection_id)
@@ -165,5 +177,9 @@ python3 -I scripts/mcp-live-driver.py "$BIN" "$CLIENT" unconfirmed || STATUS=$?
 stop
 rows="$(duckdb -noheader -list "$WORK/check.duckdb" "SELECT count(*) FROM people")"
 [ "$rows" = "2" ] && echo "PASS the DELETE let through without asking ran" || { echo "FAIL people has $rows rows, not 2"; STATUS=1; }
+access="$(sqlite3 "$STORE/pharos.db" "SELECT COALESCE(mcp_access, 'off') FROM query_variables WHERE name = 'kept_one'")"
+[ "$access" = "local" ] && echo "PASS a variable a Local app created is shared with local AI apps only" || { echo "FAIL kept_one's AI apps choice is '$access', not local"; STATUS=1; }
+access="$(sqlite3 "$STORE/pharos.db" "SELECT COALESCE(mcp_access, 'off') FROM query_variables WHERE name = 'api_token'")"
+[ "$access" = "off" ] && echo "PASS the variable left Off is still Off" || { echo "FAIL api_token's AI apps choice is '$access'"; STATUS=1; }
 rm -rf "$STORE" "$HOME/Library/Preferences/$BUNDLE.plist"
 exit $STATUS

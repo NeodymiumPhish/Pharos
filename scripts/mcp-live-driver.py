@@ -103,6 +103,34 @@ if MODE == "cloud":
     pv = [v for v in variables["variables"] if v["name"] == "person_id"]
     check(pv and "value" not in pv[0] and variables["values_shared"] is False, "cloud: variable values are for local apps only",
           json.dumps(variables))
+    # Each variable's own AI apps choice.
+    names = sorted(v["name"] for v in variables["variables"])
+    check(names == ["person_id"], "cloud: only the variable shared with all approved apps is listed", str(names))
+    check("tok-s3cret" not in json.dumps(variables) and "for-local" not in json.dumps(variables),
+          "cloud: no value of a variable that is not shared is anywhere in the answer")
+    for name in ("api_token", "local_note"):
+        card, _ = tool("create_card", tab_id=made["tab_id"], sql="SELECT {{%s}} AS v" % name)
+        refused, err = tool("run_card", tab_id=made["tab_id"], card_id=card["card"]["id"])
+        check(refused is None and name in (err or "") and "not shared" in (err or "") and "s3cret" not in (err or ""),
+              f"cloud: a card that uses {{{{{name}}}}} does not run", err or json.dumps(refused))
+        seen, _ = tool("get_card", tab_id=made["tab_id"], card_id=card["card"]["id"])
+        check(seen["card"]["status"] == "never_run" and "last_run" not in seen["card"],
+              f"cloud: and it left no run behind ({name})", json.dumps(seen))
+    shared, _ = tool("create_card", tab_id=made["tab_id"], sql="SELECT name FROM people WHERE id = {{person_id}}")
+    ok, err = tool("run_card", tab_id=made["tab_id"], card_id=shared["card"]["id"])
+    check(ok is not None and ok.get("result", {}).get("rows") == [["Grace"]] and "ran_sql" in ok["card"]["last_run"],
+          "cloud: a card that uses a shared variable runs, and shows what ran", err or json.dumps(ok))
+    hist, _ = tool("search_history", limit=200)
+    ids = [e["id"] for e in hist["entries"]]
+    check("shared-run" in ids, "cloud: a past run that used a shared variable is in the history", str(ids))
+    check("token-run" not in ids and "local-note-run" not in ids,
+          "cloud: past runs that used a variable that is not shared are left out", str(ids))
+    check("tok-s3cret" not in json.dumps(hist) and "for-local" not in json.dumps(hist),
+          "cloud: and their values are nowhere in the history")
+    found, _ = tool("search_history", search="tok")
+    check(found["entries"] == [], "cloud: nor can a search find them by the value", json.dumps(found))
+    gone, err = tool("update_variable", variable_id="00000000-0000-0000-0000-000000000000", value="x")
+    check(gone is None, "cloud: a variable it cannot see cannot be changed", err or "")
     finish()
 
 if MODE == "unconfirmed":
@@ -119,6 +147,36 @@ if MODE == "unconfirmed":
         left, _ = tool("list_variables")
         check(not any(v["name"] == "quick_one" for v in left["variables"]), "unconfirmed: the deleted variable is gone",
               json.dumps(left))
+    kept, err = tool("create_variable", name="kept_one", type="number", value="1")
+    check(kept is not None, "unconfirmed: a variable to keep", err or "")
+
+    # What a run made with a variable is withheld once the app may no longer
+    # use it: here, once it is deleted.
+    temp, err = tool("create_variable", name="temp_secret", type="text", value="hush-hush")
+    probe, _ = tool("create_card", connection_id="mcp-duck", sql="SELECT {{temp_secret}} AS v", name="Temp Probe")
+    ptab, pcard = probe["tab_id"], probe["card"]["id"]
+    ran, err = tool("run_card", tab_id=ptab, card_id=pcard, wait_seconds=10)
+    check(ran is not None and ran.get("result", {}).get("rows") == [["hush-hush"]]
+          and "hush-hush" in ran["card"]["last_run"].get("ran_sql", ""),
+          "withheld: while the variable is the app's to use, its run shows what ran and the rows", err or json.dumps(ran))
+    before, _ = tool("search_history", search="hush", connection_id="mcp-duck")
+    check(len(before["entries"]) == 1, "withheld: and the run is in the history", json.dumps(before))
+    tool("delete_variable", variable_id=temp["variable"]["id"])
+    after, _ = tool("get_card", tab_id=ptab, card_id=pcard)
+    check("ran_sql" not in after["card"].get("last_run", {}) and "temp_secret" in after["card"].get("withheld", "")
+          and "hush-hush" not in json.dumps(after),
+          "withheld: once the variable is gone, the card no longer shows what ran", json.dumps(after))
+    check(after["card"]["sql"] == "SELECT {{temp_secret}} AS v", "withheld: the card's own SQL, with its {{name}}, is still shown")
+    rows, err = tool("get_card_result", tab_id=ptab, card_id=pcard)
+    check(rows is None and "temp_secret" in (err or "") and "hush-hush" not in (err or ""),
+          "withheld: get_card_result is refused", err or json.dumps(rows))
+    listed, _ = tool("list_cards", tab_id=ptab)
+    check("hush-hush" not in json.dumps(listed), "withheld: list_cards does not show it either", json.dumps(listed))
+    later, _ = tool("search_history", search="hush", connection_id="mcp-duck")
+    check(later["entries"] == [], "withheld: and the run has left the history", json.dumps(later))
+    again, err = tool("run_card", tab_id=ptab, card_id=pcard, wait_seconds=10)
+    check(again is None and "temp_secret" in (err or ""), "withheld: the card no longer runs", err or json.dumps(again))
+
     card, err = tool("create_card", connection_id="mcp-duck", sql="DELETE FROM people WHERE id = 1", name="Remove Ada")
     ran, err = tool("run_card", tab_id=card["tab_id"], card_id=card["card"]["id"], wait_seconds=10)
     check(ran is not None and ran.get("status") == "succeeded"
@@ -248,6 +306,29 @@ check(pv and pv[0].get("value") == "2" and variables["values_shared"] is True,
       "list_variables: a local app is given values, as Settings allows local apps", json.dumps(variables))
 
 check(pv and pv[0].get("id"), "list_variables: each variable has an id", json.dumps(variables))
+
+# Each variable's own AI apps choice: a Local app gets the local ones too,
+# and nobody gets the one left Off.
+names = sorted(v["name"] for v in allvars["variables"])
+check(names == ["local_note", "person_id"], "list_variables: a local app sees the variables for all apps and for local apps",
+      str(names))
+check("tok-s3cret" not in json.dumps(allvars), "list_variables: the value of the variable left Off is not in the answer")
+check("only the variables the user shares" in allvars.get("message", "").lower(),
+      "list_variables: says that only shared variables are listed", json.dumps(allvars.get("message")))
+token_card, _ = tool("create_card", tab_id=tab, sql="SELECT {{api_token}} AS t", name="Token Probe")
+refused, err = tool("run_card", tab_id=tab, card_id=token_card["card"]["id"])
+check(refused is None and "api_token" in (err or "") and "not shared" in (err or "") and "s3cret" not in (err or ""),
+      "run_card: a card that uses a variable left Off does not run", err or json.dumps(refused))
+note_card, _ = tool("create_card", tab_id=tab, sql="SELECT {{local_note}} AS n", name="Note Probe")
+noted, err = tool("run_card", tab_id=tab, card_id=note_card["card"]["id"])
+check(noted is not None and noted.get("result", {}).get("rows") == [["for-local"]],
+      "run_card: a local app runs a card that uses a local-only variable", err or json.dumps(noted))
+everything, _ = tool("search_history", limit=200)
+ids = [e["id"] for e in everything["entries"]]
+check("local-note-run" in ids and "shared-run" in ids, "search_history: a local app sees past runs that used its variables",
+      str(ids))
+check("token-run" not in ids and "tok-s3cret" not in json.dumps(everything),
+      "search_history: a past run that used the variable left Off is left out")
 # Refused before any sheet is shown, so none of these needs an answer.
 bad, err = tool("create_variable", name="has space", type="text", value="x")
 check(bad is None and "not a variable name" in (err or ""), "create_variable: a bad name is refused", err or "")

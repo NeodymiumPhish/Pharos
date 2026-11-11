@@ -3,6 +3,7 @@ import Foundation
 /// Which databases an MCP client may reach: only connections whose "AI apps"
 /// choice (`ConnectionConfig.mcpAccess`, off by default) includes the app's
 /// tier, Local or Cloud. The caller turns that into the `allowed` set.
+/// Query variables have the same choice of their own (`allowsVariable`).
 ///
 /// A client reaches a database through more than the connection: through a
 /// tab on it, through cards that ran on it (a tab keeps its cards when it
@@ -35,9 +36,11 @@ enum MCPAccessPolicy {
         !connectionIds.isEmpty && connectionIds.allSatisfy(allowed.contains)
     }
 
-    /// A history entry: the connection it ran on.
-    static func allowsHistoryEntry(connectionId: String, allowed: Set<String>) -> Bool {
-        allowed.contains(connectionId)
+    /// A history entry: the connection it ran on, and no `{{name}}` in it
+    /// that the client may not have filled in (`withheld`, from
+    /// `withheldNames`): the entry's SQL carries the value.
+    static func allowsHistoryEntry(connectionId: String, withheld: [String] = [], allowed: Set<String>) -> Bool {
+        allowed.contains(connectionId) && withheld.isEmpty
     }
 
     /// A query variable: a global one is shared (it names no database); a
@@ -47,6 +50,23 @@ enum MCPAccessPolicy {
         guard !connectionIds.isEmpty else { return (true, []) }
         let links = connectionIds.filter(allowed.contains)
         return (!links.isEmpty, links)
+    }
+
+    /// A query variable a client may use: the user shares it with the app's
+    /// tier (`sharedWithApp`: the variable's own "AI apps" choice, off until
+    /// they choose), and it is global or linked to a shared connection. Both,
+    /// because either can hold a secret: the value, or where it is used.
+    static func allowsVariable(connectionIds: [String], sharedWithApp: Bool, allowed: Set<String>) -> Bool {
+        sharedWithApp && variableLinks(connectionIds, allowed: allowed).shared
+    }
+
+    /// The `{{name}}` tokens of a card or a past run (`referenced`) that the
+    /// client may not have filled in, sorted: every one that is not the name
+    /// of a variable it may use now (`usable`). A name that is no longer
+    /// defined counts, since nothing says what value it stood for. While any
+    /// is left, what the run sent, returned and failed with is withheld.
+    static func withheldNames(referenced: Set<String>, usable: Set<String>) -> [String] {
+        referenced.subtracting(usable).sorted()
     }
 
     /// Whether a client may change or delete a query variable: every

@@ -20,6 +20,9 @@ struct QueryHistoryEntry: Codable, Identifiable {
     /// What the server (or the client) said, on a row whose `status` is not
     /// `ok`. Nil on a successful row.
     let errorMessage: String?
+    /// The pre-substitution `{{var}}` form, when the row keeps one: a card's
+    /// run and a failed run do. `sql` is what was sent, values filled in.
+    let rawSql: String?
 
     /// True when this row has a result behind it. Mirrors
     /// `QueryHistoryEntry::is_ok_status` in
@@ -42,6 +45,7 @@ struct QueryHistoryEntry: Codable, Identifiable {
         tableNames = try c.decodeIfPresent(String.self, forKey: .tableNames)
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? QueryHistoryStatus.ok
         errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
+        rawSql = try c.decodeIfPresent(String.self, forKey: .rawSql)
     }
 }
 

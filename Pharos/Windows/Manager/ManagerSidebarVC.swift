@@ -24,8 +24,19 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
     /// while this is nil.
     var onDelete: (([String]) -> Void)?
     /// The context menu's Duplicate. The item is offered only while this is
-    /// set.
+    /// set, and for one row only.
     var onDuplicate: ((String) -> Void)?
+    /// The user selected several rows (⌘-click, ⇧-click, ⌘A), in the order
+    /// on show. Only with `allowsMultipleSelection`; `onSelect` is not
+    /// called for such a selection, and is again once it is back to one row
+    /// or none.
+    var onSelectMany: (([String]) -> Void)?
+    /// The owner's own items at the top of a row's context menu, for the ids
+    /// the menu acts on: the selection when the clicked row is part of a
+    /// selection of several, else the clicked row alone, as in Finder.
+    var contextMenuItems: (([String]) -> [NSMenuItem])?
+    /// The Delete item's title for that many rows ("Delete 3 Variables").
+    var deleteTitle: (Int) -> String = { _ in String(localized: "Delete") }
     /// A row was dragged to a new place. `to` is the gap it was dropped in,
     /// counted before the move — the convention of
     /// `Array.move(fromOffsets:toOffset:)` and SwiftUI's `onMove`, so an
@@ -57,7 +68,25 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
     }
 
     /// True while a filter is hiding rows (or could be): reordering is off.
-    var isFiltering: Bool { !filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var isFiltering: Bool {
+        ownerIsFiltering || !filterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The owner passes `setItems` only some of its records, or not in its
+    /// stored order (a filter or a sort of its own): an empty list then says
+    /// "No Matches", and rows cannot be dragged to a new place.
+    var ownerIsFiltering = false {
+        didSet {
+            guard ownerIsFiltering != oldValue else { return }
+            reloadShown(scrollToSelection: false)
+        }
+    }
+
+    /// Whether several rows can be selected at once. Off unless the owner
+    /// has something to do with several (the Variable Manager's bulk edit).
+    var allowsMultipleSelection = false {
+        didSet { if isViewLoaded { tableView.allowsMultipleSelection = allowsMultipleSelection } }
+    }
 
     /// True when the filter matches nothing and the one row on show says so.
     var isShowingNoMatches: Bool { isFiltering && shownItems.isEmpty }
@@ -68,15 +97,23 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
     /// selects the row without calling `onSelect` and without taking focus;
     /// an id that is not among the items selects nothing.
     var selectedId: String? {
-        get { keptId }
+        get { keptIds.count == 1 ? keptIds[0] : nil }
+        set { selectedIds = newValue.map { [$0] } ?? [] }
+    }
+
+    /// Every selected record, in the order they were given or picked.
+    /// `selectedId` is nil while there are several.
+    var selectedIds: [String] {
+        get { keptIds }
         set {
-            keptId = newValue.flatMap { id in items.contains { $0.id == id } ? id : nil }
+            let known = Set(items.map(\.id))
+            keptIds = newValue.filter(known.contains)
             guard isViewLoaded else { return }
             syncTableSelection(scroll: true)
         }
     }
 
-    private var keptId: String?
+    private var keptIds: [String] = []
     /// Set while code, not the user, changes the table's selection, so
     /// `tableViewSelectionDidChange` does not report it.
     private var isProgrammaticSelection = false
@@ -109,7 +146,7 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
         // A filter that matches nothing leaves no row to select, and the
         // user may clear the selection by clicking below the rows.
         tableView.allowsEmptySelection = true
-        tableView.allowsMultipleSelection = false
+        tableView.allowsMultipleSelection = allowsMultipleSelection
         tableView.allowsTypeSelect = true
         tableView.usesAutomaticRowHeights = false
         tableView.backgroundColor = .clear
@@ -162,7 +199,8 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
     /// removed it, so the owner decides what the detail shows next).
     func setItems(_ newItems: [ManagerSidebarItem]) {
         items = newItems
-        if let keptId, !newItems.contains(where: { $0.id == keptId }) { self.keptId = nil }
+        let known = Set(newItems.map(\.id))
+        keptIds.removeAll { !known.contains($0) }
         reloadShown(scrollToSelection: false)
     }
 
@@ -190,20 +228,22 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
         syncTableSelection(scroll: scrollToSelection)
     }
 
-    /// Put the table's selection on `keptId`'s row, or on nothing when that
-    /// row is not on show.
+    /// Put the table's selection on the kept records' rows, or on nothing
+    /// when none of them is on show.
     private func syncTableSelection(scroll: Bool) {
         let wasProgrammatic = isProgrammaticSelection
         isProgrammaticSelection = true
         defer { isProgrammaticSelection = wasProgrammatic }
-        if let keptId, let row = shownItems.firstIndex(where: { $0.id == keptId }) {
-            if tableView.selectedRowIndexes != IndexSet(integer: row) {
-                tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            }
-            if scroll { tableView.scrollRowToVisible(row) }
-        } else if !tableView.selectedRowIndexes.isEmpty {
-            tableView.deselectAll(nil)
+        let kept = Set(keptIds)
+        let rows = IndexSet(shownItems.indices.filter { kept.contains(shownItems[$0].id) })
+        if rows.isEmpty {
+            if !tableView.selectedRowIndexes.isEmpty { tableView.deselectAll(nil) }
+            return
         }
+        if tableView.selectedRowIndexes != rows {
+            tableView.selectRowIndexes(rows, byExtendingSelection: false)
+        }
+        if scroll, let first = rows.first { tableView.scrollRowToVisible(first) }
     }
 
     /// The ids of the rows selected AND on show.
@@ -227,15 +267,28 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
         populateContextMenu(menu, forRow: tableView.clickedRow)
     }
 
-    /// The context menu for `row`: Duplicate (when `onDuplicate` is set) and
-    /// Delete (when `onDelete` is set). Empty — so no menu appears — below
-    /// the rows and on the "No Matches" row. Split out of `menuNeedsUpdate`
-    /// because `clickedRow` cannot be set from a test.
+    /// The ids a context menu on `row` acts on: the whole selection when the
+    /// row is part of a selection of several, else that row alone — which
+    /// need not be the selected one, as in Finder.
+    func contextMenuTargetIds(forRow row: Int) -> [String] {
+        guard !isShowingNoMatches, shownItems.indices.contains(row) else { return [] }
+        let id = shownItems[row].id
+        let selected = selectedShownIds
+        return selected.count > 1 && selected.contains(id) ? selected : [id]
+    }
+
+    /// The context menu for `row`: the owner's items (`contextMenuItems`),
+    /// Duplicate (when `onDuplicate` is set, for one row) and Delete (when
+    /// `onDelete` is set). Empty — so no menu appears — below the rows and
+    /// on the "No Matches" row. Split out of `menuNeedsUpdate` because
+    /// `clickedRow` cannot be set from a test.
     func populateContextMenu(_ menu: NSMenu, forRow row: Int) {
         menu.removeAllItems()
-        guard !isShowingNoMatches, shownItems.indices.contains(row) else { return }
-        let id = shownItems[row].id
-        if onDuplicate != nil {
+        let ids = contextMenuTargetIds(forRow: row)
+        guard let id = ids.first else { return }
+        for item in contextMenuItems?(ids) ?? [] { menu.addItem(item) }
+        if onDuplicate != nil, ids.count == 1 {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
             let item = NSMenuItem(title: String(localized: "Duplicate"),
                                   action: #selector(duplicateFromMenu(_:)), keyEquivalent: "")
             item.target = self
@@ -244,10 +297,10 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
         }
         if onDelete != nil {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
-            let item = NSMenuItem(title: String(localized: "Delete"),
+            let item = NSMenuItem(title: deleteTitle(ids.count),
                                   action: #selector(deleteFromMenu(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = id
+            item.representedObject = ids
             menu.addItem(item)
         }
     }
@@ -257,11 +310,10 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
         onDuplicate?(id)
     }
 
-    /// The CLICKED row, which need not be the selected one — the context
-    /// menu acts on what was right-clicked, as in Finder.
+    /// What the menu was opened on (`contextMenuTargetIds`).
     @objc private func deleteFromMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        onDelete?([id])
+        guard let ids = sender.representedObject as? [String], !ids.isEmpty else { return }
+        onDelete?(ids)
     }
 
     // MARK: Reorder
@@ -314,9 +366,13 @@ final class ManagerSidebarVC: NSViewController, NSTableViewDataSource, NSTableVi
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         guard !isProgrammaticSelection else { return }
-        let id = selectedShownIds.first
-        keptId = id
-        onSelect?(id)
+        let ids = selectedShownIds
+        keptIds = ids
+        if ids.count > 1, let onSelectMany {
+            onSelectMany(ids)
+        } else {
+            onSelect?(ids.first)
+        }
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {

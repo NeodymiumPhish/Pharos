@@ -1379,6 +1379,7 @@ pub async fn session_apply_row_updates(request: SessionRowUpdateRequest, state: 
             source: None,
             status: crate::models::HISTORY_STATUS_OK.to_string(),
             error_message: None,
+            raw_sql: None,
         };
         if let Ok(db) = state.metadata_db.lock() {
             if let Err(e) = sqlite::save_query_history(&db, &entry, None, None, None) {

@@ -42,7 +42,7 @@ func writePhase() {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         store.replace([
-            QueryVariable(id: ipId, name: "target_ip", value: "10.0.0.1", type: .text),
+            QueryVariable(id: ipId, name: "target_ip", value: "10.0.0.1", type: .text, mcpAccess: .local),
             QueryVariable(id: noteId, name: "note", value: awkwardValue, type: .literal),
         ])
         expectEqual(posts, 1, "replace posts didChange once")
@@ -68,6 +68,7 @@ func readPhase() {
         expectEqual(store.variables.map(\.name), ["target_ip", "note"], "the names survived")
         expectEqual(store.variables.map(\.value), ["10.0.0.1", awkwardValue], "quote and newline survived")
         expectEqual(store.variables.map(\.type), [.text, .literal], "the types survived")
+        expectEqual(store.variables.map(\.mcpAccess), [.local, .off], "the AI apps choices survived, Off by default")
 
         store.replace([])
         expectEqual(try PharosCore.loadQueryVariables().isEmpty, true, "replace([]) clears the store")

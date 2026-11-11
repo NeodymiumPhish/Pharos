@@ -60,6 +60,32 @@ enum MCPToolHandlers {
         Set(state.connections.filter(shares).map(\.id))
     }
 
+    /// The variables this call's app may have a card on `connectionId` filled
+    /// in with (`MCPVariableAccess`): those the user shares with it, among
+    /// the ones a tab on that connection can use.
+    private static func usableVariables(for connectionId: String?) -> [QueryVariable] {
+        MCPVariableAccess.usable(QueryVariableStore.shared.available(for: connectionId),
+                                 isLocal: isLocal, allowed: allowed)
+    }
+
+    /// The `{{name}}` tokens in `texts` this call's app may not have filled
+    /// in, for something that ran on `connectionId`.
+    private static func withheldNames(in texts: [String?], connectionId: String?) -> [String] {
+        MCPVariableAccess.withheldNames(in: texts, usable: usableVariables(for: connectionId))
+    }
+
+    /// The tokens that keep this call's app from the card's result: those of
+    /// the run that made it, and of the result itself.
+    private static func withheldFromResult(of card: QueryCard, in located: Located) -> [String] {
+        let result = located.session.resultStore[located.tab.id].result(forCard: card.id)
+        return withheldNames(in: [card.lastRun?.rawSQL, result?.rawSQL],
+                             connectionId: card.lastRun?.connectionId ?? located.tab.connectionId)
+    }
+
+    private static func withheldMessage(_ names: [String], what: String) -> String {
+        "\(what) used \(MCPVariableAccess.tokenList(names)), which the user has not shared with this app or which is no longer defined, so Pharos does not show it. The user can share a variable in Pharos's Variable Manager (AI apps)."
+    }
+
     /// The workspace connections of a tab bound to a workspace, nil for one
     /// that is not. Read per call: a run adds to them.
     private static func workspaceConnections(_ workspaceId: String?) -> [String]? {
@@ -270,7 +296,12 @@ enum MCPToolHandlers {
                                                 limit: count, offset: from)
                 filter.status = status
                 return try PharosCore.loadQueryHistory(filter: filter)
-            }, keep: { MCPAccessPolicy.allowsHistoryEntry(connectionId: $0.connectionId, allowed: allowed) })
+            }, keep: { e in
+                // An entry that keeps no `{{name}}` form has no token to go by.
+                MCPAccessPolicy.allowsHistoryEntry(
+                    connectionId: e.connectionId,
+                    withheld: withheldNames(in: [e.rawSql], connectionId: e.connectionId), allowed: allowed)
+            })
         } catch {
             throw MCPToolError.failed("Pharos could not read its query history: \(error.localizedDescription)")
         }
@@ -305,17 +336,19 @@ enum MCPToolHandlers {
         let variables = connectionId.map { store.available(for: $0) } ?? store.variables
         let shareValues = sharesVariableValues
         let allowed = allowed
-        let rows: [JSONValue] = variables.filter { !$0.name.isEmpty }.compactMap { v in
-            // A variable linked only to connections the user has not shared
-            // is not shown; a linked one shows only its shared links.
-            let access = MCPAccessPolicy.variableLinks(v.connectionIds, allowed: allowed)
-            guard access.shared else { return nil }
-            return describe(variable: v, links: access.links, shareValues: shareValues)
+        // A variable the user has not shared with this app, or one linked
+        // only to connections they have not shared, is not shown; a linked
+        // one shows only its shared links.
+        let rows: [JSONValue] = MCPVariableAccess.usable(variables, isLocal: isLocal, allowed: allowed).map { v in
+            describe(variable: v, links: MCPAccessPolicy.variableLinks(v.connectionIds, allowed: allowed).links,
+                     shareValues: shareValues)
         }
         var out: [String: JSONValue] = ["variables": .array(rows), "values_shared": .bool(shareValues)]
+        var notes = ["Only the variables the user shares with this app are listed: they choose each one's AI apps in Pharos's Variable Manager. A card that uses any other {{name}} does not run for this app."]
         if !shareValues {
-            out["message"] = "Values are not shared with this app: the user can allow it in Pharos, Settings ▸ Security & Privacy ▸ AI apps that can read variable values. run_card fills them in either way."
+            notes.append("Values are not shared with this app: the user can allow it in Pharos, Settings ▸ Security & Privacy ▸ AI apps that can read variable values. run_card fills them in either way.")
         }
+        out["message"] = .string(notes.joined(separator: " "))
         return .object(out)
     }
 
@@ -351,7 +384,7 @@ enum MCPToolHandlers {
         let allowed = allowed
         guard let uuid = UUID(uuidString: id),
               let variable = store.variables.first(where: { $0.id == uuid }), !variable.name.isEmpty,
-              MCPAccessPolicy.variableLinks(variable.connectionIds, allowed: allowed).shared else {
+              MCPVariableAccess.allows(variable, isLocal: isLocal, allowed: allowed) else {
             throw MCPToolError.notFound("No variable shared with this app has the id \(id). Call list_variables for the ones you can use.")
         }
         guard MCPAccessPolicy.allowsVariableChange(variable.connectionIds, allowed: allowed) else {
@@ -467,17 +500,21 @@ enum MCPToolHandlers {
         let value = try variableValue(args)
         try checkVariableValue(value, as: type)
         let links = args.has("connection_ids") ? try variableLinks(args) : []
+        // Shared at the level of the app that made it, and no wider: a Local
+        // app's variable does not reach Cloud apps unless the user says so.
+        let access: VariableAIAccess = isLocal ? .local : .all
 
         let who = DisplayEscape.escaped(client.displayName)
         let unasked = try await confirmVariableChange(
             client, message: String(localized: "\(who) wants to create the variable {{\(name)}}"),
             lines: [sheetLine(String(localized: "Type"), to: type.displayName),
                     sheetLine(String(localized: "Value"), to: sheetText(forValue: value)),
-                    sheetLine(String(localized: "Available on"), to: sheetText(forLinks: links))],
+                    sheetLine(String(localized: "Available on"), to: sheetText(forLinks: links)),
+                    sheetLine(String(localized: "AI apps"), to: access.displayLabel)],
             action: String(localized: "Create"), destructive: false)
 
         try checkVariableName(name, in: store.variables, excluding: nil)
-        let variable = QueryVariable(name: name, value: value, type: type, connectionIds: links)
+        let variable = QueryVariable(name: name, value: value, type: type, connectionIds: links, mcpAccess: access)
         try saveVariables(store.variables + [variable], in: store)
         Log.ui.info("MCP client \(client.displayName, privacy: .public) created a variable")
         if unasked { noteUnaskedVariableChange(String(localized: "\(who) created the variable {{\(name)}}.")) }
@@ -650,13 +687,16 @@ enum MCPToolHandlers {
             "has_result": .bool(located.session.resultStore[located.tab.id].result(forCard: card.id)?.hasResult ?? false),
             "is_displayed": .bool(located.tab.document.displayedCardId == card.id),
         ]
+        // What a run sent, returned and failed with carries the values it was
+        // filled in with: withheld while it used a variable this app may not.
+        var withheld = withheldFromResult(of: card, in: located)
         if let run = card.lastRun {
             var r: [String: JSONValue] = [
                 "run_id": .string(run.runId),
                 "finished_at": .string(isoFormatter.string(from: run.finishedAt)),
                 "execution_time_ms": .int(Int(run.executionTimeMs)),
-                "ran_sql": .string(run.renderedSQL),
             ]
+            if withheld.isEmpty { r["ran_sql"] = .string(run.renderedSQL) }
             switch run.summary {
             case let .rows(count, hasMore):
                 r["rows"] = .int(count)
@@ -668,7 +708,12 @@ enum MCPToolHandlers {
         }
         if let failureId = card.lastFailureId,
            let failure = located.tab.failureLog.entries.first(where: { $0.id == failureId }) {
-            o["last_error"] = .string(failure.message)
+            let failed = withheldNames(in: [failure.rawSQL ?? card.sql], connectionId: located.tab.connectionId)
+            if failed.isEmpty { o["last_error"] = .string(failure.message) }
+            withheld = Array(Set(withheld + failed)).sorted()
+        }
+        if !withheld.isEmpty {
+            o["withheld"] = .string(withheldMessage(withheld, what: "This card's last run"))
         }
         if card.resultsRemoved { o["results_removed"] = true }
         return .object(o)
@@ -775,9 +820,11 @@ enum MCPToolHandlers {
         if controller.runPhase(ofCard: cardId, inTab: tabId) == .idle {
             // Checked here as well as in `startJob`, so the client hears why
             // instead of the Variable Manager opening in front of the user.
-            let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: connectionId))
+            // Filled in only with the variables the user shares with this
+            // app: one they do not reads as one that is not defined.
+            let rendered = VariableSubstitutor.render(card.sql, with: usableVariables(for: connectionId))
             if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
-                let parts = rendered.unresolved.map { "{{\($0)}} is not defined for this connection" }
+                let parts = rendered.unresolved.map { "{{\($0)}} is not defined for this connection, or the user has not shared it with this app (Variable Manager, AI apps)" }
                     + rendered.invalid.map { "{{\($0.name)}}: \($0.reason)" }
                 throw MCPToolError.refused("The card's variables cannot be filled in: \(parts.joined(separator: "; ")). Fix them with list_variables and create_variable or update_variable, which the user confirms, or ask the user to in Pharos's Variable Manager.")
             }
@@ -793,6 +840,7 @@ enum MCPToolHandlers {
             runIdsBefore = Set(located.tab.document.cards.compactMap { $0.lastRun?.runId })
             failureBefore = located.tab.document.card(cardId)?.lastFailureId
             controller.agentRunCardIds[cardId] = client
+            if isLocal { controller.agentLocalCardIds.insert(cardId) }
             if state.settings.security.mcpUnconfirmedWrites.allows(isLocal: isLocal) {
                 controller.agentUnconfirmedCardIds.insert(cardId)
             }
@@ -832,14 +880,20 @@ enum MCPToolHandlers {
             if resultCard.id != cardId {
                 out["message"] = .string("The card had run before and its SQL changed, so the result is on a new version: card \(resultCard.id). The old version is locked.")
             }
-            if limit > 0, let result = located.session.resultStore[tabId].result(forCard: resultCard.id) {
+            // A run this call did not start (the user's own, already going)
+            // may have used a variable this app may not: no rows then.
+            if limit > 0, withheldFromResult(of: resultCard, in: located).isEmpty,
+               let result = located.session.resultStore[tabId].result(forCard: resultCard.id) {
                 out["result"] = try await page(of: result, offset: 0, limit: limit, maxCellChars: maxCell)
             }
             return .object(out)
         }
         let current = located.tab.document.card(cardId)
         if let failureId = current?.lastFailureId, failureId != failureBefore {
-            let message = located.tab.failureLog.entries.first { $0.id == failureId }?.message ?? "The run failed."
+            let failure = located.tab.failureLog.entries.first { $0.id == failureId }
+            let failed = withheldNames(in: [failure?.rawSQL ?? current?.sql], connectionId: located.tab.connectionId)
+            let message = failed.isEmpty ? failure?.message ?? "The run failed."
+                : withheldMessage(failed, what: "The run failed. It")
             return [
                 "tab_id": .string(tabId), "card_id": .string(cardId), "status": "failed",
                 "error": .string(message),
@@ -848,7 +902,7 @@ enum MCPToolHandlers {
         }
         return [
             "tab_id": .string(tabId), "card_id": .string(cardId), "status": "cancelled",
-            "message": "The run did not happen: the user cancelled it, or answered Cancel to Pharos's confirmation.",
+            "message": "The run did not happen: the user cancelled it or answered Cancel to Pharos's confirmation, or a variable it uses stopped being shared with this app while it waited.",
             "card": current.map { describe(card: $0, in: located) } ?? .null,
         ]
     }
@@ -856,13 +910,17 @@ enum MCPToolHandlers {
     private static func getCardResult(_ args: MCPArguments) async throws -> JSONValue {
         let located = try locate(try args.string("tab_id"))
         let cardId = try args.string("card_id")
-        _ = try card(cardId, in: located)
+        let card = try card(cardId, in: located)
         let offset = try args.int("offset", default: 0, range: 0...Int(Int32.max))
         let limit = try args.int("limit", default: MCPToolCatalog.defaultRowLimit, range: 1...MCPToolCatalog.maxRowLimit)
         let maxCell = try args.int("max_cell_chars", default: MCPToolCatalog.defaultMaxCellChars,
                                    range: 1...MCPToolCatalog.maxCellChars)
         guard let result = located.session.resultStore[located.tab.id].result(forCard: cardId), result.hasResult else {
             throw MCPToolError.notFound("This card holds no result. Run it with run_card first.")
+        }
+        let withheld = withheldFromResult(of: card, in: located)
+        guard withheld.isEmpty else {
+            throw MCPToolError.refused(withheldMessage(withheld, what: "The run that made this card's result"))
         }
         return [
             "tab_id": .string(located.tab.id), "card_id": .string(cardId),

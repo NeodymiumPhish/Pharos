@@ -39,22 +39,73 @@ Open it with the **Variable Manager** button in the window toolbar (braces, at t
 
 The window has a Liquid Glass **sidebar** on the left and the selected variable's **form** on the right.
 
-- **The sidebar** has one row for each variable: `{{name}}` in a monospaced font (**Untitled** while the name is empty), then the type and a short form of the value — "Number · 42", "Date · Today", "List · 12 items". A linked variable adds the number of its connections ("· 2 connections"). A variable whose value cannot render shows a warning symbol; rest the pointer on it to read the problem.
+- **The sidebar** has one row for each variable: `{{name}}` in a monospaced font (**Untitled** while the name is empty), then the type and a short form of the value — "Number · 42", "Date · Today", "List · 12 items". A linked variable adds the number of its connections ("· 2 connections"). A variable that AI apps can use shows a mark at the right of its row: sparkles for **All approved AI apps**, a Mac for **Local AI apps only**. A variable whose value cannot render shows a warning symbol; rest the pointer on either to read what it means.
 - **+** in the toolbar (**New Variable**) adds a variable and puts the caret in its name. The **Filter** field at the right of the toolbar narrows the sidebar to the rows whose name, type or value preview contains the text (case- and diacritic-insensitive). "No Matches" shows when nothing matches.
-- Right-click a row for **Duplicate** and **Delete**. **Duplicate** adds a copy below the original, named `<name>_copy` (then `_copy2`, `_copy3`…). The **Delete** key, **Edit > Delete** and the **Delete Variable** button at the foot of the form also delete the selected variable. A delete is immediate.
+- The **Sort and Filter** menu beside **+** orders and narrows the sidebar (see [Sort and filter the list](#sort-and-filter-the-list)).
+- Right-click a row for **AI Apps**, **Duplicate** and **Delete**. **AI Apps** sets which AI apps can use the variable (see [AI apps](#ai-apps)). **Duplicate** adds a copy below the original, named `<name>_copy` (then `_copy2`, `_copy3`…), with the same value, connections and AI apps choice. The **Delete** key, **Edit > Delete** and the **Delete Variable** button at the foot of the form also delete the selected variable. A delete of one variable is immediate.
+- Select several rows to change or delete them together (see [Change several variables at once](#change-several-variables-at-once)).
 - A new variable that you leave with an empty name and an empty value is removed when you select another row or close the window.
 
-The form has three boxes:
+The form has four boxes:
 
 - **Variable** — the **Name**, the **Type** pop-up, and for some types a second control: **With time zone** for a Timestamp, **Items are** (Text or Number) for a List.
 - **Value** — the editor for the type (see [Types and Substitution](#types-and-substitution)), then **Renders as**: the SQL that the variable puts into the query, in a monospaced, selectable label. When the value cannot render, **Renders as** says why in red, for example "The value is not a valid number: "4x"." or "Nothing: the value is empty."
 - **Connections** — where the variable applies: **All connections**, or **Only these connections** with a ticked list of your saved connections and the DuckDB files and in-memory databases that are open now. Until you tick one, the variable stays global. A linked connection that was removed shows as **Missing connection**; untick it to remove the link.
+- **AI Apps (MCP)** — which AI apps can use the variable: **Off**, **Local AI apps only** or **All approved AI apps** (see [AI apps](#ai-apps)).
 
 Edits apply as you make them: there is no Save button. The one exception is the name, which is applied when you move to another control or row, or close the window (see [Duplicate Names](#duplicate-names)).
 
 In the editor, typing **`{{`** opens a list of the variables the tab can use, filtered as you type the name. Choosing a variable only writes `{{name}}`. When no variable has the name you typed, the last row creates one: choosing it writes the token **and** opens the new variable in the Variable Manager. Click a `{{name}}` token in the editor at any time to open that variable.
 
 Because the list is shared, an edit in the Variable Manager appears at once in every window's editor highlighting.
+
+### AI apps
+
+A value can be a token, an address or a customer's name, so each variable has its own **AI apps** choice. It decides which apps can use the variable through Pharos's [MCP server](mcp.md):
+
+| Choice | Which apps can use the variable |
+|---|---|
+| **Off** | No AI app. This is the choice of every new variable, and of every variable that you made before this choice existed. |
+| **Local AI apps only** | The apps that you marked **Local** in **Settings ▸ Security & Privacy**: their model runs on this Mac. |
+| **All approved AI apps** | Local and Cloud apps. |
+
+For an app that cannot use a variable:
+
+- The variable does not exist. The app's list of variables leaves it out, and the app cannot change or delete it.
+- A card that uses `{{name}}` does not run for the app. Pharos tells the app that the variable is not defined or not shared, and does not say which.
+- If you ran such a card yourself, the app sees the card's SQL with `{{name}}` in it. It does not see the SQL that ran, the rows, or the error message.
+- Your past runs that used the variable are not in the history that the app can search.
+
+The choice works together with the variable's connections. A linked variable must also be linked to a connection that the app can use.
+
+A variable that an AI app creates is shared at that app's level: **Local AI apps only** for a Local app, **All approved AI apps** for a Cloud app. An app cannot change the choice.
+
+{: .note }
+The choice protects the variable, not text that you type. If you write a value into a card's SQL yourself, an app that can use the tab reads it there.
+
+### Change several variables at once
+
+Select several rows in the sidebar: **Cmd**-click to add a row, **Shift**-click to add a range, or **Cmd+A** for all the rows on show. The form gives way to "3 Variables Selected".
+
+Right-click the selection:
+
+- **AI Apps** sets the choice of every selected variable. A tick marks the choice that they all have, and a dash marks a choice that only some have.
+- **Delete 3 Variables** deletes them. Pharos asks first, because you cannot undo it. The **Delete** key and **Edit > Delete** do the same.
+
+A right-click on a row outside the selection acts on that row alone.
+
+### Sort and filter the list
+
+The **Sort and Filter** menu is beside **+** in the toolbar.
+
+- **Sort By** orders the sidebar: **Order Added** (the default), **Name**, **Type** or **AI Apps**, **Ascending** or **Descending**. Choose the current order again to reverse it. Pharos remembers the order.
+- **Filter ▸ Type** shows the variables of one type.
+- **Filter ▸ AI Apps** shows the variables with one AI apps choice. For example, choose **All approved AI apps** to check what Cloud apps can use.
+- **Clear Filters** shows every variable again.
+
+The menu's button is filled while a filter hides variables. Pharos does not remember the filters, so the window always opens on the whole list. The **Filter** field applies as well: it narrows what the menu's filters leave.
+
+A sort changes only the sidebar. Variables keep the order that they were added in.
 
 ### Change a variable in a tab
 

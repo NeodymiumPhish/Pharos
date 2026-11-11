@@ -353,6 +353,9 @@ final class ManagerSidebarAccessoryView: NSView {
             setAccessibilityLabel(String(localized: "Unsaved changes"))
         case let .statusDot(_, label):
             setAccessibilityLabel(label)
+        case let .symbol(_, label):
+            toolTip = label
+            setAccessibilityLabel(label)
         }
     }
 
@@ -360,7 +363,7 @@ final class ManagerSidebarAccessoryView: NSView {
 
     override var intrinsicContentSize: NSSize {
         switch accessory {
-        case .warning: return NSSize(width: 14, height: 14)
+        case .warning, .symbol: return NSSize(width: 14, height: 14)
         case .unsavedDot, .statusDot: return NSSize(width: 10, height: 10)
         }
     }
@@ -379,6 +382,8 @@ final class ManagerSidebarAccessoryView: NSView {
             return .systemOrange
         case let .statusDot(color, _):
             return color
+        case .symbol:
+            return isOnEmphasizedSelection ? .alternateSelectedControlTextColor : .secondaryLabelColor
         }
     }
 
@@ -397,6 +402,14 @@ final class ManagerSidebarAccessoryView: NSView {
             fillDot(diameter: Self.unsavedDotDiameter, color: paintColor)
         case .statusDot:
             fillDot(diameter: Self.statusDotDiameter, color: paintColor)
+        case let .symbol(name, _):
+            let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [paintColor ?? .secondaryLabelColor]))
+            guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(config) else { return }
+            let size = symbol.size
+            symbol.draw(in: NSRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+                                   width: size.width, height: size.height))
         }
     }
 

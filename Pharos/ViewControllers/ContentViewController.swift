@@ -123,6 +123,10 @@ class ContentViewController: NSViewController {
     /// asking (Settings ▸ Security & Privacy). Decided when the client asks,
     /// since only its own call knows whether the app is Local.
     var agentUnconfirmedCardIds: Set<String> = []
+    /// Those of `agentRunCardIds` whose app the user marked Local. The run is
+    /// filled in only with the variables shared with that tier
+    /// (`MCPVariableAccess`), decided when the client asks, as above.
+    var agentLocalCardIds: Set<String> = []
     /// Tabs whose DuckDB cards changed the catalog since the last refresh (N1).
     private var catalogChangedTabs: Set<String> = []
 
@@ -1756,14 +1760,34 @@ class ContentViewController: NSViewController {
         }
         runningJobs[job.id] = (tabId, nil)
 
-        let rendered = VariableSubstitutor.render(card.sql, with: QueryVariableStore.shared.available(for: connectionId))
+        // A run an MCP client asked for is filled in only with the variables
+        // the user shares with its app. `MCPToolHandlers.runCard` checked that
+        // when it was asked, but the card's SQL or a variable's "AI apps"
+        // choice may have changed while the job waited in the queue.
+        var variables = QueryVariableStore.shared.available(for: connectionId)
+        let askedByAgent = agentRunCardIds[card.id]
+        if askedByAgent != nil {
+            let isLocal = agentLocalCardIds.contains(card.id)
+            variables = MCPVariableAccess.usable(
+                variables, isLocal: isLocal,
+                allowed: MCPVariableAccess.sharedConnectionIds(isLocal: isLocal, connections: stateManager.connections))
+        }
+        let rendered = VariableSubstitutor.render(card.sql, with: variables)
         if !rendered.unresolved.isEmpty || !rendered.invalid.isEmpty {
-            presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: tabId)
+            if let askedByAgent {
+                // Not the Variable Manager in front of the user: they did not
+                // ask for this run. The client reads the card's status.
+                clearAgentMarks(forCard: card.id)
+                showAgentNotice(String(localized: "\(askedByAgent.displayName) could not run a card: it uses a variable that is not shared with it."))
+            } else {
+                presentVariableError(unresolved: rendered.unresolved, invalid: rendered.invalid, tabId: tabId)
+            }
             finishJob(job.id, inTab: tabId, .failed)
             return
         }
         let sql = rendered.sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty, let ticket = tab.document.beginRun(cardId: card.id, mode: job.mode, renderedSQL: sql) else {
+            clearAgentMarks(forCard: card.id)
             finishJob(job.id, inTab: tabId, .failed)
             return
         }
@@ -1771,8 +1795,9 @@ class ContentViewController: NSViewController {
         // Editor-level destructive guard, mirroring the schema browser's.
         // Checked on the rendered SQL so variable values can't sneak past it.
         // A run an MCP client asked for always asks, every kind of statement.
-        let agent = agentRunCardIds.removeValue(forKey: card.id)
-        let unconfirmed = agentUnconfirmedCardIds.remove(card.id) != nil && agent != nil
+        let agent = agentRunCardIds[card.id]
+        let unconfirmed = agentUnconfirmedCardIds.contains(card.id) && agent != nil
+        clearAgentMarks(forCard: card.id)
         if unconfirmed, let agent {
             Log.ui.info("MCP run from \(agent.displayName, privacy: .public) is not confirmed, as Settings allows")
         }
@@ -1994,6 +2019,14 @@ class ContentViewController: NSViewController {
     /// Surface an unresolved/invalid-variable error before a query runs, and
     /// open the Variable Manager so the user can correct it. Variables are app-wide (`QueryVariableStore`), so the fix is made
     /// there, not in the tab.
+    /// Forget that an MCP client asked for `cardId`'s run: its job started,
+    /// failed before it could, or left the queue.
+    private func clearAgentMarks(forCard cardId: String) {
+        agentRunCardIds[cardId] = nil
+        agentUnconfirmedCardIds.remove(cardId)
+        agentLocalCardIds.remove(cardId)
+    }
+
     private func presentVariableError(
         unresolved: [String],
         invalid: [VariableSubstitutor.Invalid],
@@ -3711,15 +3744,19 @@ extension ContentViewController {
     /// it when the entry's stored rows could be read.
     private func openHistoryEntry(_ entry: QueryHistoryEntry, result: QueryResult?, from notification: Notification) {
         // One card holding the entry's SQL, named for its tables. The tab's
-        // name is automatic.
-        var card = QueryCard(name: entry.tableNames, sql: entry.sql)
+        // name is automatic. The `{{name}}` form when the entry keeps one, as
+        // a reopened workspace's cards have: the card then runs with today's
+        // values, and a value the run used is not left in the card's text,
+        // where an AI app the variable is not shared with could read it.
+        let raw = entry.rawSql ?? entry.sql
+        var card = QueryCard(name: entry.tableNames, sql: raw)
         guard let result else {
             _ = open(newTab(document: CardDocument(cards: [card])), from: notification)
             return
         }
         card.colorIndex = 0
         card.lastRun = CardRunRecord(
-            runId: UUID().uuidString, rawSQL: entry.sql, renderedSQL: entry.sql,
+            runId: UUID().uuidString, rawSQL: raw, renderedSQL: entry.sql,
             finishedAt: ISO8601DateFormatter().date(from: entry.executedAt) ?? Date(),
             executionTimeMs: UInt64(entry.executionTimeMs),
             summary: .rows(count: result.rowCount, hasMore: result.hasMore), historyResultId: entry.id,
@@ -5038,8 +5075,7 @@ extension ContentViewController {
     func cancelCard(_ cardId: String, inTab tabId: String) -> CardCancelOutcome {
         if var queue = runQueues[tabId], queue.cancelWaiting(cardId: cardId) {
             runQueues[tabId] = queue
-            agentRunCardIds[cardId] = nil
-            agentUnconfirmedCardIds.remove(cardId)
+            clearAgentMarks(forCard: cardId)
             if editorPane.showsTab(tabId) { editorPane.refreshCards() }
             return .removedFromQueue
         }

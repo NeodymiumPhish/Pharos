@@ -1004,6 +1004,7 @@ mod tests {
             value: value.to_string(),
             kind: "literal".to_string(),
             connection_ids: Vec::new(),
+            mcp_access: None,
         }
     }
 

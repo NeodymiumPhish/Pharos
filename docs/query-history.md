@@ -34,7 +34,7 @@ Result data is cached with each workspace, so reopening usually shows the origin
 
 ## Earlier History
 
-Below the workspaces, an **"Earlier history"** disclosure holds individual query entries that predate workspaces (and auxiliary queries such as chart server-aggregation runs). Each entry shows the column count and table names with the time on the right; hover it for the row count, the connection, and the start of the SQL. Double-click one to open it as a tab with one card — cached results display immediately when available. Right-click for **Copy SQL** or **Delete**; multi-select to batch delete.
+Below the workspaces, an **"Earlier history"** disclosure holds individual query entries that predate workspaces (and auxiliary queries such as chart server-aggregation runs). Each entry shows the column count and table names with the time on the right; hover it for the row count, the connection, and the start of the SQL. Double-click one to open it as a tab with one card — cached results display immediately when available. Right-click for **Copy SQL** or **Delete**; multi-select to batch delete. A query that used [query variables](query-variables.md) opens with its `{{name}}` placeholders, not with the values that it ran with.
 
 ## What Gets Recorded
 

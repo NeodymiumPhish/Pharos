@@ -75,6 +75,85 @@ private func testVariables() {
     expect(MCPAccessPolicy.allowsVariableChange(["A"], allowed: shared), "variable change: linked only to shared connections")
     expect(!MCPAccessPolicy.allowsVariableChange(["A", "B"], allowed: shared), "variable change: also linked to a hidden connection → refused")
     expect(!MCPAccessPolicy.allowsVariableChange(["B"], allowed: shared), "variable change: linked only to a hidden connection → refused")
+
+    // The variable's own AI apps choice, on top of its connections.
+    expect(MCPAccessPolicy.allowsVariable(connectionIds: [], sharedWithApp: true, allowed: shared),
+           "variable: global and shared with the app → usable")
+    expect(!MCPAccessPolicy.allowsVariable(connectionIds: [], sharedWithApp: false, allowed: shared),
+           "variable: global but not shared with the app → hidden")
+    expect(MCPAccessPolicy.allowsVariable(connectionIds: ["A", "B"], sharedWithApp: true, allowed: shared),
+           "variable: shared, and linked to a shared connection → usable")
+    expect(!MCPAccessPolicy.allowsVariable(connectionIds: ["B"], sharedWithApp: true, allowed: shared),
+           "variable: shared, but linked only to hidden connections → hidden")
+    expect(!MCPAccessPolicy.allowsVariable(connectionIds: ["A"], sharedWithApp: false, allowed: shared),
+           "variable: on a shared connection but not shared itself → hidden")
+
+    expect(MCPAccessPolicy.withheldNames(referenced: ["a", "b"], usable: ["a", "b", "c"]).isEmpty,
+           "withheld: every token is a variable the app may use → nothing")
+    expect(MCPAccessPolicy.withheldNames(referenced: ["token", "a", "gone"], usable: ["a"]) == ["gone", "token"],
+           "withheld: a token not shared, and one no longer defined, sorted")
+    expect(MCPAccessPolicy.withheldNames(referenced: [], usable: []).isEmpty, "withheld: no tokens → nothing")
+    expect(MCPAccessPolicy.allowsHistoryEntry(connectionId: "A", withheld: [], allowed: shared),
+           "history: on a shared connection, no withheld token → shown")
+    expect(!MCPAccessPolicy.allowsHistoryEntry(connectionId: "A", withheld: ["token"], allowed: shared),
+           "history: a run that used a variable the app may not → left out")
+    expect(!MCPAccessPolicy.allowsHistoryEntry(connectionId: "B", withheld: [], allowed: shared),
+           "history: on a hidden connection → left out")
+}
+
+/// `MCPVariableAccess`: the tier, the variable's choice and its links
+/// together, and the tokens of a text.
+private func testVariableAccess() {
+    func connection(_ id: String, _ access: MCPScope) -> ConnectionConfig {
+        var c = ConnectionConfig(id: id, name: id, host: "h", port: 5432, database: "d", username: "u")
+        c.mcpAccess = access
+        return c
+    }
+    let connections = [connection("all", .all), connection("local", .local), connection("off", .off)]
+    let cloud = MCPVariableAccess.sharedConnectionIds(isLocal: false, connections: connections)
+    let local = MCPVariableAccess.sharedConnectionIds(isLocal: true, connections: connections)
+    expect(cloud == ["all"], "tier: a Cloud app reaches only the connections for all approved apps", "\(cloud)")
+    expect(local == ["all", "local"], "tier: a Local app reaches those and the local ones", "\(local)")
+
+    let secret = QueryVariable(name: "token", value: "s3cret", type: .text)
+    let forLocal = QueryVariable(name: "region", value: "eu", type: .text, mcpAccess: .local)
+    let forAll = QueryVariable(name: "day", value: "today", type: .date, mcpAccess: .all)
+    let linkedOff = QueryVariable(name: "env", value: "prod", type: .text, connectionIds: ["off"], mcpAccess: .all)
+    let linkedLocal = QueryVariable(name: "host", value: "db", type: .text, connectionIds: ["local", "off"], mcpAccess: .all)
+    let unnamed = QueryVariable(name: "", value: "x", mcpAccess: .all)
+    let all = [secret, forLocal, forAll, linkedOff, linkedLocal, unnamed]
+
+    let cloudNames = MCPVariableAccess.usable(all, isLocal: false, allowed: cloud).map(\.name)
+    let localNames = MCPVariableAccess.usable(all, isLocal: true, allowed: local).map(\.name)
+    expect(cloudNames == ["day"], "usable: a Cloud app gets only what is for all approved apps", "\(cloudNames)")
+    expect(localNames == ["region", "day", "host"], "usable: a Local app also gets the local ones, and a variable linked to a local connection", "\(localNames)")
+    expect(!MCPVariableAccess.allows(secret, isLocal: true, allowed: local), "usable: a variable left Off is nobody's")
+    expect(QueryVariable(name: "new").mcpAccess == .off, "default: a new variable is Off")
+
+    let usable = MCPVariableAccess.usable(all, isLocal: false, allowed: cloud)
+    expect(MCPVariableAccess.withheldNames(in: ["SELECT * FROM t WHERE d = {{day}}"], usable: usable).isEmpty,
+           "tokens: a run that used only shared variables is shown")
+    expect(MCPVariableAccess.withheldNames(in: ["SELECT {{ token }}, {{day}}", nil, "WHERE r = {{region}}"], usable: usable) == ["region", "token"],
+           "tokens: the ones not shared with the app, across the texts")
+    expect(MCPVariableAccess.withheldNames(in: ["SELECT {{deleted_since}}"], usable: usable) == ["deleted_since"],
+           "tokens: a variable that no longer exists is withheld too")
+    expect(MCPVariableAccess.withheldNames(in: ["SELECT 1", nil], usable: []).isEmpty, "tokens: no token, nothing withheld")
+    expect(MCPVariableAccess.tokenList(["a", "b"]) == "{{a}}, {{b}}", "tokens: listed in braces")
+
+    // A run filled in with the usable variables only: the others are undefined.
+    let rendered = VariableSubstitutor.render("SELECT {{token}}, {{day}}", with: usable)
+    expect(rendered.unresolved == ["token"], "render: a variable not shared reads as undefined", "\(rendered.unresolved)")
+
+    // Stored: off is left out of the document, an unknown value reads as off.
+    let json = String(data: try! JSONEncoder().encode([secret, forLocal]), encoding: .utf8)!
+    expect(!json.contains("\"mcpAccess\":\"off\"") && json.contains("\"mcpAccess\":\"local\""),
+           "coding: Off is left out, a choice is written", json)
+    let decoded = try! JSONDecoder().decode([QueryVariable].self, from: Data("""
+        [{"id":"\(UUID().uuidString)","name":"a","mcpAccess":"all"},
+         {"id":"\(UUID().uuidString)","name":"b","mcpAccess":"everyone"},
+         {"id":"\(UUID().uuidString)","name":"c"}]
+        """.utf8))
+    expect(decoded.map(\.mcpAccess) == [.all, .off, .off], "coding: an unknown or missing choice is Off", "\(decoded.map(\.mcpAccess))")
 }
 
 private func testFilteredPage() {
@@ -149,6 +228,7 @@ func runTests() {
     testTabs()
     testSessionsWorkspacesHistory()
     testVariables()
+    testVariableAccess()
     testFilteredPage()
     if failures == 0 { print("\nAll MCP access policy tests passed.") } else { print("\n\(failures) failure(s)."); exit(1) }
 }
