@@ -71,7 +71,8 @@ private func testURLs() {
     let urls = [("repository", AppInfo.repositoryURL),
                 ("help", AppInfo.helpURL),
                 ("keyboard shortcuts", AppInfo.keyboardShortcutsURL),
-                ("release notes", AppInfo.releaseNotesURL)]
+                ("release notes", AppInfo.releaseNotesURL),
+                ("Claude extension", AppInfo.claudeExtensionURL)]
     for (label, url) in urls {
         expectEqual(url.scheme, "https", "the \(label) address is https")
         expectTrue(!(url.host ?? "").isEmpty, "the \(label) address has a host")

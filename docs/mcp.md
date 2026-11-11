@@ -113,13 +113,13 @@ The extension doesn't hold a copy of Pharos. It finds Pharos in
 `Pharos --mcp`. Each member still installs Pharos, turns on
 **Allow AI apps to use Pharos**, and approves Claude in Pharos.
 
-To build the extension, run this with the Pharos that your members use:
+Every release of Pharos has the extension, as `Pharos.mcpb`. To get the newest
+one, click **Download** beside **Claude desktop extension** in **Settings ▸
+Security & Privacy**, or use this link:
 
-```bash
-scripts/build-mcpb.sh /Applications/Pharos.app
-```
+[Pharos.mcpb](https://github.com/NeodymiumPhish/Pharos/releases/latest/download/Pharos.mcpb)
 
-It writes `build/Pharos-<version>.mcpb`. An Owner of the organization then:
+An Owner of the organization then:
 
 1. In Claude, opens **Organization settings ▸ Connectors**, and the **Desktop**
    tab.
@@ -133,8 +133,16 @@ extensions**, or if the Mac has the `isDesktopExtensionEnabled` policy set to
 `false`.
 
 The extension runs whichever Pharos is installed, so most Pharos updates need
-no new extension. When an update adds, removes or renames a tool, build the
+no new extension. When an update adds, removes or renames a tool, download the
 extension again and choose **Upload new version** in its **…** menu.
+
+If you do not use Claude through an organization, you do not need the
+extension: add the `pharos` entry above. You can also open `Pharos.mcpb`
+yourself, and Claude offers to install it.
+
+To build the extension from the source instead, run
+`scripts/build-mcpb.sh /Applications/Pharos.app`. It writes
+`build/Pharos-<version>.mcpb`.
 
 ### LM Studio
 

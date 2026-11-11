@@ -9,6 +9,9 @@
 # can upload it under Claude's Organization settings ▸ Connectors ▸ Desktop,
 # which works where "Allow local MCP servers" is off (docs/mcp.md).
 #
+# The Release workflow runs this on the app it built and attaches the file
+# to the release as Pharos.mcpb.
+#
 # The manifest's version is the app's CFBundleShortVersionString, and its
 # tool list is what that app's bridge answers to tools/list, so the two can't
 # drift. The bridge is pointed at a socket that doesn't exist, so it answers
@@ -28,8 +31,11 @@ BIN="$APP/Contents/MacOS/Pharos"
 command -v npx >/dev/null || { echo "needs npx (brew install node)" >&2; exit 2; }
 MCPB=(npx --yes @anthropic-ai/mcpb@2.1.2)
 
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-OUT="${2:-build/Pharos-$VERSION.mcpb}"
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+OUT="${2:-build/Pharos-$APP_VERSION.mcpb}"
+# The manifest wants SemVer, which forbids leading zeros: 2.8.000 is 2.8.0
+# there, as it is in pharos-core's Cargo.toml (release.yml).
+VERSION="$(echo "$APP_VERSION" | awk -F. '{ printf "%d.%d.%d", $1, $2, $3 }')"
 mkdir -p "$(dirname "$OUT")"
 OUT="$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"
 

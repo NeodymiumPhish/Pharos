@@ -22,6 +22,12 @@ enum AppInfo {
     /// The published releases. Also Help ▸ Release Notes.
     static let releaseNotesURL = URL(string: "https://github.com/NeodymiumPhish/Pharos/releases")!
 
+    /// The Claude desktop extension of the newest release (`Pharos.mcpb`,
+    /// built by scripts/build-mcpb.sh in the Release workflow). GitHub sends
+    /// this address to the latest release's file of that name. Settings ▸
+    /// Security & Privacy ▸ Claude desktop extension.
+    static let claudeExtensionURL = URL(string: "https://github.com/NeodymiumPhish/Pharos/releases/latest/download/Pharos.mcpb")!
+
     /// The repository without its scheme, for a caption that must stay short.
     static let repositoryLabel = "github.com/NeodymiumPhish/Pharos"
 

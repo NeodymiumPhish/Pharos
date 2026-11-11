@@ -105,6 +105,15 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                     kind: .action(title: String(localized: "Copy"), destructive: false) { [weak self] in
                         self?.copyMCPConfiguration()
                     }),
+                SettingsItem(
+                    id: "mcpClaudeExtension",
+                    title: String(localized: "Claude desktop extension"),
+                    caption: String(localized: "For an organization whose Claude does not start local MCP servers. An Owner adds this file in Claude: Organization settings ▸ Connectors ▸ Desktop."),
+                    icon: "puzzlepiece.extension",
+                    help: String(localized: "Downloads Pharos.mcpb from Pharos's latest release on GitHub, in your browser. The extension holds no copy of Pharos: it starts the Pharos installed on each Mac, so everyone who uses it still installs Pharos, turns on Allow AI apps to use Pharos and approves Claude here."),
+                    kind: .action(title: String(localized: "Download"), destructive: false) {
+                        NSWorkspace.shared.open(AppInfo.claudeExtensionURL)
+                    }),
             ]),
             SettingsSection(title: String(localized: "Spotlight"), items: [
                 SettingsItem(

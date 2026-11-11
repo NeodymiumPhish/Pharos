@@ -18,6 +18,10 @@
 brew tap NeodymiumPhish/pharos && brew install --cask pharos
 ```
 
+### Claude desktop extension
+
+Pharos has a built-in [MCP server](https://neodymiumphish.github.io/Pharos/mcp) for AI apps. If your organization's Claude does not start local MCP servers, an Owner can add [Pharos.mcpb](https://github.com/NeodymiumPhish/Pharos/releases/latest/download/Pharos.mcpb) under **Organization settings ▸ Connectors ▸ Desktop**. Each release has the file.
+
 ### Manual Download
 
 Download a `.dmg` from [Releases](https://github.com/NeodymiumPhish/Pharos/releases/latest). The app is unsigned -- after extracting, run:

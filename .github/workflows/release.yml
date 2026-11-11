@@ -147,6 +147,17 @@ jobs:
           echo "$ARCHS" | grep -q arm64 || { echo "Missing arm64"; exit 1; }
           echo "$ARCHS" | grep -q x86_64 || { echo "Missing x86_64"; exit 1; }
 
+      # The Claude desktop extension: a launcher for the installed Pharos,
+      # with this build's version and tool list (scripts/build-mcpb.sh, which
+      # also checks the packed file). One name for every release, so
+      # releases/latest/download/Pharos.mcpb always is the newest — the link
+      # Settings ▸ Security & Privacy and the docs give.
+      - name: Build Claude desktop extension
+        run: |
+          # The script packs with npx (@anthropic-ai/mcpb).
+          command -v npx >/dev/null || brew install node
+          scripts/build-mcpb.sh ./build/Build/Products/Release/Pharos.app Pharos.mcpb
+
       - name: Create DMG
         run: |
           hdiutil create \
@@ -173,6 +184,12 @@ jobs:
           name: dmg
           path: "*.dmg"
 
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcpb
+          path: "Pharos.mcpb"
+
       - name: Upload dSYM artifact
         uses: actions/upload-artifact@v7
         with:
@@ -193,6 +210,11 @@ jobs:
         with:
           name: dmg
 
+      - name: Download extension artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: mcpb
+
       # The tag does not exist yet: GitHub makes it on the commit the build
       # job built. A tag made with GITHUB_TOKEN starts no workflow.
       - name: Create GitHub Release
@@ -200,7 +222,9 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
-          files: "*.dmg"
+          files: |
+            *.dmg
+            Pharos.mcpb
           generate_release_notes: true
 
       - name: Trigger Homebrew tap update
