@@ -10,90 +10,6 @@
     " (more available)" : {
 
     },
-    "—" : {
-
-    },
-    ", %lld with saved passwords" : {
-
-    },
-    ", with %@" : {
-
-    },
-    "“%@” can’t be found." : {
-
-    },
-    "“%@” has an open transaction." : {
-
-    },
-    "“%@” has no Sessions to export." : {
-
-    },
-    "“%@” is in use by %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "“%1$@” is in use by %2$@."
-          }
-        }
-      }
-    },
-    "“%@” is in use by another app." : {
-
-    },
-    "“%@” is not a DuckDB or SQLite database." : {
-
-    },
-    "“%@” is open in Pharos." : {
-
-    },
-    "“%@” returned %@." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "“%1$@” returned %2$@."
-          }
-        }
-      }
-    },
-    "“%@” was written by a newer DuckDB, which this version of Pharos cannot open." : {
-
-    },
-    "(%@, %@)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "(%1$@, %2$@)"
-          }
-        }
-      }
-    },
-    "(%@, %@) · %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "(%1$@, %2$@) · %3$@"
-          }
-        }
-      }
-    },
-    "(empty)" : {
-
-    },
-    "{{%@}} is linked to %@, not to this tab's connection." : {
-      "comment" : "Run error: the variable exists but is linked to other connections.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "{{%1$@}} is linked to %2$@, not to this tab's connection."
-          }
-        }
-      }
-    },
     "% of memory" : {
 
     },
@@ -106,47 +22,6 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@  %2$@"
-          }
-        }
-      }
-    },
-    "%@ - %@" : {
-      "comment" : "A query tab's automatic name: the connection, then the schema.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ - %2$@"
-          }
-        }
-      }
-    },
-    "%@ – %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ – %2$@"
-          }
-        }
-      }
-    },
-    "%@ · %@ — %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · %2$@ — %3$@"
-          }
-        }
-      }
-    },
-    "%@ · Exported %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ · Exported %2$@"
           }
         }
       }
@@ -172,6 +47,20 @@
         }
       }
     },
+    "%@ - %@" : {
+      "comment" : "A query tab's automatic name: the connection, then the schema.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ - %2$@"
+          }
+        }
+      }
+    },
+    "%@ Copy" : {
+      "comment" : "The name of a duplicated tab."
+    },
     "%@ added a card." : {
 
     },
@@ -188,8 +77,11 @@
         }
       }
     },
-    "%@ Copy" : {
-      "comment" : "The name of a duplicated tab."
+    "%@ could not run a card: it does more than read the database." : {
+
+    },
+    "%@ could not run a card: it uses a variable that is not shared with it." : {
+
     },
     "%@ created the variable {{%@}}." : {
       "localizations" : {
@@ -338,6 +230,39 @@
     "%@ will be read by the model on this Mac. Nothing leaves this Mac." : {
 
     },
+    "%@ · %@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ — %3$@"
+          }
+        }
+      }
+    },
+    "%@ · Exported %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Exported %2$@"
+          }
+        }
+      }
+    },
+    "%@ – %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ – %2$@"
+          }
+        }
+      }
+    },
+    "%@+ rows" : {
+
+    },
     "%@, %@ of the plan" : {
       "localizations" : {
         "en" : {
@@ -368,8 +293,11 @@
         }
       }
     },
-    "%@+ rows" : {
+    "%lld Sessions" : {
 
+    },
+    "%lld Variables Selected" : {
+      "comment" : "Variable Manager: the detail while several rows are selected. The count is 2 or more."
     },
     "%lld added" : {
 
@@ -493,9 +421,6 @@
     "%lld saved Sessions" : {
 
     },
-    "%lld Sessions" : {
-
-    },
     "%lld spaces" : {
 
     },
@@ -532,23 +457,36 @@
     "%llu rows were skipped." : {
 
     },
-    "^[%lld %@](inflect: true)" : {
+    "(%@, %@)" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "^[%1$lld %2$@](inflect: true)"
+            "value" : "(%1$@, %2$@)"
           }
         }
       }
     },
+    "(%@, %@) · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "(%1$@, %2$@) · %3$@"
+          }
+        }
+      }
+    },
+    "(empty)" : {
+
+    },
     "+%lld more" : {
 
     },
-    "~/Data/sales.duckdb" : {
+    ", %lld with saved passwords" : {
 
     },
-    "⌘↩ runs" : {
+    ", with %@" : {
 
     },
     "0 draws all of them. Copy, export, find and sort always use the whole value." : {
@@ -572,6 +510,9 @@
     "0 turns Pharos's timeout off: a query then runs until it ends or you cancel it. On PostgreSQL the server's own statement_timeout still applies." : {
 
     },
+    "1 Session" : {
+
+    },
     "1 earlier version of %@" : {
 
     },
@@ -593,16 +534,25 @@
     "1 row exported." : {
 
     },
-    "1 Session" : {
+    "1,000 only" : {
 
     },
-    "1,000 only" : {
+    "10 / 100 / 1,000 / 10,000" : {
+
+    },
+    "10 / 50 / 100 / 500" : {
+
+    },
+    "100 / 1,000 / 10,000 / 100,000" : {
 
     },
     "2 spaces" : {
 
     },
     "3 spaces" : {
+
+    },
+    "30 days" : {
 
     },
     "4 spaces" : {
@@ -614,19 +564,22 @@
     "8 spaces" : {
 
     },
-    "10 / 50 / 100 / 500" : {
-
-    },
-    "10 / 100 / 1,000 / 10,000" : {
-
-    },
-    "30 days" : {
-
-    },
     "90 days" : {
 
     },
-    "100 / 1,000 / 10,000 / 100,000" : {
+    "A DuckDB database reads these when it opens. To change one that is open, run SET memory_limit = '4GB' or SET threads = 4 in a card. Each open database has its own limit, so several open databases can use more in all." : {
+
+    },
+    "A Partitions folder under each partitioned table." : {
+
+    },
+    "A Session can keep %@ of results. The queries were saved; run them again after you open the Session." : {
+
+    },
+    "A Session named '%@' already exists in this folder." : {
+
+    },
+    "A TSV export always uses a tab, whatever this says." : {
 
     },
     "A banner shows while a tab has a transaction open. 0 turns the timeout off; a forgotten transaction then holds its locks until you commit, roll back or close the tab." : {
@@ -647,9 +600,6 @@
     "A copy also carries the TSV form, so a paste into a spreadsheet lands as a table whichever this says." : {
 
     },
-    "A DuckDB database reads these when it opens. To change one that is open, run SET memory_limit = '4GB' or SET threads = 4 in a card. Each open database has its own limit, so several open databases can use more in all." : {
-
-    },
     "A faint wash behind the line holding the caret." : {
 
     },
@@ -663,9 +613,6 @@
 
     },
     "A log scale needs every value above zero." : {
-
-    },
-    "A Partitions folder under each partitioned table." : {
 
     },
     "A password you type into a connection that does not remember it is held until Pharos quits." : {
@@ -695,12 +642,6 @@
     "A sentence above an EXPLAIN result saying what the planner chose." : {
 
     },
-    "A Session can keep %@ of results. The queries were saved; run them again after you open the Session." : {
-
-    },
-    "A Session named '%@' already exists in this folder." : {
-
-    },
     "A shorter region gets no chevron." : {
 
     },
@@ -713,9 +654,6 @@
     "A tag marks the rows whose values match its rules — an address, a CIDR range, a number, a date." : {
       "comment" : "Tag Manager: the empty state's message."
     },
-    "A TSV export always uses a tab, whatever this says." : {
-
-    },
     "A variable is a named value that a query uses as {{name}} — text, a number, a date, a list." : {
       "comment" : "Variable Manager: the empty state's message."
     },
@@ -723,6 +661,36 @@
 
     },
     "A year" : {
+
+    },
+    "AI Apps" : {
+
+    },
+    "AI Apps (MCP)" : {
+
+    },
+    "AI apps" : {
+
+    },
+    "AI apps on this Mac that speak the Model Context Protocol (Claude, LM Studio and others) can list your connections and Sessions, add query cards to your tabs, run them and read their results. Everything they do appears in the Pharos window. They connect through a file only your user account can open; nothing listens on the network." : {
+
+    },
+    "AI apps that can change data" : {
+
+    },
+    "AI apps that can change data without asking" : {
+
+    },
+    "AI apps that can change variables without asking" : {
+
+    },
+    "AI apps that can read variable values" : {
+
+    },
+    "AI apps: %@" : {
+      "comment" : "Variable Manager: a sidebar row's mark; the argument is the AI apps choice."
+    },
+    "ALTER" : {
 
     },
     "About" : {
@@ -758,19 +726,10 @@
     "Add 1 Rule" : {
 
     },
-    "Add a cloud credential" : {
-
-    },
-    "Add color" : {
-
-    },
     "Add Column" : {
 
     },
     "Add Credential" : {
-
-    },
-    "Add rules from a list of values" : {
 
     },
     "Add Tag…" : {
@@ -780,6 +739,15 @@
 
     },
     "Add Values…" : {
+
+    },
+    "Add a cloud credential" : {
+
+    },
+    "Add color" : {
+
+    },
+    "Add rules from a list of values" : {
 
     },
     "Adds a card that creates a table from this query. Edit its name, then run it." : {
@@ -797,40 +765,22 @@
     "Aggregate on server" : {
 
     },
-    "AI apps" : {
-
-    },
-    "AI Apps (MCP)" : {
-
-    },
-    "AI apps on this Mac that speak the Model Context Protocol (Claude, LM Studio and others) can list your connections and Sessions, add query cards to your tabs, run them and read their results. Everything they do appears in the Pharos window. They connect through a file only your user account can open; nothing listens on the network." : {
-
-    },
-    "AI apps that can change data" : {
-
-    },
-    "AI apps that can change data without asking" : {
-
-    },
-    "AI apps that can change variables without asking" : {
-
-    },
-    "AI apps that can read variable values" : {
-
-    },
     "All" : {
-
-    },
-    "All approved AI apps" : {
 
     },
     "All Cards" : {
 
     },
-    "All connections" : {
+    "All Schemas" : {
 
     },
-    "All Schemas" : {
+    "All Types" : {
+
+    },
+    "All approved AI apps" : {
+
+    },
+    "All connections" : {
 
     },
     "Allow AI apps to use Pharos" : {
@@ -852,9 +802,6 @@
 
     },
     "Also guards the destructive actions in the Database Navigator." : {
-
-    },
-    "ALTER" : {
 
     },
     "Alternating row colours" : {
@@ -882,6 +829,12 @@
 
     },
     "Another app is using the file for “%@”. Click Open Read-Only above the cards, or quit that app and choose File ▸ Connect." : {
+
+    },
+    "Any Choice" : {
+      "comment" : "Variable Manager: the AI apps filter that hides nothing."
+    },
+    "Anything but a read of the database: a statement that changes data or settings, more than one statement, or one that reads or writes a file or another server. Other apps are refused; these still confirm each run in Pharos." : {
 
     },
     "Appearance" : {
@@ -941,6 +894,9 @@
 
     },
     "As returned draws exactly what the server sent." : {
+
+    },
+    "Ascending" : {
 
     },
     "Ask the on-device model which chart fits this result." : {
@@ -1010,12 +966,6 @@
     "Badge the Dock icon" : {
 
     },
-    "bands" : {
-
-    },
-    "bastion.example.com or a Host from ~/.ssh/config" : {
-
-    },
     "Between probes" : {
 
     },
@@ -1038,6 +988,21 @@
 
     },
     "Built-in extensions" : {
+
+    },
+    "COPY data" : {
+
+    },
+    "CSV" : {
+
+    },
+    "CSV File:" : {
+
+    },
+    "CSV Format" : {
+
+    },
+    "CSV file has headers" : {
 
     },
     "Cached schema metadata cleared." : {
@@ -1073,19 +1038,19 @@
     "Cannot render: %@" : {
 
     },
-    "cannot run" : {
-
-    },
     "Card %lld" : {
 
     },
     "Card height" : {
 
     },
-    "Cards that use {{%@}} are not rewritten." : {
+    "Cards that use it cannot run until it is defined again." : {
 
     },
-    "Cards that use it cannot run until it is defined again." : {
+    "Cards that use them cannot run until the variables are defined again. You can’t undo this." : {
+
+    },
+    "Cards that use {{%@}} are not rewritten." : {
 
     },
     "Category" : {
@@ -1124,6 +1089,9 @@
     "Charts" : {
 
     },
+    "Check Now" : {
+
+    },
     "Check before running: %@" : {
 
     },
@@ -1134,9 +1102,6 @@
 
     },
     "Check now" : {
-
-    },
-    "Check Now" : {
 
     },
     "Checked recently." : {
@@ -1154,16 +1119,19 @@
     "Choose" : {
 
     },
-    "Choose a connection for this tab to start." : {
+    "Choose CSV, JSON, Parquet or Excel files to query in place." : {
+
+    },
+    "Choose Connection" : {
+
+    },
+    "Choose Connection…" : {
+
+    },
+    "Choose File…" : {
 
     },
     "Choose a CSV, JSON, Parquet or Excel file to make a table from." : {
-
-    },
-    "Choose a database file, or add a PostgreSQL connection in Manage Connections…" : {
-
-    },
-    "Choose a database for this tab." : {
 
     },
     "Choose a DuckDB database file to open" : {
@@ -1175,10 +1143,19 @@
     "Choose a DuckDB or SQLite database to attach." : {
 
     },
-    "Choose a file made with File ▸ Export App Data…" : {
+    "Choose a SQL file, a DuckDB database or a data file." : {
 
     },
-    "Choose a SQL file, a DuckDB database or a data file." : {
+    "Choose a connection for this tab to start." : {
+
+    },
+    "Choose a database file, or add a PostgreSQL connection in Manage Connections…" : {
+
+    },
+    "Choose a database for this tab." : {
+
+    },
+    "Choose a file made with File ▸ Export App Data…" : {
 
     },
     "Choose at least one kind of data to export." : {
@@ -1187,16 +1164,7 @@
     "Choose at least one kind of data to import." : {
 
     },
-    "Choose Connection" : {
-
-    },
-    "Choose Connection…" : {
-
-    },
-    "Choose CSV, JSON, Parquet or Excel files to query in place." : {
-
-    },
-    "Choose File…" : {
+    "Choose the PEM root certificate for this connection." : {
 
     },
     "Choose the export options for %@.%@." : {
@@ -1208,9 +1176,6 @@
           }
         }
       }
-    },
-    "Choose the PEM root certificate for this connection." : {
-
     },
     "Choose the private key file for this tunnel." : {
 
@@ -1242,7 +1207,10 @@
     "Chosen folder" : {
 
     },
-    "Clear all query history?" : {
+    "Claude desktop extension" : {
+
+    },
+    "Clear Filters" : {
 
     },
     "Clear History" : {
@@ -1260,10 +1228,19 @@
     "Clear Results" : {
 
     },
+    "Clear all query history?" : {
+
+    },
     "Cleared when you come back." : {
 
     },
     "Cloning…" : {
+
+    },
+    "Close Tab" : {
+
+    },
+    "Close Window" : {
 
     },
     "Close brackets automatically" : {
@@ -1278,13 +1255,7 @@
     "Close quotes automatically" : {
 
     },
-    "Close Tab" : {
-
-    },
     "Close the completion list" : {
-
-    },
-    "Close Window" : {
 
     },
     "Closing rolls them back." : {
@@ -1309,9 +1280,6 @@
 
     },
     "Collapse Card" : {
-
-    },
-    "collapsed" : {
 
     },
     "Collect performance reports" : {
@@ -1344,10 +1312,10 @@
     "Commit" : {
 
     },
-    "Commit every" : {
+    "Commit Transaction" : {
 
     },
-    "Commit Transaction" : {
+    "Commit every" : {
 
     },
     "Compact" : {
@@ -1389,9 +1357,6 @@
     "Connect timeout" : {
 
     },
-    "connect to %@" : {
-
-    },
     "Connect to a database to apply changes." : {
 
     },
@@ -1428,10 +1393,10 @@
     "Connection" : {
 
     },
-    "Connection failed" : {
+    "Connection Pool" : {
 
     },
-    "Connection Pool" : {
+    "Connection failed" : {
 
     },
     "Connection reset" : {
@@ -1440,16 +1405,13 @@
     "Connections" : {
 
     },
-    "Connections are written with their passwords, so the file is always encrypted." : {
-
-    },
     "Connections Manager" : {
 
     },
-    "Connections per database" : {
+    "Connections are written with their passwords, so the file is always encrypted." : {
 
     },
-    "connections that no longer exist" : {
+    "Connections per database" : {
 
     },
     "Connections, saved queries, history and tags stay." : {
@@ -1467,25 +1429,19 @@
     "Control-Space always opens it, whichever this says. It never opens inside a string or a comment." : {
 
     },
+    "Control-click the selection to choose its AI apps, or to delete it." : {
+
+    },
     "Copy" : {
 
     },
-    "Copy “%@” to main" : {
-
-    },
     "Copy %@ to main" : {
-
-    },
-    "COPY data" : {
 
     },
     "Copy Error" : {
 
     },
     "Copy Generated SQL" : {
-
-    },
-    "Copy into Table…" : {
 
     },
     "Copy Path" : {
@@ -1500,6 +1456,9 @@
     "Copy SQL" : {
 
     },
+    "Copy into Table…" : {
+
+    },
     "Copy the server's EXPLAIN (FORMAT JSON) output." : {
 
     },
@@ -1509,18 +1468,11 @@
     "Copy with ⌘C" : {
 
     },
-    "Cost" : {
+    "Copy “%@” to main" : {
 
     },
-    "cost %@, %@ of the plan" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "cost %1$@, %2$@ of the plan"
-          }
-        }
-      }
+    "Cost" : {
+
     },
     "Could not check: %@" : {
 
@@ -1534,16 +1486,16 @@
     "Could not detach “%@”" : {
 
     },
-    "Couldn’t Read the Schemas" : {
+    "Couldn't save “%@”" : {
 
     },
-    "Couldn’t read the tables" : {
+    "Couldn’t Read the Schemas" : {
 
     },
     "Couldn’t Read the Tables in %@" : {
 
     },
-    "Couldn't save “%@”" : {
+    "Couldn’t read the tables" : {
 
     },
     "Counts the queries that finished while you were in another app, whatever the gates above say." : {
@@ -1561,28 +1513,25 @@
     "Create Table" : {
 
     },
-    "CSV" : {
-
-    },
-    "CSV file has headers" : {
-
-    },
-    "CSV File:" : {
-
-    },
-    "CSV Format" : {
-
-    },
     "Custom delimiter" : {
-
-    },
-    "Custom…" : {
 
     },
     "Customize Toolbar…" : {
 
     },
+    "Custom…" : {
+
+    },
     "Cut" : {
+
+    },
+    "DEFAULT SERIES PALETTE" : {
+
+    },
+    "DELETE" : {
+
+    },
+    "DROP" : {
 
     },
     "Daily" : {
@@ -1612,13 +1561,13 @@
     "Dates and times" : {
 
     },
-    "db.example.com or 10.0.0.5" : {
-
-    },
     "Debug" : {
 
     },
     "Decrease Editor Font" : {
+
+    },
+    "Default Schema" : {
 
     },
     "Default folder" : {
@@ -1630,22 +1579,13 @@
     "Default port" : {
 
     },
-    "Default Schema" : {
-
-    },
     "Default schema first" : {
 
     },
     "Default schema first lifts the schema the connection names to the top, and leaves the rest by name." : {
 
     },
-    "DEFAULT SERIES PALETTE" : {
-
-    },
     "Delete" : {
-
-    },
-    "DELETE" : {
 
     },
     "Delete %lld Sessions" : {
@@ -1653,6 +1593,12 @@
     },
     "Delete %lld Sessions?" : {
 
+    },
+    "Delete %lld Variables" : {
+      "comment" : "Variable Manager: the context menu of a selection of several."
+    },
+    "Delete %lld variables?" : {
+      "comment" : "Variable Manager: confirming a bulk delete. The count is 2 or more."
     },
     "Delete Card" : {
 
@@ -1667,6 +1613,9 @@
 
     },
     "Density" : {
+
+    },
+    "Descending" : {
 
     },
     "Describe" : {
@@ -1744,6 +1693,12 @@
     "Double-clicking a column's right edge always re-fits it, whichever this says." : {
 
     },
+    "Download" : {
+
+    },
+    "Downloads Pharos.mcpb from Pharos's latest release on GitHub, in your browser. The extension holds no copy of Pharos: it starts the Pharos installed on each Mac, so everyone who uses it still installs Pharos, turns on Allow AI apps to use Pharos and approves Claude here." : {
+
+    },
     "Draft" : {
 
     },
@@ -1768,13 +1723,13 @@
     "Drill: %@" : {
 
     },
-    "DROP" : {
-
-    },
     "DuckDB" : {
 
     },
     "DuckDB %@ with the icu, inet, fts, excel, sqlite, postgres, httpfs, json, parquet and autocomplete extensions, and duckdb-rs. MIT License, Stichting DuckDB Foundation." : {
+
+    },
+    "DuckDB Files" : {
 
     },
     "DuckDB file · %@ · %@" : {
@@ -1786,9 +1741,6 @@
           }
         }
       }
-    },
-    "DuckDB Files" : {
-
     },
     "DuckDB has no savepoints. An error while a statement runs, a table or column that does not exist, or Cancel, fails the whole transaction. Syntax errors do not." : {
 
@@ -1832,12 +1784,6 @@
     "Edit the selected cell" : {
 
     },
-    "Edit…" : {
-
-    },
-    "edited since run" : {
-
-    },
     "Edited since run" : {
 
     },
@@ -1848,6 +1794,9 @@
 
     },
     "Editor tab connections per connection" : {
+
+    },
+    "Edit…" : {
 
     },
     "Empty for AWS" : {
@@ -1889,9 +1838,6 @@
     "Enter a port from 1 to 65535." : {
 
     },
-    "Enter the password for “%@”." : {
-
-    },
     "Enter the SSH key passphrase for %@, the tunnel “%@” connects through." : {
       "localizations" : {
         "en" : {
@@ -1912,7 +1858,7 @@
         }
       }
     },
-    "entries" : {
+    "Enter the password for “%@”." : {
 
     },
     "Entries to keep" : {
@@ -1940,9 +1886,6 @@
         }
       }
     },
-    "every %@ path" : {
-
-    },
     "Every 10 seconds" : {
 
     },
@@ -1950,9 +1893,6 @@
 
     },
     "Every action but Expand runs exactly what the row's context menu runs." : {
-
-    },
-    "every connection" : {
 
     },
     "Every line becomes a rule." : {
@@ -1988,9 +1928,6 @@
     "Expand or collapse" : {
 
     },
-    "expanded" : {
-
-    },
     "Expands the schema the connection names — or public, when it names none — as soon as the tree is built." : {
 
     },
@@ -2000,10 +1937,10 @@
     "Explain Analyze runs the statement." : {
 
     },
-    "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model." : {
+    "Explain Query" : {
 
     },
-    "Explain Query" : {
+    "Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model." : {
 
     },
     "Explain query errors" : {
@@ -2015,13 +1952,13 @@
     "Export" : {
 
     },
-    "Export & Import" : {
-
-    },
     "Export %@" : {
 
     },
     "Export %@ as a Parquet file." : {
+
+    },
+    "Export & Import" : {
 
     },
     "Export All Rows as Excel…" : {
@@ -2036,13 +1973,7 @@
     "Export App Data…" : {
 
     },
-    "Export as Parquet…" : {
-
-    },
     "Export Data" : {
-
-    },
-    "Export finished" : {
 
     },
     "Export Query as SQL File…" : {
@@ -2051,10 +1982,10 @@
     "Export Table" : {
 
     },
-    "export your saved connection passwords" : {
+    "Export as Parquet…" : {
 
     },
-    "Export…" : {
+    "Export finished" : {
 
     },
     "Exporting: %@ rows" : {
@@ -2063,7 +1994,7 @@
     "Exporting…" : {
 
     },
-    "failed" : {
+    "Export…" : {
 
     },
     "Failed" : {
@@ -2099,6 +2030,12 @@
     "Filter Cards" : {
 
     },
+    "Filter Results…" : {
+
+    },
+    "Filter Sidebar" : {
+
+    },
     "Filter in Navigator" : {
 
     },
@@ -2108,16 +2045,19 @@
     "Filter options, showing %@" : {
 
     },
-    "Filter Results…" : {
-
-    },
-    "Filter Sidebar" : {
-
-    },
     "Filter the sidebar list" : {
 
     },
     "Find" : {
+
+    },
+    "Find Next" : {
+
+    },
+    "Find Options" : {
+
+    },
+    "Find Previous" : {
 
     },
     "Find and Replace…" : {
@@ -2129,25 +2069,16 @@
     "Find in Query Cards" : {
 
     },
-    "Find Next" : {
-
-    },
-    "Find Options" : {
-
-    },
     "Find or Replace" : {
-
-    },
-    "Find Previous" : {
 
     },
     "Find saved queries in Spotlight" : {
 
     },
-    "Find…" : {
+    "Finding tables…" : {
 
     },
-    "Finding tables…" : {
+    "Find…" : {
 
     },
     "Fit" : {
@@ -2183,6 +2114,9 @@
     "Font" : {
 
     },
+    "For an organization whose Claude does not start local MCP servers. An Owner adds this file in Claude: Organization settings ▸ Connectors ▸ Desktop." : {
+
+    },
     "Forever" : {
 
     },
@@ -2213,7 +2147,7 @@
     "From ~/.ssh/config" : {
 
     },
-    "from the SQL before the edit" : {
+    "GRANT and REVOKE" : {
 
     },
     "General" : {
@@ -2234,9 +2168,6 @@
     "Google Cloud Storage" : {
 
     },
-    "GRANT and REVOKE" : {
-
-    },
     "Green" : {
       "comment" : "Tag colour name."
     },
@@ -2253,12 +2184,6 @@
 
     },
     "Grouped adds your region's thousands separators." : {
-
-    },
-    "has notes" : {
-
-    },
-    "has results" : {
 
     },
     "Hash Cond" : {
@@ -2309,6 +2234,9 @@
     "Host" : {
 
     },
+    "How NULL renders in the grid and the Inspector." : {
+
+    },
     "How a NULL is set apart from a real value. Differentiate Without Color keeps the italic face whatever this says." : {
 
     },
@@ -2357,9 +2285,6 @@
     "How much the database engine writes to the system log." : {
 
     },
-    "How NULL renders in the grid and the Inspector." : {
-
-    },
     "How often the open tabs are written down. Off still saves at quit, so turning it off does not lose the session." : {
 
     },
@@ -2370,6 +2295,12 @@
 
     },
     "How the find field matches a cell. An expression that cannot be read turns the field red and matches nothing." : {
+
+    },
+    "INSERT" : {
+
+    },
+    "ISO 8601" : {
 
     },
     "Idle transaction timeout" : {
@@ -2405,11 +2336,11 @@
     "Importing…" : {
 
     },
-    "In memory" : {
-      "comment" : "Where an in-memory DuckDB database is, in the connection pop-up."
-    },
     "In Pharos, choose Settings ▸ Security & Privacy ▸ AI Apps, and set %@ to Local or Cloud." : {
 
+    },
+    "In memory" : {
+      "comment" : "Where an in-memory DuckDB database is, in the connection pop-up."
     },
     "In the editor and the results. Off follows the system's scroll-bar preference." : {
 
@@ -2423,10 +2354,10 @@
     "In-memory" : {
 
     },
-    "In-memory database" : {
+    "In-memory DuckDB" : {
 
     },
-    "In-memory DuckDB" : {
+    "In-memory database" : {
 
     },
     "Include a header row" : {
@@ -2462,9 +2393,6 @@
     "Insert" : {
 
     },
-    "INSERT" : {
-
-    },
     "Insert Anyway" : {
 
     },
@@ -2486,16 +2414,10 @@
     "Insert this draft?" : {
 
     },
-    "INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE and GRANT. Other apps are refused; these still confirm each run in Pharos." : {
-
-    },
     "Intelligence" : {
 
     },
     "Invalid pattern" : {
-
-    },
-    "ISO 8601" : {
 
     },
     "It changes nothing about the connections you already have." : {
@@ -2549,9 +2471,6 @@
     "Jump to Selection" : {
 
     },
-    "just now" : {
-
-    },
     "Keep Comments in Query" : {
 
     },
@@ -2570,22 +2489,22 @@
     "Keeps the database in memory only. Its tables are lost when the connection closes or Pharos quits." : {
 
     },
-    "Key binding" : {
-
-    },
     "Key File" : {
 
     },
     "Key ID" : {
 
     },
+    "Key binding" : {
+
+    },
+    "Keyboard Shortcuts" : {
+
+    },
     "Keyboard shortcut" : {
 
     },
     "Keyboard shortcuts" : {
-
-    },
-    "Keyboard Shortcuts" : {
 
     },
     "Keys for s3://, r2:// and gcs:// paths. Each becomes a temporary secret of every DuckDB database when it opens." : {
@@ -2612,10 +2531,10 @@
     "Leave empty for the connection's default schema." : {
 
     },
-    "Leave it empty for half of this Mac's memory, for each database." : {
+    "Leave it empty for Pharos and the version number." : {
 
     },
-    "Leave it empty for Pharos and the version number." : {
+    "Leave it empty for half of this Mac's memory, for each database." : {
 
     },
     "Leave it empty to open on No Folder. A name no folder carries yet is ignored — the sheet lists the folders your Sessions are in, and New Folder… still makes one." : {
@@ -2636,9 +2555,6 @@
     "Limit the rows View contents fetches" : {
 
     },
-    "lines" : {
-
-    },
     "Links" : {
 
     },
@@ -2648,19 +2564,19 @@
     "Load All limit" : {
 
     },
-    "Load all rows" : {
+    "Load More failed: %@" : {
 
     },
-    "Load More failed: %@" : {
+    "Load all rows" : {
 
     },
     "Loaded the first %@ rows (Settings ▸ Query ▸ Load All limit). The result is larger." : {
 
     },
-    "Loading results…" : {
+    "Loading Results…" : {
 
     },
-    "Loading Results…" : {
+    "Loading results…" : {
 
     },
     "Loading…" : {
@@ -2684,9 +2600,6 @@
     "Lock Version" : {
 
     },
-    "locked" : {
-
-    },
     "Locked versions keep the SQL their results came from. %@ not changed." : {
 
     },
@@ -2708,9 +2621,6 @@
     "Longer values are drawn cut short with an ellipsis." : {
 
     },
-    "lowercase" : {
-
-    },
     "Manage Connections…" : {
 
     },
@@ -2729,10 +2639,10 @@
     "Match" : {
 
     },
-    "Match case" : {
+    "Match Case" : {
 
     },
-    "Match Case" : {
+    "Match case" : {
 
     },
     "Match what I type" : {
@@ -2780,19 +2690,7 @@
     "Minimum lines to fold" : {
 
     },
-    "minutes" : {
-
-    },
     "Missing connection" : {
-
-    },
-    "modified %@" : {
-
-    },
-    "modified today" : {
-
-    },
-    "modified yesterday" : {
 
     },
     "More" : {
@@ -2807,9 +2705,6 @@
     "More lets queries, metadata and exports run side by side; fewer is kinder to a server with a low connection limit." : {
 
     },
-    "Move card" : {
-
-    },
     "Move Card" : {
 
     },
@@ -2822,13 +2717,16 @@
     "Move Down" : {
 
     },
+    "Move Up" : {
+
+    },
+    "Move card" : {
+
+    },
     "Move down a row" : {
 
     },
     "Move the comments before this query into its notes" : {
-
-    },
-    "Move Up" : {
 
     },
     "Move up a row" : {
@@ -2837,7 +2735,19 @@
     "My Database" : {
 
     },
-    "name" : {
+    "NULL" : {
+
+    },
+    "NULL display" : {
+
+    },
+    "NULL is written as" : {
+
+    },
+    "NULL style" : {
+
+    },
+    "NULL values" : {
 
     },
     "Name" : {
@@ -2915,28 +2825,22 @@
     "New Query Tab" : {
 
     },
-    "New rule" : {
-
-    },
     "New Session" : {
 
     },
     "New Tab" : {
 
     },
-    "New Tab (⌘T)" : {
-
-    },
     "New Tab %lld" : {
       "comment" : "The name of a new query tab that has no connection yet."
     },
-    "New table %@" : {
-
-    },
-    "New Table from “%@”" : {
+    "New Tab (⌘T)" : {
 
     },
     "New Table from File…" : {
+
+    },
+    "New Table from “%@”" : {
 
     },
     "New Tag" : {
@@ -2946,6 +2850,12 @@
 
     },
     "New Window" : {
+
+    },
+    "New rule" : {
+
+    },
+    "New table %@" : {
 
     },
     "New…" : {
@@ -2969,22 +2879,7 @@
     "No AI apps" : {
 
     },
-    "No cards were changed" : {
-
-    },
-    "No cloud credentials. Public files and presigned https:// links need none." : {
-
-    },
-    "No column is ever made wider than this, by fitting or by dragging." : {
-
-    },
-    "No connection" : {
-
-    },
     "No Connection" : {
-
-    },
-    "No connection is shared yet: choose who may use a connection under “AI apps” in File ▸ Manage Connections…." : {
 
     },
     "No Connection Selected" : {
@@ -2994,12 +2889,6 @@
 
     },
     "No Failures" : {
-
-    },
-    "No file at this path. Connect asks whether to create it." : {
-
-    },
-    "No file selected" : {
 
     },
     "No Files" : {
@@ -3017,19 +2906,7 @@
     "No Matches" : {
 
     },
-    "no notes" : {
-
-    },
     "No Other Variables" : {
-
-    },
-    "no pre-release was found" : {
-
-    },
-    "No quotes" : {
-
-    },
-    "No reason given." : {
 
     },
     "No Results" : {
@@ -3038,13 +2915,52 @@
     "No Rows" : {
 
     },
-    "No rule matches this value." : {
-
-    },
     "No Saved Sessions" : {
 
     },
     "No Schema" : {
+
+    },
+    "No Tag Selected" : {
+      "comment" : "Tag Manager: tags exist, none is selected."
+    },
+    "No Tags" : {
+      "comment" : "Tag Manager: the empty state's title."
+    },
+    "No Variable Selected" : {
+
+    },
+    "No Variables" : {
+      "comment" : "Variable Manager: the empty state's title."
+    },
+    "No cards were changed" : {
+
+    },
+    "No cloud credentials. Public files and presigned https:// links need none." : {
+
+    },
+    "No column is ever made wider than this, by fitting or by dragging." : {
+
+    },
+    "No connection" : {
+
+    },
+    "No connection is shared yet: choose who may use a connection under “AI apps” in File ▸ Manage Connections…." : {
+
+    },
+    "No file at this path. Connect asks whether to create it." : {
+
+    },
+    "No file selected" : {
+
+    },
+    "No quotes" : {
+
+    },
+    "No reason given." : {
+
+    },
+    "No rule matches this value." : {
 
     },
     "No secret key" : {
@@ -3056,23 +2972,14 @@
     "No table matches that description. Name a table or column, or choose the schema that holds the data." : {
 
     },
-    "No Tag Selected" : {
-      "comment" : "Tag Manager: tags exist, none is selected."
-    },
-    "No Tags" : {
-      "comment" : "Tag Manager: the empty state's title."
-    },
     "No value" : {
 
     },
     "No values yet." : {
 
     },
-    "No Variable Selected" : {
+    "No variable is shared." : {
 
-    },
-    "No Variables" : {
-      "comment" : "Variable Manager: the empty state's title."
     },
     "Node" : {
 
@@ -3084,6 +2991,12 @@
 
     },
     "Normal (2 seconds)" : {
+
+    },
+    "Not Now" : {
+
+    },
+    "Not Saved" : {
 
     },
     "Not a valid address or range." : {
@@ -3116,19 +3029,10 @@
     "Not in this file" : {
 
     },
-    "Not Now" : {
-
-    },
-    "not run" : {
-
-    },
     "Not run" : {
 
     },
     "Not saved" : {
-
-    },
-    "Not Saved" : {
 
     },
     "Not signed: %@. Any program run with it gets the same access." : {
@@ -3143,6 +3047,9 @@
     "Notes width" : {
 
     },
+    "Nothing Succeeded Yet" : {
+
+    },
     "Nothing is uploaded." : {
 
     },
@@ -3153,12 +3060,6 @@
 
     },
     "Nothing rated yet. The thumbs under a generated answer are recorded here." : {
-
-    },
-    "Nothing Succeeded Yet" : {
-
-    },
-    "nothing to import" : {
 
     },
     "Nothing: the value is empty." : {
@@ -3176,34 +3077,19 @@
     "Now" : {
 
     },
-    "NULL" : {
-
-    },
-    "NULL display" : {
-
-    },
-    "NULL is written as" : {
-
-    },
-    "NULL style" : {
-
-    },
-    "NULL values" : {
-
-    },
-    "number" : {
-
-    },
     "Numbers" : {
 
     },
-    "objects" : {
+    "OK" : {
 
     },
     "Objects" : {
 
     },
     "Objects." : {
+
+    },
+    "Of the variables you share with AI apps (Variable Manager ▸ AI apps). Other apps see a shared variable's name and type, not its value. Values are filled in when a card runs either way." : {
 
     },
     "Off" : {
@@ -3233,9 +3119,6 @@
     "Offer to format a pasted list" : {
 
     },
-    "OK" : {
-
-    },
     "Older" : {
 
     },
@@ -3251,10 +3134,10 @@
     "On, a leading or trailing space draws as a dimmed ·, a tab as a dimmed →, and any other invisible character as a dimmed <U+XXXX>, so two values that only differ by one of them no longer look the same. Characters that change how a value reads — a right-to-left override, a line separator — are always shown as <U+XXXX>, whatever this says. Display only: the pasteboard, every export, and find, filter and sort read the raw value." : {
 
     },
-    "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save." : {
+    "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch." : {
 
     },
-    "On, the SSH password or key passphrase is written to your login keychain and the tunnel opens without asking. Off, Pharos asks you for it the first time the tunnel is refused after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save. This is separate from the database password's own switch." : {
+    "On, the password is written to your login keychain and this connection opens without asking. Off, Pharos asks you for it the first time you connect after each launch, keeps it in memory only, and DELETES the one already in your keychain when you save." : {
 
     },
     "On. No AI app is connected." : {
@@ -3266,10 +3149,10 @@
     "One ASCII character. A quote inside a quoted field is written twice, which is what every CSV reader expects." : {
 
     },
-    "One item per line" : {
+    "One Line: a lane's bars share its line and can overlap. Line per Value: each Bars by value gets its own line under the lane." : {
 
     },
-    "One Line: a lane's bars share its line and can overlap. Line per Value: each Bars by value gets its own line under the lane." : {
+    "One item per line" : {
 
     },
     "Only below" : {
@@ -3299,21 +3182,6 @@
     "Open" : {
 
     },
-    "Open a DuckDB database or a data file, or drop one here." : {
-
-    },
-    "Open an existing DuckDB database file." : {
-
-    },
-    "Open as a template (no results)" : {
-
-    },
-    "Open as a template opens the queries only, in a new unsaved tab. Open the Session and run it runs every query instead of showing the saved results; a tab with no connection opens and stops. The context menu offers each way, whichever this says." : {
-
-    },
-    "Open as Template (No Results)" : {
-
-    },
     "Open Connection" : {
 
     },
@@ -3324,12 +3192,6 @@
 
     },
     "Open Help" : {
-
-    },
-    "Open in another tab" : {
-
-    },
-    "Open in New Tab" : {
 
     },
     "Open Read-Only" : {
@@ -3347,6 +3209,30 @@
     "Open Session" : {
 
     },
+    "Open a DuckDB database or a data file, or drop one here." : {
+
+    },
+    "Open an existing DuckDB database file." : {
+
+    },
+    "Open as Template (No Results)" : {
+
+    },
+    "Open as a template (no results)" : {
+
+    },
+    "Open as a template opens the queries only, in a new unsaved tab. Open the Session and run it runs every query instead of showing the saved results; a tab with no connection opens and stops. The context menu offers each way, whichever this says." : {
+
+    },
+    "Open in New Tab" : {
+
+    },
+    "Open in another tab" : {
+
+    },
+    "Open the Session and run it" : {
+
+    },
     "Open the default schema" : {
 
     },
@@ -3362,25 +3248,22 @@
     "Open the saved file in a new tab? The tabs on the in-memory database stay as they are." : {
 
     },
-    "Open the Session and run it" : {
-
-    },
-    "Open…" : {
-
-    },
-    "Opened “%@”." : {
-
-    },
     "Opened a new query tab." : {
 
     },
     "Opened read-only because another app holds the file. Disconnect, then connect again when the other app closes it." : {
 
     },
+    "Opened “%@”." : {
+
+    },
     "Opening one row with more children than this blocks the app for seconds, so a schema above the ceiling waits for you to click its disclosure triangle." : {
 
     },
     "Opening…" : {
+
+    },
+    "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
 
     },
     "Opens a new query tab in Pharos bound to one of your saved connections, and connects it." : {
@@ -3392,13 +3275,10 @@
     "Opens every session with default_transaction_read_only on, so the SERVER refuses writes. It takes effect the next time this connection opens." : {
 
     },
-    "Opens one of your saved Sessions in a Pharos query tab, with the results saved with it. Nothing is run." : {
-
-    },
     "Opens one of your saved Sessions in Pharos, runs its queries in order, and hands back the last query's rows as a CSV file." : {
 
     },
-    "Opens Pharos's export panel for a table, with the format, columns and destination ready to choose." : {
+    "Opens one of your saved Sessions in a Pharos query tab, with the results saved with it. Nothing is run." : {
 
     },
     "Opens the file read-only, so DuckDB refuses writes. Other apps that also open it read-only can read it at the same time. It takes effect the next time this connection opens." : {
@@ -3407,11 +3287,20 @@
     "Opens this connection as Pharos starts, once the saved tabs are back. A connection that asks for Touch ID is opened last, and one at a time, so two prompts cannot arrive together." : {
 
     },
+    "Open…" : {
+
+    },
     "Optional" : {
 
     },
     "Orange" : {
       "comment" : "Tag colour name."
+    },
+    "Order Added" : {
+      "comment" : "Variable Manager: a sort order."
+    },
+    "Order Sessions by" : {
+
     },
     "Order objects by" : {
 
@@ -3422,13 +3311,7 @@
     "Order schemas by" : {
 
     },
-    "Order Sessions by" : {
-
-    },
     "Orders per region this year" : {
-
-    },
-    "Other apps see each query variable's name and type, not its value. Values are filled in when a card runs either way." : {
 
     },
     "Outdent the selected lines" : {
@@ -3483,6 +3366,15 @@
 
     },
     "Pharos %@ is the newest version." : {
+
+    },
+    "Pharos Help" : {
+
+    },
+    "Pharos Settings" : {
+
+    },
+    "Pharos Settings — %@" : {
 
     },
     "Pharos adds a card that copies the table, with its rows, into this DuckDB database's main schema." : {
@@ -3540,19 +3432,16 @@
     "Pharos could not read the table's columns: %@" : {
 
     },
-    "Pharos could not read this connection link." : {
+    "Pharos could not read this DuckDB link." : {
 
     },
-    "Pharos could not read this DuckDB link." : {
+    "Pharos could not read this connection link." : {
 
     },
     "Pharos does not run destructive statements under EXPLAIN ANALYZE. This statement contains %@. Use Explain Query for an estimated plan instead." : {
 
     },
     "Pharos has no account, no telemetry and no analytics." : {
-
-    },
-    "Pharos Help" : {
 
     },
     "Pharos is built in the open. The repository holds the source, the issue tracker and every release." : {
@@ -3567,12 +3456,6 @@
     "Pharos runs the system ssh, so Host aliases, ProxyJump and IdentityAgent from ~/.ssh/config apply." : {
 
     },
-    "Pharos Settings" : {
-
-    },
-    "Pharos Settings — %@" : {
-
-    },
     "Pipe  |" : {
 
     },
@@ -3583,12 +3466,6 @@
 
     },
     "Plan summary" : {
-
-    },
-    "plan, estimated" : {
-
-    },
-    "plan, measured" : {
 
     },
     "Planning %@" : {
@@ -3636,9 +3513,6 @@
     "Previous suggestion" : {
 
     },
-    "primary key" : {
-
-    },
     "Privacy" : {
 
     },
@@ -3655,12 +3529,6 @@
 
     },
     "Provider" : {
-
-    },
-    "psql command" : {
-
-    },
-    "pt" : {
 
     },
     "Purple" : {
@@ -3693,19 +3561,19 @@
     "Query" : {
 
     },
+    "Query Cards" : {
+
+    },
+    "Query History" : {
+
+    },
     "Query and join its tables as name.schema.table. Pharos attaches it again each time this database opens." : {
 
     },
     "Query cards" : {
 
     },
-    "Query Cards" : {
-
-    },
     "Query completion" : {
-
-    },
-    "Query History" : {
 
     },
     "Query history could not be cleared." : {
@@ -3736,9 +3604,6 @@
 
     },
     "Raise keywords to capitals" : {
-
-    },
-    "ran %@" : {
 
     },
     "Ratings you have given" : {
@@ -3816,10 +3681,10 @@
     "Regular expression" : {
 
     },
-    "Release notes" : {
+    "Release Notes" : {
 
     },
-    "Release Notes" : {
+    "Release notes" : {
 
     },
     "Reloading this result replaces its rows, so the changes can no longer be matched to them." : {
@@ -3831,22 +3696,13 @@
     "Remember last choices" : {
 
     },
-    "Remember the password in the keychain" : {
-
-    },
     "Remember the SSH secret in the keychain" : {
 
     },
+    "Remember the password in the keychain" : {
+
+    },
     "Remove" : {
-
-    },
-    "Remove “%@” from Connections?" : {
-
-    },
-    "Remove “%@” from Pharos?" : {
-
-    },
-    "Remove “%@” from the list?" : {
 
     },
     "Remove %lld DuckDB databases from Pharos?" : {
@@ -3871,6 +3727,15 @@
 
     },
     "Remove the selected credential and its secret key" : {
+
+    },
+    "Remove “%@” from Connections?" : {
+
+    },
+    "Remove “%@” from Pharos?" : {
+
+    },
+    "Remove “%@” from the list?" : {
 
     },
     "Rename" : {
@@ -3915,13 +3780,13 @@
     "Replace All In" : {
 
     },
+    "Replace With" : {
+
+    },
     "Replace the current match and go to the next one" : {
 
     },
     "Replace them with the file’s copy" : {
-
-    },
-    "Replace With" : {
 
     },
     "Replaced %@" : {
@@ -3942,10 +3807,10 @@
     "Reset" : {
 
     },
-    "Reset all settings?" : {
+    "Reset All Settings…" : {
 
     },
-    "Reset All Settings…" : {
+    "Reset all settings?" : {
 
     },
     "Reset to defaults" : {
@@ -3969,16 +3834,13 @@
     "Results" : {
 
     },
-    "Results grid" : {
-
-    },
     "Results History" : {
 
     },
-    "Results kept per tab" : {
+    "Results grid" : {
 
     },
-    "Results of “%@” were removed: the result limit was reached. Run the card again to get them back." : {
+    "Results kept per tab" : {
 
     },
     "Results of %@" : {
@@ -3987,7 +3849,7 @@
     "Results of %lld cards were removed: the result limit was reached." : {
 
     },
-    "results removed" : {
+    "Results of “%@” were removed: the result limit was reached. Run the card again to get them back." : {
 
     },
     "Results removed" : {
@@ -4020,6 +3882,9 @@
     "Roll Back" : {
 
     },
+    "Roll Back Transaction" : {
+
+    },
     "Roll Back and Close" : {
 
     },
@@ -4030,9 +3895,6 @@
 
     },
     "Roll Back and Switch" : {
-
-    },
-    "Roll Back Transaction" : {
 
     },
     "Root Certificate" : {
@@ -4050,9 +3912,6 @@
     "Row limit" : {
 
     },
-    "rows" : {
-
-    },
     "Rows" : {
 
     },
@@ -4066,9 +3925,6 @@
 
     },
     "Rows returned per query page. Load More fetches the next page." : {
-
-    },
-    "rule %lld" : {
 
     },
     "Rule %lld: %lld of %lld conditions." : {
@@ -4091,9 +3947,6 @@
     "Run (⌘↩)" : {
 
     },
-    "Run a query to see its rows here." : {
-
-    },
     "Run All Cards" : {
 
     },
@@ -4103,28 +3956,31 @@
     "Run All stopped: %@ did not run." : {
 
     },
+    "Run Card" : {
+
+    },
+    "Run Query" : {
+
+    },
+    "Run Saved Session" : {
+
+    },
+    "Run a query to see its rows here." : {
+
+    },
     "Run and Replace Results" : {
 
     },
     "Run and Replace Results (⇧⌘↩): replace this card's results instead of keeping them as a locked version" : {
 
     },
-    "Run Card" : {
-
-    },
     "Run destructive query?" : {
-
-    },
-    "Run Query" : {
 
     },
     "Run query that changes the database?" : {
 
     },
-    "Run Saved Session" : {
-
-    },
-    "running" : {
+    "Run query that does more than read the database?" : {
 
     },
     "Running" : {
@@ -4139,25 +3995,58 @@
     "Runs: a new bar each time the Bars by value changes, in Start order. Span: one bar per value, from its first Start to its last End." : {
 
     },
+    "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote." : {
+
+    },
+    "SQL" : {
+
+    },
+    "SQL INSERT" : {
+
+    },
+    "SQL WITH" : {
+
+    },
+    "SQL editor" : {
+
+    },
+    "SSH" : {
+      "comment" : "A connection pop-up badge: the connection goes through an SSH tunnel."
+    },
+    "SSH Host" : {
+
+    },
+    "SSH Passphrase Required" : {
+
+    },
+    "SSH Password Required" : {
+
+    },
+    "SSH Port" : {
+
+    },
+    "SSH Tunnel" : {
+
+    },
+    "SSH User" : {
+
+    },
+    "SSH agent" : {
+
+    },
+    "SSH · Read-only" : {
+      "comment" : "A connection pop-up badge."
+    },
+    "SSL Mode" : {
+
+    },
     "Safety" : {
 
     },
     "Save" : {
 
     },
-    "Save a tab with ⌘S to keep its queries and results here." : {
-
-    },
     "Save All" : {
-
-    },
-    "Save as %@" : {
-
-    },
-    "Save as Connection" : {
-
-    },
-    "Save as New" : {
 
     },
     "Save In-Memory Database…" : {
@@ -4175,22 +4064,19 @@
     "Save Session… (⌘S)" : {
 
     },
-    "Save…" : {
+    "Save a tab with ⌘S to keep its queries and results here." : {
+
+    },
+    "Save as %@" : {
+
+    },
+    "Save as Connection" : {
+
+    },
+    "Save as New" : {
 
     },
     "Saved" : {
-
-    },
-    "Saved “%@”." : {
-
-    },
-    "saved %@" : {
-
-    },
-    "Saved in the Keychain" : {
-
-    },
-    "Saved results hold rows from your databases and can make the file large." : {
 
     },
     "Saved Session" : {
@@ -4200,6 +4086,18 @@
 
     },
     "Saved Sessions on the in-memory databases lose their connection." : {
+
+    },
+    "Saved in the Keychain" : {
+
+    },
+    "Saved results hold rows from your databases and can make the file large." : {
+
+    },
+    "Saved “%@”." : {
+
+    },
+    "Save…" : {
 
     },
     "Say nothing" : {
@@ -4232,9 +4130,6 @@
     "Search shortcuts" : {
 
     },
-    "seconds" : {
-
-    },
     "Secret key" : {
 
     },
@@ -4244,22 +4139,19 @@
     "Segment" : {
 
     },
-    "Select a connection or click + to add a new one." : {
+    "Select All" : {
 
     },
     "Select a CSV file to import into %@" : {
+
+    },
+    "Select a connection or click + to add a new one." : {
 
     },
     "Select a tag to edit it." : {
 
     },
     "Select a variable, or click + to add one." : {
-
-    },
-    "Select All" : {
-
-    },
-    "SELECT rather than select. Only reserved words are touched; your table and column names keep the case you wrote." : {
 
     },
     "Semicolon  ;" : {
@@ -4307,13 +4199,13 @@
     "Set NULL" : {
 
     },
-    "Settings ▸ General decides whether Pharos looks for a new version by itself." : {
-
-    },
     "Settings could not be read at launch; changes are not saved so the stored settings are kept." : {
 
     },
     "Settings panes" : {
+
+    },
+    "Settings ▸ General decides whether Pharos looks for a new version by itself." : {
 
     },
     "Settings…" : {
@@ -4323,9 +4215,6 @@
 
     },
     "Share…" : {
-
-    },
-    "shared." : {
 
     },
     "Short" : {
@@ -4352,9 +4241,6 @@
     "Show %@" : {
 
     },
-    "Show a banner" : {
-
-    },
     "Show All" : {
 
     },
@@ -4364,37 +4250,10 @@
     "Show Calendar" : {
 
     },
-    "Show column type icons" : {
-
-    },
-    "Show details when you cancel a query" : {
-
-    },
     "Show Editor" : {
 
     },
-    "Show every Bars by value and its colour in the Inspector" : {
-
-    },
-    "Show in Finder" : {
-
-    },
-    "Show in Variable Manager" : {
-
-    },
     "Show Inspector" : {
-
-    },
-    "Show invisible characters" : {
-
-    },
-    "Show leaf partitions" : {
-
-    },
-    "Show line numbers" : {
-
-    },
-    "Show new results automatically" : {
 
     },
     "Show Next Tab" : {
@@ -4418,6 +4277,36 @@
     "Show Results of Previous Card" : {
 
     },
+    "Show a banner" : {
+
+    },
+    "Show column type icons" : {
+
+    },
+    "Show details when you cancel a query" : {
+
+    },
+    "Show every Bars by value and its colour in the Inspector" : {
+
+    },
+    "Show in Finder" : {
+
+    },
+    "Show in Variable Manager" : {
+
+    },
+    "Show invisible characters" : {
+
+    },
+    "Show leaf partitions" : {
+
+    },
+    "Show line numbers" : {
+
+    },
+    "Show new results automatically" : {
+
+    },
     "Show row numbers" : {
 
     },
@@ -4430,9 +4319,6 @@
     "Show the exact UPDATE statements before anything is written." : {
 
     },
-    "show the password for %@" : {
-
-    },
     "Show the results of version %lld" : {
 
     },
@@ -4443,9 +4329,6 @@
 
     },
     "Showing the first %lld lanes. %lld more lanes are not drawn; filter the results to chart them." : {
-
-    },
-    "shown" : {
 
     },
     "Single quotes ('value')" : {
@@ -4469,61 +4352,19 @@
     "Some versions still use {{%@}}" : {
 
     },
+    "Sort By" : {
+
+    },
+    "Sort and Filter" : {
+
+    },
     "Source code" : {
-
-    },
-    "space" : {
-
-    },
-    "spaces" : {
 
     },
     "Spaces per level in what the Format button writes. Separate from Tab size above, which is what the Tab key types." : {
 
     },
     "Spotlight" : {
-
-    },
-    "SQL" : {
-
-    },
-    "SQL editor" : {
-
-    },
-    "SQL INSERT" : {
-
-    },
-    "SQL WITH" : {
-
-    },
-    "SSH" : {
-      "comment" : "A connection pop-up badge: the connection goes through an SSH tunnel."
-    },
-    "SSH · Read-only" : {
-      "comment" : "A connection pop-up badge."
-    },
-    "SSH agent" : {
-
-    },
-    "SSH Host" : {
-
-    },
-    "SSH Passphrase Required" : {
-
-    },
-    "SSH Password Required" : {
-
-    },
-    "SSH Port" : {
-
-    },
-    "SSH Tunnel" : {
-
-    },
-    "SSH User" : {
-
-    },
-    "SSL Mode" : {
 
     },
     "Stable" : {
@@ -4601,7 +4442,10 @@
     "System trust store" : {
 
     },
-    "tab" : {
+    "TRUNCATE" : {
+
+    },
+    "TSV" : {
 
     },
     "Tab" : {
@@ -4634,13 +4478,13 @@
     "Tags" : {
       "comment" : "Tag Manager: the sidebar list's VoiceOver name."
     },
+    "Test Connection" : {
+
+    },
     "Test a value" : {
 
     },
     "Test a value — an address, a number, text…" : {
-
-    },
-    "Test Connection" : {
 
     },
     "Test connection first" : {
@@ -4664,6 +4508,24 @@
     "That was too much for one request. Choose a schema first, or describe a smaller query." : {
 
     },
+    "The Copy menu still offers every format." : {
+
+    },
+    "The DuckDB file stays in the Files list." : {
+
+    },
+    "The DuckDB files stay in the Files list." : {
+
+    },
+    "The Keychain refused it. Try again, or check Keychain Access." : {
+
+    },
+    "The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded." : {
+
+    },
+    "The TimeZone every session asks for, which is what a timestamp with time zone is shown in." : {
+
+    },
     "The cancellation is recorded on its tab either way." : {
 
     },
@@ -4685,9 +4547,6 @@
     "The copy has the tables and views and their data. It leaves out temporary tables, attached databases and work not yet committed in other tabs." : {
 
     },
-    "The Copy menu still offers every format." : {
-
-    },
     "The database was not saved." : {
 
     },
@@ -4695,12 +4554,6 @@
 
     },
     "The delimiter, quote character and NULL text above apply to reading a file as well as writing one, so a file Pharos exported imports back without a second set of choices." : {
-
-    },
-    "The DuckDB file stays in the Files list." : {
-
-    },
-    "The DuckDB files stay in the Files list." : {
 
     },
     "The editor toolbar button that drafts SQL from a sentence." : {
@@ -4743,9 +4596,6 @@
 
     },
     "The import did not finish." : {
-
-    },
-    "The Keychain refused it. Try again, or check Keychain Access." : {
 
     },
     "The leading # column." : {
@@ -4844,12 +4694,6 @@
     "The ratings could not be read." : {
 
     },
-    "the release has no version" : {
-
-    },
-    "The Results History navigator's Failed scope lists them on their own. Only answers from the server are kept — a refusal Pharos makes itself, such as running with no connection, is never recorded." : {
-
-    },
     "The rows the Navigator's “View Contents (Limit…)” submenu offers on a table, a view or a partition." : {
 
     },
@@ -4922,9 +4766,6 @@
     "The tables of open in-memory databases are lost." : {
 
     },
-    "The TimeZone every session asks for, which is what a timestamp with time zone is shown in." : {
-
-    },
     "The transaction failed. Roll it back to run more cards." : {
 
     },
@@ -4938,9 +4779,6 @@
 
     },
     "The value is %@." : {
-
-    },
-    "the version could not be read" : {
 
     },
     "The wash always stays lighter than the find match you are looking at, so the two can be told apart." : {
@@ -4973,7 +4811,7 @@
     "These apps create, change and delete query variables without the confirmation sheet. Pharos says in its window what they changed." : {
 
     },
-    "These apps' INSERT, UPDATE, DELETE and other changes run without the confirmation sheet. Only apps that can change data are affected." : {
+    "These apps' changes to the database run without the confirmation sheet. A statement that reaches outside it (a file, another server or database, an extension, a setting) still asks. Only apps that can change data are affected." : {
 
     },
     "These ask the SERVER to probe an idle connection, which stops a firewall, a NAT or an SSH tunnel dropping it silently." : {
@@ -4991,13 +4829,16 @@
     "This Card" : {
 
     },
+    "This Mac cannot ask you to authenticate." : {
+
+    },
+    "This Mac does not support Apple Intelligence." : {
+
+    },
     "This card is already running." : {
 
     },
     "This card ran on a shared connection." : {
-
-    },
-    "this connection" : {
 
     },
     "This connection is read-only." : {
@@ -5022,12 +4863,6 @@
 
     },
     "This file is encrypted. Enter the password it was exported with." : {
-
-    },
-    "This Mac cannot ask you to authenticate." : {
-
-    },
-    "This Mac does not support Apple Intelligence." : {
 
     },
     "This query has no SQL yet." : {
@@ -5072,10 +4907,10 @@
     "Time" : {
 
     },
-    "Time zone" : {
+    "Time Zone" : {
 
     },
-    "Time Zone" : {
+    "Time zone" : {
 
     },
     "Time zones and collations (icu), INET, full-text search, SQLite files, Excel files, PostgreSQL databases, files over HTTPS and S3, JSON, Parquet and autocomplete are part of Pharos. Nothing is downloaded." : {
@@ -5093,19 +4928,13 @@
     "Transaction failed" : {
 
     },
-    "Transaction open · %@" : {
-
-    },
     "Transaction open for %@." : {
 
     },
-    "TRUNCATE" : {
+    "Transaction open · %@" : {
 
     },
     "Try Again" : {
-
-    },
-    "TSV" : {
 
     },
     "Turned off in Pharos settings." : {
@@ -5123,6 +4952,27 @@
     "Typing straight before existing text never pairs." : {
 
     },
+    "UPDATE" : {
+
+    },
+    "UPPERCASE" : {
+
+    },
+    "UTF-16 LE" : {
+
+    },
+    "UTF-8" : {
+
+    },
+    "UTF-8 is what Pharos has always written." : {
+
+    },
+    "UTF-8 with BOM" : {
+
+    },
+    "UTF-8 with BOM is what Excel on Windows expects. Latin-1 cannot carry every character: an export says how many it replaced with a question mark. An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever this says." : {
+
+    },
     "Undefined" : {
 
     },
@@ -5132,13 +4982,7 @@
     "Undo" : {
 
     },
-    "unique index" : {
-
-    },
     "Unlock Version" : {
-
-    },
-    "unlocked" : {
 
     },
     "Unlocked: a run of an edit becomes a new query, and this version locks again. Click to lock it again; its SQL goes back to the SQL of its results." : {
@@ -5153,19 +4997,16 @@
     "Untitled Connection" : {
 
     },
-    "Untitled query" : {
-
-    },
     "Untitled Session" : {
 
     },
     "Untitled Tag" : {
       "comment" : "Tag Manager: a tag with no name yet."
     },
-    "Untitled.duckdb" : {
+    "Untitled query" : {
 
     },
-    "UPDATE" : {
+    "Untitled.duckdb" : {
 
     },
     "Update checks are turned off." : {
@@ -5174,10 +5015,10 @@
     "Updates" : {
 
     },
-    "UPPERCASE" : {
+    "Use Apple Intelligence features" : {
 
     },
-    "us-east-1" : {
+    "Use Selection for Find" : {
 
     },
     "Use a monospaced font" : {
@@ -5186,13 +5027,7 @@
     "Use a password of at least %lld characters." : {
 
     },
-    "Use Apple Intelligence features" : {
-
-    },
     "Use lower-case letters, digits and _ for the name, starting with a letter." : {
-
-    },
-    "Use Selection for Find" : {
 
     },
     "Use the Settings default" : {
@@ -5211,24 +5046,6 @@
 
     },
     "Uses Settings ▸ Query ▸ Default row limit." : {
-
-    },
-    "UTF-8" : {
-
-    },
-    "UTF-8 is what Pharos has always written." : {
-
-    },
-    "UTF-8 with BOM" : {
-
-    },
-    "UTF-8 with BOM is what Excel on Windows expects. Latin-1 cannot carry every character: an export says how many it replaced with a question mark. An imported file that starts with a byte-order mark is read in the encoding that mark names, whatever this says." : {
-
-    },
-    "UTF-16 LE" : {
-
-    },
-    "value" : {
 
     },
     "Value" : {
@@ -5261,13 +5078,7 @@
     "Version %@" : {
 
     },
-    "version %lld" : {
-
-    },
     "View" : {
-
-    },
-    "View contents" : {
 
     },
     "View Definition" : {
@@ -5279,16 +5090,16 @@
     "View Error" : {
 
     },
-    "View on GitHub" : {
-
-    },
     "View Results" : {
 
     },
-    "Vivid" : {
+    "View contents" : {
 
     },
-    "waiting" : {
+    "View on GitHub" : {
+
+    },
+    "Vivid" : {
 
     },
     "Waiting" : {
@@ -5344,6 +5155,9 @@
     },
     "Which AI apps may see this connection, its tabs, and the history, workspaces and Sessions that ran against it. You mark each app Local or Cloud in Settings ▸ Security & Privacy." : {
 
+    },
+    "Which AI apps may see this variable and run cards that use it. For the others it does not exist, and what a run made with it is withheld. You mark each app Local or Cloud in Settings ▸ Security & Privacy." : {
+      "comment" : "Variable Manager: the caption under a variable's AI apps choice."
     },
     "Whole word" : {
 
@@ -5411,16 +5225,274 @@
     "Zoom" : {
 
     },
-    "Zoom in" : {
+    "Zoom In" : {
 
     },
-    "Zoom In" : {
+    "Zoom Out" : {
+
+    },
+    "Zoom in" : {
 
     },
     "Zoom out" : {
 
     },
-    "Zoom Out" : {
+    "^[%lld %@](inflect: true)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "^[%1$lld %2$@](inflect: true)"
+          }
+        }
+      }
+    },
+    "bands" : {
+
+    },
+    "bastion.example.com or a Host from ~/.ssh/config" : {
+
+    },
+    "cannot run" : {
+
+    },
+    "collapsed" : {
+
+    },
+    "connect to %@" : {
+
+    },
+    "connections that no longer exist" : {
+
+    },
+    "cost %@, %@ of the plan" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "cost %1$@, %2$@ of the plan"
+          }
+        }
+      }
+    },
+    "db.example.com or 10.0.0.5" : {
+
+    },
+    "edited since run" : {
+
+    },
+    "entries" : {
+
+    },
+    "every %@ path" : {
+
+    },
+    "every connection" : {
+
+    },
+    "expanded" : {
+
+    },
+    "export your saved connection passwords" : {
+
+    },
+    "failed" : {
+
+    },
+    "from the SQL before the edit" : {
+
+    },
+    "has notes" : {
+
+    },
+    "has results" : {
+
+    },
+    "just now" : {
+
+    },
+    "lines" : {
+
+    },
+    "locked" : {
+
+    },
+    "lowercase" : {
+
+    },
+    "minutes" : {
+
+    },
+    "modified %@" : {
+
+    },
+    "modified today" : {
+
+    },
+    "modified yesterday" : {
+
+    },
+    "name" : {
+
+    },
+    "no notes" : {
+
+    },
+    "no pre-release was found" : {
+
+    },
+    "not run" : {
+
+    },
+    "nothing to import" : {
+
+    },
+    "number" : {
+
+    },
+    "objects" : {
+
+    },
+    "plan, estimated" : {
+
+    },
+    "plan, measured" : {
+
+    },
+    "primary key" : {
+
+    },
+    "psql command" : {
+
+    },
+    "pt" : {
+
+    },
+    "ran %@" : {
+
+    },
+    "results removed" : {
+
+    },
+    "rows" : {
+
+    },
+    "rule %lld" : {
+
+    },
+    "running" : {
+
+    },
+    "saved %@" : {
+
+    },
+    "seconds" : {
+
+    },
+    "shared." : {
+
+    },
+    "show the password for %@" : {
+
+    },
+    "shown" : {
+
+    },
+    "space" : {
+
+    },
+    "spaces" : {
+
+    },
+    "tab" : {
+
+    },
+    "the release has no version" : {
+
+    },
+    "the version could not be read" : {
+
+    },
+    "this connection" : {
+
+    },
+    "unique index" : {
+
+    },
+    "unlocked" : {
+
+    },
+    "us-east-1" : {
+
+    },
+    "value" : {
+
+    },
+    "version %lld" : {
+
+    },
+    "waiting" : {
+
+    },
+    "{{%@}} is linked to %@, not to this tab's connection." : {
+      "comment" : "Run error: the variable exists but is linked to other connections.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "{{%1$@}} is linked to %2$@, not to this tab's connection."
+          }
+        }
+      }
+    },
+    "~/Data/sales.duckdb" : {
+
+    },
+    "—" : {
+
+    },
+    "“%@” can’t be found." : {
+
+    },
+    "“%@” has an open transaction." : {
+
+    },
+    "“%@” has no Sessions to export." : {
+
+    },
+    "“%@” is in use by %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” is in use by %2$@."
+          }
+        }
+      }
+    },
+    "“%@” is in use by another app." : {
+
+    },
+    "“%@” is not a DuckDB or SQLite database." : {
+
+    },
+    "“%@” is open in Pharos." : {
+
+    },
+    "“%@” returned %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” returned %2$@."
+          }
+        }
+      }
+    },
+    "“%@” was written by a newer DuckDB, which this version of Pharos cannot open." : {
+
+    },
+    "⌘↩ runs" : {
 
     }
   },
