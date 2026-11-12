@@ -189,6 +189,12 @@ pub struct SessionRunRequest {
     /// cell edit): runs in `_pharos_aux`, never as the user's statement.
     #[serde(default)]
     pub aux: bool,
+    /// An AI app asked for this run and the user has not allowed it to
+    /// change data: the statement may read the database and do nothing else.
+    /// PostgreSQL runs it in a read-only transaction (`run_guarded`); DuckDB
+    /// checks what it reads first (`db::duckdb::guard`).
+    #[serde(default)]
+    pub guarded: bool,
 }
 
 /// A query result from a tab session: the result, and the session after it.
@@ -849,6 +855,9 @@ async fn run_rows(live: &mut LiveSession, request: &SessionRunRequest, limit: u3
                   until: Option<tokio::time::Instant>, state: &AppState, connection_id: &str)
                   -> Result<(Vec<PgRow>, usize), ReadError> {
     let sql = request.sql.as_str();
+    if request.guarded {
+        return run_guarded(live, sql, limit, cancel, until, state, connection_id).await;
+    }
     let s = shape(sql);
     let in_transaction = live.txn == TxnState::InTransaction;
     if request.aux && live.txn == TxnState::Failed {
@@ -906,6 +915,106 @@ async fn run_rows(live: &mut LiveSession, request: &SessionRunRequest, limit: u3
     result
 }
 
+/// The start of every refusal of a guarded run, for the app that asked.
+pub const GUARD_REFUSAL: &str = "Pharos runs a statement for an AI app without asking the user only when it reads the database and nothing else.";
+
+const GUARD_ALLOW: &str = "The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ AI apps that can change data. Pharos then asks them about each run.";
+
+fn guard_refusal(why: &str) -> String {
+    format!("{GUARD_REFUSAL} This one {why}. {GUARD_ALLOW}")
+}
+
+/// Why a guarded run is refused before it is sent: it must be ONE statement
+/// that reads (SELECT, WITH, VALUES, TABLE, EXPLAIN, SHOW). The read-only
+/// transaction below is what holds a statement to that; this keeps a card
+/// from ending the transaction (`COMMIT; DELETE …`) and running on after it.
+fn guarded_refusal(sql: &str, s: &Shape) -> Option<String> {
+    if s.multiple {
+        return Some(guard_refusal("holds more than one statement"));
+    }
+    let first = split_chunks(sql).into_iter().find(|c| !c.body.is_empty()).map(|c| c.body(sql)).unwrap_or("");
+    let word = first_word(first);
+    if s.transaction_control || !(s.cursorable || matches!(word.as_str(), "explain" | "show")) {
+        return Some(guard_refusal(&format!("is {}, not a read", if word.is_empty() { "a statement".to_string() } else { word.to_ascii_uppercase() })));
+    }
+    None
+}
+
+/// `guarded_refusal`, for the pool's guarded run (`query::execute_query_with`).
+pub(crate) fn guarded_refusal_for(sql: &str) -> Option<String> {
+    guarded_refusal(sql, &shape(sql))
+}
+
+/// The server's refusal of a write inside the guard's read-only transaction,
+/// said in terms the app can act on. Any other message is itself.
+pub(crate) fn guarded_write_message(message: String) -> String {
+    if !message.contains(super::query::READ_ONLY_MARKER) {
+        return message;
+    }
+    let server = message.replace(super::query::READ_ONLY_MARKER, "");
+    format!("{GUARD_REFUSAL} This one tried to change something ({}). {GUARD_ALLOW}", server.trim())
+}
+
+/// A guarded run (`SessionRunRequest::guarded`): the statement, inside a
+/// read-only transaction that is rolled back whatever it did.
+///
+/// The server enforces it, so it holds for what no reading of the text can
+/// see: a `DO` block, a function that writes, `setval`, a data-modifying CTE,
+/// `EXPLAIN ANALYZE` of a write. With no transaction open, Pharos opens a
+/// read-only one. Inside the user's own transaction it is a savepoint made
+/// read-only: the setting cannot be turned back off from inside it, and
+/// rolling back to the savepoint restores the transaction as it was
+/// (checked on PostgreSQL 16).
+#[allow(clippy::too_many_arguments)]
+async fn run_guarded(live: &mut LiveSession, sql: &str, limit: u32, cancel: &QueryCancel,
+                     until: Option<tokio::time::Instant>, state: &AppState, connection_id: &str)
+                     -> Result<(Vec<PgRow>, usize), ReadError> {
+    let s = shape(sql);
+    if let Some(refusal) = guarded_refusal(sql, &s) {
+        return Err(ReadError::Sql(refusal));
+    }
+    let (open, close) = match live.txn {
+        TxnState::Idle => ("BEGIN TRANSACTION READ ONLY", "ROLLBACK"),
+        TxnState::InTransaction => (
+            "SAVEPOINT _pharos_guard; SET LOCAL transaction_read_only = on",
+            "ROLLBACK TO SAVEPOINT _pharos_guard; RELEASE SAVEPOINT _pharos_guard",
+        ),
+        TxnState::Failed | TxnState::Unknown => return Err(ReadError::Sql(FAILED_TRANSACTION.to_string())),
+    };
+    if let Err(e) = exec(&mut live.conn, open).await {
+        let _ = exec(&mut live.conn, close).await;
+        return Err(ReadError::Sql(format!("{GUARD_REFUSAL} This server would not start a read-only transaction: {e}")));
+    }
+
+    let mut stopped_in_cursor = false;
+    let mut result = if s.cursorable {
+        // `in_transaction`: the read-only transaction above holds the cursor.
+        match read_through_cursor(live, sql, limit, true, cancel, until, state, connection_id).await {
+            Ok(Some(v)) => Ok(v),
+            // Only a data-modifying WITH cannot be a cursor.
+            Ok(None) => Err(ReadError::Sql(guard_refusal("changes data"))),
+            Err(e) => {
+                stopped_in_cursor = matches!(e, ReadError::Stopped(_));
+                Err(e)
+            }
+        }
+    } else {
+        read_all(&mut live.conn, sql, limit as usize + 1, cancel, until, 0).await
+    };
+    if let (Err(ReadError::Stopped(_)), false) = (&result, stopped_in_cursor) {
+        if !stop_statement(&mut live.conn, state, connection_id, live.backend_pid).await {
+            result = Err(ReadError::Lost("The statement would not stop; the connection was closed".to_string()));
+        }
+    }
+    if !matches!(result, Err(ReadError::Lost(_))) {
+        let _ = exec(&mut live.conn, close).await;
+    }
+    result.map_err(|e| match e {
+        ReadError::Sql(m) => ReadError::Sql(guarded_write_message(m)),
+        other => other,
+    })
+}
+
 /// The message for a read that did not finish, and the connection dropped
 /// when it is gone.
 fn read_error_message(e: ReadError, guard: &mut Option<LiveSession>, state: &AppState) -> String {
@@ -960,6 +1069,11 @@ pub async fn session_execute_statement(request: SessionRunRequest, state: &AppSt
 
     if let Some(refusal) = refusal_before_send(&request.sql) {
         return Err(refusal);
+    }
+    // A guarded run reads, and a read comes back as rows
+    // (`session_execute_query`); nothing guarded runs on this path.
+    if request.guarded {
+        return Err(guard_refusal("is not a read"));
     }
     let read_only = state.get_config(&t.connection_id).map(|c| c.read_only).unwrap_or(false);
     if read_only && read_only_bypass(&request.sql) {
@@ -1071,6 +1185,7 @@ pub async fn session_fetch_more_rows(request: SessionFetchMoreRequest, state: &A
         limit: Some(request.limit.max(1) as u32),
         source: None,
         aux: true,
+        guarded: false,
     };
     run.target.query_id = request.target.query_id.clone();
     session_execute_query(run, state).await
@@ -1600,6 +1715,22 @@ mod tests {
     }
 
     #[test]
+    fn a_guarded_run_is_one_read() {
+        let refused = |sql: &str| guarded_refusal(sql, &shape(sql));
+        for sql in ["SELECT 1", "select * from t;", "WITH c AS (SELECT 1) SELECT * FROM c", "VALUES (1)", "TABLE t",
+                    "(SELECT 1)", "EXPLAIN SELECT 1", "EXPLAIN ANALYZE SELECT 1", "SHOW work_mem",
+                    "-- note\nSELECT 1"] {
+            assert_eq!(refused(sql), None, "{sql}");
+        }
+        for sql in ["SELECT 1; SELECT 2", "COMMIT; DELETE FROM t", "BEGIN", "COMMIT", "DO $$ BEGIN DELETE FROM t; END $$",
+                    "DELETE FROM t", "CREATE TABLE x AS SELECT 1", "CALL p()", "COPY t TO PROGRAM 'sh'", "SET ROLE x",
+                    "REVOKE ALL ON t FROM u", "MERGE INTO t USING s ON true WHEN MATCHED THEN DO NOTHING"] {
+            let why = refused(sql).unwrap_or_else(|| panic!("allowed: {sql}"));
+            assert!(why.starts_with(GUARD_REFUSAL), "{why}");
+        }
+    }
+
+    #[test]
     fn read_only_bypasses() {
         assert!(read_only_bypass("SET default_transaction_read_only = off"));
         assert!(read_only_bypass("BEGIN READ  WRITE"));
@@ -1725,7 +1856,14 @@ mod live_tab_session_tests {
     }
 
     fn card(tab: &str, sql: &str) -> SessionRunRequest {
-        SessionRunRequest { target: target(tab), sql: sql.to_string(), limit: Some(1000), source: None, aux: false }
+        SessionRunRequest { target: target(tab), sql: sql.to_string(), limit: Some(1000), source: None, aux: false, guarded: false }
+    }
+
+    /// A card an AI app asked for, before the user allowed it to change data.
+    async fn guarded(state: &AppState, sql: &str) -> Result<SessionQueryResult, String> {
+        let mut request = card(TAB, sql);
+        request.guarded = true;
+        session_execute_query(request, state).await
     }
 
     async fn query(state: &AppState, sql: &str) -> Result<SessionQueryResult, String> {
@@ -1750,6 +1888,137 @@ mod live_tab_session_tests {
     }
 
     const LIVE: &str = "needs a live PostgreSQL (Postgres.app) on localhost:5432";
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guarded_run_reads_and_cannot_write() {
+        block_on(async {
+            let state = live_state(false).await;
+            let t = table_name("guard");
+            let seq = format!("{t}_seq");
+            statement(&state, &format!("CREATE TABLE {t} (n int)")).await.unwrap();
+            statement(&state, &format!("INSERT INTO {t} VALUES (1), (2)")).await.unwrap();
+            statement(&state, &format!("CREATE SEQUENCE {seq}")).await.unwrap();
+            statement(&state, &format!(
+                "CREATE FUNCTION {t}_wipe() RETURNS int LANGUAGE plpgsql AS $$ BEGIN DELETE FROM {t}; RETURN 1; END $$")).await.unwrap();
+
+            // Reads pass, through the cursor and without one.
+            let rows = guarded(&state, &format!("SELECT n FROM {t} ORDER BY n")).await.expect("a read");
+            assert_eq!(rows.result.row_count, 2);
+            guarded(&state, &format!("EXPLAIN SELECT * FROM {t}")).await.expect("EXPLAIN");
+            guarded(&state, "SHOW work_mem").await.expect("SHOW");
+            assert_eq!(state.tab_session(TAB).unwrap().report().txn, TxnState::Idle);
+
+            // What no reading of the text can see is refused by the server.
+            for sql in [
+                format!("SELECT {t}_wipe()"),
+                format!("SELECT setval('{seq}', 99)"),
+                format!("SELECT nextval('{seq}')"),
+                format!("WITH d AS (DELETE FROM {t} RETURNING n) SELECT * FROM d"),
+                format!("EXPLAIN ANALYZE DELETE FROM {t}"),
+            ] {
+                let why = guarded(&state, &sql).await.expect_err(&sql);
+                assert!(why.starts_with(GUARD_REFUSAL), "{sql}: {why}");
+            }
+            // SELECT … INTO cannot be a cursor: the server says so itself.
+            guarded(&state, &format!("SELECT * INTO {t}_copy FROM {t}")).await.expect_err("SELECT INTO");
+            assert_eq!(scalar(&state, &format!("SELECT to_regclass('{t}_copy') IS NULL")).await, "t");
+            // What is not one read is refused before it is sent.
+            for sql in [
+                format!("DO $$ BEGIN DELETE FROM {t}; END $$"),
+                format!("SELECT 1; DELETE FROM {t}"),
+                format!("COMMIT; DELETE FROM {t}"),
+                format!("CREATE TABLE {t}_x AS SELECT 1"),
+            ] {
+                let why = guarded(&state, &sql).await.expect_err(&sql);
+                assert!(why.starts_with(GUARD_REFUSAL), "{sql}: {why}");
+            }
+            let mut request = card(TAB, &format!("DELETE FROM {t}"));
+            request.guarded = true;
+            let why = session_execute_statement(request, &state).await.expect_err("the statement path");
+            assert!(why.starts_with(GUARD_REFUSAL), "{why}");
+
+            assert_eq!(scalar(&state, &format!("SELECT count(*)::text FROM {t}")).await, "2");
+            assert_eq!(state.tab_session(TAB).unwrap().report().txn, TxnState::Idle);
+            // The tab is left able to write, as before.
+            assert_eq!(scalar(&state, "SHOW transaction_read_only").await, "off");
+
+            statement(&state, &format!("DROP FUNCTION {t}_wipe()")).await.unwrap();
+            statement(&state, &format!("DROP SEQUENCE {seq}")).await.unwrap();
+            statement(&state, &format!("DROP TABLE {t}")).await.unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guarded_run_on_the_pool_reads_and_cannot_write() {
+        block_on(async {
+            let state = live_state(false).await;
+            let t = table_name("guardpool");
+            let pooled = |sql: String, guarded: bool| {
+                let state = &state;
+                async move {
+                    crate::commands::query::execute_query_with(
+                        CONN.to_string(), sql, None, Some(1000), None, None, guarded, state).await
+                }
+            };
+            let mut other = other_user().await;
+            other.execute(sqlx::raw_sql(&format!(
+                "CREATE TABLE {t} (n int); INSERT INTO {t} VALUES (1), (2); \
+                 CREATE FUNCTION {t}_wipe() RETURNS int LANGUAGE plpgsql AS $$ BEGIN DELETE FROM {t}; RETURN 1; END $$"))).await.unwrap();
+
+            let rows = pooled(format!("SELECT n FROM {t} ORDER BY n"), true).await.expect("a read");
+            assert_eq!(rows.row_count, 2);
+            pooled(format!("EXPLAIN SELECT * FROM {t}"), true).await.expect("EXPLAIN");
+            for sql in [
+                format!("SELECT {t}_wipe()"),
+                format!("WITH d AS (DELETE FROM {t} RETURNING n) SELECT * FROM d"),
+                format!("DO $$ BEGIN DELETE FROM {t}; END $$"),
+                format!("SELECT 1; DELETE FROM {t}"),
+                format!("COMMIT; DELETE FROM {t}"),
+            ] {
+                let why = pooled(sql.clone(), true).await.expect_err(&sql);
+                assert!(why.starts_with(GUARD_REFUSAL), "{sql}: {why}");
+            }
+            let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {t}")).fetch_one(&mut other).await.unwrap();
+            assert_eq!(n, 2);
+
+            // The connection goes back to the pool able to write: the same
+            // function, not guarded, does what it says.
+            pooled(format!("SELECT {t}_wipe()"), false).await.expect("unguarded");
+            let n: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {t}")).fetch_one(&mut other).await.unwrap();
+            assert_eq!(n, 0);
+            other.execute(sqlx::raw_sql(&format!("DROP FUNCTION {t}_wipe(); DROP TABLE {t}"))).await.unwrap();
+        });
+    }
+
+    #[test]
+    #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]
+    fn live_guarded_run_inside_the_users_transaction_leaves_it_as_it_was() {
+        block_on(async {
+            let state = live_state(false).await;
+            let t = table_name("guardtx");
+            statement(&state, &format!("CREATE TABLE {t} (n int)")).await.unwrap();
+            statement(&state, "BEGIN").await.unwrap();
+            statement(&state, &format!("INSERT INTO {t} VALUES (1)")).await.unwrap();
+
+            // It sees the transaction's own rows, and cannot add to them.
+            let rows = guarded(&state, &format!("SELECT n FROM {t}")).await.expect("a read");
+            assert_eq!(rows.result.row_count, 1);
+            let why = guarded(&state, &format!("WITH d AS (DELETE FROM {t} RETURNING n) SELECT * FROM d")).await.unwrap_err();
+            assert!(why.starts_with(GUARD_REFUSAL), "{why}");
+            let why = guarded(&state, "SELECT set_config('transaction_read_only', 'off', true)").await.unwrap_err();
+            assert!(!why.is_empty());
+
+            // The user's transaction is open, unbroken, and can still write.
+            assert_eq!(state.tab_session(TAB).unwrap().report().txn, TxnState::InTransaction);
+            assert_eq!(scalar(&state, "SHOW transaction_read_only").await, "off");
+            statement(&state, &format!("INSERT INTO {t} VALUES (2)")).await.expect("the transaction still writes");
+            statement(&state, "COMMIT").await.unwrap();
+            assert_eq!(scalar(&state, &format!("SELECT count(*)::text FROM {t}")).await, "2");
+            statement(&state, &format!("DROP TABLE {t}")).await.unwrap();
+        });
+    }
 
     #[test]
     #[ignore = "needs a live PostgreSQL (Postgres.app) on localhost:5432"]

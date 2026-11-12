@@ -69,21 +69,37 @@ enum MCPToolHandlers {
     }
 
     /// The `{{name}}` tokens in `texts` this call's app may not have filled
-    /// in, for something that ran on `connectionId`.
-    private static func withheldNames(in texts: [String?], connectionId: String?) -> [String] {
-        MCPVariableAccess.withheldNames(in: texts, usable: usableVariables(for: connectionId))
+    /// in, for something that ran on `connectionId` and was filled in at
+    /// `filledInAt` (nil when that is not known). A variable that took its
+    /// name after that is not the one that filled it in.
+    private static func withheldNames(in texts: [String?], connectionId: String?, filledInAt: Date?) -> [String] {
+        MCPVariableAccess.withheldNames(in: texts, usable: usableVariables(for: connectionId), filledInAt: .some(filledInAt))
+    }
+
+    /// When a finished run was filled in: no later than when it was sent,
+    /// which is its end less the time the server took.
+    private static func filledInAt(finishedAt: Date, executionTimeMs: UInt64) -> Date {
+        finishedAt.addingTimeInterval(-Double(executionTimeMs) / 1000)
     }
 
     /// The tokens that keep this call's app from the card's result: those of
     /// the run that made it, and of the result itself.
     private static func withheldFromResult(of card: QueryCard, in located: Located) -> [String] {
         let result = located.session.resultStore[located.tab.id].result(forCard: card.id)
-        return withheldNames(in: [card.lastRun?.rawSQL, result?.rawSQL],
-                             connectionId: card.lastRun?.connectionId ?? located.tab.connectionId)
+        let connectionId = card.lastRun?.connectionId ?? located.tab.connectionId
+        // The run's own time where there is one: a result read back from
+        // storage is stamped when it was read, not when it ran.
+        let time: Date?
+        if let run = card.lastRun {
+            time = filledInAt(finishedAt: run.finishedAt, executionTimeMs: run.executionTimeMs)
+        } else {
+            time = result.map { filledInAt(finishedAt: $0.timestamp, executionTimeMs: $0.executionTimeMs) }
+        }
+        return withheldNames(in: [card.lastRun?.rawSQL, result?.rawSQL], connectionId: connectionId, filledInAt: time)
     }
 
     private static func withheldMessage(_ names: [String], what: String) -> String {
-        "\(what) used \(MCPVariableAccess.tokenList(names)), which the user has not shared with this app or which is no longer defined, so Pharos does not show it. The user can share a variable in Pharos's Variable Manager (AI apps)."
+        "\(what) used \(MCPVariableAccess.tokenList(names)), which the user has not shared with this app, or which was deleted, renamed or defined again since, so Pharos does not show it. The user can share a variable in Pharos's Variable Manager (AI apps); a variable defined after a run does not show that run."
     }
 
     /// The workspace connections of a tab bound to a workspace, nil for one
@@ -300,7 +316,9 @@ enum MCPToolHandlers {
                 // An entry that keeps no `{{name}}` form has no token to go by.
                 MCPAccessPolicy.allowsHistoryEntry(
                     connectionId: e.connectionId,
-                    withheld: withheldNames(in: [e.rawSql], connectionId: e.connectionId), allowed: allowed)
+                    withheld: withheldNames(in: [e.rawSql], connectionId: e.connectionId,
+                                            filledInAt: historyFilledInAt(e)),
+                    allowed: allowed)
             })
         } catch {
             throw MCPToolError.failed("Pharos could not read its query history: \(error.localizedDescription)")
@@ -326,6 +344,14 @@ enum MCPToolHandlers {
             "entries": .array(rows),
             "next_offset": .optional(page.next),
         ]
+    }
+
+    /// When a history entry's SQL was filled in: its recorded time less the
+    /// time it took, or nil when the time cannot be read.
+    private static func historyFilledInAt(_ entry: QueryHistoryEntry) -> Date? {
+        LenientISO8601.date(from: entry.executedAt).map {
+            filledInAt(finishedAt: $0, executionTimeMs: UInt64(max(0, entry.executionTimeMs)))
+        }
     }
 
     private static func listVariables(_ args: MCPArguments) throws -> JSONValue {
@@ -708,7 +734,8 @@ enum MCPToolHandlers {
         }
         if let failureId = card.lastFailureId,
            let failure = located.tab.failureLog.entries.first(where: { $0.id == failureId }) {
-            let failed = withheldNames(in: [failure.rawSQL ?? card.sql], connectionId: located.tab.connectionId)
+            let failed = withheldNames(in: [failure.rawSQL ?? card.sql], connectionId: located.tab.connectionId,
+                                       filledInAt: failure.timestamp)
             if failed.isEmpty { o["last_error"] = .string(failure.message) }
             withheld = Array(Set(withheld + failed)).sorted()
         }
@@ -828,9 +855,12 @@ enum MCPToolHandlers {
                     + rendered.invalid.map { "{{\($0.name)}}: \($0.reason)" }
                 throw MCPToolError.refused("The card's variables cannot be filled in: \(parts.joined(separator: "; ")). Fix them with list_variables and create_variable or update_variable, which the user confirms, or ask the user to in Pharos's Variable Manager.")
             }
-            let keywords = DestructiveSQLScanner.destructiveKeywords(in: rendered.sql)
-            if !keywords.isEmpty && !state.settings.security.mcpWrites.allows(isLocal: isLocal) {
-                throw MCPToolError.refused("Pharos does not let this app run statements that change data (\(keywords.joined(separator: ", "))). The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ AI apps that can change data. Each run is then confirmed in Pharos, unless the user also lets this app change data without asking.")
+            // Anything but a plain read of the database (`MCPStatementPolicy`):
+            // a write, more than one statement, a file or another server.
+            let engine = state.connections.first { $0.id == connectionId }?.engine ?? .postgres
+            let reasons = MCPStatementPolicy.reasons(in: rendered.sql, duckDB: engine == .duckdb)
+            if !reasons.isEmpty && !state.settings.security.mcpWrites.allows(isLocal: isLocal) {
+                throw MCPToolError.refused("Pharos lets this app run only statements that read the database: one SELECT, WITH, VALUES, TABLE, EXPLAIN or SHOW\(engine == .duckdb ? " (or FROM, DESCRIBE, SUMMARIZE)" : ""), with nothing that changes data or reaches files or other servers. This card has \(reasons.joined(separator: ", ")). The user can allow it in Pharos: Settings ▸ Security & Privacy ▸ AI apps that can change data. Each run is then confirmed in Pharos, unless the user also lets this app change data without asking.")
             }
             try await ensureConnected(connectionId)
             located = try locate(tabId)
@@ -891,7 +921,8 @@ enum MCPToolHandlers {
         let current = located.tab.document.card(cardId)
         if let failureId = current?.lastFailureId, failureId != failureBefore {
             let failure = located.tab.failureLog.entries.first { $0.id == failureId }
-            let failed = withheldNames(in: [failure?.rawSQL ?? current?.sql], connectionId: located.tab.connectionId)
+            let failed = withheldNames(in: [failure?.rawSQL ?? current?.sql], connectionId: located.tab.connectionId,
+                                       filledInAt: failure?.timestamp)
             let message = failed.isEmpty ? failure?.message ?? "The run failed."
                 : withheldMessage(failed, what: "The run failed. It")
             return [
@@ -902,7 +933,7 @@ enum MCPToolHandlers {
         }
         return [
             "tab_id": .string(tabId), "card_id": .string(cardId), "status": "cancelled",
-            "message": "The run did not happen: the user cancelled it or answered Cancel to Pharos's confirmation, or a variable it uses stopped being shared with this app while it waited.",
+            "message": "The run did not happen: the user cancelled it or answered Cancel to Pharos's confirmation, or while it waited a variable it uses stopped being shared with this app or the card came to hold more than this app may run.",
             "card": current.map { describe(card: $0, in: located) } ?? .null,
         ]
     }

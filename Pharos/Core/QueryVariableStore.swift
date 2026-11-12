@@ -83,8 +83,27 @@ final class QueryVariableStore {
         postChange()
         do {
             try PharosCore.saveQueryVariables(variables)
+            adoptNameStamps()
         } catch {
             Log.state.error("Failed to save query variables: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Take each variable's `nameSince` from the core, which stamps it on
+    /// save. Nothing else is read back, so a field the user is typing in is
+    /// left alone; and without this a variable made or renamed in this
+    /// session would carry no stamp until the next launch, and read as one
+    /// that has always had its name.
+    private func adoptNameStamps() {
+        guard let stored = try? PharosCore.loadQueryVariables() else {
+            // Unknown: the name is treated as taken now, never as old.
+            let now = Date()
+            for i in variables.indices where variables[i].nameSince == nil { variables[i].nameSince = now }
+            return
+        }
+        let stamps = Dictionary(stored.map { ($0.id, $0.nameSince) }, uniquingKeysWith: { first, _ in first })
+        for i in variables.indices {
+            if let stamp = stamps[variables[i].id] { variables[i].nameSince = stamp }
         }
     }
 
@@ -93,6 +112,7 @@ final class QueryVariableStore {
     func save(_ variables: [QueryVariable]) throws {
         try PharosCore.saveQueryVariables(variables)
         self.variables = variables
+        adoptNameStamps()
         loaded = true
         postChange()
     }

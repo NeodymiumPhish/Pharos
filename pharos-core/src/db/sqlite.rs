@@ -959,6 +959,7 @@ pub fn create_schema(conn: &Connection) -> SqliteResult<()> {
     // Migration: which AI apps may use a variable (`local` or `all`). NULL
     // is off, which every older row is.
     add_column_if_missing(conn, "query_variables", "mcp_access", "TEXT")?;
+    add_column_if_missing(conn, "query_variables", "name_since", "INTEGER")?;
     mark_duckdb_records_not_saved(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_query_history_workspace_card ON query_history(workspace_id, card_id);",
@@ -2308,7 +2309,7 @@ pub fn remove_recent_files(conn: &mut Connection, paths: &[String]) -> SqliteRes
 /// per-tab copies.
 pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, value, type, connection_ids, mcp_access FROM query_variables ORDER BY position ASC",
+        "SELECT id, name, value, type, connection_ids, mcp_access, name_since FROM query_variables ORDER BY position ASC",
     )?;
     let rows = stmt.query_map([], |row| {
         // NULL (every variable written before scopes) and an unreadable
@@ -2321,6 +2322,7 @@ pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable
             kind: row.get(3)?,
             connection_ids: ids.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default(),
             mcp_access: row.get(5)?,
+            name_since: row.get(6)?,
         })
     })?;
     rows.collect()
@@ -2329,12 +2331,31 @@ pub fn load_query_variables(conn: &Connection) -> SqliteResult<Vec<QueryVariable
 /// Replace the stored list with `variables`, the array index becoming
 /// `position`. One transaction: the table is emptied and rewritten, so a
 /// half-old, half-new list can never be observed.
+///
+/// `name_since` is decided here, not by the caller (see the field): a row
+/// that keeps its id and name keeps its stamp, a renamed one is stamped now,
+/// and a new one is stamped now unless it brings a stamp of its own (a
+/// restored backup's, so a restore does not hide every earlier run).
 pub fn save_query_variables(conn: &mut Connection, variables: &[QueryVariable]) -> SqliteResult<()> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
     let tx = conn.transaction()?;
+    let existing: std::collections::HashMap<String, (String, Option<i64>)> = {
+        let mut stmt = tx.prepare("SELECT id, name, name_since FROM query_variables")?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, (row.get::<_, String>(1)?, row.get::<_, Option<i64>>(2)?))))?;
+        rows.collect::<SqliteResult<_>>()?
+    };
     tx.execute("DELETE FROM query_variables", [])?;
     for (position, variable) in variables.iter().enumerate() {
+        let name_since = match existing.get(&variable.id) {
+            Some((name, since)) if *name == variable.name => *since,
+            Some(_) => Some(now),
+            None => variable.name_since.or(Some(now)),
+        };
         tx.execute(
-            "INSERT INTO query_variables (id, name, value, type, position, connection_ids, mcp_access) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO query_variables (id, name, value, type, position, connection_ids, mcp_access, name_since) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 variable.id,
                 variable.name,
@@ -2346,6 +2367,7 @@ pub fn save_query_variables(conn: &mut Connection, variables: &[QueryVariable]) 
                     .then(|| serde_json::to_string(&variable.connection_ids).unwrap_or_default()),
                 // Off stays SQL NULL, as every row before this column.
                 variable.mcp_access.as_deref().filter(|a| *a != "off"),
+                name_since,
             ],
         )?;
     }
@@ -2363,6 +2385,69 @@ mod query_variable_tests {
         conn
     }
 
+    /// The stored list without its `name_since` stamps, which the save sets.
+    fn loaded_unstamped(conn: &Connection) -> Vec<QueryVariable> {
+        let mut loaded = load_query_variables(conn).unwrap();
+        for v in &mut loaded {
+            v.name_since = None;
+        }
+        loaded
+    }
+
+    fn stamp(conn: &Connection, id: &str) -> Option<i64> {
+        load_query_variables(conn).unwrap().into_iter().find(|v| v.id == id).and_then(|v| v.name_since)
+    }
+
+    /// The save decides when a variable took its name: a caller cannot
+    /// back-date one, and a name taken later never reads as the earlier one.
+    #[test]
+    fn name_since_is_stamped_by_the_save() {
+        let mut conn = db();
+        let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        save_query_variables(&mut conn, &[variable("a", "api_key", "s3cret", "text")]).unwrap();
+        let created = stamp(&conn, "a").expect("a new variable is stamped");
+        assert!(created >= before);
+
+        // Same id, same name: the stamp stays, whatever the caller sends.
+        conn.execute("UPDATE query_variables SET name_since = 1000 WHERE id = 'a'", []).unwrap();
+        let back_dated = QueryVariable { name_since: Some(5), value: "other".into(), ..variable("a", "api_key", "", "text") };
+        save_query_variables(&mut conn, &[back_dated]).unwrap();
+        assert_eq!(stamp(&conn, "a"), Some(1000));
+
+        // Renamed: stamped now, not what the caller sends.
+        let renamed = QueryVariable { name_since: Some(5), ..variable("a", "token", "other", "text") };
+        save_query_variables(&mut conn, &[renamed]).unwrap();
+        assert!(stamp(&conn, "a").unwrap() >= before);
+
+        // Deleted, and the name taken by another variable: stamped now.
+        save_query_variables(&mut conn, &[]).unwrap();
+        save_query_variables(&mut conn, &[variable("b", "api_key", "x", "text")]).unwrap();
+        assert!(stamp(&conn, "b").unwrap() >= before);
+    }
+
+    /// A row written before the column has no stamp, and keeps none while
+    /// its name stays: it has had the name for as long as anything knows.
+    #[test]
+    fn an_old_row_keeps_no_stamp_until_it_is_renamed() {
+        let mut conn = db();
+        save_query_variables(&mut conn, &[variable("a", "env", "p", "text")]).unwrap();
+        conn.execute("UPDATE query_variables SET name_since = NULL", []).unwrap();
+        save_query_variables(&mut conn, &[variable("a", "env", "q", "text")]).unwrap();
+        assert_eq!(stamp(&conn, "a"), None);
+        save_query_variables(&mut conn, &[variable("a", "environment", "q", "text")]).unwrap();
+        assert!(stamp(&conn, "a").is_some());
+    }
+
+    /// A restored backup brings its own stamps for variables the store does
+    /// not have, so a restore does not hide every earlier run.
+    #[test]
+    fn a_new_row_may_bring_its_own_stamp() {
+        let mut conn = db();
+        let restored = QueryVariable { name_since: Some(1234), ..variable("a", "env", "p", "text") };
+        save_query_variables(&mut conn, &[restored]).unwrap();
+        assert_eq!(stamp(&conn, "a"), Some(1234));
+    }
+
     fn variable(id: &str, name: &str, value: &str, kind: &str) -> QueryVariable {
         QueryVariable {
             id: id.to_string(),
@@ -2371,6 +2456,7 @@ mod query_variable_tests {
             kind: kind.to_string(),
             connection_ids: Vec::new(),
             mcp_access: None,
+            name_since: None,
         }
     }
 
@@ -2382,7 +2468,7 @@ mod query_variable_tests {
         let shared = QueryVariable { mcp_access: Some("local".into()), ..variable("a", "env", "p", "text") };
         let off = QueryVariable { mcp_access: Some("off".into()), ..variable("c", "region", "eu", "text") };
         save_query_variables(&mut conn, &[shared.clone(), variable("b", "limit", "5", "number"), off]).unwrap();
-        let loaded = load_query_variables(&conn).unwrap();
+        let loaded = loaded_unstamped(&conn);
         assert_eq!(loaded[0].mcp_access.as_deref(), Some("local"));
         assert_eq!(loaded[1].mcp_access, None, "never chosen");
         assert_eq!(loaded[2].mcp_access, None, "off is stored as NULL");
@@ -2404,7 +2490,7 @@ mod query_variable_tests {
              INSERT INTO query_variables (id, name, value, type, position) VALUES ('a', 'token', 's3cret', 'text', 0);",
         ).unwrap();
         create_schema(&conn).unwrap();
-        let loaded = load_query_variables(&conn).unwrap();
+        let loaded = loaded_unstamped(&conn);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].mcp_access, None, "an older variable is not shared with AI apps");
     }
@@ -2416,7 +2502,7 @@ mod query_variable_tests {
         let mut conn = db();
         let linked = QueryVariable { connection_ids: vec!["prod".into(), "staging".into()], ..variable("a", "env", "p", "text") };
         save_query_variables(&mut conn, &[linked.clone(), variable("b", "limit", "5", "number")]).unwrap();
-        let loaded = load_query_variables(&conn).unwrap();
+        let loaded = loaded_unstamped(&conn);
         assert_eq!(loaded[0].connection_ids, ["prod", "staging"]);
         assert!(loaded[1].connection_ids.is_empty(), "global");
         let raw: Option<String> = conn
@@ -2435,7 +2521,7 @@ mod query_variable_tests {
             variable("b", "note", "it's \"quoted\"\nand multi-line", "literal"),
         ];
         save_query_variables(&mut conn, &saved).unwrap();
-        let loaded = load_query_variables(&conn).unwrap();
+        let loaded = loaded_unstamped(&conn);
         assert_eq!(loaded, saved, "array order, not id order, is the stored order");
     }
 
@@ -2444,7 +2530,7 @@ mod query_variable_tests {
         let mut conn = db();
         save_query_variables(&mut conn, &[variable("a", "x", "1", "literal"), variable("b", "y", "2", "literal")]).unwrap();
         save_query_variables(&mut conn, &[variable("b", "y", "3", "number")]).unwrap();
-        let loaded = load_query_variables(&conn).unwrap();
+        let loaded = loaded_unstamped(&conn);
         assert_eq!(loaded, vec![variable("b", "y", "3", "number")]);
     }
 
@@ -2453,7 +2539,7 @@ mod query_variable_tests {
         let mut conn = db();
         save_query_variables(&mut conn, &[variable("a", "x", "1", "literal")]).unwrap();
         save_query_variables(&mut conn, &[]).unwrap();
-        assert!(load_query_variables(&conn).unwrap().is_empty());
+        assert!(loaded_unstamped(&conn).is_empty());
     }
 
     /// `type` is opaque to Rust: a value written by a newer Swift build must
@@ -2462,7 +2548,7 @@ mod query_variable_tests {
     fn unknown_type_survives_verbatim() {
         let mut conn = db();
         save_query_variables(&mut conn, &[variable("a", "x", "1", "hexadecimal")]).unwrap();
-        assert_eq!(load_query_variables(&conn).unwrap()[0].kind, "hexadecimal");
+        assert_eq!(loaded_unstamped(&conn)[0].kind, "hexadecimal");
     }
 
     /// The Date, Timestamp and List types (2026-10-28) carry their sub-option
@@ -2478,7 +2564,7 @@ mod query_variable_tests {
             variable("e", "ids", "1\n2.5\n-3", "list_number"),
         ];
         save_query_variables(&mut conn, &vars).unwrap();
-        assert_eq!(load_query_variables(&conn).unwrap(), vars);
+        assert_eq!(loaded_unstamped(&conn), vars);
     }
 
     /// The JSON keys are the Swift CodingKeys: `type`, not `kind`, and a

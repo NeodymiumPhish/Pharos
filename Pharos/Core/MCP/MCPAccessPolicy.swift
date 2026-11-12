@@ -63,7 +63,9 @@ enum MCPAccessPolicy {
     /// The `{{name}}` tokens of a card or a past run (`referenced`) that the
     /// client may not have filled in, sorted: every one that is not the name
     /// of a variable it may use now (`usable`). A name that is no longer
-    /// defined counts, since nothing says what value it stood for. While any
+    /// defined counts, since nothing says what value it stood for; so does
+    /// one whose variable took the name after the run, which the caller
+    /// leaves out of `usable` (`MCPVariableAccess.withheldNames`). While any
     /// is left, what the run sent, returned and failed with is withheld.
     static func withheldNames(referenced: Set<String>, usable: Set<String>) -> [String] {
         referenced.subtracting(usable).sorted()

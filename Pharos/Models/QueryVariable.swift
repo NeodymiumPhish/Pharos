@@ -156,21 +156,39 @@ struct QueryVariable: Identifiable, Codable, Equatable {
     /// until the user chooses, in the Variable Manager: a value can be a
     /// token or an address.
     var mcpAccess: VariableAIAccess = .off
+    /// When the variable took its current name. The core stamps it when a
+    /// variable is created or renamed (`save_query_variables`) and ignores
+    /// what a caller sends for one that exists; nil on a variable from before
+    /// the stamp, which has had its name for as long as anything knows.
+    ///
+    /// The MCP server withholds what a past run made with a variable an AI
+    /// app may not use, by the run's `{{name}}`. A variable that took the
+    /// name after the run is not the one the run used
+    /// (`MCPVariableAccess.withheldNames`).
+    var nameSince: Date?
 
     var isGlobal: Bool { connectionIds.isEmpty }
 
     init(id: UUID = UUID(), name: String, value: String = "", type: VariableType = .literal,
-         connectionIds: [String] = [], mcpAccess: VariableAIAccess = .off) {
+         connectionIds: [String] = [], mcpAccess: VariableAIAccess = .off, nameSince: Date? = nil) {
         self.id = id
         self.name = name
         self.value = value
         self.type = type
         self.connectionIds = connectionIds
         self.mcpAccess = mcpAccess
+        self.nameSince = nameSince
+    }
+
+    /// What the user or an app can change. `nameSince` is the store's own
+    /// bookkeeping: a list that differs only in it has not changed.
+    static func == (a: QueryVariable, b: QueryVariable) -> Bool {
+        a.id == b.id && a.name == b.name && a.value == b.value && a.type == b.type
+            && a.connectionIds == b.connectionIds && a.mcpAccess == b.mcpAccess
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, value, type, connectionIds, mcpAccess
+        case id, name, value, type, connectionIds, mcpAccess, nameSince
     }
 
     // Written by hand so a global variable's document leaves the key out, as
@@ -183,6 +201,8 @@ struct QueryVariable: Identifiable, Codable, Equatable {
         try container.encode(type, forKey: .type)
         if !connectionIds.isEmpty { try container.encode(connectionIds, forKey: .connectionIds) }
         if mcpAccess != .off { try container.encode(mcpAccess, forKey: .mcpAccess) }
+        // Unix milliseconds, as the core keeps it.
+        if let nameSince { try container.encode(Int64((nameSince.timeIntervalSince1970 * 1000).rounded()), forKey: .nameSince) }
     }
 
     /// Decoding is written by hand for one reason: an unrecognised `type` must not
@@ -208,6 +228,8 @@ struct QueryVariable: Identifiable, Codable, Equatable {
         // a newer build wrote that this one does not know: off.
         mcpAccess = (try? container.decodeIfPresent(String.self, forKey: .mcpAccess))
             .flatMap { $0 }.flatMap(VariableAIAccess.init(rawValue:)) ?? .off
+        nameSince = (try? container.decodeIfPresent(Int64.self, forKey: .nameSince))
+            .flatMap { $0 }.map { Date(timeIntervalSince1970: Double($0) / 1000) }
 
         let rawType = try container.decodeIfPresent(String.self, forKey: .type)
             ?? VariableType.literal.rawValue

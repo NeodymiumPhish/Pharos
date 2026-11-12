@@ -189,9 +189,20 @@ share.
 server, so Pharos does not use that name. When an app starts `Pharos --mcp`,
 Pharos finds the app that started it and reads that app's code signature: the
 developer's team ID and the app's bundle. Claude is signed by Anthropic, and LM
-Studio by Element Labs. Another program cannot use those signatures. Pharos
-skips Apple's own programs, such as the shell, because apps often start servers
-through them.
+Studio by Element Labs. Another program cannot sign itself as one of them.
+Pharos skips Apple's own programs, such as the shell, because apps often start
+servers through them.
+
+Pharos also checks that the program on the other end of its socket is its own
+`Pharos --mcp`, by Pharos's code signature, so another program on your Mac
+cannot talk to Pharos directly and claim to be an approved app. After you
+update Pharos, quit it and open it again: the running copy refuses the new
+copy's `Pharos --mcp` until then.
+
+This tells apart the AI apps that you installed. It is not a wall against a
+program that already runs under your account: such a program can start an
+approved app and then start `Pharos --mcp` beneath it, and it can read your
+files, Pharos's own data included, without asking Pharos at all.
 
 - An app that is not signed with a developer team (an unsigned program, or a
   script interpreter that you installed yourself) is listed by its file path,
@@ -267,7 +278,11 @@ For a variable that an app cannot use:
 - `search_history` leaves out the runs that used the variable.
 
 A variable that is deleted or renamed counts as one that the app cannot use,
-so what your earlier runs made with it stays hidden.
+so what your earlier runs made with it stays hidden. It stays hidden if a
+variable is later given the same name, by you or by an app: Pharos records when
+each variable took its name, and a variable shows only the runs made since
+then. (A variable created before this was recorded shows the runs that used
+its name whenever they ran.)
 
 An app must also be able to use a connection that the variable applies to: a
 global variable applies to all of them, and a linked variable must be linked
@@ -298,16 +313,45 @@ another computer, or another user on this Mac cannot reach the server.
 blocked, and a program that Pharos cannot identify are refused (see
 [Local and cloud AI apps](#local-and-cloud-ai-apps)).
 
-**Statements that change data are refused unless you allow them.** An AI app
-cannot run a card whose SQL contains `INSERT`, `UPDATE`, `DELETE`, `DROP`,
-`ALTER`, `TRUNCATE` or `GRANT`, unless **AI apps that can change data** includes
-the app. Pharos refuses the run before it is queued, and tells the app that you
-can allow it in Settings. Pharos uses the
-same check for its own [destructive-query confirmation](query-execution.md). The
-check looks at the SQL after query variables are filled in, and it finds these
-words even inside a CTE.
+**Only a read of the database runs unless you allow more.** Unless **AI apps
+that can change data** includes the app, it can run one statement per card, and
+that statement must read: `SELECT`, `WITH`, `VALUES`, `TABLE`, `EXPLAIN` or
+`SHOW` (on DuckDB also `FROM`, `DESCRIBE` and `SUMMARIZE`). Pharos refuses
+anything else before it is queued, and tells the app that you can allow it in
+Settings. That covers `INSERT`, `UPDATE`, `DELETE` and DDL, and also `CREATE`,
+`COPY`, `CALL`, `DO`, `SET`, `ATTACH`, `INSTALL`, a card with more than one
+statement, a data-modifying CTE, and functions that reach outside the database
+(`pg_read_file`, `dblink`, DuckDB's `read_csv`, `read_text` and a file named in
+`FROM`). The check looks at the SQL after query variables are filled in.
 
-**You confirm every change, unless you turn that off.** If an app can change data, each such run still shows Pharos's confirmation sheet. The sheet
+Pharos does not rely on reading the text alone. A statement that passes the
+check is run so that it cannot do more than read:
+
+- On PostgreSQL it runs inside a read-only transaction, which Pharos rolls
+  back. The server refuses a write however it is reached: a function that
+  writes, `setval`, `EXPLAIN ANALYZE` of a write. Inside a transaction you
+  opened in the tab, Pharos uses a read-only savepoint and your transaction is
+  left as it was.
+- On DuckDB, Pharos has DuckDB parse the statement and checks every table in
+  it. A table must be in the database: a file path, a URL, or a function that
+  reads files or other databases is refused.
+
+This holds on a server that cannot keep a connection for each tab (see
+[Query Execution](query-execution.md)) as well: the card runs on a shared
+connection, inside the same read-only transaction. A server that will not start
+a read-only transaction does not run the statement; with **AI apps that can
+change data**, Pharos asks you about it.
+
+On DuckDB, Pharos also looks through what the statement names. A view is
+checked by the query that it stands for, and the views inside that query. A
+macro that you (or an app, with your permission) defined is refused, because
+what it does is in its definition; DuckDB's own macros are allowed.
+
+One limit remains. On PostgreSQL, a function that already exists in your
+database and reads the server's files or another server still does so when a
+read calls it. A read-only transaction stops writes, not reads.
+
+**You confirm every such run, unless you turn that off.** If an app can change data, each run that is more than a read still shows Pharos's confirmation sheet. The sheet
 names the app that asked for the run, and Pharos bounces its Dock icon so that
 you see the sheet. A run that an AI app asks for always shows the sheet, even
 if you turned off the confirmation for your own runs in **Settings ▸ Query**.
@@ -316,6 +360,20 @@ you can answer the sheet. The app cannot press **Run**, and it cannot cancel the
 run for you. To let an app's changes run without the sheet, choose it in
 **AI apps that can change data without asking**. This reaches only apps that
 **AI apps that can change data** already includes.
+
+"Without asking" is for changes to the database: `INSERT`, `UPDATE`, `DELETE`,
+DDL. A statement that reaches outside the database still shows the sheet every
+time: `COPY`, `ATTACH`, `INSTALL`, `LOAD`, `EXPORT`, `IMPORT`, `SET`, `PRAGMA`,
+and one that reads a file, a URL or another server (DuckDB's `read_csv` and a
+file named in `FROM`, PostgreSQL's `pg_read_file` and `dblink`). On DuckDB a
+read is still checked as described above, so a table name that turns out to be
+a file is put to you as well.
+
+For a statement that writes, Pharos finds the file or address by reading the
+SQL, since DuckDB can parse only a `SELECT` for it. A write whose source is a
+file written as a bare name, such as `INSERT INTO t SELECT * FROM data.csv`,
+is not recognised and runs without the sheet for such an app. Leave an app out
+of this setting if that matters to you.
 
 **The app sees only what it asks for.** `list_connections` returns each
 connection's name, engine, database and default schema. It does not return

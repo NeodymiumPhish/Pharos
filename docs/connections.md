@@ -203,7 +203,7 @@ Two ways forward:
 
 Pharos opens `postgres://` and `postgresql://` links — the standard PostgreSQL connection URI, as used by `psql`, hosting dashboards and CI settings pages. Open one from a browser, a terminal (`open "postgresql://…"`), or any app that makes links clickable, and the Connections Manager comes forward with a **new, unsaved** connection filled in from it.
 
-Pharos reads the host, port, user, password, database name and the `sslmode` parameter:
+Pharos reads the host, port, user, password, database name and the `sslmode` and `sslrootcert` parameters:
 
 ```
 postgresql://user:password@host:5432/dbname?sslmode=require
@@ -211,7 +211,8 @@ postgresql://user:password@host:5432/dbname?sslmode=require
 
 - Every part is optional. A missing port means 5432, and a missing host means `localhost`.
 - The link may instead carry its parts as query parameters — `postgresql:///dbname?host=/tmp&user=me` — which is what libpq accepts. Where both are given, the part in the address wins.
-- `sslmode` is mapped onto Pharos's three modes: `disable` → Disable, `allow` and `prefer` → Prefer, `require`, `verify-ca` and `verify-full` → Require. Anything else is ignored and the default stands.
+- `sslmode` is mapped onto Pharos's modes: `disable` → Disable, `allow` and `prefer` → Prefer, `require` → Require, `verify-ca` → Verify CA and `verify-full` → Verify Full. Anything else is ignored and the default stands. A link that asks for the server's certificate to be checked is never weakened to Require.
+- `sslrootcert` fills in the root certificate for the two verifying modes. `sslrootcert=system`, or none, means the system trust store.
 - A list of hosts (`host1,host2`) uses the first one. Other parameters are ignored.
 - The new connection is named `user@host/database`. Change it, or any other field, before saving.
 

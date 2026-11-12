@@ -192,10 +192,23 @@ where
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_query(connection_id: String, sql: String, query_id: Option<String>, limit: Option<u32>,
                            schema: Option<String>, source: Option<String>, state: &AppState) -> Result<QueryResult, String> {
+    execute_query_with(connection_id, sql, query_id, limit, schema, source, false, state).await
+}
+
+/// `execute_query`; `guarded` as in `query::execute_query_with`.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_query_with(connection_id: String, sql: String, query_id: Option<String>, limit: Option<u32>,
+                                schema: Option<String>, source: Option<String>, guarded: bool, state: &AppState) -> Result<QueryResult, String> {
     let limit = limit.unwrap_or(1000) as usize;
     let start = Instant::now();
     let text = sql.clone();
-    let rows = on_fresh(state, &connection_id, schema.clone(), query_id, query_timeout_seconds(state), move |c| exec::query_text(c, &text, Some(limit), 0)).await?;
+    let rows = on_fresh(state, &connection_id, schema.clone(), query_id, query_timeout_seconds(state), move |c| {
+        // An AI app's run the user has not allowed to change data.
+        if guarded {
+            crate::db::duckdb::guard::check(c, &text)?;
+        }
+        exec::query_text(c, &text, Some(limit), 0)
+    }).await?;
     let execution_time_ms = start.elapsed().as_millis() as u64;
     let row_count = rows.rows.len();
     let entry = history_entry(state, &connection_id, &sql, &schema, source, row_count as i64, execution_time_ms,

@@ -406,6 +406,22 @@ void pharos_execute_query(const char *connection_id,
                           void *context);
 
 /**
+ * `pharos_execute_query`, for a run an AI app asked for that the user has
+ * not allowed to change data: the statement is held to a read of the
+ * database (`commands::query::execute_query_with`).
+ */
+
+void pharos_execute_guarded_query(const char *connection_id,
+                                  const char *sql,
+                                  const char *query_id,
+                                  int32_t limit,
+                                  const char *schema,
+                                  const char *source,
+                                  AsyncCallback callback,
+                                  BlockCallback block_callback,
+                                  void *context);
+
+/**
  * Execute a statement (INSERT/UPDATE/DELETE). Returns JSON ExecuteResult via callback.
  * `query_id` (nullable) makes it cancellable through `pharos_cancel_query`.
  */

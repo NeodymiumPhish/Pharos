@@ -116,7 +116,7 @@ extension MCPServerController {
     /// (Settings ▸ Security & Privacy ▸ AI Apps) and the user is told.
     func admit(_ client: MCPClientInfo) throws -> Bool {
         guard let app = client.app else {
-            throw MCPToolError.refused("Pharos cannot tell which app started `Pharos --mcp` (it was started from Terminal or another system program, not from an app). Pharos works only with apps it can identify by their signature.")
+            throw MCPToolError.refused("Pharos cannot tell which app started `Pharos --mcp`: it was started from Terminal or another system program and not from an app, or the program that connected is not this copy of Pharos (after an update, quit Pharos and open it again). Pharos works only with apps it can identify by their signature.")
         }
         let state = AppStateManager.shared
         let approval = String(localized: "In Pharos, choose Settings ▸ Security & Privacy ▸ AI Apps, and set \(app.name) to Local or Cloud.")

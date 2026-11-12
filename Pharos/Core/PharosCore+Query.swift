@@ -30,7 +30,8 @@ extension PharosCore {
         queryId: String? = nil,
         limit: Int32 = 1000,
         schema: String? = nil,
-        source: String? = nil
+        source: String? = nil,
+        guarded: Bool = false
     ) async throws -> QueryResult {
         return try await withResultCallback { callback, block, context in
             connectionId.withCString { cConn in
@@ -38,7 +39,14 @@ extension PharosCore {
                     withOptionalCString(queryId) { cQid in
                         withOptionalCString(schema) { cSchema in
                             withOptionalCString(source) { cSource in
-                                pharos_execute_query(cConn, cSql, cQid, limit, cSchema, cSource, callback, block, context)
+                                // `guarded`: an AI app's run the user has not
+                                // allowed to change data; the core holds it to
+                                // a read here as on a tab's own connection.
+                                if guarded {
+                                    pharos_execute_guarded_query(cConn, cSql, cQid, limit, cSchema, cSource, callback, block, context)
+                                } else {
+                                    pharos_execute_query(cConn, cSql, cQid, limit, cSchema, cSource, callback, block, context)
+                                }
                             }
                         }
                     }

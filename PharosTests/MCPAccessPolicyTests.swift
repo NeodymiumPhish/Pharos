@@ -140,6 +140,44 @@ private func testVariableAccess() {
     expect(MCPVariableAccess.withheldNames(in: ["SELECT 1", nil], usable: []).isEmpty, "tokens: no token, nothing withheld")
     expect(MCPVariableAccess.tokenList(["a", "b"]) == "{{a}}, {{b}}", "tokens: listed in braces")
 
+    // A variable that took its name after a run is not the one the run used:
+    // the user deleted their unshared {{api_key}}, and an app made another.
+    let ranAt = Date(timeIntervalSince1970: 1_000_000)
+    let reclaimed = [QueryVariable(name: "api_key", value: "x", type: .text, mcpAccess: .all,
+                                   nameSince: ranAt.addingTimeInterval(60))]
+    let oldRun = ["SELECT * FROM t WHERE k = {{api_key}}"]
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: reclaimed, filledInAt: .some(ranAt)) == ["api_key"],
+           "name since: a name taken after the run does not show the run")
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: reclaimed, filledInAt: .some(nil)) == ["api_key"],
+           "name since: nor a run whose time is not known")
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: reclaimed, filledInAt: .some(ranAt.addingTimeInterval(120))).isEmpty,
+           "name since: a run after the variable took the name is shown")
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: reclaimed).isEmpty,
+           "name since: a card about to run is filled in with what is usable now")
+    let always = [QueryVariable(name: "api_key", value: "x", type: .text, mcpAccess: .all)]
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: always, filledInAt: .some(ranAt)).isEmpty,
+           "name since: a variable from before the stamp has always had its name")
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: always, filledInAt: .some(nil)).isEmpty,
+           "name since: and shows a run whose time is not known")
+    let exact = [QueryVariable(name: "api_key", mcpAccess: .all, nameSince: ranAt)]
+    expect(MCPVariableAccess.withheldNames(in: oldRun, usable: exact, filledInAt: .some(ranAt)).isEmpty,
+           "name since: the same instant counts as before")
+
+    // The stamp is the store's bookkeeping, not a change to the variable.
+    var stamped = QueryVariable(name: "a", value: "1")
+    let unstamped = stamped
+    stamped.nameSince = ranAt
+    expect(stamped == unstamped, "name since: two variables that differ only in the stamp are equal")
+    if let data = try? JSONEncoder().encode(stamped), let back = try? JSONDecoder().decode(QueryVariable.self, from: data) {
+        expect(back.nameSince == ranAt, "name since: survives encoding, as Unix milliseconds", "\(String(describing: back.nameSince))")
+        expect(String(decoding: data, as: UTF8.self).contains("\"nameSince\":1000000000"), "name since: is written in milliseconds")
+    } else {
+        expect(false, "name since: a stamped variable encodes and decodes")
+    }
+    if let data = try? JSONEncoder().encode(unstamped) {
+        expect(!String(decoding: data, as: UTF8.self).contains("nameSince"), "name since: an unstamped variable's document is unchanged")
+    }
+
     // A run filled in with the usable variables only: the others are undefined.
     let rendered = VariableSubstitutor.render("SELECT {{token}}, {{day}}", with: usable)
     expect(rendered.unresolved == ["token"], "render: a variable not shared reads as undefined", "\(rendered.unresolved)")

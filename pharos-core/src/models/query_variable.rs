@@ -36,6 +36,18 @@ pub struct QueryVariable {
     /// `kind` is: Swift reads a value it does not know as off.
     #[serde(rename = "mcpAccess", default, skip_serializing_if = "Option::is_none")]
     pub mcp_access: Option<String>,
+    /// When the variable took its current name: Unix milliseconds, stamped by
+    /// `save_query_variables` when a variable is created or renamed, never
+    /// taken from the caller for a row that exists. `None` on every row
+    /// written before the column: "always".
+    ///
+    /// The MCP server withholds what a past run made with a variable an AI
+    /// app may not use. That goes by name, the only thing a run's `{{name}}`
+    /// text keeps, so a variable that takes a name later must not stand in
+    /// for the one a run used: an app could otherwise create `{{api_key}}`
+    /// after the user deleted theirs, and read the old runs.
+    #[serde(rename = "nameSince", default, skip_serializing_if = "Option::is_none")]
+    pub name_since: Option<i64>,
 }
 
 fn default_kind() -> String {

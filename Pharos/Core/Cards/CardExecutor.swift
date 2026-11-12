@@ -24,11 +24,14 @@ enum CardExecutor {
         let route: CardRunRoute
     }
 
-    static func query(target: TabSessionTarget, sql: String, limit: Int32) async throws -> QueryOutcome {
+    /// `guarded`: an AI app's run the user has not allowed to change data
+    /// (`MCPStatementPolicy`). The core holds it to a read on whichever
+    /// route it takes, the tab's own connection or the pool.
+    static func query(target: TabSessionTarget, sql: String, limit: Int32, guarded: Bool = false) async throws -> QueryOutcome {
         let monitor = TabSessionMonitor.shared
         if monitor.canUseSession(connectionId: target.connectionId) {
             do {
-                let r = try await PharosCore.sessionExecuteQuery(target, sql: sql, limit: limit)
+                let r = try await PharosCore.sessionExecuteQuery(target, sql: sql, limit: limit, guarded: guarded)
                 monitor.record(r.session)
                 return QueryOutcome(result: r.payload, route: .session)
             } catch {
@@ -37,12 +40,14 @@ enum CardExecutor {
                     throw error
                 }
                 let result = try await PharosCore.executeQuery(
-                    connectionId: target.connectionId, sql: sql, queryId: target.queryId, limit: limit, schema: target.schema)
+                    connectionId: target.connectionId, sql: sql, queryId: target.queryId, limit: limit, schema: target.schema,
+                    guarded: guarded)
                 return QueryOutcome(result: result, route: .pool(reason: reason))
             }
         }
         let result = try await PharosCore.executeQuery(
-            connectionId: target.connectionId, sql: sql, queryId: target.queryId, limit: limit, schema: target.schema)
+            connectionId: target.connectionId, sql: sql, queryId: target.queryId, limit: limit, schema: target.schema,
+            guarded: guarded)
         return QueryOutcome(result: result, route: .pool(reason: nil))
     }
 

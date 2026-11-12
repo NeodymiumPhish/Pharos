@@ -6,17 +6,21 @@ import Foundation
 /// Foundation only, and deliberately free of `ConnectionConfig`: the mapping to
 /// the app's model lives at the call site (`ConnectionsManagerWindowController`)
 /// so this type — the part with all the parsing rules in it — can be unit
-/// tested on its own. `sslMode` is this file's own three-case enum for the same
+/// tested on its own. `sslMode` is this file's own five-case enum for the same
 /// reason; the call site switches over it exhaustively, so a new case cannot be
 /// dropped silently.
 struct ParsedConnectionURL: Equatable {
 
-    /// The three modes Pharos offers. libpq's six `sslmode` values are reduced
-    /// to these by `ConnectionURLParser`.
+    /// The five modes Pharos offers. libpq's six `sslmode` values are reduced
+    /// to these by `ConnectionURLParser`. The two verifying modes are kept as
+    /// they are: a link that asks for the server's certificate to be checked
+    /// must never become a connection that does not check it.
     enum SSLMode: String {
         case disable
         case prefer
         case require
+        case verifyCa = "verify-ca"
+        case verifyFull = "verify-full"
     }
 
     /// Never empty. `localhost` when the link named no host but was otherwise
@@ -28,6 +32,10 @@ struct ParsedConnectionURL: Equatable {
     var password: String?
     var database: String?
     var sslMode: SSLMode?
+    /// libpq's `sslrootcert`: the certificate file the verifying modes check
+    /// the server against. `nil` when the link named none, or named libpq's
+    /// `system` (the system trust store, which is what no path means here).
+    var sslRootCert: String?
     /// `true` when the link carried a password. The form shows a note saying so,
     /// because a password arriving from a link is worth pointing at.
     var passwordWasInURL: Bool
@@ -100,23 +108,27 @@ enum ConnectionURLParser {
             password: password,
             database: database,
             sslMode: sslMode(from: query["sslmode"]),
+            sslRootCert: nonEmpty(query["sslrootcert"]).flatMap { $0.lowercased() == "system" ? nil : $0 },
             passwordWasInURL: password != nil
         )
     }
 
     // MARK: - Pieces
 
-    /// libpq's six `sslmode` values against the three Pharos offers. `allow`
+    /// libpq's six `sslmode` values against the five Pharos offers. `allow`
     /// means "plain text unless the server insists", which is what `prefer`
-    /// does here; both `verify-` modes are `require` plus checks Pharos does not
-    /// expose, so they map to `require` rather than being dropped. An
-    /// unrecognised value returns `nil`, leaving the form's own default alone.
+    /// does here. `verify-ca` and `verify-full` stay themselves: mapping them
+    /// to `require` would encrypt without checking the certificate, which is
+    /// the protection the link asked for. An unrecognised value returns `nil`,
+    /// leaving the form's own default alone.
     static func sslMode(from raw: String?) -> ParsedConnectionURL.SSLMode? {
         guard let raw = raw?.lowercased() else { return nil }
         switch raw {
         case "disable":                         return .disable
         case "allow", "prefer":                 return .prefer
-        case "require", "verify-ca", "verify-full": return .require
+        case "require":                         return .require
+        case "verify-ca":                       return .verifyCa
+        case "verify-full":                     return .verifyFull
         default:                                return nil
         }
     }

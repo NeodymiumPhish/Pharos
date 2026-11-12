@@ -353,7 +353,16 @@ pub async fn execute_query(request: SessionRunRequest, state: &AppState) -> Resu
             Err(RunStop::Failed(FAILED_TRANSACTION.to_string()))
         } else {
             let sql = request.sql.clone();
-            run_on(live, t.schema.as_deref(), &cancel, state, move |c| exec::query_text(c, &sql, Some(limit), 0)).await
+            let guarded = request.guarded;
+            run_on(live, t.schema.as_deref(), &cancel, state, move |c| {
+                // An AI app's run the user has not allowed to change data:
+                // it may read the database, and nothing outside it.
+                if guarded {
+                    crate::db::duckdb::guard::check(c, &sql)?;
+                }
+                exec::query_text(c, &sql, Some(limit), 0)
+            })
+            .await
         }
     };
     drop(registered);
@@ -394,6 +403,10 @@ pub async fn execute_statement(request: SessionRunRequest, state: &AppState) -> 
     let start = Instant::now();
     if let Some(refusal) = refusal_before_send(&request.sql) {
         return Err(refusal);
+    }
+    // A guarded run reads, and a read comes back as rows (`execute_query`).
+    if request.guarded {
+        return Err(format!("{} This one is not a read.", crate::db::duckdb::guard::REFUSAL));
     }
 
     let mut guard = lock_or_cancel(&session, &cancel).await?;
@@ -665,6 +678,39 @@ mod tests {
             "sessionId": session, "connectionId": "d1", "sql": sql, "limit": 2
         }))
         .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_guarded_run_reads_the_database_and_nothing_else() {
+        let state = state_with_duck("d1");
+        execute_statement(run("tab", "CREATE TABLE t AS SELECT range AS x FROM range(5)"), &state).await.unwrap();
+        let guarded = |sql: &str| {
+            let mut request = run("tab", sql);
+            request.guarded = true;
+            request
+        };
+        let rows = execute_query(guarded("SELECT count(*) FROM t"), &state).await.expect("a read");
+        assert_eq!(rows.result.row_count, 1);
+
+        let out = std::env::temp_dir().join(format!("pharos-guard-{}.csv", std::process::id()));
+        let _ = std::fs::remove_file(&out);
+        for sql in [
+            "SELECT content FROM read_text('/etc/hosts')".to_string(),
+            "SELECT * FROM '/etc/hosts.csv'".to_string(),
+            format!("COPY t TO '{}'", out.display()),
+            "ATTACH ':memory:' AS other".to_string(),
+            "CREATE OR REPLACE TABLE t AS SELECT 1 AS x".to_string(),
+        ] {
+            let why = execute_query(guarded(&sql), &state).await.expect_err(&sql);
+            assert!(why.starts_with(crate::db::duckdb::guard::REFUSAL), "{sql}: {why}");
+            let why = execute_statement(guarded(&sql), &state).await.expect_err(&sql);
+            assert!(why.starts_with(crate::db::duckdb::guard::REFUSAL), "{sql}: {why}");
+        }
+        assert!(!out.exists(), "a refused COPY wrote a file");
+        let left = execute_query(run("tab", "SELECT count(*) FROM t"), &state).await.unwrap();
+        assert_eq!(left.result.rows.cell(0, 0).as_deref(), Some("5"));
+        // The user's own run of the same statement is untouched.
+        execute_query(run("tab", "SELECT count(*) FROM read_text('/etc/hosts')"), &state).await.expect("unguarded");
     }
 
     #[tokio::test(flavor = "multi_thread")]

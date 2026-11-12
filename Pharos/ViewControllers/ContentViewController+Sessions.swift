@@ -259,7 +259,7 @@ extension ContentViewController {
     /// the rows should be there and are not.
     private static func sessionResult(_ meta: SavedQueryResultMeta, card: String,
                                       run: CardRunRecord) -> CardResult? {
-        let executedAt = ISO8601DateFormatter().date(from: meta.executedAt) ?? run.finishedAt
+        let executedAt = LenientISO8601.date(from: meta.executedAt) ?? run.finishedAt
         var result = CardResult(cardId: card, runId: run.runId, sql: meta.sql, rawSQL: meta.rawSql ?? meta.sql,
                                 timestamp: executedAt)
         let ms = UInt64(max(0, meta.executionTimeMs))

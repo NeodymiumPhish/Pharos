@@ -179,6 +179,7 @@
 		5B583901BAB1668E5CEC8B52 /* SettingsGroupBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC58ECF13A7BEA2B9DEE53C8 /* SettingsGroupBox.swift */; };
 		5B8514BEF22DB4F0D61E6B4B /* FilesListRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE09B508A2976B3067922149 /* FilesListRule.swift */; };
 		5C3CCF03D9E5B9FE79F803B3 /* NSTextField+AuthoredLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF40A6DA2CC97955C09A3856 /* NSTextField+AuthoredLabel.swift */; };
+		5D28159B0467DE828ED2E9BC /* MCPStatementPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38AF401A5F1136E6F1B4EE31 /* MCPStatementPolicy.swift */; };
 		5D2D84E4B5134653A72E1399 /* QueryProgressText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9114095BC992F8AAD07387C /* QueryProgressText.swift */; };
 		5E762A4EA65505BED13E97AB /* TagCommitWriting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F29EAF71E5C6F689CC25999 /* TagCommitWriting.swift */; };
 		5E8E55DC65C082356BE08768 /* SettingsToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE262A27E17DEE8BAE14595 /* SettingsToolbarController.swift */; };
@@ -279,6 +280,7 @@
 		941978E52210010EAF9FBEC2 /* QuerySettingsPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB2464F55E715E65612B9E73 /* QuerySettingsPaneVC.swift */; };
 		9425B40246C4D1311B2F6775 /* SettingsEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BE7B34EE17E4997F6314065 /* SettingsEffects.swift */; };
 		944461494322FDC1ADB4BBF1 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FE635091CB4D36F3459CD1B /* SettingsWindow.swift */; };
+		946B74F358D97A8ABDF83B9F /* LenientISO8601.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A04E2998DE62C19BBA63645 /* LenientISO8601.swift */; };
 		94BA97E8CF6C47F58B62E4DE /* SettingsNavigationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED7345AB7480893C6A47461 /* SettingsNavigationHistory.swift */; };
 		94BEDEAAA1B0DDD7FFD7DE34 /* PharosCore+ModelFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0545483DE63C69CAFE2604F /* PharosCore+ModelFeedback.swift */; };
 		94D9056A0BA23965F5B58D3E /* SettingsPaneRegistry+Factories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3CAF3E2DBC07E5EB977E87 /* SettingsPaneRegistry+Factories.swift */; };
@@ -580,6 +582,7 @@
 		3699A3B7EE1E8188974C1077 /* DockMenuRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockMenuRule.swift; sourceTree = "<group>"; };
 		36EE0E6CA75016ED53876601 /* FilterValueSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterValueSort.swift; sourceTree = "<group>"; };
 		380AB7421EC53C241A285161 /* ResultMemoryBudget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultMemoryBudget.swift; sourceTree = "<group>"; };
+		38AF401A5F1136E6F1B4EE31 /* MCPStatementPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPStatementPolicy.swift; sourceTree = "<group>"; };
 		38E4D8BB54E620DAB642CDC4 /* SQLStatementScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLStatementScope.swift; sourceTree = "<group>"; };
 		391C451B22B310E18DF7911D /* CardDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDocument.swift; sourceTree = "<group>"; };
 		39403A1B32CFFC9CAA3792BD /* NavigatorOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigatorOrdering.swift; sourceTree = "<group>"; };
@@ -626,6 +629,7 @@
 		58CB3D7D09147DF9CCE73897 /* SqlIdentifierQuoting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SqlIdentifierQuoting.swift; sourceTree = "<group>"; };
 		5915ADC2C987B9E5ED572743 /* SessionConnectionRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConnectionRule.swift; sourceTree = "<group>"; };
 		5986E6A14FB84B36CB6A09FA /* ShortcutsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsPaneVC.swift; sourceTree = "<group>"; };
+		5A04E2998DE62C19BBA63645 /* LenientISO8601.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LenientISO8601.swift; sourceTree = "<group>"; };
 		5A3F52F5A8BBD4A0790BDB8D /* CardTextSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardTextSearch.swift; sourceTree = "<group>"; };
 		5A6B56879294F48E8251CB80 /* ChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartView.swift; sourceTree = "<group>"; };
 		5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorPaneVC.swift; sourceTree = "<group>"; };
@@ -1007,6 +1011,7 @@
 				A5BF16ABF0FE81575C7CA81D /* DestructiveSQLScanner.swift */,
 				01061CEE8689D1E9B759B255 /* DuckDBLinkParser.swift */,
 				78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */,
+				5A04E2998DE62C19BBA63645 /* LenientISO8601.swift */,
 				EE0EAEA0386ADF17D3862AB6 /* NotificationCoalescer.swift */,
 				A77F2BD724C1FFFDC47B5DE7 /* NSLayoutConstraint+Swap.swift */,
 				EF9FB0F602BE858D9F0F4DFA /* PGTypeCategory.swift */,
@@ -1480,6 +1485,7 @@
 				4B5CB3B286BA17A1E0C3D013 /* MCPProtocol.swift */,
 				27F66C5EDFD55B33C1F1FF6E /* MCPServerController.swift */,
 				AE1A7C70214111D8DAE14201 /* MCPSocket.swift */,
+				38AF401A5F1136E6F1B4EE31 /* MCPStatementPolicy.swift */,
 				DD5EC6AFDC60DE49C634DCA3 /* MCPStdioBridge.swift */,
 				5B84223AFC952DC12756C8BD /* MCPToolCatalog.swift */,
 				2954D7DFD61B2530DCAE75AA /* MCPToolHandlers.swift */,
@@ -1855,6 +1861,7 @@
 				D5FD88D1BE3008B61F9ACFF1 /* IntentResultCSV.swift in Sources */,
 				1A2AAFAEC78404DCDAA95F2E /* KeywordCasing.swift in Sources */,
 				3C471C6BB89249B37BD0214F /* LaunchConnectPolicy.swift in Sources */,
+				946B74F358D97A8ABDF83B9F /* LenientISO8601.swift in Sources */,
 				FD17E65243347D79EE2DAD43 /* LibrarySettingsPaneVC.swift in Sources */,
 				467AD8C23E035DF328E4EFD0 /* LineNumberGutter.swift in Sources */,
 				BDD0B35D5CC9DF83EB996451 /* Log.swift in Sources */,
@@ -1865,6 +1872,7 @@
 				EB996A942EFF6308D6485339 /* MCPProtocol.swift in Sources */,
 				DEEFA50C59D6E6E8EA90D8B7 /* MCPServerController.swift in Sources */,
 				CB9C81EF539714BAE8E1EF25 /* MCPSocket.swift in Sources */,
+				5D28159B0467DE828ED2E9BC /* MCPStatementPolicy.swift in Sources */,
 				DD8006A5C3C4B8F18BBED3E8 /* MCPStdioBridge.swift in Sources */,
 				BD596BB5CA0BCDA000FCECAA /* MCPToolCatalog.swift in Sources */,
 				E478A57FFA8671D4559BB093 /* MCPToolHandlers.swift in Sources */,

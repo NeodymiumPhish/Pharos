@@ -1794,25 +1794,61 @@ class ContentViewController: NSViewController {
 
         // Editor-level destructive guard, mirroring the schema browser's.
         // Checked on the rendered SQL so variable values can't sneak past it.
-        // A run an MCP client asked for always asks, every kind of statement.
         let agent = agentRunCardIds[card.id]
+        let agentIsLocal = agentLocalCardIds.contains(card.id)
         let unconfirmed = agentUnconfirmedCardIds.contains(card.id) && agent != nil
         clearAgentMarks(forCard: card.id)
-        if unconfirmed, let agent {
-            Log.ui.info("MCP run from \(agent.displayName, privacy: .public) is not confirmed, as Settings allows")
+
+        // A run an MCP client asked for goes by `MCPStatementPolicy`, not by
+        // the seven keywords: a plain read runs guarded (the core holds it to
+        // a read); anything else needs "AI apps that can change data" and,
+        // unless the user chose "without asking", their answer here.
+        // "Without asking" is for changes to the database. What reaches
+        // outside it (a file, another server, the engine's settings) is
+        // always asked about.
+        if let agent {
+            let engine = stateManager.connections.first(where: { $0.id == connectionId })?.engine ?? .postgres
+            let duckDB = engine == .duckdb
+            let finding = MCPStatementPolicy.finding(in: sql, duckDB: duckDB)
+            let reasons = finding.reasons
+            let mayChangeData = stateManager.settings.security.mcpWrites.allows(isLocal: agentIsLocal)
+            if reasons.isEmpty {
+                // With "without asking", the user has let this app change the
+                // database, which on PostgreSQL is all its guard stops. On
+                // DuckDB the guard is what finds a file behind a table name
+                // or a view, so the run stays guarded and the user is asked.
+                let guarded = duckDB || !(mayChangeData && unconfirmed)
+                sendCardRun(ticket, jobId: job.id, sql: sql, tabId: tabId, connectionId: connectionId,
+                            agentGuard: guarded ? AgentGuard(agent: agent, mayAsk: mayChangeData) : nil)
+                return
+            }
+            // `MCPToolHandlers.runCard` refused this when it was asked, but
+            // the card's SQL may have changed while the job waited.
+            guard mayChangeData else {
+                showAgentNotice(String(localized: "\(agent.displayName) could not run a card: it does more than read the database."))
+                session.updateTab(id: tabId) { _ = $0.document.completeRun(ticket, outcome: .cancelled) }
+                finishJob(job.id, inTab: tabId, .cancelled)
+                return
+            }
+            if unconfirmed && finding.outside.isEmpty {
+                Log.ui.info("MCP run from \(agent.displayName, privacy: .public) is not confirmed, as Settings allows")
+                sendCardRun(ticket, jobId: job.id, sql: sql, tabId: tabId, connectionId: connectionId)
+                return
+            }
+            confirmAgentRun(agent, reasons: reasons, ticket: ticket, jobId: job.id, sql: sql, tabId: tabId, connectionId: connectionId)
+            return
         }
-        if !unconfirmed && (stateManager.settings.query.confirmDestructive || agent != nil) {
+        if stateManager.settings.query.confirmDestructive {
             // Which KINDS still ask is Settings ▸ Query ▸ Safety. Every kind
             // is on by default, so this filter changes nothing until the user
             // turns one off.
             let found = DestructiveSQLScanner.destructiveKeywords(in: sql)
-            let keywords = agent != nil ? found : stateManager.settings.query.destructiveConfirmations.filtered(found)
+            let keywords = stateManager.settings.query.destructiveConfirmations.filtered(found)
             if !keywords.isEmpty {
-                if let agent { bringForwardForAgentConfirmation(agent) }
                 // On confirm, run the exact SQL the sheet displayed against the
                 // captured tab/connection — never re-derive from the active tab,
                 // which could have changed while the sheet was up.
-                presentDestructiveQueryConfirmation(keywords: keywords, sql: sql, requestedBy: agent, onConfirm: { [weak self] in
+                presentDestructiveQueryConfirmation(keywords: keywords, sql: sql, onConfirm: { [weak self] in
                     self?.sendCardRun(ticket, jobId: job.id, sql: sql, tabId: tabId, connectionId: connectionId)
                 }, onCancel: { [weak self] in
                     self?.finishJob(job.id, inTab: tabId, .cancelled)
@@ -1831,8 +1867,31 @@ class ContentViewController: NSViewController {
         Toast.show(in: view, message: reason, style: .warning, duration: 6.0)
     }
 
+    /// A run an MCP client asked for that the core must hold to a read
+    /// (`MCPStatementPolicy`). `mayAsk`: the user lets this app's tier change
+    /// data, so a statement the core refuses is put to them instead.
+    private struct AgentGuard {
+        let agent: MCPClientInfo
+        let mayAsk: Bool
+    }
+
+    /// Ask the user about a run an MCP client asked for that is more than a
+    /// read, and send exactly the SQL shown if they allow it.
+    private func confirmAgentRun(_ agent: MCPClientInfo, reasons: [String], ticket: CardRunTicket, jobId: String,
+                                 sql: String, tabId: String, connectionId: String) {
+        bringForwardForAgentConfirmation(agent)
+        presentDestructiveQueryConfirmation(keywords: reasons, sql: sql, requestedBy: agent, onConfirm: { [weak self] in
+            self?.sendCardRun(ticket, jobId: jobId, sql: sql, tabId: tabId, connectionId: connectionId)
+        }, onCancel: { [weak self] in
+            guard let self else { return }
+            self.session.updateTab(id: tabId) { _ = $0.document.completeRun(ticket, outcome: .cancelled) }
+            self.finishJob(jobId, inTab: tabId, .cancelled)
+        })
+    }
+
     /// Send a card's rendered SQL and apply what comes back.
-    private func sendCardRun(_ ticket: CardRunTicket, jobId: String, sql: String, tabId: String, connectionId: String) {
+    private func sendCardRun(_ ticket: CardRunTicket, jobId: String, sql: String, tabId: String, connectionId: String,
+                             agentGuard: AgentGuard? = nil) {
         guard let tab = session.tabs.first(where: { $0.id == tabId }),
               stateManager.status(for: connectionId) == .connected else {
             finishJob(jobId, inTab: tabId, .failed)
@@ -1877,8 +1936,11 @@ class ContentViewController: NSViewController {
                 // carry from card to card. The pool only when the tab cannot
                 // have one.
                 let target = TabSessionTarget(sessionId: tabId, connectionId: connectionId, schema: tabSchema, queryId: queryId)
-                if isSelectLike {
-                    let outcome = try await CardExecutor.query(target: target, sql: sql, limit: limit)
+                // A guarded run is a read, and a read returns rows, whatever
+                // its first character (a parenthesised SELECT).
+                if isSelectLike || agentGuard != nil {
+                    let outcome = try await CardExecutor.query(target: target, sql: sql, limit: limit,
+                                                               guarded: agentGuard != nil)
                     let result = outcome.result
                     await MainActor.run {
                         self.noteRunRoute(outcome.route, tabId: tabId)
@@ -1922,6 +1984,18 @@ class ContentViewController: NSViewController {
                     let wasCancelled = self.cancelledQueryIds.remove(queryId) != nil
                     self.session.updateTab(id: tabId) { tab in
                         tab.runningQueries.removeAll { $0.id == queryId }
+                    }
+                    // The core found more than a read in a statement whose text
+                    // showed none (a function that writes, a file DuckDB would
+                    // read). Nothing ran. Where the user lets this app change
+                    // data, it is theirs to allow, as any other such run.
+                    if let agentGuard, agentGuard.mayAsk, !wasCancelled, message.contains(MCPStatementPolicy.guardRefusal),
+                       self.session.tabs.contains(where: { $0.id == tabId }) {
+                        // Not sent: the job waits on the sheet (`runPhase`).
+                        self.runningJobs[jobId] = (tabId, nil)
+                        self.confirmAgentRun(agentGuard.agent, reasons: [MCPStatementPolicy.unnamedReason], ticket: ticket,
+                                             jobId: jobId, sql: sql, tabId: tabId, connectionId: connectionId)
+                        return
                     }
                     let failure = QueryFailure(
                         id: queryId,
@@ -2073,11 +2147,15 @@ class ContentViewController: NSViewController {
         onCancel: @escaping () -> Void = {}
     ) {
         let alert = NSAlert()
-        alert.messageText = DestructiveConfirmationText.destructiveQueryTitle(keywords: keywords)
+        alert.messageText = agent == nil
+            ? DestructiveConfirmationText.destructiveQueryTitle(keywords: keywords)
+            : DestructiveConfirmationText.agentQueryTitle(reasons: keywords)
         // Rendered through the disclosing builder: the SQL here has variables
         // already substituted, so a hostile variable value could otherwise
         // make the preview read as a different statement than will run.
-        alert.informativeText = DestructiveConfirmationText.destructiveQueryMessage(keywords: keywords, sql: sql)
+        alert.informativeText = agent == nil
+            ? DestructiveConfirmationText.destructiveQueryMessage(keywords: keywords, sql: sql)
+            : DestructiveConfirmationText.agentQueryMessage(reasons: keywords, sql: sql)
         if let agent {
             // The client's name is its own claim: escaped, and said as one.
             let who = DisplayEscape.escaped(agent.displayName)
@@ -3757,7 +3835,7 @@ extension ContentViewController {
         card.colorIndex = 0
         card.lastRun = CardRunRecord(
             runId: UUID().uuidString, rawSQL: raw, renderedSQL: entry.sql,
-            finishedAt: ISO8601DateFormatter().date(from: entry.executedAt) ?? Date(),
+            finishedAt: LenientISO8601.date(from: entry.executedAt) ?? Date(),
             executionTimeMs: UInt64(entry.executionTimeMs),
             summary: .rows(count: result.rowCount, hasMore: result.hasMore), historyResultId: entry.id,
             connectionId: entry.connectionId)
@@ -3890,7 +3968,7 @@ extension ContentViewController {
             if card.lastRun == nil || card.lastRun?.historyResultId != meta.id {
                 document.cards[i].lastRun = CardRunRecord(
                     runId: cr.runId, rawSQL: raw, renderedSQL: meta.sql,
-                    finishedAt: ISO8601DateFormatter().date(from: meta.executedAt) ?? Date(),
+                    finishedAt: LenientISO8601.date(from: meta.executedAt) ?? Date(),
                     executionTimeMs: UInt64(meta.executionTimeMs),
                     summary: .rows(count: meta.rowCount ?? 0, hasMore: false), historyResultId: meta.id)
             }

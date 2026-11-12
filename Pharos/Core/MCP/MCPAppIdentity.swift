@@ -14,6 +14,15 @@ import Security
 /// A chain of Apple programs only — `Pharos --mcp` typed in Terminal — has no
 /// app to name, and gets no identity.
 ///
+/// The walk starts from the bridge, so the process on the socket must BE the
+/// bridge: this copy of Pharos, by its own code signature (`peerIsPharos`).
+/// Any program of this user can open the socket, and one that connected
+/// directly could arrange its own parent: fork, and have the parent become
+/// an approved app's real binary. That is refused. What is left is a program
+/// that does the same and then runs the real `Pharos --mcp` as the child:
+/// nothing here can tell that from the app launching it, and a program that
+/// can do it already runs as this user and reads this user's files.
+///
 /// The walk is `identify(bridgePid:facts:)`, over facts it is handed, so
 /// scripts/test-mcp-access-policy.sh tests it with made-up processes;
 /// `systemFacts` reads the real ones.
@@ -75,10 +84,55 @@ enum MCPAppIdentifier {
         return (id, name)
     }
 
-    /// The app behind the process at the other end of socket `fd`.
+    /// The app behind the process at the other end of socket `fd`, when
+    /// that process is Pharos's own bridge.
     static func forPeer(_ fd: Int32) -> MCPAppIdentity? {
         guard let pid = peerPid(fd) else { return nil }
+        guard peerIsPharos(fd) else { return nil }
         return identify(bridgePid: pid, facts: systemFacts)
+    }
+
+    /// Whether the process at the other end of `fd` runs this app's own
+    /// code: it satisfies the designated requirement of the running Pharos.
+    /// For a Developer ID build that is the same team and identifier; for an
+    /// ad hoc build (every release so far) it is the same binary, so after
+    /// an update the bridge is refused until Pharos is reopened.
+    ///
+    /// The peer is named by its audit token, not its pid: a pid can be
+    /// reused by another process between the connect and the check.
+    static func peerIsPharos(_ fd: Int32) -> Bool {
+        #if DEBUG
+        // A debug build is run from Xcode beside an installed copy, whose
+        // bridge is another binary; the developer's own machine.
+        return true
+        #else
+        guard let requirement = ownRequirement, let token = peerAuditToken(fd) else { return false }
+        var code: SecCode?
+        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: token] as CFDictionary, [], &code) == errSecSuccess,
+              let code else { return false }
+        return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+        #endif
+    }
+
+    /// The designated requirement of the running app.
+    private static let ownRequirement: SecRequirement? = {
+        var me: SecCode?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me else { return nil }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(me, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(staticCode, [], &requirement) == errSecSuccess else { return nil }
+        return requirement
+    }()
+
+    /// The peer's audit token (`LOCAL_PEERTOKEN`), as the bytes
+    /// `kSecGuestAttributeAudit` takes.
+    static func peerAuditToken(_ fd: Int32) -> Data? {
+        var token = audit_token_t()
+        var length = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &length) == 0,
+              length == socklen_t(MemoryLayout<audit_token_t>.size) else { return nil }
+        return withUnsafeBytes(of: &token) { Data($0) }
     }
 
     static func peerPid(_ fd: Int32) -> pid_t? {

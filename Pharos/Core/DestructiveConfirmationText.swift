@@ -185,6 +185,25 @@ enum DestructiveConfirmationText {
             : String(localized: "Run query that changes the database?")
     }
 
+    /// Title for the confirmation of a run an AI app asked for
+    /// (`MCPStatementPolicy.reasons`): it may write, or it may reach outside
+    /// the database, and "changes the database" is wrong for the second.
+    static func agentQueryTitle(reasons: [String]) -> String {
+        reasons.contains(where: destroying.contains)
+            ? String(localized: "Run destructive query?")
+            : String(localized: "Run query that does more than read the database?")
+    }
+
+    /// As `destructiveQueryMessage`, for a run an AI app asked for. The
+    /// reasons are the policy's own words and function names from the SQL,
+    /// escaped like the SQL itself.
+    static func agentQueryMessage(reasons: [String], sql: String) -> String {
+        let preview = sql.count > sqlPreviewMaxLength
+            ? String(sql.prefix(sqlPreviewMaxLength)) + "…" : sql
+        let what = reasons.map(DisplayEscape.escaped).joined(separator: ", ")
+        return "It can change data, or read and write files and other servers. This SQL has \(what):\n\n\(DisplayEscape.escapedMultiline(preview))"
+    }
+
     static func destructiveQueryMessage(keywords: [String], sql: String) -> String {
         let preview = sql.count > sqlPreviewMaxLength
             ? String(sql.prefix(sqlPreviewMaxLength)) + "…" : sql

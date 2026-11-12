@@ -145,9 +145,17 @@ func runTests() {
     // MARK: sslmode mapping
 
     expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=verify-full")?.sslMode,
-                .require, "sslmode=verify-full maps to Require")
+                .verifyFull, "sslmode=verify-full stays Verify Full, never weakened to Require")
     expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=verify-ca")?.sslMode,
-                .require, "sslmode=verify-ca maps to Require")
+                .verifyCa, "sslmode=verify-ca stays Verify CA, never weakened to Require")
+    expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=VERIFY-FULL")?.sslMode,
+                .verifyFull, "a verifying sslmode is read case-insensitively")
+    expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=verify-full&sslrootcert=%2Fetc%2Fca.pem")?.sslRootCert,
+                "/etc/ca.pem", "sslrootcert is kept, percent-decoded")
+    expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=verify-full&sslrootcert=system")?.sslRootCert,
+                nil, "sslrootcert=system is the system trust store: no path")
+    expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=verify-full")?.sslRootCert,
+                nil, "no sslrootcert is nil")
     expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=allow")?.sslMode,
                 .prefer, "sslmode=allow maps to Prefer")
     expectEqual(ConnectionURLParser.parse(string: "postgres://h/d?sslmode=disable")?.sslMode,

@@ -172,6 +172,38 @@ pub extern "C" fn pharos_execute_query(
     });
 }
 
+/// `pharos_execute_query`, for a run an AI app asked for that the user has
+/// not allowed to change data: the statement is held to a read of the
+/// database (`commands::query::execute_query_with`).
+#[no_mangle]
+pub extern "C" fn pharos_execute_guarded_query(
+    connection_id: *const c_char,
+    sql: *const c_char,
+    query_id: *const c_char,
+    limit: i32,
+    schema: *const c_char,
+    source: *const c_char,
+    callback: AsyncCallback,
+    block_callback: BlockCallback,
+    context: *mut std::ffi::c_void,
+) {
+    let state = app_state();
+    let conn_id = unsafe { c_str_to_string(connection_id) };
+    let sql_str = unsafe { c_str_to_string(sql) };
+    let qid = unsafe { c_str_to_option(query_id) };
+    let schema_str = unsafe { c_str_to_option(schema) };
+    let source_str = unsafe { c_str_to_option(source) };
+    let lim = if limit > 0 { Some(limit as u32) } else { None };
+
+    let ctx = context as usize;
+    ffi_spawn!(callback, context, async move {
+        match crate::commands::query::execute_query_with(conn_id, sql_str, qid, lim, schema_str, source_str, true, state).await {
+            Ok(result) => callback_result(callback, block_callback, ctx, result),
+            Err(e) => callback_err(callback, ctx, &e),
+        }
+    });
+}
+
 /// Execute a statement (INSERT/UPDATE/DELETE). Returns JSON ExecuteResult via callback.
 /// `query_id` (nullable) makes it cancellable through `pharos_cancel_query`.
 #[no_mangle]

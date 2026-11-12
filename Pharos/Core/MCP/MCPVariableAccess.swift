@@ -36,12 +36,33 @@ enum MCPVariableAccess {
     /// a variable not shared with the app, one linked elsewhere, or one that
     /// no longer exists. The last two are withheld too, because nothing says
     /// what value the text was filled in with.
-    static func withheldNames(in texts: [String?], usable: [QueryVariable]) -> [String] {
+    ///
+    /// `filledInAt` is when the text was filled in: a past run's start, a
+    /// history entry's time. A token is then covered only by a variable that
+    /// already had the name (`QueryVariable.nameSince`). One that took it
+    /// later is a different variable: the user deleted or renamed theirs, and
+    /// an app (or the user) made another by that name. Without this, an app
+    /// could create `{{api_key}}` and be shown the runs the old one filled
+    /// in. A time that is not known (nil) is covered only by a variable that
+    /// has always had its name. Omit the argument for text being filled in
+    /// now (a card about to run).
+    static func withheldNames(in texts: [String?], usable: [QueryVariable], filledInAt: Date?? = .none) -> [String] {
         var referenced: Set<String> = []
         for text in texts {
             if let text { referenced.formUnion(VariableSubstitutor.referencedNames(in: text)) }
         }
-        return MCPAccessPolicy.withheldNames(referenced: referenced, usable: Set(usable.map(\.name)))
+        let names: [String]
+        switch filledInAt {
+        case .none:
+            names = usable.map(\.name)
+        case let .some(time):
+            names = usable.filter { variable in
+                guard let since = variable.nameSince else { return true }
+                guard let time else { return false }
+                return since <= time
+            }.map(\.name)
+        }
+        return MCPAccessPolicy.withheldNames(referenced: referenced, usable: Set(names))
     }
 
     /// `{{a}}` or `{{a}} and {{b}}`, for a message to the app.

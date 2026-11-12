@@ -657,8 +657,34 @@ pub async fn execute_query(
     source: Option<String>,
     state: &AppState,
 ) -> Result<QueryResult, String> {
+    execute_query_with(connection_id, sql, query_id, limit, schema, source, false, state).await
+}
+
+/// `execute_query`, for a run an AI app asked for that the user has not
+/// allowed to change data (`guarded`, as `SessionRunRequest::guarded`): a tab
+/// with no connection of its own runs its cards here, and the statement is
+/// held to a read here too. PostgreSQL: one reading statement, inside a
+/// read-only transaction that is rolled back. A server that will not start
+/// one refuses the run, which leaves it to the user to allow. DuckDB: the
+/// parsed statement is checked first (`db::duckdb::guard`).
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_query_with(
+    connection_id: String,
+    sql: String,
+    query_id: Option<String>,
+    limit: Option<u32>,
+    schema: Option<String>,
+    source: Option<String>,
+    guarded: bool,
+    state: &AppState,
+) -> Result<QueryResult, String> {
     if state.engine_of(&connection_id) == crate::models::Engine::Duckdb {
-        return super::duck::execute_query(connection_id, sql, query_id, limit, schema, source, state).await;
+        return super::duck::execute_query_with(connection_id, sql, query_id, limit, schema, source, guarded, state).await;
+    }
+    if guarded {
+        if let Some(refusal) = super::tab_session::guarded_refusal_for(&sql) {
+            return Err(refusal);
+        }
     }
     let pool = state.require_pool(&connection_id)?;
 
@@ -724,6 +750,17 @@ pub async fn execute_query(
         return Err(QUERY_CANCELLED.to_string());
     }
 
+    if guarded {
+        if let Err(e) = (&mut *conn).execute(sqlx::raw_sql("BEGIN TRANSACTION READ ONLY")).await {
+            reset_statement_timeout(&mut conn).await;
+            return Err(format!(
+                "{} This server would not start a read-only transaction: {}",
+                super::tab_session::GUARD_REFUSAL,
+                format_db_error(&e)
+            ));
+        }
+    }
+
     let ReadOutcome { rows, error: fetch_error, cancelled: was_cancelled } =
         read_rows_with_cancel(&mut conn, &sql, limit, &cancel).await;
     // One row past the limit: the statement is still running on the server.
@@ -733,9 +770,17 @@ pub async fn execute_query(
         stop_unread_statement(pool.clone(), conn, backend_pid);
         return Err(QUERY_CANCELLED.to_string());
     }
+    // The guard's own transaction ends here, whatever the statement did. A
+    // cut-off result's connection is closed below, which ends it as well.
+    if guarded && !has_more {
+        let _ = (&mut *conn).execute(sqlx::raw_sql("ROLLBACK")).await;
+    }
     let left = if has_more { RunLeft::Clean } else { finish_user_sql(&mut conn).await };
 
     if let Some(err) = fetch_error {
+        if guarded {
+            return Err(super::tab_session::guarded_write_message(err));
+        }
         return Err(with_transaction_note(err, left));
     }
     if left == RunLeft::OpenTransaction {

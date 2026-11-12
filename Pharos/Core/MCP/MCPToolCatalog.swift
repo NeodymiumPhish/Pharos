@@ -233,7 +233,7 @@ enum MCPToolCatalog {
              required: ["tab_id", "card_id"], readOnly: false, destructive: false),
 
         Tool(name: "run_card", title: "Run a card",
-             description: "Run a card on its tab's connection, wait for it to finish (up to wait_seconds), and return its status with the first page of rows. Statements that change data (INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, GRANT) are refused unless the user allows them in Pharos's settings. Then the user confirms each one in Pharos, and the status is awaiting_confirmation meanwhile, unless they let this app change data without asking. If the card had run before and its SQL changed, the result goes on a new version of the card: use the card_id this returns.",
+             description: "Run a card on its tab's connection, wait for it to finish (up to wait_seconds), and return its status with the first page of rows. Only a statement that reads the database runs freely: one SELECT, WITH, VALUES, TABLE, EXPLAIN or SHOW (on DuckDB also FROM, DESCRIBE, SUMMARIZE) that changes nothing and reads no file or other server; Pharos holds such a run to that. Anything else (INSERT, UPDATE, DELETE, DDL, CREATE, COPY, ATTACH, SET, CALL, DO, more than one statement, DuckDB's read_csv and other file readers) is refused unless the user allows it in Pharos's settings. Then the user confirms each one in Pharos, and the status is awaiting_confirmation meanwhile, unless they let this app change data without asking; a statement that reaches outside the database (COPY, ATTACH, INSTALL, LOAD, EXPORT, SET, a file or another server) is confirmed every time. If the card had run before and its SQL changed, the result goes on a new version of the card: use the card_id this returns.",
              properties: [
                 "tab_id": tabId, "card_id": cardId,
                 "replace": ["type": "boolean", "default": false,
@@ -279,7 +279,7 @@ enum MCPToolCatalog {
     Use a {{name}} query variable for a value the user may want to change and run again, such as a date or an id. list_variables shows the ones that exist; reuse one before defining another. create_variable, update_variable and delete_variable each ask the user to confirm in Pharos, unless they let your app change variables without asking. If they decline, do not ask again unless they tell you to. \
     You see only the connections the user shares with your app, and the tabs, history, workspaces and Sessions that ran against them. \
     You see and can use only the variables the user shares with your app. A card that uses another {{name}} does not run for you, and what an earlier run of it sent and returned is withheld; the user shares a variable in Pharos's Variable Manager. \
-    Everything you do appears in the user's Pharos window. Statements that change data need the user's permission in Pharos and their confirmation for each run. \
+    Everything you do appears in the user's Pharos window. A statement that does anything but read the database (it changes data, holds more than one statement, or reads or writes a file or another server) needs the user's permission in Pharos and their confirmation for each run. \
     Results are paged and long cells are cut short; prefer aggregates and LIMIT over reading many rows.
     """
 }

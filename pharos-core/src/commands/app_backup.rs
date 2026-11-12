@@ -1005,6 +1005,7 @@ mod tests {
             kind: "literal".to_string(),
             connection_ids: Vec::new(),
             mcp_access: None,
+            name_since: None,
         }
     }
 

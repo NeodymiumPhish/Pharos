@@ -95,8 +95,13 @@ final class ConnectionsManagerWindowController: NSWindowController {
         case .disable: config.sslMode = .disable
         case .prefer:  config.sslMode = .prefer
         case .require: config.sslMode = .require
+        case .verifyCa: config.sslMode = .verifyCa
+        case .verifyFull: config.sslMode = .verifyFull
         case nil:      break
         }
+        // The certificate file belongs to the verifying modes only, as in the
+        // form (`ConnectionsManagerVC`).
+        if config.sslMode.verifiesCertificate { config.sslRootCertPath = parsed.sslRootCert }
         return config
     }
 }

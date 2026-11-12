@@ -10,10 +10,89 @@ use crate::models::{AnalyzeResult, ColumnInfo, ConnectionConfig, ConstraintInfo,
 use crate::models::ConnectionSettings;
 use crate::commands::ddl::{DdlColumn, DdlConstraint, TableDdlParts};
 
-/// Escape a string for safe use as a SQL string literal (防 SQL injection).
-/// Replaces single quotes with doubled single quotes.
+/// The inside of a `'…'` literal for `s`, a name the SERVER supplied (a
+/// schema, a table): safe whatever the session's string settings are.
+///
+/// Doubling the quote is enough only while `standard_conforming_strings` is
+/// on. A database owner can turn it off for everyone who connects (`ALTER
+/// DATABASE … SET`), and on ClickHouse a backslash always escapes; there `\'`
+/// is a quote, so a schema named `x\'; ALTER ROLE … ; --` would end the
+/// literal and run as SQL in the navigator's own query. So no backslash is
+/// ever written inside the quotes: each one closes the literal, appends
+/// `chr(92)` and opens it again. With no backslash in the text, both settings
+/// read it the same way. Every use is `column = '…'`, where `||` binds
+/// tighter than `=`; do not put one directly before a `::` cast.
 fn escape_sql_literal(s: &str) -> String {
-    s.replace('\'', "''")
+    // Quotes first: the backslash's replacement brings quotes of its own.
+    s.replace('\'', "''").replace('\\', "'||chr(92)||'")
+}
+
+#[cfg(test)]
+mod escape_sql_literal_tests {
+    use super::{escape_sql_literal, tables_sql};
+
+    const HOSTILE: &str = r"x\'; ALTER ROLE mallory SUPERUSER; --";
+
+    #[test]
+    fn quotes_are_doubled() {
+        assert_eq!(escape_sql_literal("O'Hara"), "O''Hara");
+        assert_eq!(escape_sql_literal("plain"), "plain");
+    }
+
+    #[test]
+    fn no_backslash_is_left_inside_the_literal() {
+        assert_eq!(escape_sql_literal(r"a\b"), "a'||chr(92)||'b");
+        let escaped = escape_sql_literal(HOSTILE);
+        assert!(!escaped.contains('\\'), "{escaped}");
+        assert_eq!(escaped, "x'||chr(92)||'''; ALTER ROLE mallory SUPERUSER; --");
+    }
+
+    /// Read `sql` the way a server does when a backslash escapes inside a
+    /// plain literal, and return the text that is outside every literal.
+    fn outside_literals_with_backslash_escapes(sql: &str) -> String {
+        let chars: Vec<char> = sql.chars().collect();
+        let (mut out, mut i, mut inside) = (String::new(), 0, false);
+        while i < chars.len() {
+            let c = chars[i];
+            if inside {
+                if c == '\\' {
+                    i += 2;
+                    continue;
+                }
+                if c == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        i += 2;
+                        continue;
+                    }
+                    inside = false;
+                }
+            } else if c == '\'' {
+                inside = true;
+            } else {
+                out.push(c);
+            }
+            i += 1;
+        }
+        out
+    }
+
+    #[test]
+    fn the_reader_sees_the_old_escaping_break_out() {
+        // The check below means something only if this reader finds the
+        // injection in what the old escaping (quote doubling alone) made.
+        let old = tables_sql(&HOSTILE.replace('\'', "''"), false);
+        assert!(outside_literals_with_backslash_escapes(&old).contains("ALTER ROLE"));
+    }
+
+    #[test]
+    fn a_hostile_schema_name_stays_inside_its_literal_either_way() {
+        for inheritance in [false, true] {
+            let sql = tables_sql(&escape_sql_literal(HOSTILE), inheritance);
+            let outside = outside_literals_with_backslash_escapes(&sql);
+            assert!(!outside.contains("ALTER ROLE"), "{outside}");
+            assert!(!outside.contains(';'), "{outside}");
+        }
+    }
 }
 
 /// `information_schema.columns.is_nullable`. The standard says `YES`/`NO`;

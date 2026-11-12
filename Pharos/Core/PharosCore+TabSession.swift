@@ -20,6 +20,9 @@ private struct SessionRunBody: Encodable {
     let limit: Int32?
     let source: String?
     let aux: Bool
+    /// An AI app's run the user has not allowed to change data: the core
+    /// holds it to a read of the database (`MCPStatementPolicy`).
+    let guarded: Bool
 }
 
 extension PharosCore {
@@ -46,16 +49,18 @@ extension PharosCore {
         }
     }
 
-    private static func runBody(_ t: TabSessionTarget, sql: String, limit: Int32?, source: String?, aux: Bool) -> SessionRunBody {
+    private static func runBody(_ t: TabSessionTarget, sql: String, limit: Int32?, source: String?, aux: Bool,
+                                guarded: Bool = false) -> SessionRunBody {
         SessionRunBody(sessionId: t.sessionId, connectionId: t.connectionId, schema: t.schema, queryId: t.queryId,
-                       sql: sql, limit: limit, source: source, aux: aux)
+                       sql: sql, limit: limit, source: source, aux: aux, guarded: guarded)
     }
 
     /// Run a card's row-returning statement on its tab's connection.
     static func sessionExecuteQuery(
-        _ target: TabSessionTarget, sql: String, limit: Int32 = 1000, source: String? = nil, aux: Bool = false
+        _ target: TabSessionTarget, sql: String, limit: Int32 = 1000, source: String? = nil, aux: Bool = false,
+        guarded: Bool = false
     ) async throws -> SessionResult<QueryResult> {
-        try await sessionRowsCall(runBody(target, sql: sql, limit: limit, source: source, aux: aux)) {
+        try await sessionRowsCall(runBody(target, sql: sql, limit: limit, source: source, aux: aux, guarded: guarded)) {
             pharos_session_execute_query($0, $1, $2, $3)
         }
     }

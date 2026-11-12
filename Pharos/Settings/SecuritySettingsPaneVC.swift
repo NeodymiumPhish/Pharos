@@ -72,14 +72,14 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "mcpWrites",
                     title: String(localized: "AI apps that can change data"),
-                    caption: String(localized: "INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE and GRANT. Other apps are refused; these still confirm each run in Pharos."),
+                    caption: String(localized: "Anything but a read of the database: a statement that changes data or settings, more than one statement, or one that reads or writes a file or another server. Other apps are refused; these still confirm each run in Pharos."),
                     icon: "exclamationmark.shield",
                     kind: .popup(.cases(\.security.mcpWrites, title: { $0.displayLabel })),
                     dependsOn: "mcpServerEnabled"),
                 SettingsItem(
                     id: "mcpUnconfirmedWrites",
                     title: String(localized: "AI apps that can change data without asking"),
-                    caption: String(localized: "These apps' INSERT, UPDATE, DELETE and other changes run without the confirmation sheet. Only apps that can change data are affected."),
+                    caption: String(localized: "These apps' changes to the database run without the confirmation sheet. A statement that reaches outside it (a file, another server or database, an extension, a setting) still asks. Only apps that can change data are affected."),
                     icon: "exclamationmark.triangle",
                     kind: .popup(.cases(\.security.mcpUnconfirmedWrites, title: { $0.displayLabel })),
                     dependsOn: "mcpServerEnabled"),

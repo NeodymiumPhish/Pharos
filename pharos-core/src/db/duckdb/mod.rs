@@ -19,6 +19,7 @@
 
 pub mod catalog;
 pub mod exec;
+pub mod guard;
 pub mod text;
 
 use std::path::{Path, PathBuf};
