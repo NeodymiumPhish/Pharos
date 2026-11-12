@@ -103,7 +103,13 @@ class SavedQueriesVC: NSViewController, NSOutlineViewDataSource, NSOutlineViewDe
         // row height) the schema browser and the history list now use.
         outlineView.style = .sourceList
         outlineView.rowSizeStyle = .default
-        outlineView.autoresizesOutlineColumn = true
+        // Off, so the one column stays exactly as wide as the sidebar. On, the
+        // outline widens the column by an indentation level when a folder is
+        // expanded (which `expandAll` does on every reload), leaving the
+        // outline wider than its clip view. A table wider than its clip view
+        // no longer follows it as the sidebar narrows, so the trailing result
+        // counts stayed where they were and slid under the editor.
+        outlineView.autoresizesOutlineColumn = false
         outlineView.indentationPerLevel = 14
         outlineView.doubleAction = #selector(doubleClickedRow(_:))
         outlineView.target = self

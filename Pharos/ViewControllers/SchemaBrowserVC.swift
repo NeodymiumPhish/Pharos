@@ -102,7 +102,12 @@ class SchemaBrowserVC: NSViewController {
         // The rows are one line each now (see SchemaTreeCellView), so nothing
         // needs a custom height any more.
         outlineView.rowSizeStyle = .default
-        outlineView.autoresizesOutlineColumn = true
+        // Off, so the one column stays exactly as wide as the sidebar. On, the
+        // outline widens the column by an indentation level when a row is
+        // expanded, leaving the outline wider than its clip view; it then no
+        // longer follows the sidebar as it narrows, and the trailing texts
+        // stay where they were (the same defect SavedQueriesVC had).
+        outlineView.autoresizesOutlineColumn = false
         outlineView.indentationPerLevel = 16
 
         schemaDataSource = SchemaDataSource(outlineView: outlineView)
