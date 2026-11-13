@@ -9,6 +9,8 @@ swiftc -o /tmp/sql-draft-policy-tests \
   Pharos/Editor/SQLLexer.swift \
   Pharos/Editor/SQLLexSnapshot.swift \
   Pharos/Utilities/DestructiveSQLScanner.swift \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
+  Pharos/Intelligence/GeneratedTextPolicy.swift \
   Pharos/Intelligence/SQLDraftPolicy.swift \
   PharosTests/SQLDraftPolicyTests.swift \
   PharosTests/main.swift

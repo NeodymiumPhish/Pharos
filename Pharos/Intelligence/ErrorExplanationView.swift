@@ -204,10 +204,14 @@ final class ErrorExplanationView: NSView, QueryErrorExplaining {
 
     // MARK: - Content
 
+    /// Show the answer so far. Every field passes `GeneratedTextPolicy`
+    /// first: a model that is not held to the answer's shape can send a
+    /// page where a sentence was asked for, or ten fixes where three were.
     private func apply(_ partial: ErrorExplanation.PartiallyGenerated) {
-        set(causeLabel, Self.unwrap(partial.cause))
-        set(locationLabel, Self.unwrap(partial.location))
-        setFixes(Self.unwrapList(partial.fixes))
+        set(causeLabel, GeneratedTextPolicy.prose(Self.unwrap(partial.cause), limit: GeneratedTextPolicy.sentenceLimit))
+        set(locationLabel, GeneratedTextPolicy.prose(Self.unwrap(partial.location), limit: GeneratedTextPolicy.phraseLimit))
+        setFixes(GeneratedTextPolicy.list(
+            Self.unwrapList(partial.fixes), count: GeneratedTextPolicy.fixLimit, limit: GeneratedTextPolicy.sentenceLimit))
         needsLayout = true
     }
 

@@ -23,6 +23,10 @@ private final class Store {
     var describeQuery = true
     var rowLimit = 1000
     var name = "Pharos"
+    var address = ""
+    var model = ""
+    var modelOptions: [String] = []
+    var reloads = 0
     var systemModelAvailable = true
 }
 
@@ -46,6 +50,15 @@ private func makeForm(store: Store, populating: @escaping () -> Bool = { false }
                          kind: .stepper(SettingsBinding(get: { store.rowLimit }, set: { store.rowLimit = $0 }), range: 1...100_000, unit: "rows")),
             SettingsItem(id: "name", title: "Application name",
                          kind: .text(SettingsBinding(get: { store.name }, set: { store.name = $0 }), width: 200)),
+            SettingsItem(id: "address", title: "Endpoint address",
+                         caption: "The API root of an OpenAI-compatible endpoint, such as https://api.example.com/v1 or http://localhost:11434/v1.",
+                         icon: "network", help: "Longer help.",
+                         kind: .text(SettingsBinding(get: { store.address }, set: { store.address = $0 }), width: 0,
+                                     placeholder: "https://api.example.com/v1", below: true)),
+            SettingsItem(id: "model", title: "Model name",
+                         kind: .combo(SettingsBinding(get: { store.model }, set: { store.model = $0 }), width: 200,
+                                      options: { store.modelOptions },
+                                      reload: (title: "List the models", handler: { store.reloads += 1 }))),
         ], footerButtons: [
             SettingsFooterButton(id: "clear", title: "Clear…", destructive: true) { store.rowLimit = 0 },
             SettingsFooterButton(id: "more", title: "More") {},
@@ -296,6 +309,105 @@ private func testDisplayRowKeepsItsInfoButton() {
     expectEqual(info?.help, "The long version.", "…carrying the help text")
 }
 
+/// A text field placed below takes the row's width and leaves the caption
+/// the whole text column. In the trailing slot a field wide enough for an
+/// address left the caption a column three words wide.
+@MainActor
+private func testTextFieldBelowSpansTheRow() {
+    let store = Store()
+    let (builder, _, _) = makeForm(store: store)
+    guard let row = builder.row(for: "address"), let field = builder.control(for: "address") as? NSTextField,
+          let trailing = builder.row(for: "name"), let trailingField = builder.control(for: "name") as? NSTextField else {
+        expectTrue(false, "the address row and its field exist")
+        return
+    }
+    let fieldFrame = field.convert(field.bounds, to: row)
+    let captionFrame = row.captionLabel.convert(row.captionLabel.bounds, to: row)
+    expectTrue(row.isFlipped ? fieldFrame.minY >= captionFrame.maxY : fieldFrame.maxY <= captionFrame.minY,
+               "the field sits under the caption (field \(fieldFrame), caption \(captionFrame))")
+    expectTrue(fieldFrame.width > row.bounds.width * 0.7,
+               "the field spans the row: \(fieldFrame.width) of \(row.bounds.width)")
+    expectTrue(fieldFrame.maxX <= row.bounds.width, "and stays inside it")
+    expectTrue(captionFrame.width > row.bounds.width * 0.6,
+               "the caption has the text column to itself: \(captionFrame.width) of \(row.bounds.width)")
+    expectTrue(captionFrame.height < 50, "so it wraps to a line or two, not a column: \(captionFrame.height)")
+    expectEqual(field.placeholderString, "https://api.example.com/v1", "the placeholder is kept")
+
+    let trailingFrame = trailingField.convert(trailingField.bounds, to: trailing)
+    expectEqual(trailingFrame.width, 200, "a trailing field keeps its fixed width")
+    expectTrue(trailingFrame.maxX > trailing.bounds.width - 60, "and its trailing place")
+
+    // A long value does not push the row wider than the pane.
+    store.address = "https://" + String(repeating: "very-long-host-name.", count: 20) + "example.com/v1"
+    builder.refreshAll()
+    row.window?.contentView?.layoutSubtreeIfNeeded()
+    expectTrue(field.convert(field.bounds, to: row).maxX <= row.bounds.width, "a long address stays inside the row")
+    expectTrue(row.bounds.width <= 560, "and the row stays inside the pane: \(row.bounds.width)")
+
+    // Typing still commits through the builder.
+    field.stringValue = "http://localhost:11434/v1"
+    builder.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: field))
+    expectEqual(store.address, "http://localhost:11434/v1", "a field placed below still writes its binding")
+}
+
+/// A combo row: free text, plus a list that can arrive after the pane was
+/// built and a button that asks for it.
+@MainActor
+private func testComboOffersAListThatArrivesLater() {
+    let store = Store()
+    let (builder, _, window) = makeForm(store: store)
+    guard let group = builder.control(for: "model"),
+          let combo = group.subviews.compactMap({ $0 as? NSComboBox }).first,
+          let button = group.subviews.compactMap({ $0 as? NSButton }).first(where: { !($0 is NSComboBox) }) else {
+        expectTrue(false, "the model row has a combo box and a button")
+        return
+    }
+    expectEqual(combo.numberOfItems, 0, "no list yet: a plain field")
+    expectEqual(combo.accessibilityIdentifier(), "settings.general.model", "the field carries the row's identifier")
+    expectEqual(button.accessibilityIdentifier(), "settings.general.model.reload", "the button has its own")
+    expectEqual(button.accessibilityLabel(), "List the models", "and says what it does")
+
+    button.performClick(nil)
+    expectEqual(store.reloads, 1, "the button asks for the list")
+    expectEqual(store.model, "", "and writes nothing")
+
+    store.modelOptions = ["alpha", "beta", "gamma"]
+    builder.refreshAll()
+    expectEqual(combo.objectValues as? [String] ?? [], ["alpha", "beta", "gamma"], "a list that arrives later is offered")
+
+    // Picking from the list: AppKit sets the text and sends the action.
+    combo.selectItem(at: 1)
+    combo.stringValue = "beta"
+    builder.controlChanged(combo)
+    expectEqual(store.model, "beta", "picking an item writes it at once")
+
+    // Anything may still be typed.
+    combo.stringValue = "not-on-the-list"
+    builder.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: combo))
+    expectEqual(store.model, "not-on-the-list", "a name that is not listed is kept as typed")
+
+    // The list changes under a field that is being edited; the typed text stays.
+    window.makeFirstResponder(combo)
+    combo.currentEditor()?.string = "typing"
+    store.modelOptions = ["delta"]
+    builder.refreshAll()
+    expectEqual(combo.objectValues as? [String] ?? [], ["delta"], "the list is replaced even while the field is being edited")
+    expectEqual(combo.currentEditor()?.string ?? combo.stringValue, "typing", "and what is being typed is not overwritten")
+    window.makeFirstResponder(nil)
+
+    store.modelOptions = []
+    store.model = "stored"
+    builder.refreshAll()
+    expectEqual(combo.numberOfItems, 0, "a list that goes away leaves a plain field")
+    expectEqual(combo.stringValue, "stored", "showing the stored value")
+
+    builder.isPopulating = { true }
+    combo.stringValue = "ignored"
+    builder.controlChanged(combo)
+    expectEqual(store.model, "stored", "isPopulating blocks a pick too")
+    builder.isPopulating = { false }
+}
+
 func runTests() {
     _ = NSApplication.shared
     MainActor.assumeIsolated {
@@ -310,6 +422,8 @@ func runTests() {
         testAccessibility()
         testFooterButtonsTrailing()
         testDisplayRowKeepsItsInfoButton()
+        testTextFieldBelowSpansTheRow()
+        testComboOffersAListThatArrivesLater()
     }
     print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILURE(S)")
     exit(failures == 0 ? 0 : 1)

@@ -73,14 +73,54 @@ enum SettingsControlFactory {
         return (stack, field, stepper)
     }
 
-    static func textField(width: CGFloat = SettingsMetrics.textFieldWidth,
+    /// A nil `width` leaves the field free to take the width its row gives
+    /// it (a field placed below the text column).
+    static func textField(width: CGFloat? = SettingsMetrics.textFieldWidth,
                           placeholder: String? = nil) -> NSTextField {
         let field = NSTextField()
         field.placeholderString = placeholder
         field.controlSize = .regular
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.widthAnchor.constraint(equalToConstant: width).isActive = true
+        if let width {
+            field.widthAnchor.constraint(equalToConstant: width).isActive = true
+        } else {
+            // Yield to the row's own span constraint, and never push the row
+            // wider than the pane for a long value.
+            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            field.lineBreakMode = .byTruncatingMiddle
+            field.cell?.isScrollable = true
+            field.cell?.usesSingleLineMode = true
+        }
         return field
+    }
+
+    /// A combo box of a fixed width. It completes what is typed against its
+    /// list, and takes anything else typed as it is.
+    static func comboBox(width: CGFloat, placeholder: String? = nil) -> NSComboBox {
+        let combo = NSComboBox()
+        combo.placeholderString = placeholder
+        combo.controlSize = .regular
+        combo.usesDataSource = false
+        combo.completes = true
+        combo.numberOfVisibleItems = 12
+        combo.translatesAutoresizingMaskIntoConstraints = false
+        combo.widthAnchor.constraint(equalToConstant: width).isActive = true
+        return combo
+    }
+
+    /// A borderless symbol button for the slot beside a field.
+    static func symbolButton(symbol: String, title: String) -> NSButton {
+        let button = NSButton()
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.bezelStyle = .accessoryBar
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = title
+        button.setAccessibilityLabel(title)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
     }
 
     static func slider(range: ClosedRange<Double>) -> NSSlider {

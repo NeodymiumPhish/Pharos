@@ -233,7 +233,7 @@ class SaveQuerySheet: NSViewController {
         // Only visible once the field is emptied, which is exactly when the
         // user is waiting to be told something is coming.
         nameField.placeholderString = String(localized: "Suggested…")
-        nameField.toolTip = String(localized: "Name suggested by Apple Intelligence")
+        nameField.toolTip = IntelligenceSource.current().nameSuggestedBy
 
         let sql = self.sql
         let folders = existingFolders

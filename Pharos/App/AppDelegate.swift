@@ -56,6 +56,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let state = AppStateManager.shared
         state.loadConnections()
         state.loadSettings()
+        // The intelligence features ask whichever model Settings names.
+        IntelligenceBackends.followSettings()
 
         // Apply the saved theme, and follow it from here on: the Settings
         // window applies a new theme by saving it, with nothing to press.

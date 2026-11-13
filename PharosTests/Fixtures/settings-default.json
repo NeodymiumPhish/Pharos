@@ -95,8 +95,15 @@
   "intelligence": {
     "allowDraftingWriteStatements": true,
     "describeQuery": true,
+    "endpoint": {
+      "allowedHost": "",
+      "baseUrl": "",
+      "contextTokens": 8192,
+      "model": ""
+    },
     "explainErrors": true,
     "nameTabsAutomatically": true,
+    "provider": "apple",
     "suggestCharts": true,
     "suggestSavedQueryNames": true,
     "summarisePlans": true

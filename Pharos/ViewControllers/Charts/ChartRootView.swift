@@ -401,8 +401,8 @@ struct ChartRootView: View {
             }
             .disabled(working || !canSuggest)
             .help(canAskTheModel
-                  ? "Ask the on-device model which chart fits this result."
-                  : "Apply the chart Pharos recommends for these columns.")
+                  ? String(localized: "Ask \(IntelligenceSource.current().modelPhrase) which chart fits this result.")
+                  : String(localized: "Apply the chart Pharos recommends for these columns."))
             .accessibilityIdentifier("chart.suggest")
             if working { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14) }
         }
@@ -411,7 +411,7 @@ struct ChartRootView: View {
             EmptyView()
         case .working:
             HStack(spacing: 6) {
-                Text("Asking the on-device model\u{2026}").font(.caption).foregroundStyle(.secondary)
+                Text(IntelligenceSource.current().asking).font(.caption).foregroundStyle(.secondary)
                 Button("Cancel") { model.onCancelSuggest?() }.buttonStyle(.link).font(.caption)
             }
         case .answered(let reason, let promptHash, let fromModel):

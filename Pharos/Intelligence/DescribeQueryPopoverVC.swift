@@ -410,6 +410,8 @@ final class DescribeQueryPopoverVC: NSViewController {
         if let intelligence = error as? IntelligenceError {
             return intelligence.localizedDescription
         }
+        // A custom endpoint's failures say what to do about them.
+        if let endpoint = error as? IntelligenceEndpointError { return endpoint.localizedDescription }
         if let failure = error as? SQLDraftPipeline.Failure {
             return failure.localizedDescription
         }

@@ -10,7 +10,7 @@ import AppKit
 /// dependency dimming. AppKit only, so it is tested standalone by
 /// `scripts/test-settings-form-builder.sh`.
 @MainActor
-final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
+final class SettingsFormBuilder: NSObject, NSTextFieldDelegate, NSComboBoxDelegate {
 
     /// Hook: while this returns true, control actions do not write. The pane
     /// sets it to its own `isPopulating` flag.
@@ -26,6 +26,10 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
     private var rows: [String: SettingsRow] = [:]
     private var controls: [String: NSView] = [:]
     private var refreshers: [String: () -> Void] = [:]
+    /// Combo boxes only: reload the list. Kept apart from `refreshers`
+    /// because a refresher is skipped while its field is being edited, and
+    /// a list that has just arrived must show even then.
+    private var listRefreshers: [String: () -> Void] = [:]
     private var writers: [ObjectIdentifier: (NSControl) -> Void] = [:]
     private var textCommitters: [ObjectIdentifier: (NSTextField) -> Void] = [:]
     private var controlItemIds: [ObjectIdentifier: String] = [:]
@@ -234,12 +238,42 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
             stepper.setAccessibilityIdentifier("settings.\(paneId).\(item.id).stepper")
             return group.container
 
-        case .text(let binding, let width, let placeholder):
-            let field = SettingsControlFactory.textField(width: width, placeholder: placeholder)
+        case .text(let binding, let width, let placeholder, let below):
+            let field = SettingsControlFactory.textField(width: below ? nil : width, placeholder: placeholder)
+            if below { placement = .below }
             field.delegate = self
             textCommitters[ObjectIdentifier(field)] = { field in binding.set(field.stringValue) }
             refreshers[item.id] = { field.stringValue = binding.get() }
             return field
+
+        case .combo(let binding, let width, let placeholder, let options, let reload):
+            let combo = SettingsControlFactory.comboBox(width: width, placeholder: placeholder)
+            combo.delegate = self
+            // The action fires when an item is picked from the list (and on
+            // Return), with `stringValue` already the picked item.
+            wire(combo)
+            writers[ObjectIdentifier(combo)] = { control in binding.set(control.stringValue) }
+            textCommitters[ObjectIdentifier(combo)] = { field in binding.set(field.stringValue) }
+            controlItemIds[ObjectIdentifier(combo)] = item.id
+            refreshers[item.id] = { combo.stringValue = binding.get() }
+            listRefreshers[item.id] = {
+                let wanted = options()
+                guard (combo.objectValues as? [String]) != wanted else { return }
+                combo.removeAllItems()
+                combo.addItems(withObjectValues: wanted)
+            }
+            guard let reload else { return combo }
+            let button = SettingsControlFactory.symbolButton(symbol: "arrow.clockwise", title: reload.title)
+            wire(button)
+            actionHandlers[ObjectIdentifier(button)] = reload.handler
+            let group = NSStackView(views: [combo, button])
+            group.orientation = .horizontal
+            group.alignment = .centerY
+            group.spacing = 4
+            group.translatesAutoresizingMaskIntoConstraints = false
+            combo.setAccessibilityIdentifier("settings.\(paneId).\(item.id)")
+            button.setAccessibilityIdentifier("settings.\(paneId).\(item.id).reload")
+            return group
 
         case .slider(let binding, let range):
             let slider = SettingsControlFactory.slider(range: range)
@@ -382,6 +416,7 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
     /// dependency dimming. A text field that is being edited is left alone.
     func refreshAll() {
         for itemId in order {
+            listRefreshers[itemId]?()
             if let field = editingField(for: itemId), field.currentEditor() != nil { continue }
             refreshers[itemId]?()
         }

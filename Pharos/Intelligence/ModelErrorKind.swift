@@ -16,6 +16,9 @@ import FoundationModels
 /// note). Their case names are read through `Mirror` instead, which works
 /// with either SDK. Only the case name is read, never a payload: a
 /// payload's context can describe the prompt.
+///
+/// An error that is not FoundationModels' own (a custom endpoint's) says
+/// which kind it is itself, through `ModelErrorKindProviding`.
 enum ModelErrorKind: Equatable {
     case contextSizeExceeded
     case guardrailViolation
@@ -31,6 +34,7 @@ enum ModelErrorKind: Equatable {
     case other(String)
 
     static func of(_ error: Error) -> ModelErrorKind {
+        if let known = error as? ModelErrorKindProviding { return known.modelErrorKind }
         if let generation = error as? LanguageModelSession.GenerationError {
             switch generation {
             case .exceededContextWindowSize: return .contextSizeExceeded
@@ -88,4 +92,10 @@ enum ModelErrorKind: Equatable {
         case .other(let name): return name
         }
     }
+}
+
+/// An error from a backend that is not the on-device model, which knows its
+/// own kind. Like the cases above, the kind never carries a payload.
+protocol ModelErrorKindProviding {
+    var modelErrorKind: ModelErrorKind { get }
 }

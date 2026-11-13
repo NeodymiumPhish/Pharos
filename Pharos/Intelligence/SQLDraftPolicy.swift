@@ -108,9 +108,10 @@ enum SQLDraftPolicy {
 
     // MARK: - Cleaning
 
-    /// Trim, unwrap a code fence, and keep only the first statement.
+    /// Take out what cannot be seen (`GeneratedTextPolicy.code`), trim,
+    /// unwrap a code fence, and keep only the first statement.
     static func clean(_ raw: String) -> String {
-        var text = stripFence(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = stripFence(GeneratedTextPolicy.code(raw)).trimmingCharacters(in: .whitespacesAndNewlines)
         text = firstStatement(of: text)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }

@@ -13,6 +13,7 @@ swiftc -o /tmp/model-availability-features-tests \
   Pharos/Models/Settings.swift \
   Pharos/Models/Charts/ChartPalette.swift \
   Pharos/Core/Log.swift \
+  Pharos/Intelligence/IntelligenceEndpoint.swift \
   Pharos/Intelligence/ModelAvailability.swift \
   PharosTests/ModelAvailabilityFeatureTests.swift \
   PharosTests/main.swift

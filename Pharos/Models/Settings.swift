@@ -643,7 +643,33 @@ struct ResultsSettings: Codable, Equatable {
     var showNewResultsAutomatically: Bool = true
 }
 
-/// The per-feature switches under Settings ▸ Intelligence.
+/// Which model answers the intelligence features.
+enum IntelligenceProvider: String, Codable, CaseIterable {
+    /// Apple's on-device model. Nothing leaves the Mac.
+    case apple
+    /// The endpoint in `IntelligenceSettings.endpoint`.
+    case endpoint
+}
+
+/// A custom AI endpoint (Settings ▸ Intelligence). Its API key is not here:
+/// it lives in the Keychain, through `PharosCore.intelligenceEndpointKey()`.
+struct IntelligenceEndpointSettings: Codable, Equatable {
+    /// The API root, e.g. `https://api.example.com/v1`. Checked by
+    /// `IntelligenceEndpoint.baseURL(from:)` wherever it is used.
+    var baseUrl: String = ""
+    /// The model's name as the endpoint knows it.
+    var model: String = ""
+    /// The model's window in tokens. A prompt is budgeted against it.
+    var contextTokens: UInt32 = 8192
+    /// The host the user has agreed to send prompts to, lowercased; empty
+    /// until they agree. An endpoint on another machine answers nothing
+    /// while its host differs from this (`IntelligenceEndpoint.hostNeedingPermission`),
+    /// so a new address asks again. An endpoint on this Mac needs none.
+    var allowedHost: String = ""
+}
+
+/// Settings ▸ Intelligence: which model answers, and the per-feature
+/// switches.
 ///
 /// Each one is read through `ModelAvailability.isAvailable(for:)`, never on
 /// its own: a feature is offered when the Mac can run the model, the master
@@ -671,6 +697,10 @@ struct IntelligenceSettings: Codable, Equatable {
     /// refuses it outright; on offers it behind the existing confirmation,
     /// which is what the popover did before this switch existed.
     var allowDraftingWriteStatements: Bool = true
+    /// Apple's on-device model unless the user chooses otherwise: it is what
+    /// answered before there was a choice.
+    var provider: IntelligenceProvider = .apple
+    var endpoint: IntelligenceEndpointSettings = IntelligenceEndpointSettings()
 }
 
 /// How long a toast stays on screen (Settings ▸ Notifications).

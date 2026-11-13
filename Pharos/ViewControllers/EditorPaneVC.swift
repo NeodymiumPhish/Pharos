@@ -229,6 +229,15 @@ class EditorPaneVC: NSViewController {
                 self?.updateDescribeQueryButton(available: available)
             }
             .store(in: &cancellables)
+        // Its badge follows the model that would write the draft. Switching
+        // between two usable models changes no availability, so the choice
+        // is followed in its own right.
+        AppStateManager.shared.$settings
+            .map(\.intelligence.provider)
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateDescribeQueryBadge() }
+            .store(in: &cancellables)
 
         // The status, not the tab's `connectionId`: a tab can name a
         // connection long before it is connected, and the schema cache is
@@ -558,10 +567,8 @@ class EditorPaneVC: NSViewController {
         // Intelligence glyph where the SDK has it; `systemSymbolName:` answers
         // nil for a name it does not know, so the fallback is a real check
         // rather than a version test.
-        let describeDescription = String(localized: "Describe the query\u{2026}")
-        describeQueryButton.image = (NSImage(systemSymbolName: "apple.intelligence", accessibilityDescription: describeDescription)
-            ?? NSImage(systemSymbolName: "sparkles", accessibilityDescription: describeDescription))?
-            .withSymbolConfiguration(fmtConfig)
+        describeQueryButton.symbolConfiguration = fmtConfig
+        updateDescribeQueryBadge()
         describeQueryButton.bezelStyle = .recessed
         describeQueryButton.isBordered = false
         describeQueryButton.contentTintColor = .secondaryLabelColor
@@ -569,7 +576,7 @@ class EditorPaneVC: NSViewController {
         describeQueryButton.action = #selector(describeQueryTapped)
         describeQueryButton.translatesAutoresizingMaskIntoConstraints = false
         describeQueryButton.setAccessibilityIdentifier("editor.describeQuery")
-        describeQueryButton.setAccessibilityLabel(describeDescription)
+        describeQueryButton.setAccessibilityLabel(String(localized: "Describe the query\u{2026}"))
         // Hidden until the availability sink says otherwise: a feature that
         // cannot run must not leave a disabled stub behind.
         describeQueryButton.isHidden = true
@@ -851,12 +858,22 @@ class EditorPaneVC: NSViewController {
     /// Show the button only where the feature can run, and enable it only
     /// where it has a schema to read.
     ///
+    /// The badge is Apple's glyph only while Apple's model would write the
+    /// draft; a custom endpoint gets the plain one.
+    private func updateDescribeQueryBadge() {
+        let description = String(localized: "Describe the query\u{2026}")
+        describeQueryButton.image = NSImage(
+            systemSymbolName: IntelligenceSource.current().badgeSymbol, accessibilityDescription: description)
+            ?? NSImage(systemSymbolName: "sparkles", accessibilityDescription: description)
+    }
+
     /// `available` is passed in by the availability sink and read from
     /// `ModelAvailability` by everyone else, for the `@Published` `willSet`
     /// reason spelled out in `ModelAvailability.publisher(for:)`.
     private func updateDescribeQueryButton(available: Bool? = nil) {
         let available = available ?? ModelAvailability.shared.isAvailable(for: .describeQuery)
         describeQueryButton.isHidden = !available
+        updateDescribeQueryBadge()
         guard available else {
             // A popover left open while the feature is switched off would
             // outlive its own button.

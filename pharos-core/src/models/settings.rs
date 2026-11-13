@@ -585,9 +585,57 @@ impl Default for ResultsSettings {
     }
 }
 
-/// The per-feature switches under Settings ▸ Intelligence. All default ON:
-/// every one of these ran whenever `use_apple_intelligence` allowed it before
-/// the switches existed.
+/// Which model answers the intelligence features.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum IntelligenceProvider {
+    /// Apple's on-device model. Nothing leaves the Mac.
+    #[default]
+    Apple,
+    /// The endpoint in `IntelligenceSettings::endpoint`.
+    Endpoint,
+}
+
+/// A custom AI endpoint (Settings ▸ Intelligence). Its API key is not here:
+/// it lives in the Keychain blob, see `commands::intelligence`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceEndpoint {
+    /// The API root, e.g. `https://api.example.com/v1`.
+    #[serde(default)]
+    pub base_url: String,
+    /// The model's name as the endpoint knows it.
+    #[serde(default)]
+    pub model: String,
+    /// The model's window in tokens. A prompt is budgeted against it.
+    #[serde(default = "default_endpoint_context_tokens")]
+    pub context_tokens: u32,
+    /// The host the user has agreed to send prompts to, lowercased. Empty
+    /// until they agree. An endpoint on another machine answers nothing
+    /// while its host differs from this one, so changing the address to a
+    /// new host asks again. An endpoint on this Mac needs no agreement.
+    #[serde(default)]
+    pub allowed_host: String,
+}
+
+fn default_endpoint_context_tokens() -> u32 { 8192 }
+
+impl Default for IntelligenceEndpoint {
+    fn default() -> Self {
+        IntelligenceEndpoint {
+            base_url: String::new(),
+            model: String::new(),
+            context_tokens: default_endpoint_context_tokens(),
+            allowed_host: String::new(),
+        }
+    }
+}
+
+/// Settings ▸ Intelligence: which model answers, and the per-feature
+/// switches. The switches all default ON: every one of these ran whenever
+/// `use_apple_intelligence` allowed it before the switches existed. The
+/// provider defaults to Apple's on-device model, which is what answered
+/// before there was a choice.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct IntelligenceSettings {
@@ -605,6 +653,10 @@ pub struct IntelligenceSettings {
     pub suggest_charts: bool,
     #[serde(default = "default_true")]
     pub allow_drafting_write_statements: bool,
+    #[serde(default)]
+    pub provider: IntelligenceProvider,
+    #[serde(default)]
+    pub endpoint: IntelligenceEndpoint,
 }
 
 impl Default for IntelligenceSettings {
@@ -617,6 +669,8 @@ impl Default for IntelligenceSettings {
             summarise_plans: true,
             suggest_charts: true,
             allow_drafting_write_statements: true,
+            provider: IntelligenceProvider::default(),
+            endpoint: IntelligenceEndpoint::default(),
         }
     }
 }
@@ -1499,6 +1553,13 @@ pub(crate) mod fixture {
                     summarise_plans: false,
                     suggest_charts: false,
                     allow_drafting_write_statements: false,
+                    provider: IntelligenceProvider::Endpoint,
+                    endpoint: IntelligenceEndpoint {
+                        base_url: "http://localhost:11434/v1".to_string(),
+                        model: "some-model".to_string(),
+                        context_tokens: 32768,
+                        allowed_host: "api.example.com".to_string(),
+                    },
                 },
                 notifications: NotificationSettings {
                     play_sound: false,
@@ -1837,6 +1898,36 @@ mod tests {
         assert_eq!(parsed.default_limit, 1000);
         assert_eq!(parsed.timeout_seconds, 300);
         assert!(parsed.confirm_destructive, "the guard must not default OFF");
+    }
+
+    /// A blob written before the provider existed keeps answering with the
+    /// on-device model, and the endpoint's key never appears in settings.
+    #[test]
+    fn intelligence_provider_defaults_to_apple() {
+        let parsed: IntelligenceSettings =
+            serde_json::from_str(r#"{"explainErrors": false}"#).expect("an older blob must parse");
+        assert!(!parsed.explain_errors, "the stored switch is kept");
+        assert_eq!(parsed.provider, IntelligenceProvider::Apple);
+        assert_eq!(parsed.endpoint, IntelligenceEndpoint::default());
+        assert_eq!(parsed.endpoint.context_tokens, 8192);
+
+        let json = serde_json::to_string(&IntelligenceSettings {
+            provider: IntelligenceProvider::Endpoint,
+            ..IntelligenceSettings::default()
+        })
+        .unwrap();
+        assert!(json.contains(r#""provider":"endpoint""#), "{json}");
+        assert!(
+            json.contains(r#""endpoint":{"baseUrl":"","model":"","contextTokens":8192,"allowedHost":""}"#),
+            "{json}"
+        );
+
+        let partial: IntelligenceSettings =
+            serde_json::from_str(r#"{"provider": "endpoint", "endpoint": {"model": "m"}}"#).expect("must parse");
+        assert_eq!(partial.provider, IntelligenceProvider::Endpoint);
+        assert_eq!(partial.endpoint.model, "m");
+        assert_eq!(partial.endpoint.context_tokens, 8192, "a missing size takes the default, not zero");
+        assert_eq!(partial.endpoint.allowed_host, "", "and no host is allowed until the user says so");
     }
 
     #[test]

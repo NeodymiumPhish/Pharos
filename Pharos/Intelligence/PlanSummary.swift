@@ -25,10 +25,22 @@ final class PlanSummarizer {
 
     func summarize(prompt: String, dialect: String = "PostgreSQL") async throws -> PlanSummary {
         try IntelligenceGuard.requireAvailable()
-        return try await IntelligenceBackends.current.respond(
+        var summary = try await IntelligenceBackends.current.respond(
             instructions: IntelligenceInstructions.inDialect(
                 IntelligenceInstructions.sqlSafety + "\n" + PlanSummaryPrompt.instructions, dialect),
             prompt: prompt, generating: PlanSummary.self, sampling: .standard)
+        // Cleaned and capped before anything shows it.
+        summary.summary = GeneratedTextPolicy.prose(summary.summary, limit: GeneratedTextPolicy.paragraphLimit)
+        summary.slowestNode = GeneratedTextPolicy.prose(summary.slowestNode, limit: GeneratedTextPolicy.phraseLimit)
+        let suggestion = GeneratedTextPolicy.prose(summary.suggestion, limit: GeneratedTextPolicy.sentenceLimit)
+        summary.suggestion = suggestion.isEmpty ? nil : suggestion
+        // A summary with no words in it is not shown as an answer.
+        guard !summary.summary.isEmpty else { throw Failure.emptySummary }
+        return summary
+    }
+
+    enum Failure: Error {
+        case emptySummary
     }
 }
 

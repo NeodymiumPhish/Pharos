@@ -140,6 +140,8 @@ final class ChartSuggester {
     static func userMessage(for error: Error) -> String {
         if let failure = error as? Failure { return failure.localizedDescription }
         if let intelligence = error as? IntelligenceError { return intelligence.localizedDescription }
+        // A custom endpoint's failures say what to do about them.
+        if let endpoint = error as? IntelligenceEndpointError { return endpoint.localizedDescription }
         switch ModelErrorKind.of(error) {
         case .guardrailViolation:
             return String(localized: "The model would not answer for this result.")

@@ -126,6 +126,8 @@ final class ErrorExplainer: ObservableObject {
         if let error = error as? IntelligenceError {
             return error.localizedDescription
         }
+        // A custom endpoint's failures say what to do about them.
+        if let endpoint = error as? IntelligenceEndpointError { return endpoint.localizedDescription }
         switch ModelErrorKind.of(error) {
         case .contextSizeExceeded:
             return String(localized: "The statement is too long to explain.")

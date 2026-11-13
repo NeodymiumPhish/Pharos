@@ -43,13 +43,39 @@ final class SecuritySettingsPaneVC: SettingsFormPaneVC {
                    style: .success)
     }
 
+    /// The privacy note's caption: what never happens, what the user
+    /// decides, and where the intelligence features send at this moment.
+    private static func privacyCaption() -> String {
+        let fixed = String(localized: "No account, no telemetry and no analytics. Your work goes to your databases. What an AI model is sent is decided by what you choose: the model and the features you turn on in Settings ▸ Intelligence, and the AI apps you allow below.")
+        let now: String
+        if !ModelAvailability.shared.isAvailable {
+            now = String(localized: "Right now the intelligence features are off.")
+        } else {
+            switch IntelligenceSource.current() {
+            case .apple:
+                now = String(localized: "Right now the intelligence features use Apple's on-device model, which sends nothing.")
+            case .endpoint(_, _, true):
+                now = String(localized: "Right now the intelligence features use a model on this Mac, which sends nothing off it.")
+            case .endpoint(_, let host, false):
+                now = String(localized: "Right now the intelligence features send to \(host).")
+            }
+        }
+        return fixed + " " + now
+    }
+
     override var sections: [SettingsSection] {
         [
             SettingsSection(title: String(localized: "Privacy"), items: [
                 SettingsItem(
                     id: "privacyNote",
-                    title: String(localized: "Nothing leaves this Mac."),
-                    caption: String(localized: "Pharos has no account, no telemetry and no analytics."),
+                    // The headline is a claim about Pharos, and holds
+                    // whatever the user sets up. What reaches an AI model is
+                    // the user's own doing — the model and features chosen
+                    // in Settings ▸ Intelligence, the AI apps allowed below —
+                    // so the caption says that, and then what those choices
+                    // amount to right now.
+                    title: String(localized: "Pharos collects nothing."),
+                    dynamicCaption: { Self.privacyCaption() },
                     icon: "lock.shield",
                     help: String(localized: "Everything below is written to your own disk and read by your own Mac."),
                     kind: .display),

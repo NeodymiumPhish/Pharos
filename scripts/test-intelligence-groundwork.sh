@@ -10,6 +10,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 swiftc -o /tmp/intelligence-groundwork-tests \
   Pharos/Core/Log.swift \
+  Pharos/Intelligence/IntelligenceEndpoint.swift \
+  Pharos/Intelligence/IntelligenceSource.swift \
   Pharos/Intelligence/ModelAvailability.swift \
   Pharos/Intelligence/ModelFeedbackStore.swift \
   Pharos/Intelligence/GeneratedContentLabel.swift \

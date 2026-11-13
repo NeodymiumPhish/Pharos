@@ -342,6 +342,24 @@ void pharos_duck_take_restore_failures(const char *duck_connection_id,
                                        void *context);
 
 /**
+ * Keep the custom AI endpoint's API key in the Keychain. An empty key
+ * removes it. Returns false when the Keychain refused.
+ */
+ bool pharos_intelligence_endpoint_key_store(const char *key);
+
+/**
+ * Remove the custom AI endpoint's API key. Returns false when the Keychain
+ * refused; removing a key that is not there succeeds.
+ */
+ bool pharos_intelligence_endpoint_key_delete(void);
+
+/**
+ * The custom AI endpoint's API key as a JSON string, or JSON `null` when
+ * none is stored. Free with `pharos_free_string`.
+ */
+ char *pharos_intelligence_endpoint_key(void);
+
+/**
  * Initialize the Rust runtime, SQLite database, and credential cache.
  * `app_data_dir` must be a valid UTF-8 path to the application support directory.
  * Returns true on success.

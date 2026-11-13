@@ -58,6 +58,12 @@ final class ModelAvailability: ObservableObject {
     /// cannot run the model disables it outright. Features want `isAvailable`.
     @Published private(set) var systemModelIsAvailable: Bool = false
 
+    /// Whether the model the user CHOSE can be asked, ignoring the master
+    /// switch: the on-device model on a Mac that runs it, or a custom
+    /// endpoint with an address and a model name. The master switch in
+    /// Settings follows this one.
+    @Published private(set) var providerIsUsable: Bool = false
+
     /// "Use Apple Intelligence features", as last PUBLISHED.
     ///
     /// Cached, not re-read. `@Published` notifies its subscribers on `willSet`,
@@ -144,12 +150,19 @@ final class ModelAvailability: ObservableObject {
             return
         }
 
-        // The system's own answer comes first. When the Mac cannot run the
-        // model at all, saying "turned off in Pharos settings" would send the
-        // user to a checkbox that changes nothing.
-        if let systemReason {
+        // Whether the CHOSEN model can answer. With the custom endpoint
+        // chosen, what this Mac can run is beside the point: the endpoint
+        // answers or nothing does, and the on-device model never stands in
+        // for it.
+        let providerReason = features.provider == .endpoint ? Self.endpointProblem(features.endpoint) : systemReason
+        providerIsUsable = providerReason == nil
+
+        // The provider's own answer comes first. When the model cannot be
+        // asked at all, saying "turned off in Pharos settings" would send
+        // the user to a checkbox that changes nothing.
+        if let providerReason {
             isAvailable = false
-            unavailableReason = systemReason
+            unavailableReason = providerReason
             return
         }
 
@@ -166,6 +179,37 @@ final class ModelAvailability: ObservableObject {
     // MARK: - Reasons
 
     static let settingOffReason = String(localized: "Turned off in Pharos settings.")
+
+    static let endpointNotSetUpReason = String(
+        localized: "The custom endpoint is not set up. Enter its address and model name in Settings ▸ Intelligence.")
+
+    /// The endpoint is on another machine and the user has not agreed to
+    /// send to it.
+    static func endpointNotAllowedReason(host: String) -> String {
+        String(localized: "You have not allowed Pharos to send to \(host). Allow it in Settings ▸ Intelligence.")
+    }
+
+    /// Why the custom endpoint cannot be asked, or nil when it can.
+    ///
+    /// "Can be asked" means it has a usable address and a model name, and,
+    /// when it is on another machine, the user's agreement to that host. It
+    /// does not mean anything answers there: that is found out by asking,
+    /// and the failure then names itself.
+    static func endpointProblem(_ endpoint: IntelligenceEndpointSettings) -> String? {
+        switch IntelligenceEndpoint.baseURL(from: endpoint.baseUrl) {
+        case .failure(.empty):
+            return endpointNotSetUpReason
+        case .failure(let problem):
+            return problem.message
+        case .success(let base):
+            let model = endpoint.model.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !model.isEmpty else { return endpointNotSetUpReason }
+            if let host = IntelligenceEndpoint.hostNeedingPermission(base: base, allowedHost: endpoint.allowedHost) {
+                return endpointNotAllowedReason(host: host)
+            }
+            return nil
+        }
+    }
 
     /// The sentence for a Mac that cannot run the model and will not say why.
     static let genericUnavailableReason = String(

@@ -19,6 +19,8 @@ swiftc -o "$bin" \
   Pharos/Intelligence/SQLDraftPrompt.swift \
   Pharos/Intelligence/SQLDraftChecker.swift \
   Pharos/Intelligence/SQLDraftFixer.swift \
+  Pharos/Core/AuthoredLabelSanitizer.swift \
+  Pharos/Intelligence/GeneratedTextPolicy.swift \
   Pharos/Intelligence/SQLDraftPolicy.swift \
   Pharos/Intelligence/ModelErrorKind.swift \
   Pharos/Intelligence/IntelligenceBackend.swift \

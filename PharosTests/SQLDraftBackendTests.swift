@@ -186,6 +186,25 @@ private func testBackendIsFixedForOneDraft() async {
     expectEqual(second.requests.count, 0, "a later change does not split one draft across two models")
 }
 
+/// A draft is put in the editor for the analyst to read, so it must be what
+/// it looks like: no character that reorders or hides part of it.
+@MainActor
+private func testDraftCarriesNoInvisibleCharacters() async {
+    let backend = FakeBackend()
+    backend.typedAnswers = [draftJSON("SELECT id\u{202E}\n  FROM sales.\u{200B}orders\u{00A0}WHERE id > 0\u{2066}")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        do {
+            let result = try await pipeline.draft("orders")
+            expectEqual(result.sql, "SELECT id\n  FROM sales.orders WHERE id > 0",
+                        "bidi and zero-width characters go, the line break stays, an odd space becomes a plain one")
+            expectEqual(result.problems, [], "and the names check as the ones they look like")
+        } catch {
+            expect(false, "draft threw \(error)")
+        }
+    }
+}
+
 @MainActor
 private func testEmptyAnswerIsAFailure() async {
     let backend = FakeBackend()
@@ -334,6 +353,7 @@ func runTests() {
         await testDraftGoesThroughTheBackend()
         await testDialectReachesTheInstructions()
         await testBackendIsFixedForOneDraft()
+        await testDraftCarriesNoInvisibleCharacters()
         await testEmptyAnswerIsAFailure()
         await testBackendErrorIsPassedOn()
         await testRepairAsksOnceMore()

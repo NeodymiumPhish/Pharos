@@ -6,6 +6,16 @@
 - Query history replaces passwords and keys in SQL text with `'********'` (for example `ALTER ROLE … PASSWORD '…'`, `CREATE SECRET (… SECRET '…')`, and `password=` in a connection string). Saved Sessions keep the SQL exactly as you wrote it.
 - DuckDB secrets live in memory only. Pharos refuses `CREATE PERSISTENT SECRET`, because DuckDB writes those secrets to disk in plain text.
 - When a DuckDB tab attaches a PostgreSQL connection, Pharos gives DuckDB the password in a temporary secret. The password is not in SQL text.
+- The API key of a custom AI endpoint is in the macOS Keychain, not in Pharos's settings. An app-data export does not include it.
+
+## What Pharos sends
+
+- By default, nothing. The intelligence features use Apple's on-device model, and Pharos opens no network connection for them.
+- With a custom AI endpoint chosen in Settings ▸ Intelligence, each feature sends that endpoint the text it works from: your SQL, the names and types of the tables and columns it mentions, error messages and query plans. SQL and plans can contain values you typed. No feature sends the rows of a result.
+- Pharos sends to an endpoint on another machine only after you allow that host, in a sheet that says what is sent. Changing the address to another host needs a new permission. An endpoint on this Mac (`localhost`, `127.0.0.1`, `::1`) needs none.
+- The endpoint's address must be `https://`, except for an endpoint on this Mac. Pharos does not follow redirects from it, so the API key and the prompt reach only the host you entered.
+- While a custom endpoint is chosen, the on-device model never answers in its place, and the reverse.
+- Pharos does not log prompts, answers or the API key.
 
 ## Bundled libraries
 

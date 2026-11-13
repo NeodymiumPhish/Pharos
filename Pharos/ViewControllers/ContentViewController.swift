@@ -1509,7 +1509,7 @@ class ContentViewController: NSViewController {
         // The text on screen now. A suggestion only replaces THIS — anything
         // else in the field is the user's own typing.
         let untouched = field.stringValue
-        field.toolTip = String(localized: "Name suggested by Apple Intelligence")
+        field.toolTip = IntelligenceSource.current().nameSuggestedBy
 
         Task { [weak alert] in
             do {

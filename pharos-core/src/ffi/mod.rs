@@ -46,6 +46,7 @@ mod app_backup;
 mod cards;
 mod connection;
 mod duckdb;
+mod intelligence;
 mod lifecycle;
 mod model_feedback;
 mod query;

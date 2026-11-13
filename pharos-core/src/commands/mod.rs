@@ -5,6 +5,7 @@ pub mod duck;
 pub mod duck_attach;
 pub mod duck_cloud;
 pub mod duck_session;
+pub mod intelligence;
 pub mod metadata;
 pub mod model_feedback;
 pub mod query;

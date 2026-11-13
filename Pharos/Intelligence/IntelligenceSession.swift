@@ -42,11 +42,16 @@ enum IntelligenceGuard {
 
 /// Asks before a feature shows the model the user's ROW data.
 ///
+/// No feature calls this today, because none puts a cell value in a prompt.
+/// It stays as the one gate a feature that does must pass, and its words
+/// come from `IntelligenceSource`, so the sheet says where the rows would
+/// go: this Mac, or the host of a custom endpoint.
+///
 /// The line is drawn at the data, not at the model. A feature that reads only
 /// schema metadata — table and column names, types, a query plan — never calls
 /// this. Anything that puts cell values in a prompt must, every time it is
-/// invoked: the model runs on this Mac, but the user still gets to say whether
-/// their rows are read at all.
+/// invoked: the user gets to say whether their rows are read at all, and the
+/// sheet says where they would go.
 @MainActor
 final class RowDataConsent {
 
@@ -57,9 +62,11 @@ final class RowDataConsent {
     static func confirm(what: String, in window: NSWindow?) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = String(localized: "Send row data to the on-device model?")
-        alert.informativeText = String(
-            localized: "\(what) will be read by the model on this Mac. Nothing leaves this Mac.")
+        // The words follow the model that would read the rows: the
+        // on-device one keeps them on this Mac, a remote endpoint does not.
+        let words = IntelligenceSource.current().rowDataConsent(what: what)
+        alert.messageText = words.title
+        alert.informativeText = words.text
         alert.addButton(withTitle: String(localized: "Continue"))
         alert.addButton(withTitle: String(localized: "Cancel"))
 

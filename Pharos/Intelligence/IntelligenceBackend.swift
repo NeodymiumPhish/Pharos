@@ -71,8 +71,16 @@ enum IntelligenceBackends {
     /// sets it.
     static var overrideForTesting: IntelligenceBackend?
 
+    /// The custom endpoint, when the user has chosen one; nil while Apple's
+    /// model is chosen. Installed at launch
+    /// (`IntelligenceBackends.followSettings()`), because the settings live
+    /// in the app and this file is also compiled without it. Nil here means
+    /// the on-device model, so it must never answer nil for a chosen
+    /// endpoint that is merely unusable.
+    static var endpoint: (() -> IntelligenceBackend?)?
+
     /// Read at the start of each request, never kept across requests.
-    static var current: IntelligenceBackend { overrideForTesting ?? apple }
+    static var current: IntelligenceBackend { overrideForTesting ?? endpoint?() ?? apple }
 
     private static let apple = AppleIntelligenceBackend()
 }

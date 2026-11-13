@@ -100,7 +100,21 @@ enum SettingsItemKind {
     case stepper(SettingsBinding<Int>, range: ClosedRange<Int>, unit: String?)
     /// Free text, committed after a typing pause and when editing ends.
     /// `placeholder` names what an empty field means.
-    case text(SettingsBinding<String>, width: CGFloat, placeholder: String? = nil)
+    ///
+    /// `below` puts the field UNDER the text column, spanning the row, and
+    /// `width` is then not used. It is for a value too long for the trailing
+    /// slot — a web address — where a field wide enough to read would leave
+    /// the title and caption a column a few words wide.
+    case text(SettingsBinding<String>, width: CGFloat, placeholder: String? = nil, below: Bool = false)
+    /// Free text with a list to pick from: a combo box. Typing commits as
+    /// `text` does; picking from the list commits at once. `options` is read
+    /// on every refresh, so a list that arrives later (fetched from a
+    /// server) appears without rebuilding the pane, and an empty list leaves
+    /// a plain field. Anything may still be typed: the list suggests, it
+    /// does not restrict. `reload`, when given, adds a small button beside
+    /// the field that asks for the list again.
+    case combo(SettingsBinding<String>, width: CGFloat, placeholder: String? = nil,
+               options: () -> [String], reload: (title: String, handler: () -> Void)? = nil)
     /// Slider, written continuously.
     case slider(SettingsBinding<Double>, range: ClosedRange<Double>)
     /// A path label with a Choose… button (`NSOpenPanel`).

@@ -274,15 +274,35 @@ engine — a separate path these settings do not reach at all. So a grid showing
 
 ## Intelligence Pane
 
-The on-device model, and the seven features that use it. The master switch is
-first; each feature below it is indented and takes effect only while the
-master is on. Every default is On — all seven ran whenever Apple Intelligence
-was allowed before the switches existed — so nothing changes until you clear
-one. Nothing here sends anything anywhere.
+Which model answers, and the seven features that use it.
+
+### Model
+
+Apple Intelligence is the default and runs on this Mac: nothing here sends
+anything anywhere. A custom endpoint is a model you run or rent, and what
+each feature works from is sent to it. See
+[Using a custom endpoint](apple-intelligence.md#using-a-custom-endpoint).
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
-| Use Apple Intelligence features | On/Off | On | Explain errors, suggest names and charts, draft SQL and summarise plans with the on-device model. Nothing leaves this Mac. The row is dimmed, with the reason in its place, on a Mac that cannot run the model. |
+| Answer with | Apple Intelligence, Custom endpoint | Apple Intelligence | The model every feature below asks. Choosing **Custom endpoint** for an address on another machine first shows what is sent and asks you to allow that host. Pharos never falls back from one model to the other. |
+| Endpoint address | Text | Empty | The API root of an OpenAI-compatible endpoint, such as `https://api.example.com/v1` or `http://localhost:11434/v1`. It must be `https://`, except for an endpoint on this Mac. The line under the field says whether what is sent leaves this Mac, and to which host. |
+| Model name | Text, or a model the endpoint lists | Empty | The model's name exactly as the endpoint lists it. Press the arrow beside the field, or **Test Connection**, and the endpoint's models are offered in the field's list; you can still type a name that is not listed. The list is asked for only when you press one of the two, because the request carries the API key, and it is not kept after the pane closes. |
+| Context size | 2,048–2,000,000 tokens | 8,192 | The model's window. **Describe the query** fits the tables it describes into this. |
+| API key | Secret | None | Kept in the Keychain, never in Pharos's settings file. Leave it empty for an endpoint that needs none. |
+| Sending | **Allow…** | Not allowed | Permission to send to the address's host. Needed once for each host on another machine; an endpoint on this Mac needs none. Change the address to another host and Pharos sends nothing there until you allow it. |
+| Connection | **Test Connection** | — | Asks the endpoint for its list of models, says what answered, and offers the models under **Model name**. Sends the API key and nothing else. |
+
+### Features
+
+The master switch is first; each feature below it is indented and takes
+effect only while the master is on. Every default is On — all seven ran
+whenever Apple Intelligence was allowed before the switches existed — so
+nothing changes until you clear one.
+
+| Setting | Options | Default | Description |
+|---------|---------|---------|-------------|
+| Use intelligence features | On/Off | On | Explain errors, suggest names and charts, draft SQL and summarise plans with the model chosen above. The row is dimmed, with the reason in its place, when that model cannot be asked: a Mac that cannot run Apple Intelligence, or an endpoint with no address, no model name or no permission to send. |
 | Describe the query | On/Off | On | The editor toolbar's **Describe the query…** button, which drafts SQL from a sentence. Off takes the button away. |
 | Allow drafts that write | On/Off | On | Off drafts reads only: a draft that is not a plain `SELECT` — or that contains `DELETE`, `DROP`, `UPDATE` and the rest — is refused with a sentence saying so, instead of being offered behind its confirmation. Pharos never runs a draft either way. |
 | Explain query errors | On/Off | On | The explanation block on the [query-error sheet](query-errors.md). Off leaves the error's own text, which is unchanged. |
@@ -418,9 +438,15 @@ leaves the server's own values alone, which is the default.
 
 ## Security & Privacy Pane
 
-Nothing leaves this Mac. Pharos has no account, no telemetry and no analytics;
-everything below is written to your own disk and read by your own Mac. Every
-switch takes effect at once — none needs a relaunch.
+Pharos collects nothing: it has no account, no telemetry and no analytics.
+Your work goes to your databases. What an AI model is sent is decided by what
+you choose: the model and the features you turn on in the
+[Intelligence pane](#intelligence-pane), and the AI apps you allow in this
+one. The note at the top of the pane says where the intelligence features send
+right now — nowhere with Apple's on-device model or a model on this Mac, or
+the host of a [custom endpoint](apple-intelligence.md#using-a-custom-endpoint)
+on another machine. Everything below is written to your own disk and read by
+your own Mac. Every switch takes effect at once — none needs a relaunch.
 
 | Setting | Options | Default | Description |
 |---------|---------|---------|-------------|
