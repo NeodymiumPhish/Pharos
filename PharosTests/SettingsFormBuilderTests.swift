@@ -173,6 +173,69 @@ private func testOutOfRangeTextIsIgnored() {
 }
 
 @MainActor
+private func testCommitKeepsTextBeingTyped() {
+    // A number is out of range on its way to being in range. The debounced
+    // commit must not disturb the field editor while it is.
+    let store = Store()
+    let (builder, _, window) = makeForm(store: store)
+    let container = builder.control(for: "rowLimit")!
+    let field = container.subviews.compactMap { $0 as? NSTextField }.first!
+    expectTrue(window.makeFirstResponder(field), "the number field takes focus")
+    guard let editor = field.currentEditor() else {
+        expectTrue(false, "the number field has a field editor")
+        return
+    }
+    editor.string = "0"
+    builder.commit(field)
+    expectEqual(editor.string, "0", "an out-of-range commit leaves the typed text in the field")
+    expectEqual(store.rowLimit, 1000, "…and writes nothing")
+    editor.string = "999999"
+    builder.commit(field)
+    expectEqual(editor.string, "999999", "…above the range too")
+    editor.string = "42"
+    builder.commit(field)
+    expectEqual(editor.string, "42", "an in-range commit leaves the text too")
+    expectEqual(store.rowLimit, 42, "…and writes the typed value")
+    window.makeFirstResponder(nil)
+}
+
+@MainActor
+private func testOutOfRangeTextWarns() {
+    let store = Store()
+    let (builder, _, window) = makeForm(store: store)
+    let row = builder.row(for: "rowLimit")!
+    let container = builder.control(for: "rowLimit")!
+    let field = container.subviews.compactMap { $0 as? NSTextField }.first!
+    let warning = ["Enter a number from \(1.formatted()) to \(100_000.formatted())."]
+    expectTrue(window.makeFirstResponder(field), "the number field takes focus for the warning")
+    guard let editor = field.currentEditor() else {
+        expectTrue(false, "the number field has a field editor")
+        return
+    }
+    let type: (String) -> Void = { text in
+        editor.string = text
+        builder.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    }
+    expectEqual(row.captionProblems, [], "no warning before anything is typed")
+    type("0")
+    expectEqual(row.captionProblems, warning, "below the range warns, naming the range")
+    expectEqual(editor.string, "0", "…and leaves the typed text alone")
+    type("42")
+    expectEqual(row.captionProblems, [], "typing into the range clears the warning")
+    type("999999")
+    expectEqual(row.captionProblems, warning, "above the range warns")
+    type("12x")
+    expectEqual(row.captionProblems, warning, "a non-number warns")
+    type("")
+    expectEqual(row.captionProblems, [], "an empty field does not warn")
+    type("0")
+    window.makeFirstResponder(nil)
+    expectEqual(row.captionProblems, [], "leaving the field clears the warning…")
+    expectEqual(field.integerValue, 1000, "…as the stored value is put back")
+    expectEqual(store.rowLimit, 1000, "…and nothing out of range was written")
+}
+
+@MainActor
 private func testAccessibility() {
     let store = Store()
     let (builder, _, _) = makeForm(store: store)
@@ -242,6 +305,8 @@ func runTests() {
         testDependentDims()
         testUnavailableReasonReplacesCaption()
         testOutOfRangeTextIsIgnored()
+        testCommitKeepsTextBeingTyped()
+        testOutOfRangeTextWarns()
         testAccessibility()
         testFooterButtonsTrailing()
         testDisplayRowKeepsItsInfoButton()

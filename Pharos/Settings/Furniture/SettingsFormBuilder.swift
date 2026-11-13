@@ -29,6 +29,8 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
     private var writers: [ObjectIdentifier: (NSControl) -> Void] = [:]
     private var textCommitters: [ObjectIdentifier: (NSTextField) -> Void] = [:]
     private var controlItemIds: [ObjectIdentifier: String] = [:]
+    /// Number fields only: what is wrong with the typed text, or nil.
+    private var rangeProblems: [ObjectIdentifier: (String) -> String?] = [:]
     private var toggleBindings: [String: SettingsBinding<Bool>] = [:]
     private var pendingCommits: [ObjectIdentifier: Timer] = [:]
     private var actionHandlers: [ObjectIdentifier: () -> Void] = [:]
@@ -202,15 +204,29 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
                 binding.set(value)
             }
             textCommitters[ObjectIdentifier(field)] = { field in
-                let typed = field.stringValue.trimmingCharacters(in: .whitespaces)
+                // Read the field editor, not `stringValue`: mid-edit that
+                // validates through the range formatter, which CLEARS the
+                // text when it is out of range — and a number on its way to
+                // the range ("2" of "20000") is out of range.
+                let typed = (field.currentEditor()?.string ?? field.stringValue)
+                    .trimmingCharacters(in: .whitespaces)
                 guard let value = Int(typed), range.contains(value) else { return }
                 stepper.integerValue = value
                 binding.set(value)
             }
-            refreshers[item.id] = {
+            rangeProblems[ObjectIdentifier(field)] = { text in
+                let typed = text.trimmingCharacters(in: .whitespaces)
+                // Nothing typed yet is not a mistake to point at.
+                if typed.isEmpty { return nil }
+                if let value = Int(typed), range.contains(value) { return nil }
+                return String(localized: "Enter a number from \(range.lowerBound.formatted()) to \(range.upperBound.formatted()).")
+            }
+            refreshers[item.id] = { [weak self] in
                 let value = binding.get()
                 field.integerValue = value
                 stepper.integerValue = value
+                // The field shows a stored value again, which is in range.
+                self?.rows[item.id]?.captionProblems = []
             }
             controlItemIds[ObjectIdentifier(field)] = item.id
             controlItemIds[ObjectIdentifier(stepper)] = item.id
@@ -315,6 +331,7 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
         guard let field = obj.object as? NSTextField else { return }
         cancelCommit(field)
         guard !isPopulating(), textCommitters[ObjectIdentifier(field)] != nil else { return }
+        showRangeProblem(for: field)
         let timer = Timer.scheduledTimer(withTimeInterval: textCommitDelay, repeats: false) { [weak self, weak field] _ in
             Task { @MainActor in
                 guard let self, let field else { return }
@@ -341,6 +358,18 @@ final class SettingsFormBuilder: NSObject, NSTextFieldDelegate {
         guard let committer = textCommitters[ObjectIdentifier(field)] else { return }
         committer(field)
         if let itemId = controlItemIds[ObjectIdentifier(field)] { refreshDependents(of: itemId) }
+    }
+
+    /// Say so under the row's title while a number field holds text that will
+    /// not be saved. At once rather than with the debounced commit: the
+    /// warning is about what is on screen, not about what was written.
+    /// Public so a test can drive it without typing.
+    func showRangeProblem(for field: NSTextField) {
+        let key = ObjectIdentifier(field)
+        guard let problem = rangeProblems[key], let itemId = controlItemIds[key] else { return }
+        // The field editor, not `stringValue`: see the stepper's committer.
+        let text = field.currentEditor()?.string ?? field.stringValue
+        rows[itemId]?.captionProblems = problem(text).map { [$0] } ?? []
     }
 
     private func cancelCommit(_ field: NSTextField) {

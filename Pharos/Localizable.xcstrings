@@ -1832,6 +1832,9 @@
     "Enter a new name for this tab. Leave it empty to name the tab after its connection and schema." : {
 
     },
+    "Enter a number from %@ to %@." : {
+
+    },
     "Enter a password to encrypt the file with." : {
 
     },
