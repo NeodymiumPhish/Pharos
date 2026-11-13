@@ -123,6 +123,52 @@ enum SQLDraftRanker {
         return words.map(singular)
     }
 
+    /// The most tables a change may bring to a statement.
+    static let additionLimit = 3
+
+    /// The tables a change to a statement may need on top of the ones it
+    /// reads (`held`): at most `additionLimit`, the held tables' own
+    /// schemas first.
+    ///
+    /// A change is a few words about a query that exists, and most of them
+    /// are about what it reads already: "cancelled orders instead" on a
+    /// query over `orders` names no new table, though `order_items` and
+    /// `order_totals` match its words. So a table is added only
+    /// - by its NAME, for a word that is not in a held table's name ("add
+    ///   the customer's name" brings `customers` to a query over `orders`), or
+    /// - as a table a held one has a key to or from, by a COLUMN, for a
+    ///   word no held table has a column for ("add the email" brings
+    ///   `customers` when `orders` has no such column).
+    static func additions(
+        for request: String, to held: [DraftCatalog.TableKey], in catalog: DraftCatalog
+    ) -> [DraftCatalog.TableKey] {
+        func matches(_ word: String, _ others: [String]) -> Bool { others.contains { similarity(word, $0) > 0 } }
+        let heldTables = held.compactMap(catalog.table)
+        let heldNames = held.flatMap { nameWords($0.name) }
+        let heldColumns = heldTables.flatMap { $0.columns.flatMap { nameWords($0.name) } }
+        let free = requestWords(request).filter { !matches($0, heldNames) }
+        guard !free.isEmpty else { return [] }
+        let uncovered = free.filter { !matches($0, heldColumns) }
+        let near = Set(held.flatMap(catalog.neighbours(of:)))
+        let schemas = Set(held.map(\.schema))
+
+        var scored: [(key: DraftCatalog.TableKey, score: Int)] = []
+        for table in catalog.tables where !held.contains(table.key) && !catalog.partitions.contains(table.key) {
+            let names = nameWords(table.key.name)
+            var score = 2 * free.filter { matches($0, names) }.count
+            if near.contains(table.key) {
+                let columns = table.columns.flatMap { nameWords($0.name) }
+                score += uncovered.filter { matches($0, columns) }.count
+            }
+            guard score > 0 else { continue }
+            // A table the statement can join directly, in its own schema,
+            // ahead of a namesake elsewhere.
+            scored.append((table.key, score * 4 + (near.contains(table.key) ? 2 : 0) + (schemas.contains(table.key.schema) ? 1 : 0)))
+        }
+        return scored.sorted { $0.score != $1.score ? $0.score > $1.score : $0.key < $1.key }
+            .prefix(additionLimit).map(\.key)
+    }
+
     /// The request's content words, singular, without stop words.
     static func requestWords(_ request: String) -> [String] {
         var out: [String] = []

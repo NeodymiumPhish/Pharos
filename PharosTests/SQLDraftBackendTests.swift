@@ -832,7 +832,7 @@ private func testAStatementThatRanOnGoesToRepair() async {
     await withBackend(stuck) {
         let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
         let result = try? await pipeline.draft("orders")
-        expectEqual(result?.problems.first ?? "", SQLDraftPipeline.cutOffProblem, "cut off: a draft still cut off says so")
+        expectEqual(result?.problems.first ?? "", SQLDraftPipeline.cutOffProblem(), "cut off: a draft still cut off says so")
         expectEqual(stuck.requests.count, 2, "cut off: one draft and one repair, no more")
     }
 
@@ -937,6 +937,177 @@ private func testAHugeWindowIsSentNoMoreThanTheCeilings() async {
     expect(budget.readBlock == SQLDraftPrompt.Budget.readBlockCeiling, "huge: the reading budget is its ceiling, not a share of 200,000")
 }
 
+// MARK: - Changing a statement
+
+private let paidOrders = "SELECT o.id FROM sales.orders o WHERE o.id > 5"
+
+@MainActor
+private func testAChangeCarriesTheStatementAndItsTables() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    let changed = paidOrders + " AND o.placed_at >= now() - interval '30 days'"
+    backend.schemaAnswers = [draftJSON(changed)]
+    let catalog = threeTables()
+    let definitions = Definitions.plain(catalog)
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: definitions.source)
+        var stages: [SQLDraftPipeline.Stage] = []
+        pipeline.onStage = { stages.append($0) }
+        let result = try? await pipeline.draft("only the last 30 days", adjusting: paidOrders + ";\n")
+        expectEqual(result?.sql ?? "", changed, "change: the answer is the changed statement")
+        expectEqual(result?.tables ?? [], [orders], "change: the statement's own table is shown, and no other")
+        expectEqual(result?.problems ?? ["?"], [], "change: clean")
+        expectEqual(stages, [.finding, .reading, .writing, .checking], "change: no choosing among names")
+        expectEqual(backend.requests.count, 1, "change: one request")
+        let request = backend.requests.first
+        expect(request?.instructions.contains(SQLDraftPrompt.ddlAdjustInstructions) == true, "change: the adjusting instructions")
+        expect(request?.instructions.hasPrefix(IntelligenceInstructions.sqlSafety) == true, "change: after the safety sentences")
+        expect(request?.prompt.contains("Current query:\n\(paidOrders);\n\nRequest:") == true, "change: the prompt carries the statement, trimmed")
+        expect(request?.prompt.hasSuffix("Request: only the last 30 days") == true, "change: and the change last")
+        expect(request?.prompt.contains("CREATE TABLE \"sales\".\"orders\"") == true
+               && request?.prompt.contains("regions") == false, "change: the DDL of what it reads only")
+    }
+}
+
+@MainActor
+private func testAChangeCanAddATable() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.schemaAnswers = [draftJSON("SELECT o.id, c.name FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id WHERE o.id > 5")]
+    let catalog = threeTables()
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        let result = try? await pipeline.draft("add the name of the customer", adjusting: paidOrders)
+        expectEqual(result?.tables ?? [], [orders, customers], "add: the statement's table first, then the one the change names")
+        expectEqual(result?.reads ?? [], [orders, customers], "add: and the changed statement reads both")
+    }
+}
+
+@MainActor
+private func testAChangeWithoutDDLKeepsTheStatementsColumns() async {
+    let backend = FakeBackend()
+    backend.schemaAnswers = [draftJSON(paidOrders + " LIMIT 10")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        let result = try? await pipeline.draft("the first ten", adjusting: paidOrders)
+        expectEqual(result?.sql ?? "", paidOrders + " LIMIT 10", "compact: changed")
+        let request = backend.requests.first
+        expect(request?.instructions.contains(SQLDraftPrompt.adjustInstructions) == true, "compact: the adjusting instructions for the compact block")
+        expect(request?.prompt.contains("sales.orders\n") == true && request?.prompt.contains("Current query:") == true,
+               "compact: the block and the statement")
+    }
+}
+
+@MainActor
+private func testAnUnchangedStatementIsAFailure() async {
+    let backend = FakeBackend()
+    backend.schemaAnswers = [draftJSON("SELECT o.id\nFROM sales.orders o   WHERE o.id > 5;")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        do {
+            _ = try await pipeline.draft("make it better", adjusting: paidOrders)
+            expect(false, "unchanged: must throw")
+        } catch {
+            expectEqual(error as? SQLDraftPipeline.Failure, .unchanged, "unchanged: said, not offered as a new version")
+        }
+        expectEqual(backend.requests.count, 1, "unchanged: and not sent to a repair")
+    }
+}
+
+@MainActor
+private func testAStatementTooLongForTheWindowIsNotSent() async {
+    let backend = FakeBackend()
+    let long = "SELECT o.id FROM sales.orders o WHERE o.id IN (" + (1...700).map(String.init).joined(separator: ", ") + ")"
+    expect(long.count > SQLDraftPipeline.adjustLimit(contextSize: 4096)
+           && long.count < SQLDraftPipeline.adjustLimit(contextSize: 8192), "too long: (the fixture sits between the two windows)")
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        do {
+            _ = try await pipeline.draft("newest first", adjusting: long)
+            expect(false, "too long: must throw")
+        } catch {
+            expectEqual(error as? SQLDraftPipeline.Failure, .statementTooLong, "too long: refused before anything is sent")
+        }
+        expectEqual(backend.requests.count, 0, "too long: nothing was sent")
+    }
+    let wider = FakeBackend()
+    wider.contextSize = 8192
+    wider.schemaAnswers = [draftJSON(long + " ORDER BY o.id DESC")]
+    await withBackend(wider) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        let result = try? await pipeline.draft("newest first", adjusting: long)
+        expectEqual(result?.problems ?? ["?"], [], "longer window: a statement longer than a draft's limit is not called cut off")
+    }
+}
+
+@MainActor
+private func testTheAnalystsOwnNamesAreNotRepaired() async {
+    let backend = FakeBackend()
+    let own = "SELECT o.nope FROM sales.orders o"
+    backend.schemaAnswers = [draftJSON(own + " LIMIT 5")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        expect(!SQLDraftChecker.check(own, in: smallCatalog(), defaultSchema: "sales").isEmpty, "own: (the fixture has a problem)")
+        let result = try? await pipeline.draft("the first five", adjusting: own)
+        expectEqual(result?.sql ?? "", own + " LIMIT 5", "own: the statement is changed as asked")
+        expectEqual(result?.problems ?? ["?"], [], "own: a name the analyst wrote is not reported")
+        expectEqual(backend.requests.count, 1, "own: nor sent to a repair")
+    }
+}
+
+@MainActor
+private func testATableNobodyAskedForIsSentBack() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    let joined = "SELECT o.id FROM sales.orders o JOIN sales.customers c ON c.id = o.customer_id WHERE o.id > 5 AND o.id < 9"
+    backend.schemaAnswers = [draftJSON(joined), draftJSON(paidOrders + " AND o.id < 9")]
+    let catalog = threeTables()
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        let result = try? await pipeline.draft("and under 9", adjusting: paidOrders)
+        expectEqual(backend.requests.count, 2, "unasked: a join the request did not ask for goes to a repair")
+        expect(backend.requests.last?.prompt.contains("now reads sales.customers, which the request did not ask for") == true,
+               "unasked: which names the table")
+        expectEqual(result?.sql ?? "", paidOrders + " AND o.id < 9", "unasked: and the repair is kept")
+        expectEqual(result?.problems ?? ["?"], [], "unasked: clean")
+    }
+    // A repair that keeps the join: the analyst is told.
+    let stubborn = FakeBackend()
+    stubborn.schemaAnswers = [draftJSON(joined), draftJSON(joined)]
+    await withBackend(stubborn) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales")
+        let result = try? await pipeline.draft("and under 9", adjusting: paidOrders)
+        expectEqual(result?.problems.count ?? 0, 1, "unasked: a join that stays is said under the draft")
+    }
+    // A table the request names is asked for.
+    let named = FakeBackend()
+    named.schemaAnswers = [draftJSON(joined)]
+    await withBackend(named) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales")
+        let result = try? await pipeline.draft("only customers that exist", adjusting: paidOrders)
+        expectEqual(result?.problems ?? ["?"], [], "unasked: a table the request names is not reported")
+        expectEqual(named.requests.count, 1, "unasked: nor repaired")
+    }
+}
+
+@MainActor
+private func testAChangeIsRepairedAsAChange() async {
+    let backend = FakeBackend()
+    let bad = paidOrders + " AND o.bogus_column = 1"
+    backend.schemaAnswers = [draftJSON(bad), draftJSON(paidOrders + " AND o.customer_id = 1")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        let result = try? await pipeline.draft("only customer 1", adjusting: paidOrders)
+        expectEqual(result?.sql ?? "", paidOrders + " AND o.customer_id = 1", "repair: the corrected statement")
+        expectEqual(backend.requests.count, 2, "repair: one change and one repair")
+        let repair = backend.requests.last
+        expect(repair?.prompt.contains("Current query:\n\(bad)\n") == true, "repair: the draft is the query to change")
+        expect(repair?.prompt.contains("correct these errors and change nothing else") == true
+               && repair?.prompt.contains("bogus_column") == true, "repair: and the change is to correct it")
+        expect(repair?.instructions.contains(SQLDraftPrompt.adjustInstructions) == true, "repair: under the adjusting instructions")
+    }
+}
+
 func runTests() {
     Task { @MainActor in
         await testDraftGoesThroughTheBackend()
@@ -963,6 +1134,14 @@ func runTests() {
         await testAnEndpointFailureInAStepDoesNotLoseTheDraft()
         await testAHugeWindowIsSentNoMoreThanTheCeilings()
         await askingAlways { await testManyMatchesAreChosenByNameBeforeAnyDDLIsRead() }
+        await testAChangeCarriesTheStatementAndItsTables()
+        await testAChangeCanAddATable()
+        await testAChangeWithoutDDLKeepsTheStatementsColumns()
+        await testAnUnchangedStatementIsAFailure()
+        await testAStatementTooLongForTheWindowIsNotSent()
+        await testTheAnalystsOwnNamesAreNotRepaired()
+        await testAChangeIsRepairedAsAChange()
+        await testATableNobodyAskedForIsSentBack()
         print("\(passes) passed, \(failures) failed")
         exit(failures > 0 ? 1 : 0)
     }

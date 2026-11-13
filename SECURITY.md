@@ -11,7 +11,7 @@
 ## What Pharos sends
 
 - By default, nothing. The intelligence features use Apple's on-device model, and Pharos opens no network connection for them.
-- With a custom AI endpoint chosen in Settings ▸ Intelligence, each feature sends that endpoint the text it works from: your SQL, the names and types of the tables and columns it mentions, error messages and query plans. Describing a query also sends the definitions (DDL) of the tab's tables, which include column defaults and check constraints. SQL and plans can contain values you typed. No feature sends the rows of a result.
+- With a custom AI endpoint chosen in Settings ▸ Intelligence, each feature sends that endpoint the text it works from: your SQL, the names and types of the tables and columns it mentions, error messages and query plans. Describing a query also sends the definitions (DDL) of the tab's tables, which include column defaults and check constraints. Describing a change to a card's query sends that query's SQL as well. SQL and plans can contain values you typed. No feature sends the rows of a result.
 - Pharos sends to an endpoint on another machine only after you allow that host, in a sheet that says what is sent. Changing the address to another host needs a new permission. An endpoint on this Mac (`localhost`, `127.0.0.1`, `::1`) needs none.
 - The endpoint's address must be `https://`, except for an endpoint on this Mac. Pharos does not follow redirects from it, so the API key and the prompt reach only the host you entered.
 - While a custom endpoint is chosen, the on-device model never answers in its place, and the reverse.

@@ -88,6 +88,9 @@ final class CardDraftSession {
         var warning: String?
         /// A digest of the description, for the feedback thumbs.
         var promptHash: String?
+        /// The draft is the card's statement, changed as asked, and not a
+        /// statement written from the description alone.
+        var isAdjustment = false
     }
 
     enum Phase: Equatable {
@@ -110,9 +113,12 @@ final class CardDraftSession {
     }
 
     /// Asks the model. Called on the main actor when the draft's turn comes;
-    /// `progress` takes the name of each step as it starts. Throws
-    /// `CancellationError` when stopped.
-    typealias Worker = @MainActor (_ description: String, _ progress: @escaping @MainActor (String) -> Void) async throws -> Draft
+    /// `statement` is the card's SQL when the description is a change to it,
+    /// and nil for a card with none. `progress` takes the name of each step
+    /// as it starts. Throws `CancellationError` when stopped.
+    typealias Worker = @MainActor (
+        _ description: String, _ statement: String?, _ progress: @escaping @MainActor (String) -> Void
+    ) async throws -> Draft
 
     /// The tab the card is in, so a closed tab takes its drafts with it.
     let tabId: String
@@ -180,10 +186,15 @@ final class CardDraftSession {
 
     /// Ask for a draft of `request`. False when there is nothing to ask.
     /// A draft already running is stopped first.
+    ///
+    /// `statement` is the card's SQL as it stands now: with one, the
+    /// request is a change to it. It is read at the press, not kept from
+    /// the last draft, so a retry changes the text the card has by then.
     @discardableResult
-    func start() -> Bool {
+    func start(adjusting statement: String? = nil) -> Bool {
         let asked = request.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !asked.isEmpty else { return false }
+        let statement = statement.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         cancelWork()
         generation += 1
         let generation = self.generation
@@ -200,7 +211,7 @@ final class CardDraftSession {
                 guard let self, self.generation == generation else { return }
                 self.phase = .drafting(progress: "")
                 self.armTimeout(for: generation)
-                let draft = try await worker(asked) { [weak self] progress in
+                let draft = try await worker(asked, statement) { [weak self] progress in
                     guard let self, self.generation == generation, case .drafting = self.phase else { return }
                     self.phase = .drafting(progress: progress)
                 }
@@ -218,9 +229,9 @@ final class CardDraftSession {
 
     /// Ask the last question again, of a model that has not seen its answer.
     @discardableResult
-    func retry() -> Bool {
+    func retry(adjusting statement: String? = nil) -> Bool {
         if !lastAsked.isEmpty { request = lastAsked }
-        return start()
+        return start(adjusting: statement)
     }
 
     /// Stop the draft that waits or runs. The description stays.

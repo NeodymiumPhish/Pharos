@@ -41,7 +41,9 @@ final class CardDraftView: NSView, NSTextFieldDelegate {
     let hideButton = NSButton()
     let closeButton = NSButton()
 
-    private let titleLabel = NSTextField(labelWithString: String(localized: "What should the query return?"))
+    private let titleLabel = NSTextField(labelWithString: "")
+    /// The card holds a statement, and the description is a change to it.
+    private var adjusts = false
     private let spinner = NSProgressIndicator()
     private let progressRow = NSStackView()
     private let previewBox = DraftPreviewBox()
@@ -99,7 +101,6 @@ final class CardDraftView: NSView, NSTextFieldDelegate {
 
         // Multi-line: a description is a sentence, sometimes two. Return
         // sends it; Option-Return starts a new line.
-        field.placeholderString = String(localized: "Orders per region this year")
         field.isBezeled = true
         field.bezelStyle = .squareBezel
         field.usesSingleLineMode = false
@@ -108,7 +109,6 @@ final class CardDraftView: NSView, NSTextFieldDelegate {
         field.lineBreakMode = .byWordWrapping
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.delegate = self
-        field.setAccessibilityLabel(String(localized: "What should the query return?"))
         fieldHeight = field.heightAnchor.constraint(equalToConstant: Self.fieldHeights.lowerBound)
 
         spinner.style = .spinning
@@ -147,9 +147,7 @@ final class CardDraftView: NSView, NSTextFieldDelegate {
             button.target = self
             button.action = action
         }
-        draftButton.toolTip = String(localized: "Draft the query (\u{21A9})")
         stopButton.toolTip = String(localized: "Stop this draft. The description stays.")
-        retryButton.toolTip = String(localized: "Ask the same question again")
         buttonRow.setViews([NSView(), stopButton, retryButton, insertButton, draftButton], in: .leading)
         buttonRow.orientation = .horizontal
         buttonRow.spacing = 8
@@ -189,8 +187,28 @@ final class CardDraftView: NSView, NSTextFieldDelegate {
 
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel(String(localized: "Describe the query"))
+        applyMode()
         refresh()
+    }
+
+    /// The words that differ between describing a query and describing a
+    /// change to the one the card holds.
+    private func applyMode() {
+        let title = adjusts
+            ? String(localized: "How should this query change?")
+            : String(localized: "What should the query return?")
+        titleLabel.stringValue = title
+        field.setAccessibilityLabel(title)
+        field.placeholderString = adjusts
+            ? String(localized: "Only the last 30 days, newest first")
+            : String(localized: "Orders per region this year")
+        draftButton.toolTip = adjusts
+            ? String(localized: "Draft the change (\u{21A9}). This query stays as it is.")
+            : String(localized: "Draft the query (\u{21A9})")
+        retryButton.toolTip = adjusts
+            ? String(localized: "Ask for the same change again, to the query as it is now")
+            : String(localized: "Ask the same question again")
+        setAccessibilityLabel(adjusts ? String(localized: "Describe a change") : String(localized: "Describe the query"))
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -227,16 +245,24 @@ final class CardDraftView: NSView, NSTextFieldDelegate {
 
     /// Show the session's state.
     /// - Parameters:
-    ///   - insertTitle: "Insert", or "Replace SQL" for a card that has text.
+    ///   - adjusts: the card holds a statement, so the description is a
+    ///     change to it and Insert makes a new version of the query.
     ///   - unavailableReason: why no draft can start now (no connected
     ///     database), or nil.
-    func show(request: String, phase: CardDraftSession.Phase, insertTitle: String, unavailableReason: String?) {
+    func show(request: String, phase: CardDraftSession.Phase, adjusts: Bool, unavailableReason: String?) {
         // Never under the analyst's hands: the field already has what they
         // typed, and writing it back would move the caret.
         if field.currentEditor() == nil, field.stringValue != request { field.stringValue = request }
         self.phase = phase
         self.unavailableReason = unavailableReason
-        insertButton.title = insertTitle
+        if adjusts != self.adjusts {
+            self.adjusts = adjusts
+            applyMode()
+        }
+        insertButton.title = adjusts ? String(localized: "Insert as New Version") : String(localized: "Insert")
+        insertButton.toolTip = adjusts
+            ? String(localized: "Put the draft in a new version of this query. This card keeps its SQL.")
+            : nil
         refresh()
     }
 

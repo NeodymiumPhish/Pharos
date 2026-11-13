@@ -90,6 +90,9 @@ private func testDescribeButton() {
     expect(clicks == 1, "button: a click goes out")
     header.setIdentifiers(prefix: "editor.card.2")
     expect(b.accessibilityIdentifier() == "editor.card.2.describe", "button: identifier")
+    header.applyDescribe(CardDescribeState(adjusts: true))
+    expect(b.accessibilityLabel() == "Describe a Change" && b.toolTip?.hasPrefix("Describe a change to this query") == true,
+           "button: on a card with SQL it offers a change")
     header.applyDescribe(nil)
     expect(b.isHidden, "button: hidden again when the card stops offering it")
 }
@@ -103,7 +106,7 @@ private func testStripInTheCard() {
 
     f.card.setDraftView(f.strip)
     f.card.showsDraft = true
-    f.strip.show(request: "", phase: .editing, insertTitle: "Insert", unavailableReason: nil)
+    f.strip.show(request: "", phase: .editing, adjusts: false, unavailableReason: nil)
     f.layout()
     let h = f.card.draftHeight
     expect(h > 60, "card: the strip has a height", "\(h)")
@@ -135,39 +138,46 @@ private func testPhases() {
     f.card.setDraftView(s)
     f.card.showsDraft = true
 
-    s.show(request: "", phase: .editing, insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "", phase: .editing, adjusts: false, unavailableReason: nil)
     f.layout()
     expect(visible(s) == ["draft"] && !s.draftButton.isEnabled, "editing: Draft alone, off with nothing to ask", "\(visible(s))")
     expect(s.noteLabel.isHidden && s.field.isEnabled, "editing: no note, the field takes text")
     let empty = f.card.draftHeight
 
-    s.show(request: "orders per region", phase: .editing, insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "orders per region", phase: .editing, adjusts: false, unavailableReason: nil)
     expect(s.field.stringValue == "orders per region" && s.draftButton.isEnabled && s.canDraft, "editing: Draft is on with a request")
     var drafts = 0
     s.onDraft = { drafts += 1 }
     expect(f.click(s.draftButton) && drafts == 1, "editing: a click on Draft goes out")
 
-    s.show(request: "orders per region", phase: .editing, insertTitle: "Insert",
+    s.show(request: "orders per region", phase: .editing, adjusts: false,
            unavailableReason: "Connect this tab to a database to draft a query.")
     expect(!s.draftButton.isEnabled && !s.noteLabel.isHidden && s.noteLabel.stringValue.hasPrefix("Connect this tab"),
            "editing: no database, Draft is off and the strip says why")
 
-    s.show(request: "orders per region", phase: .waiting, insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "orders per region", phase: .waiting, adjusts: false, unavailableReason: nil)
     f.layout()
     expect(visible(s) == ["stop"] && !s.field.isEnabled, "waiting: Stop alone, the field is held", "\(visible(s))")
     expect(s.progressLabel.stringValue == "Waiting for another card’s draft…", "waiting: says what it waits for")
-    s.show(request: "orders per region", phase: .drafting(progress: ""), insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "orders per region", phase: .drafting(progress: ""), adjusts: false, unavailableReason: nil)
     expect(s.progressLabel.stringValue == "Drafting…", "drafting: a plain word before the first step")
-    s.show(request: "orders per region", phase: .drafting(progress: "Writing the query…"), insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "orders per region", phase: .drafting(progress: "Writing the query…"), adjusts: false, unavailableReason: nil)
     expect(s.progressLabel.stringValue == "Writing the query…" && visible(s) == ["stop"], "drafting: the step is named")
     var stops = 0
     s.onStop = { stops += 1 }
     expect(f.click(s.stopButton) && stops == 1, "drafting: a click on Stop goes out")
 
-    s.show(request: "orders per region", phase: .ready(draft), insertTitle: "Replace SQL", unavailableReason: nil)
+    s.show(request: "orders per region", phase: .ready(draft), adjusts: true, unavailableReason: nil)
     f.layout()
     expect(visible(s) == ["retry", "insert"] && s.field.isEnabled, "ready: Retry and Insert", "\(visible(s))")
-    expect(s.insertButton.title == "Replace SQL", "ready: Insert says what it will do to a card with text")
+    expect(s.insertButton.title == "Insert as New Version", "ready: Insert says what it will do to a card with text")
+    expect(s.field.placeholderString == "Only the last 30 days, newest first"
+           && s.field.accessibilityLabel() == "How should this query change?", "a card with text asks for a change")
+    s.show(request: "orders per region", phase: .ready(draft), adjusts: false, unavailableReason: nil)
+    expect(s.insertButton.title == "Insert" && s.field.accessibilityLabel() == "What should the query return?",
+           "ready: and a card with none asks for a query")
+    s.show(request: "orders per region", phase: .ready(draft), adjusts: true, unavailableReason: nil)
+    f.layout()
     expect(!s.preview.isHidden && s.preview.accessibilityValue() as? String == draft.sql, "ready: the draft is shown")
     expect(s.noteLabel.stringValue == "Reads public.orders." && s.noteLabel.textColor == .secondaryLabelColor, "ready: what it reads")
     expect(f.card.draftHeight > empty + 40, "ready: the strip grows for the draft", "\(f.card.draftHeight) vs \(empty)")
@@ -181,11 +191,11 @@ private func testPhases() {
 
     var caution = draft
     caution.noteIsCaution = true
-    s.show(request: "orders per region", phase: .ready(caution), insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "orders per region", phase: .ready(caution), adjusts: false, unavailableReason: nil)
     expect(s.noteLabel.textColor == .systemOrange, "ready: something to check is orange")
 
     s.show(request: "orders per region", phase: .failed("The model is busy. Try again in a moment."),
-           insertTitle: "Insert", unavailableReason: nil)
+           adjusts: false, unavailableReason: nil)
     f.layout()
     expect(visible(s) == ["retry"] && s.preview.superview?.isHidden == true, "failed: Retry alone, no draft", "\(visible(s))")
     expect(s.noteLabel.stringValue.hasPrefix("The model is busy") && s.noteLabel.textColor == .systemOrange, "failed: says why")
@@ -196,7 +206,7 @@ private func testHideAndClose() {
     let s = f.strip
     f.card.setDraftView(s)
     f.card.showsDraft = true
-    s.show(request: "q", phase: .drafting(progress: ""), insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "q", phase: .drafting(progress: ""), adjusts: false, unavailableReason: nil)
     var hides = 0, closes = 0
     s.onMinimize = { hides += 1 }
     s.onClose = { closes += 1 }
@@ -213,7 +223,7 @@ private func testKeysAndTyping() {
     let s = f.strip
     f.card.setDraftView(s)
     f.card.showsDraft = true
-    s.show(request: "", phase: .editing, insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "", phase: .editing, adjusts: false, unavailableReason: nil)
     f.layout()
     var drafts = 0, hides = 0
     var typed: [String] = []
@@ -235,7 +245,7 @@ private func testKeysAndTyping() {
     expect(s.draftButton.isEnabled, "typing: Draft comes on")
 
     // A refresh while the analyst types must not write the field back.
-    s.show(request: "orders", phase: .editing, insertTitle: "Insert", unavailableReason: nil)
+    s.show(request: "orders", phase: .editing, adjusts: false, unavailableReason: nil)
     expect(editor.string == "orders per region", "typing: a refresh leaves the field alone")
 
     expect(s.control(s.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))) && drafts == 1,
@@ -255,7 +265,7 @@ private func testKeysAndTyping() {
     // A long description gets more lines, up to the limit.
     let before = s.height(forWidth: 690)
     s.show(request: String(repeating: "orders per region and per month ", count: 12), phase: .editing,
-           insertTitle: "Insert", unavailableReason: nil)
+           adjusts: false, unavailableReason: nil)
     let after = s.height(forWidth: 690)
     expect(after > before && after - before <= CardDraftView.fieldHeights.upperBound - CardDraftView.fieldHeights.lowerBound,
            "typing: the field grows with the text, to a limit", "\(before) -> \(after)")

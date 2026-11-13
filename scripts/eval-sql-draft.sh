@@ -39,6 +39,8 @@
 #                     size. The model's real window is unchanged, so this can
 #                     only be set smaller than it.
 #
+# EVAL_CASES=scripts/draft-eval/cases-adjust.json scores changes to a
+# statement a card already holds (pipeline and endpoint modes only).
 # EVAL_ONLY=id1,id2 runs a subset; EVAL_TIMEOUT sets seconds per case.
 # The fixture is (re)loaded into database pharos_draft_eval on every run.
 set -euo pipefail
@@ -184,5 +186,5 @@ esac
 
 swiftc -O -o "$work/eval" "${common[@]}" "${sources[@]}"
 
-EVAL_DB="$db" EVAL_CATALOG="$work/catalog.json" EVAL_CASES=scripts/draft-eval/cases.json \
+EVAL_DB="$db" EVAL_CATALOG="$work/catalog.json" EVAL_CASES="${EVAL_CASES:-scripts/draft-eval/cases.json}" \
   EVAL_OUT="${out:-$work/results.json}" "$work/eval"

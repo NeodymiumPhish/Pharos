@@ -27,20 +27,23 @@ enum CardDraftWorker {
     /// draft starts, so a retry after a schema change reads the new schema.
     /// nil from `context` means the tab has no connected database.
     static func make(context: @escaping @MainActor () -> Context?) -> CardDraftSession.Worker {
-        { request, progress in
+        { request, statement, progress in
             guard let context = context() else {
                 throw Declined(message: String(localized: "Connect this tab to a database to draft a query."))
             }
             let pipeline = SQLDraftPipeline(catalog: await context.catalog(), defaultSchema: context.defaultSchema,
                                             dialect: context.dialect, definitions: context.definitions)
             try Task.checkCancellation()
-            pipeline.onStage = { stage in progress(progressText(stage)) }
-            let result = try await pipeline.draft(request)
-            return try draft(from: result, request: request)
+            pipeline.onStage = { stage in progress(progressText(stage, adjusting: statement != nil)) }
+            let result = try await pipeline.draft(request, adjusting: statement)
+            var draft = try draft(from: result, request: request)
+            draft.isAdjustment = statement != nil
+            return draft
         }
     }
 
-    static func progressText(_ stage: SQLDraftPipeline.Stage) -> String {
+    static func progressText(_ stage: SQLDraftPipeline.Stage, adjusting: Bool = false) -> String {
+        if adjusting, stage == .writing { return String(localized: "Changing the query\u{2026}") }
         switch stage {
         case .finding: return String(localized: "Finding tables\u{2026}")
         case .choosing: return String(localized: "Choosing tables\u{2026}")

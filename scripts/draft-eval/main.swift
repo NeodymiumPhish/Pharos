@@ -15,7 +15,9 @@
 // Environment:
 //   EVAL_DB       database name (default pharos_draft_eval)
 //   EVAL_CATALOG  catalogue JSON written by eval-sql-draft.sh
-//   EVAL_CASES    cases JSON
+//   EVAL_CASES    cases JSON. A case with "adjust" holds a statement, and
+//                 its request is a change to it: the patterns then say what
+//                 must be kept as well as what must be new.
 //   EVAL_OUT      where to write the per-case results JSON
 //   EVAL_ONLY     comma-separated case ids to run (default: all)
 //   EVAL_TIMEOUT  seconds per case (default 90)
@@ -29,6 +31,9 @@ struct EvalCase: Decodable {
     let request: String
     let tables: [[String]]
     let match: [String]
+    /// The statement the request is a change to (cases-adjust.json); nil
+    /// drafts from the request alone.
+    let adjust: String?
 }
 
 struct EvalOutput {

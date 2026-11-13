@@ -943,6 +943,9 @@
     "Ask %@ which chart fits this result." : {
 
     },
+    "Ask for the same change again, to the query as it is now" : {
+
+    },
     "Ask the same question again" : {
 
     },
@@ -1038,6 +1041,9 @@
 
     },
     "Built-in extensions" : {
+
+    },
+    "Changing the query…" : {
 
     },
     "COPY data" : {
@@ -1607,6 +1613,21 @@
 
     },
     "DELETE" : {
+
+    },
+    "Describe a Change" : {
+
+    },
+    "Describe a change" : {
+
+    },
+    "Describe a change to this query… The draft goes into a new version of it." : {
+
+    },
+    "Describe a Change…" : {
+
+    },
+    "Draft the change (↩). This query stays as it is." : {
 
     },
     "DROP" : {
@@ -2411,6 +2432,9 @@
     "How old a connection's cached schema may be before Pharos fetches it again." : {
 
     },
+    "How should this query change?" : {
+
+    },
     "How strongly a matched cell is washed with its tag's colour." : {
 
     },
@@ -2418,6 +2442,9 @@
 
     },
     "INSERT" : {
+
+    },
+    "Insert as New Version" : {
 
     },
     "ISO 8601" : {
@@ -3305,6 +3332,9 @@
     "Only tabs on the ticked connections can use this variable." : {
 
     },
+    "Only the last 30 days, newest first" : {
+
+    },
     "Only these connections" : {
 
     },
@@ -3681,6 +3711,9 @@
     "Purple" : {
       "comment" : "Tag colour name."
     },
+    "Put the draft in a new version of this query. This card keeps its SQL." : {
+
+    },
     "Puts a restored window back where it was." : {
 
     },
@@ -3934,9 +3967,6 @@
 
     },
     "Replace All In" : {
-
-    },
-    "Replace SQL" : {
 
     },
     "Replace With" : {
@@ -4635,6 +4665,12 @@
 
     },
     "System trust store" : {
+
+    },
+    "The model made no change to the query. Try describing the change another way." : {
+
+    },
+    "This query is too long for the model to change. Select less of it into a card of its own, or use a model with a larger context window." : {
 
     },
     "TRUNCATE" : {

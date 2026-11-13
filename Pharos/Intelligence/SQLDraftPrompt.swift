@@ -623,6 +623,208 @@ enum SQLDraftPrompt {
         return out
     }
 
+    // MARK: - Step 4, changing a statement
+
+    /// What both sets of adjusting instructions say about the change. The
+    /// rules about the tables' notation follow it, and then three examples.
+    ///
+    /// The statement is the analyst's: everything the request does not
+    /// name is theirs to keep, down to the aliases. A `{{name}}` is a
+    /// Pharos query variable, filled in when the query runs.
+    ///
+    /// Measured on the on-device model (AFM 3 Core Advanced, 2026-11-13,
+    /// `EVAL_CASES=scripts/draft-eval/cases-adjust.json`, ten changes). The
+    /// first wording had two examples, one that added a join and one that
+    /// added a GROUP BY, and passed 4: the model added a join to five
+    /// changes that needed none — to tables it was not even shown — and a
+    /// GROUP BY to four. What changed that:
+    /// - an example whose change is one filter, with a second table listed
+    ///   and left alone, first;
+    /// - "make only that change" and what not to add, said before what may
+    ///   be added;
+    /// - GROUP BY said as in `ddlDraftInstructions`: when, then what;
+    /// - "Join tables on their FOREIGN KEY constraints", which the
+    ///   drafting instructions say, read here as an instruction to join:
+    ///   the model joined along keys of tables it was only shown. A key is
+    ///   now said to be where a join that was asked for goes;
+    /// - the first example's change was "only this month", and "only the
+    ///   last 30 days" then came back as this month: a concrete sample is
+    ///   copied, as the drafting instructions found. It is now a filter
+    ///   unlike what a change usually asks for.
+    /// What the wording does not stop, `SQLDraftPipeline` checks: a table
+    /// the changed statement reads that neither the statement nor the
+    /// request named is reported and sent to the repair.
+    private static let adjustRules = """
+        Change the analyst's current PostgreSQL query as the request asks, \
+        and write the whole changed statement. Make only that change. Keep \
+        the rest of the query exactly as it is: its tables, joins, selected \
+        columns, filters, aliases, order and comments. Do not add a table, \
+        a join, a filter or a GROUP BY that the request does not ask for. \
+        Keep every {{name}} placeholder exactly as it is written. Qualify \
+        every column you add with its table's alias. Join another table \
+        only when the request asks for a column the query's own tables do \
+        not have, and join it on a key. Use GROUP BY only together with an \
+        aggregate function; then put every other selected column in it. If \
+        the tables cannot make the change, write the closest query and say \
+        what is missing in the note.
+        """
+
+    private static let adjustExample1 = """
+        Current query: SELECT o.id, o.amount FROM shop.orders o WHERE o.amount > 100 ORDER BY o.amount DESC;
+        Request: only customer 42
+        SQL: SELECT o.id, o.amount FROM shop.orders o WHERE o.amount > 100 AND o.customer_id = 42 ORDER BY o.amount DESC;
+        """
+
+    private static let adjustExample2 = """
+        Current query: SELECT o.id, o.amount FROM shop.orders o WHERE o.amount > 100;
+        Request: add the customer's name
+        SQL: SELECT o.id, o.amount, c.name FROM shop.orders o JOIN shop.customers c ON c.id = o.customer_id WHERE o.amount > 100;
+        """
+
+    private static let adjustExample3 = """
+        Current query: SELECT b.id, b.title, b.published_on FROM lib.books b WHERE b.language = 'en';
+        Request: count them per year instead, newest first
+        SQL: SELECT date_trunc('year', b.published_on) AS year, count(*) AS books FROM lib.books b WHERE b.language = 'en' GROUP BY year ORDER BY year DESC;
+        """
+
+    /// The adjusting instructions for the compact block. Appended after
+    /// `IntelligenceInstructions.sqlSafety`.
+    static let adjustInstructions = adjustRules + " " + """
+        Use only the listed tables and columns. A -> after a column is a \
+        key to another table: it is what a join you are asked for goes on, \
+        and no reason to add one. A column listed with values in () accepts \
+        only those values. Keep the double quotes on names listed with them.
+
+        Example 1.
+        Tables:
+        shop.orders
+          id bigint PK
+          customer_id bigint -> shop.customers.id
+          amount numeric
+          placed_at timestamptz
+        shop.customers
+          id bigint PK
+          name text
+        \(adjustExample1)
+
+        Example 2.
+        Tables:
+        shop.orders
+          id bigint PK
+          customer_id bigint -> shop.customers.id
+          amount numeric
+          placed_at timestamptz
+        shop.customers
+          id bigint PK
+          name text
+        \(adjustExample2)
+
+        Example 3.
+        Tables:
+        lib.books
+          id int PK
+          title text
+          language text
+          published_on date
+        \(adjustExample3)
+        """
+
+    /// The adjusting instructions for a block of DDL. Appended after
+    /// `IntelligenceInstructions.sqlSafety`.
+    static let ddlAdjustInstructions = adjustRules + " " + """
+        The tables are given as CREATE TABLE statements; a line that starts \
+        with -- is a note about the table above it. More tables may be \
+        listed than the query needs: leave those out. Use only the columns \
+        a table lists. A FOREIGN KEY ... REFERENCES constraint is what a \
+        join you are asked for goes on, and no reason to add one. A note \
+        that a column is one of a list of values shows how its values are \
+        spelled. Write the names you add without double quotes. Read a \
+        table declared PARTITION BY by its own name.
+
+        Example 1.
+        Tables:
+        CREATE TABLE "shop"."orders" (
+            "id" bigint NOT NULL,
+            "customer_id" bigint,
+            "amount" numeric,
+            "placed_at" timestamp with time zone,
+            CONSTRAINT "orders_pkey" PRIMARY KEY (id),
+            CONSTRAINT "orders_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES shop.customers(id)
+        );
+
+        CREATE TABLE "shop"."customers" (
+            "id" bigint NOT NULL,
+            "name" text,
+            CONSTRAINT "customers_pkey" PRIMARY KEY (id)
+        );
+        \(adjustExample1)
+
+        Example 2.
+        Tables:
+        CREATE TABLE "shop"."orders" (
+            "id" bigint NOT NULL,
+            "customer_id" bigint,
+            "amount" numeric,
+            "placed_at" timestamp with time zone,
+            CONSTRAINT "orders_pkey" PRIMARY KEY (id),
+            CONSTRAINT "orders_customer_id_fkey" FOREIGN KEY (customer_id) REFERENCES shop.customers(id)
+        );
+
+        CREATE TABLE "shop"."customers" (
+            "id" bigint NOT NULL,
+            "name" text,
+            CONSTRAINT "customers_pkey" PRIMARY KEY (id)
+        );
+        \(adjustExample2)
+
+        Example 3.
+        Tables:
+        CREATE TABLE "lib"."books" (
+            "id" integer NOT NULL,
+            "title" text,
+            "language" text,
+            "published_on" date,
+            CONSTRAINT "books_pkey" PRIMARY KEY (id)
+        );
+        \(adjustExample3)
+        """
+
+    /// The writing request for a change: the tables, the statement as it
+    /// stands, and the change asked for.
+    static func adjustPrompt(request: String, block: String, sql: String) -> String {
+        "Tables:\n\(block)\n\nCurrent query:\n\(sql)\n\nRequest: \(request)"
+    }
+
+    /// The repair of a changed statement, put as one more change: the
+    /// draft is the current query, and the change is to correct it. The
+    /// instructions are the adjusting ones, and they say to keep the rest.
+    static func adjustRepairPrompt(block: String, sql: String, problems: [String]) -> String {
+        adjustPrompt(
+            request: "correct these errors and change nothing else:\n" + problems.map { "- " + $0 }.joined(separator: "\n"),
+            block: block, sql: sql)
+    }
+
+    /// Two statements that differ only in spacing or a closing semicolon.
+    static func sameStatement(_ a: String, _ b: String) -> Bool {
+        func folded(_ sql: String) -> String {
+            var text = sql.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            while text.hasSuffix(";") || text.hasSuffix(" ") { text.removeLast() }
+            return text
+        }
+        return folded(a) == folded(b)
+    }
+
+    /// The columns of `key` that `sql` names, as the catalogue spells them:
+    /// what the compact block must keep of a table the statement being
+    /// changed already reads. By word, not by parse: a column of the same
+    /// name in another table costs a line, and a missed one costs the
+    /// model a column it was told to keep.
+    static func columns(named sql: String, of key: DraftCatalog.TableKey, in catalog: DraftCatalog) -> [String] {
+        guard let table = catalog.table(key) else { return [] }
+        let words = Set(sql.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "_" || $0 == "$") }.map(String.init))
+        return table.columns.map(\.name).filter { words.contains($0.lowercased()) }
+    }
+
     // MARK: - Step 6: repair
 
     static func repairPrompt(request: String, block: String, sql: String, problems: [String]) -> String {

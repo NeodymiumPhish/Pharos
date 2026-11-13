@@ -1,0 +1,191 @@
+[
+  {
+    "id": "add-date-filter",
+    "schema": "sales",
+    "adjust": "SELECT o.id, o.placed_at, o.status FROM sales.orders o ORDER BY o.placed_at DESC",
+    "request": "only the last 30 days",
+    "tables": [
+      [
+        "orders"
+      ]
+    ],
+    "match": [
+      "30",
+      "interval|current_date|now\\(\\)",
+      "order by o\\.placed_at desc",
+      "o\\.status",
+      "^(?![\\s\\S]*join)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "add-customer-name",
+    "schema": "sales",
+    "adjust": "SELECT o.id, o.placed_at FROM sales.orders o WHERE o.status = 'paid'",
+    "request": "add the customer's name",
+    "tables": [
+      [
+        "orders"
+      ],
+      [
+        "customers"
+      ]
+    ],
+    "match": [
+      "join",
+      "\\.name",
+      "status = 'paid'",
+      "^(?![\\s\\S]*customer_addresses)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "count-per-status",
+    "schema": "sales",
+    "adjust": "SELECT o.id, o.status FROM sales.orders o WHERE o.placed_at >= now() - interval '90 days'",
+    "request": "count them per status instead",
+    "tables": [
+      [
+        "orders"
+      ]
+    ],
+    "match": [
+      "count\\(",
+      "group by",
+      "90 days",
+      "^(?![\\s\\S]*join)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "most-expensive",
+    "schema": "sales",
+    "adjust": "SELECT p.name, p.unit_price FROM sales.products p WHERE p.discontinued = false ORDER BY p.name",
+    "request": "the ten most expensive first",
+    "tables": [
+      [
+        "products"
+      ]
+    ],
+    "match": [
+      "order by p\\.unit_price desc",
+      "limit 10",
+      "discontinued",
+      "^(?![\\s\\S]*join)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "drop-country-filter",
+    "schema": "sales",
+    "adjust": "SELECT c.name, c.email FROM sales.customers c WHERE c.country_code = 'DE' AND c.email IS NOT NULL ORDER BY c.name",
+    "request": "remove the country filter",
+    "tables": [
+      [
+        "customers"
+      ]
+    ],
+    "match": [
+      "email is not null",
+      "order by c\\.name",
+      "^(?![\\s\\S]*country_code)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "other-statuses",
+    "schema": "sales",
+    "adjust": "SELECT o.id, o.customer_id FROM sales.orders o WHERE o.status = 'paid'",
+    "request": "cancelled or refunded orders instead",
+    "tables": [
+      [
+        "orders"
+      ]
+    ],
+    "match": [
+      "cancelled",
+      "refunded",
+      "o\\.customer_id",
+      "^(?![\\s\\S]*'paid')[\\s\\S]*$",
+      "^(?![\\s\\S]*join)[\\s\\S]*$",
+      "^(?![\\s\\S]*group by)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "revenue-this-year",
+    "schema": "sales",
+    "adjust": "SELECT c.name, sum(oi.quantity * oi.unit_price) AS revenue FROM sales.customers c JOIN sales.orders o ON o.customer_id = c.id JOIN sales.order_items oi ON oi.order_id = o.id GROUP BY c.name ORDER BY revenue DESC",
+    "request": "only orders placed this year",
+    "tables": [
+      [
+        "customers"
+      ],
+      [
+        "orders"
+      ],
+      [
+        "order_items"
+      ]
+    ],
+    "match": [
+      "sum\\(",
+      "group by c\\.name",
+      "order by revenue desc",
+      "placed_at",
+      "^(?![\\s\\S]*order_totals)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "add-department",
+    "schema": "hr",
+    "adjust": "SELECT e.first_name, e.last_name, e.annual_salary FROM hr.employees e WHERE e.left_on IS NULL",
+    "request": "add the department name",
+    "tables": [
+      [
+        "employees"
+      ],
+      [
+        "departments"
+      ]
+    ],
+    "match": [
+      "join",
+      "left_on is null",
+      "annual_salary",
+      "^(?![\\s\\S]*order by)[\\s\\S]*$",
+      "^(?![\\s\\S]*group by)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "more-shipment-columns",
+    "schema": "sales",
+    "adjust": "SELECT s.order_id, s.carrier FROM sales.shipments s WHERE s.delivered_at IS NULL",
+    "request": "also show the tracking number and when it shipped",
+    "tables": [
+      [
+        "shipments"
+      ]
+    ],
+    "match": [
+      "tracking_no",
+      "shipped_at",
+      "delivered_at is null",
+      "carrier",
+      "^(?![\\s\\S]*join)[\\s\\S]*$",
+      "^(?![\\s\\S]*group by)[\\s\\S]*$"
+    ]
+  },
+  {
+    "id": "payment-totals",
+    "schema": "sales",
+    "adjust": "SELECT p.method, count(*) AS payments FROM sales.payments p GROUP BY p.method",
+    "request": "add the total amount and sort by it, largest first",
+    "tables": [
+      [
+        "payments"
+      ]
+    ],
+    "match": [
+      "sum\\(",
+      "count\\(",
+      "group by p\\.method",
+      "order by [^;]*desc",
+      "^(?![\\s\\S]*join)[\\s\\S]*$"
+    ]
+  }
+]

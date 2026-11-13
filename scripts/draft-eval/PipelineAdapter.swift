@@ -140,7 +140,7 @@ func evalDraft(_ c: EvalCase, catalog: EvalCatalog) async throws -> EvalOutput {
         catalog: DraftCatalog(columns: columns, facts: facts), defaultSchema: c.schema, definitions: source)
     var stages: [String] = []
     pipeline.onStage = { stages.append("\($0)") }
-    let result = try await pipeline.draft(c.request)
+    let result = try await pipeline.draft(c.request, adjusting: c.adjust)
     var detail = result.trace
     if !result.fixes.isEmpty { detail.append("fixes: " + result.fixes.joined(separator: " | ")) }
     if !result.problems.isEmpty { detail.append("unresolved: " + result.problems.joined(separator: " | ")) }

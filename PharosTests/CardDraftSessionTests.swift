@@ -20,13 +20,16 @@ private struct Boom: Error {}
 @MainActor
 private final class Bench {
     var asked: [String] = []
+    /// The statement each draft was asked to change, or nil.
+    var statements: [String?] = []
     private var parked: [CheckedContinuation<CardDraftSession.Draft, Error>] = []
     var progress: (@MainActor (String) -> Void)?
     var cancelled = 0
 
     var worker: CardDraftSession.Worker {
-        { [self] request, progress in
+        { [self] request, statement, progress in
             asked.append(request)
+            statements.append(statement)
             self.progress = progress
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { parked.append($0) }
@@ -88,8 +91,10 @@ private func testDraftsAndAnswers() async {
     s.request = "orders per region" // what was asked, trimmed: still a new text
     expect(s.phase == .editing, "editing the request drops the answer")
     s.request = "something else"
-    expect(s.retry() && s.request == "orders per region", "retry asks the last question again")
+    expect(bench.statements == [nil], "a card with no SQL asks for a query")
+    expect(s.retry(adjusting: "SELECT 2") && s.request == "orders per region", "retry asks the last question again")
     await settle()
+    expect(bench.statements.last == .some("SELECT 2"), "a retry changes the statement the card has by then")
     bench.fail(Boom())
     await settle()
     expect(s.phase == .failed("it failed"), "a failure is said in a sentence", "\(s.phase)")

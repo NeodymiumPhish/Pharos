@@ -492,6 +492,50 @@ struct CardDocument: Equatable, Codable {
         return copy.id
     }
 
+    /// `sql` as the next version of the card's query: a new, unlocked,
+    /// never-run card after the query's last version, with the query's name
+    /// and notes. The card it came from keeps its text, whatever state it is
+    /// in. One that shows the results of exactly that text is locked, as a
+    /// run of an edit would lock it, and its query's earlier versions fold
+    /// above the new one; one that was never run, or has an edit that has
+    /// not run, stays as it is, because locking it would put its text back.
+    /// Returns the new card's id and whether the source was locked.
+    mutating func addVersion(of cardId: String, sql: String) -> (id: String, lockedSource: Bool)? {
+        guard let i = index(of: cardId), cards[i].kind == .sql else { return nil }
+        let source = cards[i]
+        var next = QueryCard(lineageId: source.lineageId, version: nextVersion(of: source.lineageId),
+                             name: source.name, sql: sql, kind: source.kind)
+        next.nameIsSuggested = source.nameIsSuggested
+        next.notes = source.notes
+        next.isNotesOpen = source.isNotesOpen
+        next.notesWidthFraction = source.notesWidthFraction
+        next.minBodyHeight = source.minBodyHeight
+        var locked = false
+        if !source.isLocked, let run = source.lastRun, run.rawSQL == source.sql, !source.resultsRemoved {
+            cards[i].isLocked = true
+            cards[i].isUnlockedVersion = nil
+            cards[i].lastFailureId = nil
+            expandedLineages.remove(source.lineageId)
+            locked = true
+        }
+        cards.insert(next, at: indexAfterLineage(source.lineageId))
+        focusedCardId = next.id
+        return (next.id, locked)
+    }
+
+    /// Take back `addVersion` (undo): the new card goes, and a source it
+    /// locked is as `source` was.
+    mutating func removeVersion(_ newId: String, restoring source: QueryCard?, expanded: Bool) {
+        if let i = index(of: newId) { cards.remove(at: i) }
+        if displayedCardId == newId { displayedCardId = nil }
+        guard let source, let i = index(of: source.id) else { return }
+        cards[i].isLocked = source.isLocked
+        cards[i].isUnlockedVersion = source.isUnlockedVersion
+        cards[i].lastFailureId = source.lastFailureId
+        if expanded { expandedLineages.insert(source.lineageId) }
+        focusedCardId = source.id
+    }
+
     // MARK: - Runs
 
     /// Start a run of the card, or nil when it cannot run (missing, blank, or

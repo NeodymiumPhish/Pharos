@@ -185,6 +185,53 @@ private func testLockedCards() {
     expect(d.focusedCardId == copy, "edit as new: focus moves to the copy")
 }
 
+private func testAddVersion() {
+    // Never run: the card keeps its text and stays as it is.
+    var (d, a) = doc("SELECT 1")
+    let first = d.addVersion(of: a, sql: "SELECT 1 LIMIT 5")!
+    expect(!first.lockedSource && d.card(a)?.isLocked == false && d.card(a)?.sql == "SELECT 1", "add version: a card never run is left alone")
+    let v2 = d.card(first.id)!
+    expect(v2.sql == "SELECT 1 LIMIT 5" && v2.version == 2 && v2.lineageId == d.card(a)!.lineageId && v2.lastRun == nil,
+           "add version: the next version of the same query, never run")
+    expect(d.cards.map(\.id) == [a, first.id] && d.focusedCardId == first.id, "add version: after the query, with the focus")
+    d.removeVersion(first.id, restoring: nil, expanded: false)
+    expect(d.cards.map(\.id) == [a], "remove version: the new card goes")
+
+    // Run, and showing the results of its text: locked, as after a run of an edit.
+    let t = d.beginRun(cardId: a, mode: .run, renderedSQL: "SELECT 1")!
+    _ = d.completeRun(t, outcome: rows(1))
+    let before = d.card(a)!
+    d.expandedLineages.insert(before.lineageId)
+    let second = d.addVersion(of: a, sql: "SELECT 2")!
+    expect(second.lockedSource && d.card(a)?.isLocked == true && d.card(a)?.sql == "SELECT 1" && d.card(a)?.lastRun != nil,
+           "add version: a card that shows its results is locked with them")
+    expect(!d.expandedLineages.contains(before.lineageId), "add version: earlier versions fold above the new one")
+    d.removeVersion(second.id, restoring: before, expanded: true)
+    expect(d.card(a) == before && d.expandedLineages.contains(before.lineageId) && d.focusedCardId == a,
+           "remove version: the card is as it was")
+
+    // Run, then edited: locking would put the old text back, so it is not locked.
+    _ = d.updateSQL(cardId: a, "SELECT 1 -- edited")
+    let third = d.addVersion(of: a, sql: "SELECT 3")!
+    expect(!third.lockedSource && d.card(a)?.sql == "SELECT 1 -- edited" && d.card(a)?.isLocked == false,
+           "add version: an edit that has not run is kept")
+
+    // From a locked version: the version goes after the query's newest.
+    var (l, b) = doc("SELECT 1")
+    let run = l.beginRun(cardId: b, mode: .run, renderedSQL: "SELECT 1")!
+    _ = l.completeRun(run, outcome: rows(1))
+    _ = l.updateSQL(cardId: b, "SELECT 9")
+    let split = l.beginRun(cardId: b, mode: .run, renderedSQL: "SELECT 9")!
+    guard case let .split(lockedId, newest) = l.completeRun(split, outcome: rows(2)) else {
+        expect(false, "add version: (the fixture splits)")
+        return
+    }
+    let fromLocked = l.addVersion(of: lockedId, sql: "SELECT 10")!
+    expect(!fromLocked.lockedSource && l.cards.map(\.id) == [lockedId, newest, fromLocked.id] && l.card(fromLocked.id)?.version == 3,
+           "add version: from a locked version, after the newest")
+    expect(l.addVersion(of: "missing", sql: "x") == nil, "add version: no such card")
+}
+
 private func testUnlockedVersions() {
     // v1 (locked) and v2 of "Q", then an unrelated query below.
     var (d, a) = doc("SELECT 1")
@@ -567,6 +614,7 @@ func runTests() {
     testDeletedDuringARun()
     testLockedCards()
     testUnlockedVersions()
+    testAddVersion()
     testRenameDeleteRestore()
     testOnlySQLCardsRun()
     testCodableRoundTrip()

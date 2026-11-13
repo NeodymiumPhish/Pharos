@@ -49,7 +49,7 @@ Each card has a name row above its SQL. From left to right it shows:
 - a large **View Results** button. It reads **Showing Results · N rows**, and is filled, while that card's results are on screen;
 - **Run**, and **Run and Replace Results** (shown only after you edit a card that has results). Both are greyed out while the tab has no connected database. Rest the pointer on a greyed-out button, or click it, to see why and how to connect;
 - **Cancel**, while the card runs;
-- the **Describe** button, while [Draft SQL](apple-intelligence.md#draft-sql) is on: it opens a strip in the card where you describe the query and read the draft. With the strip hidden it reads **Drafting…**, **Draft Ready** or **Draft Failed**;
+- the **Describe** button, while [Draft SQL](apple-intelligence.md#draft-sql) is on: it opens a strip in the card where you describe the query — or, on a card that has SQL, a change to it — and read the draft. With the strip hidden it reads **Drafting…**, **Draft Ready** or **Draft Failed**;
 - the **Notes** button (see [Notes](#notes));
 - the **⋯** menu.
 
@@ -98,7 +98,7 @@ Other actions also add a card to the active tab:
 
 - Select part of a card's SQL and press **Cmd+Return**: with **⌘↩ runs** set to **The selection, else the statement** in [Settings > Query](settings.md#query-pane), the selection runs as a new, generated card (see [Running Cards](query-execution.md#running-cards)).
 - **View All Contents** and **View Contents (Limit…)** in the [schema browser](schema-browser.md#table-context-menu), and the drill-down of a server-aggregated [chart](charts.md#committing-a-selection), add a new card.
-- A draft from a card's **Describe** button goes into that card: **Insert** when the card is empty, **Replace SQL** when it has text (see [Draft SQL](apple-intelligence.md#draft-sql)).
+- A draft from a card's **Describe** button goes into that card: **Insert** when the card is empty; when it has text, **Insert as New Version** puts the draft in a new version of the query and leaves the card's SQL alone (see [Draft SQL](apple-intelligence.md#draft-sql)).
 
 ### Filtering cards
 

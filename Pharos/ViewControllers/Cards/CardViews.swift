@@ -37,6 +37,8 @@ struct CardDescribeState: Equatable {
     /// The card has a description, shown or hidden.
     var hasSession = false
     var status: Status = .idle
+    /// The card holds a statement: a description is a change to it.
+    var adjusts = false
 
     /// The words beside the symbol while the strip is hidden and there is
     /// something to come back for.
@@ -293,7 +295,7 @@ final class CardHeaderView: NSView {
             return
         }
         describeButton.isHidden = false
-        let label = String(localized: "Describe the Query")
+        let label = state.adjusts ? String(localized: "Describe a Change") : String(localized: "Describe the Query")
         let name = !state.isOpen && state.hasSession && state.status == .failed ? "exclamationmark.triangle" : state.symbol
         describeButton.image = symbol(name, label) ?? symbol("sparkles", label)
         describeButton.title = state.title ?? ""
@@ -311,7 +313,9 @@ final class CardHeaderView: NSView {
         } else if state.hasSession {
             describeButton.toolTip = String(localized: "Show the description and its draft")
         } else {
-            describeButton.toolTip = String(localized: "Describe the query\u{2026}")
+            describeButton.toolTip = state.adjusts
+                ? String(localized: "Describe a change to this query\u{2026} The draft goes into a new version of it.")
+                : String(localized: "Describe the query\u{2026}")
         }
         describeButton.setAccessibilityLabel(label)
         describeButton.setAccessibilityValue(

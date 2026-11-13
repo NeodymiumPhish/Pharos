@@ -45,6 +45,11 @@ import FoundationModels
 /// and the analyst decides. No row can reach a prompt: the table text comes
 /// from a `DraftCatalog` or from the tables' DDL, and neither holds one.
 ///
+/// A card that already holds a statement asks for a change to it instead
+/// (`draft(_:adjusting:)`): the statement goes into the writing request with
+/// the change, its own tables are always among the ones shown, and the steps
+/// above only look for tables the change adds. See "Adjusting" below.
+///
 /// Measured with `scripts/eval-sql-draft.sh` (22 requests, a 26-table
 /// fixture); the figures are in docs/apple-intelligence.md.
 
@@ -108,6 +113,11 @@ final class SQLDraftPipeline {
         case noMatchingTables
         /// The model answered with no statement.
         case emptyDraft
+        /// The statement to change is more than the model can take in and
+        /// write out again.
+        case statementTooLong
+        /// The model answered with the statement it was given.
+        case unchanged
 
         var errorDescription: String? {
             switch self {
@@ -115,6 +125,10 @@ final class SQLDraftPipeline {
                 return String(localized: "No table matches that description. Name a table or column, or choose the schema that holds the data.")
             case .emptyDraft:
                 return String(localized: "The model could not draft a query. Try describing it another way.")
+            case .statementTooLong:
+                return String(localized: "This query is too long for the model to change. Select less of it into a card of its own, or use a model with a larger context window.")
+            case .unchanged:
+                return String(localized: "The model made no change to the query. Try describing the change another way.")
             }
         }
     }
@@ -184,11 +198,51 @@ final class SQLDraftPipeline {
     /// What the check says about a statement that reached `statementLimit`.
     /// Read by the analyst under the draft and by the model in the repair
     /// request, so it says what is wrong and nothing to either of them.
-    nonisolated static let cutOffProblem = "The statement is \(statementLimit) characters long and was probably cut off."
+    nonisolated static func cutOffProblem(limit: Int = statementLimit) -> String {
+        "The statement is \(limit) characters long and was probably cut off."
+    }
 
-    private static func isCutOff(_ rawSQL: String) -> Bool {
+    private func isCutOff(_ rawSQL: String) -> Bool {
         rawSQL.unicodeScalars.count >= statementLimit
     }
+
+    // MARK: Adjusting
+
+    /// The most of a window the statement being changed may take, as a
+    /// divisor: it is sent once and written out once, so a fifth of the
+    /// window each way leaves three fifths for the instructions, the tables
+    /// and the rest of the answer.
+    static let adjustShare = 5
+
+    /// The most estimated tokens of a statement being changed, whatever the
+    /// window: about 12,000 characters.
+    static let adjustCeiling = 4_000
+
+    /// How much longer than the statement it changes a changed statement
+    /// may be, in characters, before it counts as cut off.
+    nonisolated static let adjustGrowth = 1_500
+
+    /// The most characters of a statement that can be changed by a model
+    /// with a window of `contextSize` tokens.
+    static func adjustLimit(contextSize: Int) -> Int {
+        min(adjustCeiling, contextSize / adjustShare) * 3
+    }
+
+    /// The statement being changed, cleaned; nil when drafting from a
+    /// sentence alone.
+    private var base: String?
+    /// What the check says about `base` itself. The analyst wrote those
+    /// names: they are not the model's mistakes, and are neither repaired
+    /// nor reported.
+    private var baseProblems: Set<String> = []
+    /// The tables a changed statement may read: the ones it read before
+    /// and the ones the change may add. nil when nothing is being changed,
+    /// or the statement reads no table Pharos knows.
+    private var expected: Set<DraftCatalog.TableKey>?
+    /// The most characters of a statement in this draft.
+    private var statementLimit = SQLDraftPipeline.statementLimit
+    /// Tokens kept free for the answer in this draft.
+    private var answerReserve = SQLDraftPipeline.answerReserve
 
     let catalog: DraftCatalog
     let defaultSchema: String?
@@ -226,13 +280,36 @@ final class SQLDraftPipeline {
         self.definitions = definitions
     }
 
-    /// The request is never logged: it is the analyst's own words.
-    func draft(_ request: String) async throws -> Result {
+    /// The request is never logged: it is the analyst's own words. Nor is
+    /// `statement`, the SQL of the card the request is a change to: with
+    /// one, the answer is that statement changed as the request asks; nil
+    /// or blank drafts from the request alone.
+    func draft(_ request: String, adjusting statement: String? = nil) async throws -> Result {
         trace = []
         requests = 0
         readsLeft = Self.maxReadRequests
         known = [:]
-        let budget = SQLDraftPrompt.Budget(contextSize: backend.contextSize)
+        base = nil
+        baseProblems = []
+        expected = nil
+        statementLimit = Self.statementLimit
+        answerReserve = Self.answerReserve
+        var window = backend.contextSize
+        if let statement = statement.map(SQLDraftPolicy.clean), !statement.isEmpty {
+            guard statement.unicodeScalars.count <= Self.adjustLimit(contextSize: backend.contextSize) else {
+                throw Failure.statementTooLong
+            }
+            base = statement
+            baseProblems = Set(SQLDraftChecker.check(statement, in: catalog, defaultSchema: defaultSchema).map(\.description))
+            statementLimit = max(Self.statementLimit, statement.unicodeScalars.count + Self.adjustGrowth)
+            // The statement is in the request and in the answer: the tables
+            // share what is left of the window.
+            let cost = SQLDraftPrompt.estimateTokens(statement)
+            answerReserve += cost
+            window = max(1_024, window - 2 * cost)
+            trace.append("adjusting a statement of ~\(cost) tokens; \(baseProblems.count) problem(s) of its own")
+        }
+        let budget = SQLDraftPrompt.Budget(contextSize: window)
 
         // Step 1: the tables the words of the request point at.
         onStage?(.finding)
@@ -240,6 +317,24 @@ final class SQLDraftPipeline {
             .filter { !catalog.partitions.contains($0.key) }
         let focus = SQLDraftRanker.focus(ranked)
         trace.append("shortlist: \(ranked.count), focus: " + focus.map(\.description).joined(separator: ", "))
+
+        // A statement being changed brings its own tables. They are shown
+        // whatever the request says, and the request is searched only for
+        // tables it adds: "only the last 30 days" names none, and must not
+        // send the model through a list of every table to find that out.
+        let held = base.map { SQLDraftChecker.tablesRead($0, in: catalog, defaultSchema: defaultSchema) } ?? []
+        if let base, !held.isEmpty {
+            let keep = try await resolved(held)
+            let added = SQLDraftRanker.additions(for: request, to: keep, in: catalog)
+            trace.append("statement reads: " + keep.map(\.description).joined(separator: ", ")
+                + "; the change may add: " + (added.isEmpty ? "none" : added.map(\.description).joined(separator: ", ")))
+            expected = Set(held + keep + added)
+            let reading = try await read(keep + added, keeping: Set(keep), request: request, budget: budget)
+            var needed = reading.columns
+            for key in keep { needed[key] = SQLDraftPrompt.columns(named: base, of: key, in: catalog) }
+            return try await write(request, tables: reading.tables, needed: needed, budget: budget)
+        }
+
         var candidates = SQLDraftRanker.withReferences(focus, in: catalog)
             .filter { !catalog.partitions.contains($0) }
         if candidates.isEmpty {
@@ -287,25 +382,38 @@ final class SQLDraftPipeline {
             trace.append("read kept nothing; using the top \(reading.tables.count)")
         }
 
+        return try await write(request, tables: reading.tables, needed: reading.columns, budget: budget)
+    }
+
+    /// Steps 4 to 6: write the statement from `tables`, check it, and
+    /// repair it once.
+    private func write(
+        _ request: String, tables: [DraftCatalog.TableKey], needed: [DraftCatalog.TableKey: [String]],
+        budget: SQLDraftPrompt.Budget
+    ) async throws -> Result {
         // Step 4: the tables that passed, and what joins them.
-        let keys = SQLDraftPrompt.withBridges(reading.tables, in: catalog)
-        let (block, instructions) = try await draftBlock(keys, needed: reading.columns, request: request, budget: budget)
+        let keys = SQLDraftPrompt.withBridges(tables, in: catalog)
+        let (block, instructions) = try await draftBlock(keys, needed: needed, request: request, budget: budget)
         trace.append("draft tables: " + block.tables.map(\.description).joined(separator: ", "))
 
         onStage?(.writing)
-        let answer = try await write(
-            SQLDraftPrompt.draftPrompt(request: request, block: block.text), instructions: instructions, step: "draft")
+        let answer = try await write(writePrompt(request: request, block: block.text), instructions: instructions, step: "draft")
         var sql = SQLDraftPolicy.clean(answer.sql)
         // No second try: sampling is greedy, so the same prompt would give
         // the same empty answer.
         guard !sql.isEmpty else { throw Failure.emptyDraft }
+        if let base, SQLDraftPrompt.sameStatement(sql, base) { throw Failure.unchanged }
 
         onStage?(.checking)
         var settled = settle(answer.sql, step: "check")
         sql = settled.sql
         if !settled.problems.isEmpty {
             onStage?(.repairing)
-            let prompt = SQLDraftPrompt.repairPrompt(request: request, block: block.text, sql: sql, problems: settled.problems)
+            // A changed statement is repaired as it was written: as a
+            // change, to the draft, that corrects its errors.
+            let prompt = base == nil
+                ? SQLDraftPrompt.repairPrompt(request: request, block: block.text, sql: sql, problems: settled.problems)
+                : SQLDraftPrompt.adjustRepairPrompt(block: block.text, sql: sql, problems: settled.problems)
             if let repaired = try? await write(prompt, instructions: instructions, step: "repair") {
                 // The repair is a draft like the first: checked, and
                 // corrected where the catalogue can answer for it.
@@ -344,13 +452,19 @@ final class SQLDraftPipeline {
     /// the worse problem, and one the fixer cannot help.
     private func settle(_ raw: String, step: String) -> Settled {
         var sql = SQLDraftPolicy.clean(raw)
-        let cutOff = Self.isCutOff(raw) ? [Self.cutOffProblem] : []
-        var problems = cutOff + SQLDraftChecker.check(sql, in: catalog, defaultSchema: defaultSchema).map(\.description)
+        let cutOff = isCutOff(raw) ? [Self.cutOffProblem(limit: statementLimit)] : []
+        // What the check said about the statement being changed is the
+        // analyst's own, and stays out of it.
+        func check(_ sql: String) -> [String] {
+            unasked(in: sql) + SQLDraftChecker.check(sql, in: catalog, defaultSchema: defaultSchema).map(\.description)
+                .filter { !baseProblems.contains($0) }
+        }
+        var problems = cutOff + check(sql)
         trace.append("\(step): \(problems.count) problem(s)")
         var fixes: [String] = []
         if !problems.isEmpty {
             let fixed = SQLDraftFixer.fix(sql, in: catalog, defaultSchema: defaultSchema)
-            let after = cutOff + SQLDraftChecker.check(fixed.sql, in: catalog, defaultSchema: defaultSchema).map(\.description)
+            let after = cutOff + check(fixed.sql)
             trace.append("fixer: \(fixed.fixes.count) fix(es), \(after.count) problem(s)")
             if !fixed.fixes.isEmpty, after.count <= problems.count {
                 sql = fixed.sql
@@ -359,6 +473,19 @@ final class SQLDraftPipeline {
             }
         }
         return Settled(sql: sql, problems: problems, fixes: fixes)
+    }
+
+    /// What the check says about a table a changed statement reads that
+    /// the statement did not read before and the request did not name.
+    /// The model adds joins along the keys of the tables it is shown; a
+    /// join nobody asked for changes which rows come back, and is the one
+    /// kind of unfaithful change Pharos can see for certain. Read by the
+    /// analyst under the draft and by the model in the repair request.
+    private func unasked(in sql: String) -> [String] {
+        guard let expected else { return [] }
+        return SQLDraftChecker.tablesRead(sql, in: catalog, defaultSchema: defaultSchema)
+            .filter { !expected.contains($0) }
+            .map { "The query now reads \($0.description), which the request did not ask for. Take that table out." }
     }
 
     // MARK: - Step 1 and 2: names
@@ -512,15 +639,22 @@ final class SQLDraftPipeline {
     /// show whole, or is over that limit is kept without being asked about. A request that
     /// fails keeps its tables too: step 3 only ever removes a table the
     /// model looked at and did not want.
+    ///
+    /// `keeping` are tables the query reads already (a statement being
+    /// changed): they are kept and the model is not asked about them. It
+    /// is asked about the others when all of them together are too much
+    /// to write from unread.
     private func read(
-        _ candidates: [DraftCatalog.TableKey], request: String, budget: SQLDraftPrompt.Budget
+        _ candidates: [DraftCatalog.TableKey], keeping: Set<DraftCatalog.TableKey> = [],
+        request: String, budget: SQLDraftPrompt.Budget
     ) async throws -> Reading {
         guard definitions != nil, !candidates.isEmpty else { return Reading(tables: candidates, columns: [:]) }
         onStage?(.reading)
         let tables = try await resolved(candidates)
         let ddl = shownDefinitions
         let (packs, unread) = SQLDraftPrompt.readPacks(
-            tables, definitions: ddl, in: catalog, budget: budget.readBlock, limit: readsLeft)
+            tables.filter { !keeping.contains($0) }, definitions: ddl, in: catalog,
+            budget: budget.readBlock, limit: readsLeft)
         let readable = packs.flatMap { $0 }
         trace.append("read: \(readable.count) of \(tables.count) tables in \(packs.count) request(s)")
 
@@ -538,13 +672,13 @@ final class SQLDraftPipeline {
             return Reading(tables: tables, columns: [:])
         }
 
-        var kept = Set(unread)
+        var kept = Set(unread).union(keeping)
         var columns: [DraftCatalog.TableKey: [String]] = [:]
         for pack in packs {
             readsLeft -= 1
             let block = SQLDraftPrompt.ddlBlock(pack, definitions: ddl, in: catalog)
             do {
-                let uses = try await which(of: pack, block: block.text, request: request)
+                let uses = try await which(of: pack, block: block.text, request: readRequest(request))
                 for (key, named) in uses {
                     kept.insert(key)
                     columns[key] = named
@@ -620,10 +754,10 @@ final class SQLDraftPipeline {
         do {
             let used = try await backend.tokenCount(
                 instructions: ddlInstructions,
-                prompt: SQLDraftPrompt.draftPrompt(request: request, block: block),
+                prompt: writePrompt(request: request, block: block),
                 schema: SQLDraft.generationSchema)
             trace.append("prompt tokens: \(used) of \(backend.contextSize)")
-            return used + Self.answerReserve <= backend.contextSize
+            return used + answerReserve <= backend.contextSize
         } catch {
             return SQLDraftPrompt.estimateTokens(block) <= budget.draftDefinitions
         }
@@ -641,10 +775,10 @@ final class SQLDraftPipeline {
         do {
             let used = try await backend.tokenCount(
                 instructions: draftInstructions,
-                prompt: SQLDraftPrompt.draftPrompt(request: request, block: block.text),
+                prompt: writePrompt(request: request, block: block.text),
                 schema: SQLDraft.generationSchema)
             trace.append("prompt tokens: \(used) of \(backend.contextSize)")
-            let over = used + Self.answerReserve - backend.contextSize
+            let over = used + answerReserve - backend.contextSize
             guard over > 0 else { return block }
             let smaller = SQLDraftPrompt.block(
                 keys, in: catalog, request: request,
@@ -659,12 +793,27 @@ final class SQLDraftPipeline {
     }
 
     private var draftInstructions: String {
-        IntelligenceInstructions.inDialect(IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.draftInstructions, dialect)
+        IntelligenceInstructions.inDialect(IntelligenceInstructions.sqlSafety + " "
+            + (base == nil ? SQLDraftPrompt.draftInstructions : SQLDraftPrompt.adjustInstructions), dialect)
     }
 
     /// The instructions that go with a block of DDL.
     private var ddlInstructions: String {
-        IntelligenceInstructions.inDialect(IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.ddlDraftInstructions, dialect)
+        IntelligenceInstructions.inDialect(IntelligenceInstructions.sqlSafety + " "
+            + (base == nil ? SQLDraftPrompt.ddlDraftInstructions : SQLDraftPrompt.ddlAdjustInstructions), dialect)
+    }
+
+    /// The writing request: the tables and the request, and between them
+    /// the statement the request is a change to, when there is one.
+    private func writePrompt(request: String, block: String) -> String {
+        base.map { SQLDraftPrompt.adjustPrompt(request: request, block: block, sql: $0) }
+            ?? SQLDraftPrompt.draftPrompt(request: request, block: block)
+    }
+
+    /// The request as the reading step is asked it. A change is said to be
+    /// one: "add the customer's name" is not a query on its own.
+    private func readRequest(_ request: String) -> String {
+        base == nil ? request : "a change to an existing query: " + request
     }
 
     /// Steps 4 and 6: one new request per answer, under the instructions
@@ -672,8 +821,19 @@ final class SQLDraftPipeline {
     private func write(_ prompt: String, instructions: String, step: String) async throws -> SQLDraft {
         do {
             requests += 1
-            let draft = try await backend.respond(
-                instructions: instructions, prompt: prompt, generating: SQLDraft.self, sampling: sampling)
+            let draft: SQLDraft
+            if base == nil {
+                draft = try await backend.respond(
+                    instructions: instructions, prompt: prompt, generating: SQLDraft.self, sampling: sampling)
+            } else {
+                // A changed statement may be as long as the one it changes:
+                // the same answer, asked for with this draft's own limit.
+                var limits = SQLDraft.textLimits
+                limits["sql"] = statementLimit
+                draft = try SQLDraft(await backend.respond(
+                    instructions: instructions, prompt: prompt, schema: SQLDraft.generationSchema,
+                    textLimits: limits, sampling: sampling))
+            }
             Log.intelligence.info("draft-sql: \(step, privacy: .public) answered")
             return draft
         } catch {

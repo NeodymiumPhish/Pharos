@@ -707,7 +707,8 @@ final class CardStackVC: NSViewController {
              { [weak self] in self?.setNotesShown(id, !card.showsNotes) })
         if offersDescribe(card) {
             let shown = drafts.session(for: id)?.isOpen == true && !card.isCollapsed
-            item(shown ? String(localized: "Hide Description") : String(localized: "Describe the Query\u{2026}"),
+            item(shown ? String(localized: "Hide Description")
+                 : statement(of: id) != nil ? String(localized: "Describe a Change\u{2026}") : String(localized: "Describe the Query\u{2026}"),
                  { [weak self] in self?.describeButtonClicked(id) })
         }
         if offersCommentImport(card) {
@@ -1050,27 +1051,38 @@ final class CardStackVC: NSViewController {
     }
 
     /// A card can take a draft: the feature is on, and the card is a
-    /// statement whose text can change.
+    /// statement. A locked one too: a change to it goes into a new version
+    /// and leaves its text alone.
     private func offersDescribe(_ card: QueryCard, isOffered: Bool? = nil) -> Bool {
-        (isOffered ?? describeAvailable()) && card.kind == .sql && !card.isLocked
+        (isOffered ?? describeAvailable()) && card.kind == .sql
+    }
+
+    /// The card's SQL as it stands, with what is in a live editor ahead of
+    /// what the document was last told; nil for a card with none. With
+    /// SQL, a description is a change to it.
+    private func statement(of id: String) -> String? {
+        guard let text = editors[id]?.textView.string ?? document()?.card(id)?.sql,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
     }
 
     /// The Describe button and the strip of one card, from its draft.
     private func applyDraft(to view: CardView, card: QueryCard, position: Int, _ describe: DescribeContext) {
         let id = card.id
         guard offersDescribe(card, isOffered: describe.isOffered) else {
-            // A card that can no longer take a draft (locked again, or the
-            // feature switched off) does not keep one.
+            // A card that can no longer take a draft (the feature switched
+            // off) does not keep one.
             drafts.close(id, notify: false)
             view.header.applyDescribe(nil)
             dropDraftView(of: view)
             return
         }
         guard let session = drafts.session(for: id) else {
-            view.header.applyDescribe(CardDescribeState(symbol: describe.symbol))
+            view.header.applyDescribe(CardDescribeState(symbol: describe.symbol, adjusts: statement(of: id) != nil))
             dropDraftView(of: view)
             return
         }
+        let adjusts = statement(of: id) != nil
 
         let status: CardDescribeState.Status
         switch session.phase {
@@ -1081,7 +1093,7 @@ final class CardStackVC: NSViewController {
         }
         view.header.applyDescribe(CardDescribeState(
             symbol: describe.symbol,
-            isOpen: session.isOpen && !card.isCollapsed, hasSession: true, status: status))
+            isOpen: session.isOpen && !card.isCollapsed, hasSession: true, status: status, adjusts: adjusts))
 
         let draft = view.draftView ?? makeDraftView(id)
         view.setDraftView(draft)
@@ -1095,9 +1107,7 @@ final class CardStackVC: NSViewController {
             draft.setAttribution(nil)
             draftLabels[id] = nil
         }
-        let blank = card.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        draft.show(request: session.request, phase: session.phase,
-                   insertTitle: blank ? String(localized: "Insert") : String(localized: "Replace SQL"),
+        draft.show(request: session.request, phase: session.phase, adjusts: adjusts,
                    unavailableReason: draftUnavailableReason())
         view.showsDraft = session.isOpen
     }
@@ -1123,9 +1133,9 @@ final class CardStackVC: NSViewController {
         }
         view.onRequestChanged = { [weak self] text in self?.drafts.session(for: id)?.request = text }
         view.onHeightChange = { [weak self] in self?.scheduleRelayout() }
-        view.onDraft = { [weak self] in self?.drafts.session(for: id)?.start() }
+        view.onDraft = { [weak self] in self?.drafts.session(for: id)?.start(adjusting: self?.statement(of: id)) }
         view.onStop = { [weak self] in self?.drafts.session(for: id)?.stop() }
-        view.onRetry = { [weak self] in self?.drafts.session(for: id)?.retry() }
+        view.onRetry = { [weak self] in self?.drafts.session(for: id)?.retry(adjusting: self?.statement(of: id)) }
         view.onInsert = { [weak self] in self?.insertDraft(id) }
         view.onMinimize = { [weak self] in self?.setDescriptionShown(id, false) }
         view.onClose = { [weak self] in self?.closeDescription(id) }
@@ -1212,11 +1222,11 @@ final class CardStackVC: NSViewController {
         scheduleRelayout()
     }
 
-    /// Insert: put the card's draft into its SQL. A draft that is not a
-    /// plain read asks first; Pharos still runs nothing.
+    /// Insert: put the card's draft into its SQL, or, for a card that has
+    /// SQL, into a new version of its query. A draft that is not a plain
+    /// read asks first; Pharos still runs nothing.
     private func insertDraft(_ id: String) {
-        guard case let .ready(draft)? = drafts.session(for: id)?.phase,
-              let card = document()?.card(id), !card.isLocked else { return }
+        guard case let .ready(draft)? = drafts.session(for: id)?.phase, document()?.card(id) != nil else { return }
         guard let warning = draft.warning else {
             commitDraft(id, draft)
             return
@@ -1243,10 +1253,16 @@ final class CardStackVC: NSViewController {
         }
     }
 
-    /// The draft becomes the card's SQL, in place of any it had, as one undo
-    /// step in that card. The description closes: its work is done.
+    /// The draft becomes the SQL of a card that has none, as one undo step
+    /// in that card. A card that has SQL keeps it, whether or not the draft
+    /// was written as a change to it: the draft goes into a new version of
+    /// the query. The description closes: its work is done.
     private func commitDraft(_ id: String, _ draft: CardDraftSession.Draft) {
-        guard let card = document()?.card(id), !card.isLocked else { return }
+        guard let card = document()?.card(id) else { return }
+        guard statement(of: id) == nil, !card.isLocked else {
+            insertVersion(of: id, sql: draft.sql)
+            return
+        }
         focusCard(id)
         guard let editor = editors[id] else { return }
         editor.textView.setSelectedRange(NSRange(location: 0, length: (editor.textView.string as NSString).length))
@@ -1256,6 +1272,39 @@ final class CardStackVC: NSViewController {
         }
         drafts.close(id)
         relayout(anchor: .card(id))
+    }
+
+    /// `sql` as the next version of the card's query, with the keyboard in
+    /// it. The card it came from keeps its SQL; one that shows the results
+    /// of that SQL is locked, as after a run of an edit. Undo, in the new
+    /// card, takes the version away again.
+    private func insertVersion(of id: String, sql: String) {
+        guard let before = document()?.card(id) else { return }
+        let wasExpanded = document()?.expandedLineages.contains(before.lineageId) == true
+        var added: (id: String, lockedSource: Bool)?
+        mutate { doc in added = doc.addVersion(of: id, sql: sql) }
+        guard let added else {
+            NSSound.beep()
+            return
+        }
+        drafts.close(id, notify: false)
+        draftLabels[id] = nil
+        if added.lockedSource { editors[id]?.textView.isEditable = false }
+        reload(anchor: .card(id))
+        focusCard(added.id)
+        onStructureEdited?()
+        let undo = undoManagerForFocus()
+        undo?.registerUndo(withTarget: self) { target in
+            target.mutate { doc in
+                doc.removeVersion(added.id, restoring: added.lockedSource ? before : nil, expanded: wasExpanded)
+            }
+            if added.lockedSource { target.editors[id]?.textView.isEditable = !before.isLocked }
+            target.reload(anchor: .card(id))
+            target.onCardDeleted?(added.id)
+            target.onStructureEdited?()
+            target.focusCard(id)
+        }
+        undo?.setActionName(String(localized: "Insert as New Version"))
     }
 
     // MARK: - Notes
