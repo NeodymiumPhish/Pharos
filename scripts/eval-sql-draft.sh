@@ -86,6 +86,7 @@ case "$mode" in
       Pharos/Intelligence/SQLDraftChecker.swift
       Pharos/Intelligence/SQLDraftFixer.swift
       Pharos/Intelligence/ModelErrorKind.swift
+      Pharos/Intelligence/IntelligenceBackend.swift
       Pharos/Intelligence/SQLDraft.swift
       scripts/draft-eval/PipelineStubs.swift
       scripts/draft-eval/PipelineAdapter.swift

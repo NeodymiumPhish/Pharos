@@ -25,7 +25,7 @@ extension NameSuggestion {
 
 /// Asks the on-device model for a name.
 ///
-/// One session per call: a name for one statement has nothing to learn from
+/// One request per call: a name for one statement has nothing to learn from
 /// the name of another, and a session held across unrelated queries would
 /// carry the earlier SQL in its transcript for no gain.
 ///
@@ -49,12 +49,9 @@ final class NameSuggester {
         try IntelligenceGuard.requireAvailable()
 
         let prompt = Self.prompt(sql: sql, existingFolders: existingFolders, kind: kind)
-        let session = LanguageModelSession(
-            instructions: IntelligenceInstructions.sqlSafety + "\n" + NameSuggestionPolicy.instructions)
-
-        let response = try await session.respond(to: prompt, generating: NameSuggestion.self)
-
-        var suggestion = response.content
+        var suggestion = try await IntelligenceBackends.current.respond(
+            instructions: IntelligenceInstructions.sqlSafety + "\n" + NameSuggestionPolicy.instructions,
+            prompt: prompt, generating: NameSuggestion.self, sampling: .standard)
         // An empty title falls back to an empty string, not to a default name:
         // only the call site knows what its own default is, and it already
         // shows it. It leaves the field alone when nothing comes back.

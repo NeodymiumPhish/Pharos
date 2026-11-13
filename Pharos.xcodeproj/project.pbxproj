@@ -249,6 +249,7 @@
 		880A464CDCC8D155EA23708D /* VariableListOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0366A1C9F414C744F86B5BBB /* VariableListOptions.swift */; };
 		8859849E6D15A46D85580748 /* SQLTypeName.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC34D297D0FFF266B7BEFB2 /* SQLTypeName.swift */; };
 		88788D92C373CA21CCA59CA6 /* CardFindBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C9B224684828CF1DD8E3EE /* CardFindBar.swift */; };
+		887B1CA2D949D1E868E3EF63 /* IntelligenceBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7926C224753F2C69EF65C7D7 /* IntelligenceBackend.swift */; };
 		894DACA8415807D8E7C51626 /* SQLThemeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71A54C2BF4FECC88A78AA89 /* SQLThemeCatalog.swift */; };
 		8991019033E9505E5F226260 /* GridDerivedCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4715DD7E42824FA44C3F3A63 /* GridDerivedCache.swift */; };
 		89EF93E93C0C817C39749B9C /* SettingsTilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D3D9B97FFD9782C71BF3EF /* SettingsTilePicker.swift */; };
@@ -681,6 +682,7 @@
 		77A981C786932B0DE25AE2DE /* ChartsSettingsPaneVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartsSettingsPaneVC.swift; sourceTree = "<group>"; };
 		7810C3A700C53571493B19DD /* WindowSight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSight.swift; sourceTree = "<group>"; };
 		78E86E4D1B7FDA7E64DDF6D2 /* DurationText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationText.swift; sourceTree = "<group>"; };
+		7926C224753F2C69EF65C7D7 /* IntelligenceBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceBackend.swift; sourceTree = "<group>"; };
 		79453EF605DB5DD4E6B6583E /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 		7A68C76D450CDF75F57CAADB /* ErrorExplanation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorExplanation.swift; sourceTree = "<group>"; };
 		7B35EC2009F073EB57DC62C5 /* FailurePresentationRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FailurePresentationRule.swift; sourceTree = "<group>"; };
@@ -1035,6 +1037,7 @@
 				B54101B9C807A769AD63E25B /* ErrorExplanationView.swift */,
 				AF4CAE487D00DB3B88F1E892 /* GeneratedContentLabel.swift */,
 				B984A8C698677E5EC07C83EF /* GeneratedContentLabelView.swift */,
+				7926C224753F2C69EF65C7D7 /* IntelligenceBackend.swift */,
 				EC9AB0873C57969274A41108 /* IntelligenceSession.swift */,
 				EBA1192590E0CA81706B8921 /* ModelAvailability.swift */,
 				D348A77B7B92DE1F749F1293 /* ModelErrorKind.swift */,
@@ -1856,6 +1859,7 @@
 				C0AF1DD452C500EE9ABB08DC /* InspectorColumnRowView.swift in Sources */,
 				9AB133A1433EFE52FF58A644 /* InspectorOwnership.swift in Sources */,
 				587C8125123CD6FB19295C5C /* InspectorViewController.swift in Sources */,
+				887B1CA2D949D1E868E3EF63 /* IntelligenceBackend.swift in Sources */,
 				2DA2CC6487D9C4BFD53F3CF1 /* IntelligenceSession.swift in Sources */,
 				D563AC320EE96A54A78CBCA4 /* IntelligenceSettingsPaneVC.swift in Sources */,
 				D5FD88D1BE3008B61F9ACFF1 /* IntentResultCSV.swift in Sources */,

@@ -25,9 +25,10 @@ final class PlanSummarizer {
 
     func summarize(prompt: String, dialect: String = "PostgreSQL") async throws -> PlanSummary {
         try IntelligenceGuard.requireAvailable()
-        let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(
-            IntelligenceInstructions.sqlSafety + "\n" + PlanSummaryPrompt.instructions, dialect))
-        return try await session.respond(to: prompt, generating: PlanSummary.self).content
+        return try await IntelligenceBackends.current.respond(
+            instructions: IntelligenceInstructions.inDialect(
+                IntelligenceInstructions.sqlSafety + "\n" + PlanSummaryPrompt.instructions, dialect),
+            prompt: prompt, generating: PlanSummary.self, sampling: .standard)
     }
 }
 

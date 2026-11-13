@@ -115,20 +115,12 @@ final class SQLDraftPipeline {
     /// Called on the main actor as each step starts.
     var onStage: ((Stage) -> Void)?
 
-    private let model = SystemLanguageModel.default
+    /// One backend for the whole draft, so every step asks the same model.
+    private let backend = IntelligenceBackends.current
 
     /// Greedy: the same request against the same schema gives the same
-    /// draft, so a bad one can be reproduced. The macOS 27 SDK renames
-    /// `sampling:` to `samplingMode:` (back-deployed, so it runs on macOS 26
-    /// too) and deprecates the old name; the macOS 26 SDK of release CI
-    /// (Xcode 26.6, Swift 6.3) has only the old name. Swift 6.4 comes with
-    /// the macOS 27 SDK, so the compiler version picks the spelling. Drop the
-    /// `#else` once release CI builds with Xcode 27.
-    #if compiler(>=6.4)
-    private let options = GenerationOptions(samplingMode: .greedy)
-    #else
-    private let options = GenerationOptions(sampling: .greedy)
-    #endif
+    /// draft, so a bad one can be reproduced.
+    private let sampling = IntelligenceSampling.greedy
 
     private var trace: [String] = []
 
@@ -147,7 +139,7 @@ final class SQLDraftPipeline {
         onStage?(.finding)
         let candidates = try candidates(for: request)
 
-        let budget = SQLDraftPrompt.blockBudget(contextSize: model.contextSize)
+        let budget = SQLDraftPrompt.blockBudget(contextSize: backend.contextSize)
         var chosen = SQLDraftRanker.withReferences(candidates.focus, in: catalog)
         let direct = SQLDraftPrompt.block(chosen, in: catalog, request: request, budget: .max)
         if chosen.count > Self.directLimit || SQLDraftPrompt.estimateTokens(direct.text) > budget {
@@ -229,12 +221,12 @@ final class SQLDraftPipeline {
                     arrayOf: table, minimumElements: 1, maximumElements: SQLDraftPrompt.pickLimit)),
             ])
             let schema = try GenerationSchema(root: root, dependencies: [])
-            let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(
-                IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.pickInstructions, dialect))
             let list = SQLDraftPrompt.pickList(candidates, in: catalog)
-            let response = try await session.respond(
-                to: SQLDraftPrompt.pickPrompt(request: request, list: list), schema: schema, options: options)
-            let picked = try response.content.value([String].self, forProperty: "tables")
+            let content = try await backend.respond(
+                instructions: IntelligenceInstructions.inDialect(
+                    IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.pickInstructions, dialect),
+                prompt: SQLDraftPrompt.pickPrompt(request: request, list: list), schema: schema, sampling: sampling)
+            let picked = try content.value([String].self, forProperty: "tables")
             var keys: [DraftCatalog.TableKey] = []
             for name in picked {
                 if let key = candidates.first(where: { $0.description == name }), !keys.contains(key) {
@@ -252,18 +244,21 @@ final class SQLDraftPipeline {
         }
     }
 
-    /// The estimate is conservative, but on macOS 26.4 and later the real
-    /// count is one call away: when the full prompt would not leave room for
+    /// The estimate is conservative, but where the model can count (macOS
+    /// 26.4 and later for the on-device one) the real count is one call
+    /// away: when the full prompt would not leave room for
     /// the answer, the block is rebuilt smaller, once.
     private func fitted(
         _ block: (text: String, tables: [DraftCatalog.TableKey]),
         keys: [DraftCatalog.TableKey], request: String, budget: Int
     ) async -> (text: String, tables: [DraftCatalog.TableKey]) {
-        guard #available(macOS 26.4, *) else { return block }
         do {
-            let used = try await promptTokens(for: block.text, request: request)
-            trace.append("prompt tokens: \(used) of \(model.contextSize)")
-            let over = used + Self.answerReserve - model.contextSize
+            let used = try await backend.tokenCount(
+                instructions: draftInstructions,
+                prompt: SQLDraftPrompt.draftPrompt(request: request, block: block.text),
+                schema: SQLDraft.generationSchema)
+            trace.append("prompt tokens: \(used) of \(backend.contextSize)")
+            let over = used + Self.answerReserve - backend.contextSize
             guard over > 0 else { return block }
             let smaller = SQLDraftPrompt.block(
                 keys, in: catalog, request: request,
@@ -276,27 +271,17 @@ final class SQLDraftPipeline {
         }
     }
 
-    @available(macOS 26.4, *)
-    private func promptTokens(for block: String, request: String) async throws -> Int {
-        let instructions = Instructions(draftInstructions)
-        let prompt = SQLDraftPrompt.draftPrompt(request: request, block: block)
-        let a = try await model.tokenCount(for: instructions)
-        let b = try await model.tokenCount(for: prompt)
-        let c = try await model.tokenCount(for: SQLDraft.generationSchema)
-        return a + b + c
-    }
-
     private var draftInstructions: String {
         IntelligenceInstructions.inDialect(IntelligenceInstructions.sqlSafety + " " + SQLDraftPrompt.draftInstructions, dialect)
     }
 
-    /// Steps 4 and 6: one new session per answer.
+    /// Steps 4 and 6: one new request per answer.
     private func write(_ prompt: String, step: String) async throws -> SQLDraft {
-        let session = LanguageModelSession(instructions: draftInstructions)
         do {
-            let response = try await session.respond(to: prompt, generating: SQLDraft.self, options: options)
+            let draft = try await backend.respond(
+                instructions: draftInstructions, prompt: prompt, generating: SQLDraft.self, sampling: sampling)
             Log.intelligence.info("draft-sql: \(step, privacy: .public) answered")
-            return response.content
+            return draft
         } catch {
             log(step, error)
             trace.append("\(step) failed: \(Self.name(of: error))")

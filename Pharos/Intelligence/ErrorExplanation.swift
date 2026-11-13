@@ -32,12 +32,12 @@ struct ErrorExplanationRun {
     let updates: AsyncThrowingStream<ErrorExplanation.PartiallyGenerated, Error>
 }
 
-/// Opens a session with the on-device model and streams an explanation back.
+/// Asks the model for an explanation and streams it back.
 ///
-/// One session per run, never reused: two unrelated failures share no context,
-/// and a session that carried the previous error's transcript would be both
-/// slower and wrong. `explain` therefore replaces `session` every time, which
-/// also ends the previous run.
+/// One request per run, never a shared conversation: two unrelated failures
+/// share no context, and a session that carried the previous error's
+/// transcript would be both slower and wrong. `explain` therefore cancels
+/// the run before it every time.
 @MainActor
 final class ErrorExplainer: ObservableObject {
 
@@ -45,8 +45,6 @@ final class ErrorExplainer: ObservableObject {
     /// shows its progress row while it holds.
     @Published private(set) var isExplaining = false
 
-    /// Kept only so a new run — or `cancel()` — releases the old one.
-    private var session: LanguageModelSession?
     private var task: Task<Void, Never>?
 
     private static let instructions = IntelligenceInstructions.sqlSafety + " "
@@ -75,19 +73,20 @@ final class ErrorExplainer: ObservableObject {
         // is ever logged or stored.
         let hash = ModelFeedbackStore.promptHash(prompt)
 
-        let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(Self.instructions, dialect))
-        self.session = session
+        let answers = IntelligenceBackends.current.streamResponse(
+            instructions: IntelligenceInstructions.inDialect(Self.instructions, dialect),
+            prompt: prompt, generating: ErrorExplanation.self)
         isExplaining = true
         Log.intelligence.info("explain-error: started \(hash, privacy: .public)")
 
         let updates = AsyncThrowingStream<ErrorExplanation.PartiallyGenerated, Error> { continuation in
             let task = Task { @MainActor in
                 do {
-                    let stream = session.streamResponse(
-                        to: prompt, generating: ErrorExplanation.self)
-                    for try await snapshot in stream {
-                        continuation.yield(snapshot.content)
+                    for try await snapshot in answers {
+                        continuation.yield(snapshot)
                     }
+                    // A cancelled task ends the loop without an error.
+                    try Task.checkCancellation()
                     self.isExplaining = false
                     Log.intelligence.info("explain-error: finished \(hash, privacy: .public)")
                     continuation.finish()
@@ -111,7 +110,6 @@ final class ErrorExplainer: ObservableObject {
     func cancel() {
         task?.cancel()
         task = nil
-        session = nil
         isExplaining = false
     }
 

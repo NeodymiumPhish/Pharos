@@ -90,14 +90,18 @@ final class ChartSuggester {
         let prompt = ChartSuggestionPolicy.prompt(profiles: profiles, rowCount: rowCount,
                                                   candidates: candidates, sql: sql)
         let promptHash = ModelFeedbackStore.promptHash(prompt)
-        let session = LanguageModelSession(instructions: IntelligenceInstructions.inDialect(
-            IntelligenceInstructions.sqlSafety + "\n" + ChartSuggestionPolicy.instructions, dialect))
+        let backend = IntelligenceBackends.current
+        let instructions = IntelligenceInstructions.inDialect(
+            IntelligenceInstructions.sqlSafety + "\n" + ChartSuggestionPolicy.instructions, dialect)
 
         // Race the request against the clock. Cancelling the request task
         // surfaces as a CancellationError from `value`, which is turned into
         // the timeout the user reads; a cancellation from OUTSIDE (the tab
         // changed) still cancels the inner task and is passed on as is.
-        let request = Task { try await session.respond(to: prompt, generating: ChartSuggestion.self).content }
+        let request = Task {
+            try await backend.respond(
+                instructions: instructions, prompt: prompt, generating: ChartSuggestion.self, sampling: .standard)
+        }
         let clock = Task { try await Task.sleep(for: Self.timeout); request.cancel() }
         defer { clock.cancel() }
         let answer: ChartSuggestion
