@@ -24,6 +24,8 @@ swiftc -o "$bin" \
   Pharos/Intelligence/SQLDraftPolicy.swift \
   Pharos/Intelligence/ModelErrorKind.swift \
   Pharos/Intelligence/IntelligenceBackend.swift \
+  Pharos/Intelligence/IntelligenceEndpoint.swift \
+  Pharos/Intelligence/EndpointIntelligenceBackend.swift \
   Pharos/Intelligence/SQLDraft.swift \
   scripts/draft-eval/PipelineStubs.swift \
   PharosTests/SQLDraftBackendTests.swift \

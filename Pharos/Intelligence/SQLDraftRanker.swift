@@ -3,9 +3,10 @@ import Foundation
 /// Step 1 of drafting: which tables the request is probably about, found in
 /// code before the model is asked anything.
 ///
-/// The on-device model has a 4096-token window. Handing it a whole catalogue
-/// and asking it to search — the tool-calling design this replaced — spent
-/// the window on table lists and timed out. Matching the request's words to
+/// The on-device model has a window of 8,192 tokens at most, and 4,096 on
+/// many Macs. Handing it a whole catalogue and asking it to search — the
+/// tool-calling design this replaced — spent the window on table lists and
+/// timed out. Matching the request's words to
 /// table, column and comment names is crude, but it is free, it is
 /// deterministic, and the model only has to choose among (or simply use)
 /// what it finds.

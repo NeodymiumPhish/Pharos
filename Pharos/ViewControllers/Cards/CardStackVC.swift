@@ -102,6 +102,20 @@ final class CardStackVC: NSViewController {
     /// The schema the tab's toolbar pull-down shows, for validation on the tab's connection.
     var validationSchema: () -> String? = { nil }
 
+    // MARK: Describe the query
+
+    /// Every card's draft, for every tab of the window: the card views are
+    /// dropped on a tab switch, the drafts are not.
+    let drafts = CardDraftStore()
+    /// Whether cards offer the Describe button (the feature is on and its
+    /// model can run).
+    var describeAvailable: () -> Bool = { false }
+    /// A new draft for a card of the tab on screen, or nil when there is no
+    /// such tab.
+    var makeDraftSession: () -> CardDraftSession? = { nil }
+    /// Why no draft can start on this tab now (no connected database), or nil.
+    var draftUnavailableReason: () -> String? = { nil }
+
     let completionProvider: SQLCompletionProvider
 
     private(set) var variableNames: Set<String> = []
@@ -159,6 +173,7 @@ final class CardStackVC: NSViewController {
     init(completionProvider: SQLCompletionProvider) {
         self.completionProvider = completionProvider
         super.init(nibName: nil, bundle: nil)
+        drafts.onChange = { [weak self] id in self?.draftChanged(id) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
@@ -235,6 +250,14 @@ final class CardStackVC: NSViewController {
         }
         let anchor = anchor ?? doc.focusedCardId.map { CardStackItem.card($0) }
         items = CardStackLayout.items(doc, filter: filter)
+        // A card that left the document takes its draft with it (a card the
+        // filter hides is still in the document, and keeps its draft).
+        if let tabId {
+            for id in drafts.cardIds where drafts.session(for: id)?.tabId == tabId && doc.card(id) == nil {
+                drafts.close(id, notify: false)
+                draftLabels[id] = nil
+            }
+        }
         let liveIds = Set(items.compactMap { if case let .card(id) = $0 { return id } else { return nil } })
 
         for (id, v) in cardViews where !liveIds.contains(id) {
@@ -288,6 +311,7 @@ final class CardStackVC: NSViewController {
         var lineageCounts: [String: Int] = [:]
         for c in doc.cards { lineageCounts[c.lineageId, default: 0] += 1 }
         let runReason = runUnavailableReason()
+        let describe = DescribeContext(isOffered: describeAvailable(), symbol: IntelligenceSource.current().badgeSymbol)
         var position = 0
         for item in items {
             guard case let .card(id) = item, let card = doc.card(id), let view = cardViews[id] else { continue }
@@ -311,6 +335,7 @@ final class CardStackVC: NSViewController {
                 notes.textView.setAccessibilityIdentifier("editor.card.\(position).notes.text")
             }
             view.showsNotes = card.showsNotes
+            applyDraft(to: view, card: card, position: position, describe)
             if notesDividerDragCard != id { view.notesFraction = card.notesWidthFraction.map { CGFloat($0) } }
             if heightDragCard != id { view.minBodyHeight = CGFloat(card.minBodyHeight ?? 0) }
             view.heightHandle.setAccessibilityIdentifier("editor.card.\(position).height")
@@ -373,6 +398,9 @@ final class CardStackVC: NSViewController {
                     let notesWidth = CardView.split(contentWidth: contentWidth, showsNotes: true, fraction: view.notesFraction).notes
                     var h = bodyHeight(for: id, width: notes == nil ? bodyWidth : bodyWidth - notesWidth)
                     if let notes { h = max(h, notes.height(forWidth: notesWidth)) }
+                    if view.showsDraft, let draft = view.draftView {
+                        view.draftHeight = draft.height(forWidth: contentWidth)
+                    }
                     // The user's extra room, never less than the content.
                     view.contentBodyHeight = h
                     view.bodyHeight = max(h, view.minBodyHeight)
@@ -588,6 +616,7 @@ final class CardStackVC: NSViewController {
         h.onRename = { [weak self] in self?.onRenameRequest?(id) }
         h.onToggleCollapse = { [weak self] in self?.toggleCollapsed(id) }
         h.onNotes = { [weak self] in self?.notesButtonClicked(id) }
+        h.onDescribe = { [weak self] in self?.describeButtonClicked(id) }
         h.onToggleLock = { [weak self] in self?.toggleLock(id) }
         let divider = view.notesDivider
         divider.onDrag = { [weak self, weak view] x in
@@ -676,6 +705,11 @@ final class CardStackVC: NSViewController {
         item(String(localized: "Rename\u{2026}"), { [weak self] in self?.onRenameRequest?(id) })
         item(card.showsNotes ? String(localized: "Hide Notes") : String(localized: "Show Notes"),
              { [weak self] in self?.setNotesShown(id, !card.showsNotes) })
+        if offersDescribe(card) {
+            let shown = drafts.session(for: id)?.isOpen == true && !card.isCollapsed
+            item(shown ? String(localized: "Hide Description") : String(localized: "Describe the Query\u{2026}"),
+                 { [weak self] in self?.describeButtonClicked(id) })
+        }
         if offersCommentImport(card) {
             item(String(localized: "Import Comments to Note"), { [weak self] in self?.importCommentsToNotes(id) })
             item(String(localized: "Keep Comments in Query"), { [weak self] in self?.keepCommentsInQuery(id) })
@@ -998,6 +1032,232 @@ final class CardStackVC: NSViewController {
         }
     }
 
+    // MARK: - Describe the query
+
+    /// The "generated by" line above a card's draft, kept while the draft
+    /// is, so a rating given once stays given.
+    private var draftLabels: [String: GeneratedContentLabel] = [:]
+    /// The draft outcome VoiceOver was last told about, per card.
+    private var announcedDrafts: [String: CardDraftSession.Phase] = [:]
+
+    /// What one refresh pass knows about the feature, read once for all
+    /// its cards.
+    private struct DescribeContext {
+        /// The feature is on and its model can run.
+        let isOffered: Bool
+        /// The badge of the model that would write a draft.
+        let symbol: String
+    }
+
+    /// A card can take a draft: the feature is on, and the card is a
+    /// statement whose text can change.
+    private func offersDescribe(_ card: QueryCard, isOffered: Bool? = nil) -> Bool {
+        (isOffered ?? describeAvailable()) && card.kind == .sql && !card.isLocked
+    }
+
+    /// The Describe button and the strip of one card, from its draft.
+    private func applyDraft(to view: CardView, card: QueryCard, position: Int, _ describe: DescribeContext) {
+        let id = card.id
+        guard offersDescribe(card, isOffered: describe.isOffered) else {
+            // A card that can no longer take a draft (locked again, or the
+            // feature switched off) does not keep one.
+            drafts.close(id, notify: false)
+            view.header.applyDescribe(nil)
+            dropDraftView(of: view)
+            return
+        }
+        guard let session = drafts.session(for: id) else {
+            view.header.applyDescribe(CardDescribeState(symbol: describe.symbol))
+            dropDraftView(of: view)
+            return
+        }
+
+        let status: CardDescribeState.Status
+        switch session.phase {
+        case .editing: status = .idle
+        case .waiting, .drafting: status = .working
+        case .ready: status = .ready
+        case .failed: status = .failed
+        }
+        view.header.applyDescribe(CardDescribeState(
+            symbol: describe.symbol,
+            isOpen: session.isOpen && !card.isCollapsed, hasSession: true, status: status))
+
+        let draft = view.draftView ?? makeDraftView(id)
+        view.setDraftView(draft)
+        draft.setIdentifiers(prefix: "editor.card.\(position)")
+        if case let .ready(ready) = session.phase {
+            let label = draftLabels[id] ?? GeneratedContentLabel(feature: "draft-sql")
+            if draftLabels[id] == nil || label.promptHash != ready.promptHash { label.promptHash = ready.promptHash }
+            draftLabels[id] = label
+            draft.setAttribution(label)
+        } else {
+            draft.setAttribution(nil)
+            draftLabels[id] = nil
+        }
+        let blank = card.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        draft.show(request: session.request, phase: session.phase,
+                   insertTitle: blank ? String(localized: "Insert") : String(localized: "Replace SQL"),
+                   unavailableReason: draftUnavailableReason())
+        view.showsDraft = session.isOpen
+    }
+
+    private func dropDraftView(of view: CardView) {
+        view.showsDraft = false
+        view.setDraftView(nil)
+        draftLabels[view.cardId] = nil
+        announcedDrafts[view.cardId] = nil
+    }
+
+    private func makeDraftView(_ id: String) -> CardDraftView {
+        let view = CardDraftView()
+        view.configurePreview = { [weak self] preview, sql in
+            guard let self else { return }
+            // The editor's font and theme, wrapped and without a gutter: the
+            // strip is for reading the draft, not for editing it.
+            preview.show(sql: sql,
+                         font: SQLEditorController.editorFont(family: self.editorSettings.fontFamily,
+                                                              size: CGFloat(self.editorSettings.fontSize)),
+                         theme: SQLTheme.named(self.editorSettings.syntaxTheme), wraps: true,
+                         showsLineNumbers: false, variableNames: self.variableNames)
+        }
+        view.onRequestChanged = { [weak self] text in self?.drafts.session(for: id)?.request = text }
+        view.onHeightChange = { [weak self] in self?.scheduleRelayout() }
+        view.onDraft = { [weak self] in self?.drafts.session(for: id)?.start() }
+        view.onStop = { [weak self] in self?.drafts.session(for: id)?.stop() }
+        view.onRetry = { [weak self] in self?.drafts.session(for: id)?.retry() }
+        view.onInsert = { [weak self] in self?.insertDraft(id) }
+        view.onMinimize = { [weak self] in self?.setDescriptionShown(id, false) }
+        view.onClose = { [weak self] in self?.closeDescription(id) }
+        return view
+    }
+
+    /// A card's draft changed, opened or closed: its button and strip
+    /// follow, and the cards below move for the strip's new height.
+    private func draftChanged(_ id: String) {
+        guard isViewLoaded, cardViews[id] != nil else { return }
+        refreshStatus(only: [id])
+        scheduleRelayout()
+        announceDraft(id)
+    }
+
+    /// Tell VoiceOver when a draft ends: the analyst may be in another card,
+    /// or have the strip hidden.
+    private func announceDraft(_ id: String) {
+        guard let phase = drafts.session(for: id)?.phase else {
+            announcedDrafts[id] = nil
+            return
+        }
+        guard announcedDrafts[id] != phase else { return }
+        announcedDrafts[id] = phase
+        let message: String
+        switch phase {
+        case .ready: message = String(localized: "Draft ready")
+        case let .failed(reason): message = reason
+        case .editing, .waiting, .drafting: return
+        }
+        NSAccessibility.post(element: view.window ?? view, notification: .announcementRequested, userInfo: [
+            .announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+        ])
+    }
+
+    /// The Describe button and the ⋯ menu's item: start a description, or
+    /// show or hide the one the card has.
+    private func describeButtonClicked(_ id: String) {
+        guard let card = document()?.card(id), offersDescribe(card) else { return }
+        guard let session = drafts.session(for: id) else {
+            guard let session = makeDraftSession() else { return }
+            drafts.add(session, for: id)
+            setDescriptionShown(id, true)
+            return
+        }
+        setDescriptionShown(id, !(session.isOpen && !card.isCollapsed))
+    }
+
+    /// Show the card's description strip (opening a folded card first, with
+    /// the keyboard in its field), or hide it. Hiding stops nothing: the
+    /// draft goes on and the Describe button says where it stands.
+    func setDescriptionShown(_ id: String, _ shown: Bool) {
+        guard let session = drafts.session(for: id), let card = document()?.card(id) else { return }
+        let hadKeyboard = cardViews[id]?.draftView?.fieldHasFocus == true
+        session.isOpen = shown
+        if shown, card.isCollapsed {
+            toggleCollapsed(id)
+        } else {
+            refreshStatus(only: [id])
+            relayout(anchor: .card(id))
+        }
+        if shown {
+            scrollToCard(id)
+            // The card's layout is what unhides the strip.
+            cardViews[id]?.layoutSubtreeIfNeeded()
+            cardViews[id]?.draftView?.focusField()
+        } else if hadKeyboard {
+            focusCard(id)
+        }
+    }
+
+    /// Close the card's description and drop its draft.
+    func closeDescription(_ id: String) {
+        let hadKeyboard = cardViews[id]?.draftView?.fieldHasFocus == true
+        drafts.close(id)
+        relayout(anchor: .card(id))
+        if hadKeyboard { focusCard(id) }
+    }
+
+    /// Close every description and stop every draft (the feature went off).
+    func closeAllDescriptions() {
+        drafts.closeAll()
+        refreshStatus()
+        scheduleRelayout()
+    }
+
+    /// Insert: put the card's draft into its SQL. A draft that is not a
+    /// plain read asks first; Pharos still runs nothing.
+    private func insertDraft(_ id: String) {
+        guard case let .ready(draft)? = drafts.session(for: id)?.phase,
+              let card = document()?.card(id), !card.isLocked else { return }
+        guard let warning = draft.warning else {
+            commitDraft(id, draft)
+            return
+        }
+        // Not a plain SELECT: a statement that writes has no business
+        // arriving in the editor unannounced.
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(localized: "Insert this draft?")
+        alert.informativeText = warning
+        alert.addButton(withTitle: String(localized: "Insert Anyway"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.buttons.first?.hasDestructiveAction = true
+        guard let window = view.window else {
+            if alert.runModal() == .alertFirstButtonReturn { commitDraft(id, draft) }
+            return
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            // The draft on screen when the sheet went up, and only if it is
+            // still the card's draft now.
+            guard let self, response == .alertFirstButtonReturn,
+                  case .ready(draft)? = self.drafts.session(for: id)?.phase else { return }
+            self.commitDraft(id, draft)
+        }
+    }
+
+    /// The draft becomes the card's SQL, in place of any it had, as one undo
+    /// step in that card. The description closes: its work is done.
+    private func commitDraft(_ id: String, _ draft: CardDraftSession.Draft) {
+        guard let card = document()?.card(id), !card.isLocked else { return }
+        focusCard(id)
+        guard let editor = editors[id] else { return }
+        editor.textView.setSelectedRange(NSRange(location: 0, length: (editor.textView.string as NSString).length))
+        guard editor.insertDraft(draft.sql) != nil else {
+            NSSound.beep()
+            return
+        }
+        drafts.close(id)
+        relayout(anchor: .card(id))
+    }
+
     // MARK: - Notes
 
     /// True while the Notes button offers to move the card's leading comments
@@ -1162,6 +1422,9 @@ final class CardStackVC: NSViewController {
     /// text, caret and undo history — goes to `new`; `locked` shows its own
     /// SQL in a fresh preview. Call before `reload`.
     func cardDidSplit(locked: String, new: String) {
+        // The description goes with the text being worked on.
+        drafts.move(from: locked, to: new)
+        draftLabels[new] = draftLabels.removeValue(forKey: locked)
         guard let editor = editors.removeValue(forKey: locked) else { return }
         if view.window?.firstResponder === editor.textView { refocusAfterReload = editor }
         if let old = editors.removeValue(forKey: new) { tearDown(old) }

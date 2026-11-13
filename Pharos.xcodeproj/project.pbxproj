@@ -67,6 +67,7 @@
 		207E909B4BC066C73533A890 /* SQLDraftChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71298B9A1B0DB09A85C507EC /* SQLDraftChecker.swift */; };
 		20C86222B294DCA0DCFECA13 /* EditorPaneVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE7C8A0B66B15B60297006F /* EditorPaneVC.swift */; };
 		217F74D8C53B37F291B6A25B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8FE2418291C7B660C0E43BD9 /* Localizable.xcstrings */; };
+		220FEF9E8B1B504DD47AA6DE /* CardDraftSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 439D4726809928E6C8DC3C16 /* CardDraftSession.swift */; };
 		2217148AF13F5D02FA2C5ECA /* ChartRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FD2FB7E494D5D3B2B803EFD /* ChartRootView.swift */; };
 		237A68781035A34B9C7EF7DD /* TagDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8870AA5A4E803E6824897E6C /* TagDraft.swift */; };
 		23E22A80E39B50A59CA7E425 /* ModelAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA1192590E0CA81706B8921 /* ModelAvailability.swift */; };
@@ -79,7 +80,6 @@
 		291249D847122D96FABFE799 /* DrillKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA16914752C36D98C5FB61F6 /* DrillKey.swift */; };
 		2AA7A3CA8971B0D79FCE58FE /* WindowSight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7810C3A700C53571493B19DD /* WindowSight.swift */; };
 		2BEB53ACBA763C78FB91D0E4 /* ContentViewController+UnsavedWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65BB5738BD159E9BD4771CC0 /* ContentViewController+UnsavedWork.swift */; };
-		2C0ED764FC791B6EA6A28A48 /* DescribeQueryPopoverVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C34549177E366EA2564237F /* DescribeQueryPopoverVC.swift */; };
 		2C70F162D9FAFC6BD51247E7 /* SQLListFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF909DD2FE3959D905A6DC25 /* SQLListFormatter.swift */; };
 		2DA2CC6487D9C4BFD53F3CF1 /* IntelligenceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9AB0873C57969274A41108 /* IntelligenceSession.swift */; };
 		2E2D04CAAE6675C81B15D999 /* TagValueNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5ED7051876C4411F230275 /* TagValueNormalizer.swift */; };
@@ -304,6 +304,7 @@
 		9C75698AFD4443F5F35DEAA9 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA14DEC68453B6F0139FB58F /* EmptyStateView.swift */; };
 		9CD619FD2FD68AD108A18567 /* ContentViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580925EDF531F5722145FC92 /* ContentViewController.swift */; };
 		9D2681720A71CCE84786DE54 /* Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F2105483936AE6C2C9AEB8 /* Tag.swift */; };
+		9DB7F545AA8CC6039CBB2D4E /* CardDraftWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF0518BC2CD0D40017A0020 /* CardDraftWorker.swift */; };
 		9E0A3B53E9A9954935E00204 /* CardResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15F5E389F53B27A6EB63DC1C /* CardResult.swift */; };
 		9E783607775B25FA87D42A2B /* SQLLexSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B990634B80D4EF5153EDA536 /* SQLLexSnapshot.swift */; };
 		9EFF80514B92641D31F52939 /* SQLEditorController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D1375D34DE7C7482FB4BEC /* SQLEditorController.swift */; };
@@ -466,6 +467,7 @@
 		F507AB7E7FBEE0D443970B6F /* DrillTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DF1397DA78E1F14F4631E8 /* DrillTranslator.swift */; };
 		F62B483F1D33D23CE9B95869 /* TemporalBinResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FA508CB2D24E5E23FA0221 /* TemporalBinResolver.swift */; };
 		F67B6B97ABCBAFAE2D2431BC /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B12A90407F4333607C559D /* UpdateChecker.swift */; };
+		F6CD30342D6F89362B13B225 /* CardDraftView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BF707A95CDE9050622E1D93 /* CardDraftView.swift */; };
 		F73FBF7D4575069DE4533EA4 /* AppDelegate+Help.swift in Sources */ = {isa = PBXBuildFile; fileRef = 817314200CBD84014D407C80 /* AppDelegate+Help.swift */; };
 		F940C916FDF93F9D48DE2BBB /* CountedNounText.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFE4964E6E0EFB8FE685BE32 /* CountedNounText.swift */; };
 		F94A3BE1A6CD5B7B31BD8BD0 /* DrillSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD847E740BEC6F542D9BE20D /* DrillSummary.swift */; };
@@ -605,6 +607,7 @@
 		42800B6A5037735CC5FCDB62 /* TabContextState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabContextState.swift; sourceTree = "<group>"; };
 		42ADA36595FCC19CE59E2855 /* SQLFileWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLFileWriter.swift; sourceTree = "<group>"; };
 		43259F3109922674D87B95FF /* IntelligenceEndpointKeyEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntelligenceEndpointKeyEditor.swift; sourceTree = "<group>"; };
+		439D4726809928E6C8DC3C16 /* CardDraftSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDraftSession.swift; sourceTree = "<group>"; };
 		43A05BEB9E63BF8F7876B08E /* SettingsControlFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControlFactory.swift; sourceTree = "<group>"; };
 		43BCD1752648CB825D07D2BB /* PasswordAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordAvailability.swift; sourceTree = "<group>"; };
 		455F83168D766BBE565803E4 /* ServerChartDataBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerChartDataBuilder.swift; sourceTree = "<group>"; };
@@ -647,6 +650,7 @@
 		5B66356022E62F3638C73204 /* PharosCore+DuckDB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PharosCore+DuckDB.swift"; sourceTree = "<group>"; };
 		5B84223AFC952DC12756C8BD /* MCPToolCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPToolCatalog.swift; sourceTree = "<group>"; };
 		5B90FD4F0EF957A405004E20 /* RowEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RowEdit.swift; sourceTree = "<group>"; };
+		5BF707A95CDE9050622E1D93 /* CardDraftView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDraftView.swift; sourceTree = "<group>"; };
 		5C3A06DB5B50B7884BE8C008 /* InspectorViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorViewController.swift; sourceTree = "<group>"; };
 		5CA969614B127DE629649F33 /* SQLTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLTextView.swift; sourceTree = "<group>"; };
 		5DFC784F6F4DED006433B11B /* Acknowledgements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = Acknowledgements.txt; sourceTree = "<group>"; };
@@ -717,7 +721,6 @@
 		8870AA5A4E803E6824897E6C /* TagDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagDraft.swift; sourceTree = "<group>"; };
 		8925575493599FB2E5AEDCE3 /* ConnectSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectSchema.swift; sourceTree = "<group>"; };
 		8B93B203FA860B0DB8F9364E /* ChartRecommender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartRecommender.swift; sourceTree = "<group>"; };
-		8C34549177E366EA2564237F /* DescribeQueryPopoverVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DescribeQueryPopoverVC.swift; sourceTree = "<group>"; };
 		8C4D0427E59AB31AE00221DB /* Navigator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigator.swift; sourceTree = "<group>"; };
 		8C73A264BDE68C6B85043FA1 /* EditorPaneVC+TabContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EditorPaneVC+TabContext.swift"; sourceTree = "<group>"; };
 		8C7952648BE307DBDF6587C8 /* SettingsPaneSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPaneSpec.swift; sourceTree = "<group>"; };
@@ -954,6 +957,7 @@
 		FE2BCCBC66297A6A08F5DAF9 /* PulseClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseClock.swift; sourceTree = "<group>"; };
 		FF2028AE6D6257D17FBD8638 /* ColumnFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColumnFilter.swift; sourceTree = "<group>"; };
 		FFED7D449B3FC4B06D1E076A /* SettingsFormBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFormBuilder.swift; sourceTree = "<group>"; };
+		FFF0518BC2CD0D40017A0020 /* CardDraftWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardDraftWorker.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -1042,9 +1046,9 @@
 		2386898D4C24EC2D0ADA6927 /* Intelligence */ = {
 			isa = PBXGroup;
 			children = (
+				FFF0518BC2CD0D40017A0020 /* CardDraftWorker.swift */,
 				F17824410397936339CDC552 /* ChartSuggestion.swift */,
 				153E0353EF6AD3C227226A78 /* ChartSuggestionPolicy.swift */,
-				8C34549177E366EA2564237F /* DescribeQueryPopoverVC.swift */,
 				6088A0FF46D3CB05413CB286 /* EndpointIntelligenceBackend.swift */,
 				7A68C76D450CDF75F57CAADB /* ErrorExplanation.swift */,
 				1F2665CDD7505A38EA251383 /* ErrorExplanationPrompt.swift */,
@@ -1080,6 +1084,7 @@
 		2FD70E746A0EA7FF6B6C6E27 /* Cards */ = {
 			isa = PBXGroup;
 			children = (
+				439D4726809928E6C8DC3C16 /* CardDraftSession.swift */,
 				1F8264E0C51A4ABE06D594A6 /* CardExecutor.swift */,
 				17CEEB8796DC2B8361BC29CF /* CardPersistence.swift */,
 				F7E540F43D6AD78D464F14C1 /* CardPresentation.swift */,
@@ -1521,6 +1526,7 @@
 		C6C9D13F116AAA1480DCA941 /* Cards */ = {
 			isa = PBXGroup;
 			children = (
+				5BF707A95CDE9050622E1D93 /* CardDraftView.swift */,
 				22C9B224684828CF1DD8E3EE /* CardFindBar.swift */,
 				D0C76528D86F1C170F35A764 /* CardNotesView.swift */,
 				AC5F35274F4C9F5CA72C60A6 /* CardResultsHeaderView.swift */,
@@ -1749,6 +1755,9 @@
 				FA99001B6096D9717AD80B59 /* BlanksSentinel.swift in Sources */,
 				B8E72C9FAD4576270DF0AA9B /* CIDRRange.swift in Sources */,
 				04411B2EE4212224D92CD617 /* CardDocument.swift in Sources */,
+				220FEF9E8B1B504DD47AA6DE /* CardDraftSession.swift in Sources */,
+				F6CD30342D6F89362B13B225 /* CardDraftView.swift in Sources */,
+				9DB7F545AA8CC6039CBB2D4E /* CardDraftWorker.swift in Sources */,
 				EC35BFAF32F403FC747D305B /* CardExecutor.swift in Sources */,
 				88788D92C373CA21CCA59CA6 /* CardFindBar.swift in Sources */,
 				CA1973E55AC237A35185E41E /* CardNotesView.swift in Sources */,
@@ -1814,7 +1823,6 @@
 				F940C916FDF93F9D48DE2BBB /* CountedNounText.swift in Sources */,
 				1841169DE3A96395F44DB633 /* CrashLogger.swift in Sources */,
 				E2CEB7F7772CC2D0B646284A /* DataFiles.swift in Sources */,
-				2C0ED764FC791B6EA6A28A48 /* DescribeQueryPopoverVC.swift in Sources */,
 				8BD5C948806AAF45D1D1821F /* DestructiveConfirmationText.swift in Sources */,
 				26B04812BFD5A8814F0B729A /* DestructiveSQLScanner.swift in Sources */,
 				A756B0221308FD68F1517648 /* DeviceOwnerGateRecency.swift in Sources */,

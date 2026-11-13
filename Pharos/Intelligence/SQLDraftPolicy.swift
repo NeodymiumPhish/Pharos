@@ -8,7 +8,7 @@ import Foundation
 /// one after the semicolon — and it REVIEWS the result, so a draft that is
 /// not a plain `SELECT` is named as such before the analyst inserts it.
 ///
-/// Nothing here runs anything. The review decides whether the popover asks
+/// Nothing here runs anything. The review decides whether the card's strip asks
 /// one more question, never whether the SQL is executed: Pharos does not
 /// execute a draft at all.
 enum SQLDraftPolicy {
@@ -24,7 +24,7 @@ enum SQLDraftPolicy {
 
     // MARK: - Review
 
-    /// The cleaned draft plus everything the popover needs to decide what to
+    /// The cleaned draft plus everything the card's strip needs to decide what to
     /// say about it.
     struct Review: Equatable {
 
@@ -68,7 +68,7 @@ enum SQLDraftPolicy {
         /// One sentence naming what is wrong, or nil when nothing is.
         ///
         /// A refusal says so — the analyst is told why nothing was offered,
-        /// and where to change it, rather than watching the popover do
+        /// and where to change it, rather than watching the strip do
         /// nothing.
         var warning: String? {
             guard writes else { return nil }

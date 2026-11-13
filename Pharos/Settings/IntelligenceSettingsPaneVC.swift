@@ -57,7 +57,7 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
         case .apple:
             return String(localized: "The model built into macOS. Nothing leaves this Mac.")
         case .endpoint:
-            return String(localized: "When a feature runs, your SQL, schema names, error messages and query plans go to the endpoint below.")
+            return String(localized: "When a feature runs, your SQL, schema names, table definitions, error messages and query plans go to the endpoint below.")
         }
     }
 
@@ -136,7 +136,7 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
         alert.alertStyle = .informational
         alert.messageText = String(localized: "Send your SQL and schema names to \(host)?")
         alert.informativeText = String(localized: """
-            With the custom endpoint chosen, each feature sends \(host) the text it works from: the SQL you wrote, the names and types of the tables and columns it mentions, error messages and query plans. SQL and plans can contain values you typed, such as a name in a WHERE clause.
+            With the custom endpoint chosen, each feature sends \(host) the text it works from: the SQL you wrote, the names and types of the tables and columns it mentions, error messages and query plans. Describing a query also sends the definitions (DDL) of the tab's tables, which include column defaults and check constraints. SQL and plans can contain values you typed, such as a name in a WHERE clause.
 
             Naming a card, summarising a plan and explaining an error run on their own, so they send without asking each time. Each can be turned off in this pane.
 
@@ -217,6 +217,9 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    /// The shortest and longest a draft may be given: 15 seconds to an hour.
+    static let draftTimeoutRange = 15...3600
 
     /// Most ratings the caption counts. The store keeps more; a settings
     /// caption does not need them, and a pane refresh must not read the whole
@@ -338,9 +341,18 @@ final class IntelligenceSettingsPaneVC: SettingsFormPaneVC {
                 SettingsItem(
                     id: "describeQuery",
                     title: String(localized: "Describe the query"),
-                    caption: String(localized: "The editor toolbar button that drafts SQL from a sentence."),
+                    caption: String(localized: "The Describe button on each query card, which drafts SQL from a sentence."),
                     icon: "text.bubble",
                     kind: .toggle(.settings(\.intelligence.describeQuery)),
+                    dependsOn: "appleIntelligence"),
+                SettingsItem(
+                    id: "draftTimeout",
+                    title: String(localized: "Stop a draft after"),
+                    caption: String(localized: "How long one draft may take before Pharos stops it. A slow model or a large schema needs longer."),
+                    icon: "timer",
+                    help: String(localized: "Counted from when the draft starts, not while it waits behind another card's draft."),
+                    kind: .stepper(.settings(\.intelligence.draftTimeoutSeconds), range: Self.draftTimeoutRange,
+                                   unit: String(localized: "seconds")),
                     dependsOn: "appleIntelligence"),
                 SettingsItem(
                     id: "allowDraftingWriteStatements",

@@ -101,6 +101,7 @@
   "intelligence": {
     "allowDraftingWriteStatements": false,
     "describeQuery": false,
+    "draftTimeoutSeconds": 45,
     "endpoint": {
       "allowedHost": "api.example.com",
       "baseUrl": "http://localhost:11434/v1",

@@ -18,8 +18,41 @@ enum CardPalette {
 
 // MARK: - Name row
 
+/// What a card's Describe button shows: whether the description strip is on
+/// screen, and where the card's draft stands while the strip is hidden.
+struct CardDescribeState: Equatable {
+    enum Status: Equatable {
+        /// No draft asked for, or none to report.
+        case idle
+        /// Waiting its turn, or the model is working.
+        case working
+        case ready
+        case failed
+    }
+
+    /// The SF Symbol of the model that would write the draft.
+    var symbol = "sparkles"
+    /// The strip shows in the card.
+    var isOpen = false
+    /// The card has a description, shown or hidden.
+    var hasSession = false
+    var status: Status = .idle
+
+    /// The words beside the symbol while the strip is hidden and there is
+    /// something to come back for.
+    var title: String? {
+        guard hasSession, !isOpen else { return nil }
+        switch status {
+        case .idle: return nil
+        case .working: return String(localized: "Drafting\u{2026}")
+        case .ready: return String(localized: "Draft Ready")
+        case .failed: return String(localized: "Draft Failed")
+        }
+    }
+}
+
 /// A card's name row: name, version, lock, state badge, the large View Results
-/// button, Run, Run and Replace, Cancel and the ⋯ menu. Shows a
+/// button, Run, Run and Replace, Cancel, Describe, Notes and the ⋯ menu. Shows a
 /// `CardPresentation`; every click goes out through a closure.
 final class CardHeaderView: NSView {
     static let height: CGFloat = 34
@@ -34,6 +67,8 @@ final class CardHeaderView: NSView {
     /// The Notes button: open or close the notes, or import comments into
     /// them while the button offers that.
     var onNotes: (() -> Void)?
+    /// The Describe button: open the description strip, or hide it.
+    var onDescribe: (() -> Void)?
     /// The ⋯ menu, built fresh by the owner each time it opens.
     var menuProvider: (() -> NSMenu)?
 
@@ -50,6 +85,7 @@ final class CardHeaderView: NSView {
     let runButton = CardRunButton()
     let runReplaceButton = CardRunButton()
     let cancelButton = NSButton()
+    let describeButton = NSButton()
     let notesButton = NSButton()
     let moreButton = NSButton()
     /// Drag to move the card (`CardStackVC` runs the drag).
@@ -118,6 +154,12 @@ final class CardHeaderView: NSView {
         runReplaceButton.availableToolTip = String(localized: "Run and Replace Results (⇧⌘↩): replace this card's results instead of keeping them as a locked version")
         cancelButton.contentTintColor = .systemRed
 
+        describeButton.bezelStyle = .push
+        describeButton.target = self
+        describeButton.action = #selector(describe)
+        describeButton.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        applyDescribe(nil)
+
         notesButton.bezelStyle = .push
         notesButton.target = self
         notesButton.action = #selector(notes)
@@ -136,7 +178,7 @@ final class CardHeaderView: NSView {
         leading.spacing = 6
         leading.alignment = .centerY
         leading.setHuggingPriority(.defaultLow, for: .horizontal)
-        let trailing = NSStackView(views: [resultsButton, runButton, runReplaceButton, cancelButton, notesButton, moreButton])
+        let trailing = NSStackView(views: [resultsButton, runButton, runReplaceButton, cancelButton, describeButton, notesButton, moreButton])
         trailing.orientation = .horizontal
         trailing.spacing = 4
         trailing.alignment = .centerY
@@ -241,6 +283,42 @@ final class CardHeaderView: NSView {
         notesButton.setAccessibilityValue(hasNotes ? String(localized: "has notes") : String(localized: "no notes"))
     }
 
+    /// The Describe button: hidden for nil (the feature is off, or the card
+    /// cannot take a draft). Accent-tinted while the strip shows, as the
+    /// Notes button. While the strip is hidden it says where the draft
+    /// stands, so a hidden draft is never a lost one.
+    func applyDescribe(_ state: CardDescribeState?) {
+        guard let state else {
+            describeButton.isHidden = true
+            return
+        }
+        describeButton.isHidden = false
+        let label = String(localized: "Describe the Query")
+        let name = !state.isOpen && state.hasSession && state.status == .failed ? "exclamationmark.triangle" : state.symbol
+        describeButton.image = symbol(name, label) ?? symbol("sparkles", label)
+        describeButton.title = state.title ?? ""
+        describeButton.imagePosition = state.title == nil ? .imageOnly : .imageLeading
+        describeButton.contentTintColor = state.isOpen || state.title != nil ? .controlAccentColor : nil
+        let status: String?
+        switch state.status {
+        case .idle: status = nil
+        case .working: status = String(localized: "drafting")
+        case .ready: status = String(localized: "draft ready")
+        case .failed: status = String(localized: "draft failed")
+        }
+        if state.isOpen {
+            describeButton.toolTip = String(localized: "Hide the description. A draft in progress keeps running.")
+        } else if state.hasSession {
+            describeButton.toolTip = String(localized: "Show the description and its draft")
+        } else {
+            describeButton.toolTip = String(localized: "Describe the query\u{2026}")
+        }
+        describeButton.setAccessibilityLabel(label)
+        describeButton.setAccessibilityValue(
+            [state.isOpen ? String(localized: "shown") : nil, state.hasSession ? status : nil]
+                .compactMap { $0 }.joined(separator: ", "))
+    }
+
     /// Accessibility identifiers for card `n` (1-based).
     func setIdentifiers(prefix: String) {
         setAccessibilityIdentifier("\(prefix).header")
@@ -250,6 +328,7 @@ final class CardHeaderView: NSView {
         runButton.setAccessibilityIdentifier("\(prefix).run")
         runReplaceButton.setAccessibilityIdentifier("\(prefix).runReplace")
         cancelButton.setAccessibilityIdentifier("\(prefix).cancel")
+        describeButton.setAccessibilityIdentifier("\(prefix).describe")
         notesButton.setAccessibilityIdentifier("\(prefix).notes")
         moreButton.setAccessibilityIdentifier("\(prefix).more")
         lockButton.setAccessibilityIdentifier("\(prefix).lock")
@@ -261,6 +340,7 @@ final class CardHeaderView: NSView {
     @objc private func runReplace() { onRunReplace?() }
     @objc private func cancel() { onCancel?() }
     @objc private func notes() { onNotes?() }
+    @objc private func describe() { onDescribe?() }
     @objc private func toggleLock() { onToggleLock?() }
 
     /// The lock button's symbol, label and help for `lock`. The label names
@@ -506,8 +586,9 @@ final class CardDisclosureButton: NSButton {
 
 // MARK: - Card
 
-/// One card: a rounded panel with a colour stripe, the name row, and the body
-/// (a live editor or a preview). Flipped, so the name row is at the top.
+/// One card: a rounded panel with a colour stripe, the name row, the
+/// "Describe the query" strip while it is open, and the body (a live editor
+/// or a preview). Flipped, so the name row is at the top.
 final class CardView: NSView {
     static let cornerRadius: CGFloat = 9
     /// Space left of the name row and the body. It held the card's colour
@@ -537,6 +618,18 @@ final class CardView: NSView {
     var showsNotes = false { didSet { if oldValue != showsNotes { needsLayout = true } } }
     /// The part of the body the notes take; nil for the default.
     var notesFraction: CGFloat? { didSet { if oldValue != notesFraction { needsLayout = true } } }
+    /// The "Describe the query" strip, between the name row and the body
+    /// while `showsDraft`. Owned here for the reason the notes are: the body
+    /// is swapped under it.
+    private(set) var draftView: CardDraftView?
+    var showsDraft = false { didSet { if oldValue != showsDraft { needsLayout = true } } }
+    /// Height of the strip when shown (the stack measures it).
+    var draftHeight: CGFloat = 0 { didSet { if oldValue != draftHeight { needsLayout = true } } }
+    /// The room the strip takes above the body: none while it is hidden or
+    /// the card is folded.
+    var draftOffset: CGFloat { showsDraft && draftView != nil && !isCollapsed ? draftHeight : 0 }
+    /// Where the body starts, below the name row, its line and the strip.
+    var bodyTop: CGFloat { CardHeaderView.height + 1 + draftOffset }
     /// The handle on the line between the SQL and the notes.
     let notesDivider = CardNotesDivider()
     /// The handle along the card's bottom edge: drag it down for more room.
@@ -587,7 +680,15 @@ final class CardView: NSView {
 
     /// The height the card needs.
     var fittingHeight: CGFloat {
-        CardHeaderView.height + (isCollapsed ? 0 : bodyHeight + 1 + Self.bodyBottomInset)
+        CardHeaderView.height + (isCollapsed ? 0 : draftOffset + bodyHeight + 1 + Self.bodyBottomInset)
+    }
+
+    func setDraftView(_ view: CardDraftView?) {
+        guard view !== draftView else { return }
+        draftView?.removeFromSuperview()
+        draftView = view
+        if let view { addSubview(view, positioned: .below, relativeTo: notesDivider) }
+        needsLayout = true
     }
 
     func setNotesView(_ view: CardNotesView?) {
@@ -611,17 +712,23 @@ final class CardView: NSView {
     override func layout() {
         super.layout()
         header.frame = NSRect(x: Self.stripeWidth, y: 0, width: bounds.width - Self.stripeWidth, height: CardHeaderView.height)
+        let draftShown = draftOffset > 0
+        draftView?.isHidden = !draftShown
+        if draftShown {
+            draftView?.frame = NSRect(x: Self.stripeWidth, y: CardHeaderView.height + 1,
+                                      width: Self.contentWidth(cardWidth: bounds.width), height: draftHeight)
+        }
         body?.isHidden = isCollapsed
         let notesShown = showsNotes && notesView != nil && !isCollapsed
         let widths = Self.split(contentWidth: Self.contentWidth(cardWidth: bounds.width), showsNotes: notesShown,
                                 fraction: notesFraction)
-        body?.frame = NSRect(x: Self.stripeWidth, y: CardHeaderView.height + 1, width: widths.sql, height: max(0, bodyHeight))
+        body?.frame = NSRect(x: Self.stripeWidth, y: bodyTop, width: widths.sql, height: max(0, bodyHeight))
         notesView?.isHidden = !notesShown
         notesDivider.isHidden = !notesShown
         if notesShown {
             let x = Self.stripeWidth + widths.sql
-            notesView?.frame = NSRect(x: x, y: CardHeaderView.height + 1, width: widths.notes, height: max(0, bodyHeight))
-            notesDivider.frame = NSRect(x: x - CardNotesDivider.hitWidth / 2, y: CardHeaderView.height + 1,
+            notesView?.frame = NSRect(x: x, y: bodyTop, width: widths.notes, height: max(0, bodyHeight))
+            notesDivider.frame = NSRect(x: x - CardNotesDivider.hitWidth / 2, y: bodyTop,
                                         width: CardNotesDivider.hitWidth, height: max(0, bodyHeight))
             notesDivider.setAccessibilityValue(Int((widths.notes / max(1, widths.sql + widths.notes) * 100).rounded()))
         }
@@ -636,7 +743,7 @@ final class CardView: NSView {
     /// The body height that puts the card's bottom edge at `bottom` (card
     /// coordinates).
     func bodyHeight(forBottomAt bottom: CGFloat) -> CGFloat {
-        max(0, bottom - CardHeaderView.height - 1 - Self.bodyBottomInset)
+        max(0, bottom - bodyTop - Self.bodyBottomInset)
     }
 
     override func draw(_ dirtyRect: NSRect) {

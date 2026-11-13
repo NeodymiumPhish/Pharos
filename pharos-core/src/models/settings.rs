@@ -619,6 +619,7 @@ pub struct IntelligenceEndpoint {
 }
 
 fn default_endpoint_context_tokens() -> u32 { 8192 }
+fn default_draft_timeout_seconds() -> u32 { 300 }
 
 impl Default for IntelligenceEndpoint {
     fn default() -> Self {
@@ -653,6 +654,11 @@ pub struct IntelligenceSettings {
     pub suggest_charts: bool,
     #[serde(default = "default_true")]
     pub allow_drafting_write_statements: bool,
+    /// How long one "Describe the query" draft may take before Pharos stops
+    /// it, in seconds. Counted from when the draft starts, not while it
+    /// waits behind another card's draft.
+    #[serde(default = "default_draft_timeout_seconds")]
+    pub draft_timeout_seconds: u32,
     #[serde(default)]
     pub provider: IntelligenceProvider,
     #[serde(default)]
@@ -669,6 +675,7 @@ impl Default for IntelligenceSettings {
             summarise_plans: true,
             suggest_charts: true,
             allow_drafting_write_statements: true,
+            draft_timeout_seconds: default_draft_timeout_seconds(),
             provider: IntelligenceProvider::default(),
             endpoint: IntelligenceEndpoint::default(),
         }
@@ -1553,6 +1560,7 @@ pub(crate) mod fixture {
                     summarise_plans: false,
                     suggest_charts: false,
                     allow_drafting_write_statements: false,
+                    draft_timeout_seconds: 45,
                     provider: IntelligenceProvider::Endpoint,
                     endpoint: IntelligenceEndpoint {
                         base_url: "http://localhost:11434/v1".to_string(),
@@ -1910,6 +1918,7 @@ mod tests {
         assert_eq!(parsed.provider, IntelligenceProvider::Apple);
         assert_eq!(parsed.endpoint, IntelligenceEndpoint::default());
         assert_eq!(parsed.endpoint.context_tokens, 8192);
+        assert_eq!(parsed.draft_timeout_seconds, 300, "a missing timeout takes the default, not zero");
 
         let json = serde_json::to_string(&IntelligenceSettings {
             provider: IntelligenceProvider::Endpoint,

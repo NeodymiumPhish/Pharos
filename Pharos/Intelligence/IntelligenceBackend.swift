@@ -35,6 +35,20 @@ protocol IntelligenceBackend {
         schema: GenerationSchema, sampling: IntelligenceSampling
     ) async throws -> GeneratedContent
 
+    /// One answer to a schema built at run time, with the most characters
+    /// each named free-text field of the answer may hold (`textLimits`: a
+    /// field's name to its limit, at any depth; a list of strings takes its
+    /// own name's limit for each string).
+    ///
+    /// The limit is for a backend that can be held to one and needs it: an
+    /// endpoint's model can run on inside a field until its window is full.
+    /// The on-device model is not asked to keep to it and does not need to
+    /// be; the default below ignores the limits.
+    func respond(
+        instructions: String, prompt: String,
+        schema: GenerationSchema, textLimits: [String: Int], sampling: IntelligenceSampling
+    ) async throws -> GeneratedContent
+
     /// One answer as it fills in. Each element is the whole answer so far.
     /// Dropping the stream cancels the generation.
     func streamResponse<Answer: Generable>(
@@ -45,6 +59,24 @@ protocol IntelligenceBackend {
     /// together. Throws `IntelligenceBackendError.tokenCountUnavailable`
     /// where the model cannot say; the caller then keeps its own estimate.
     func tokenCount(instructions: String, prompt: String, schema: GenerationSchema) async throws -> Int
+}
+
+extension IntelligenceBackend {
+    func respond(
+        instructions: String, prompt: String,
+        schema: GenerationSchema, textLimits: [String: Int], sampling: IntelligenceSampling
+    ) async throws -> GeneratedContent {
+        try await respond(instructions: instructions, prompt: prompt, schema: schema, sampling: sampling)
+    }
+}
+
+/// An answer type that says how long its free-text fields may be, for a
+/// backend that can hold an answer to that (see
+/// `IntelligenceBackend.respond(instructions:prompt:schema:textLimits:sampling:)`).
+/// A field it does not name gets the backend's own limit.
+protocol TextLimitedAnswer {
+    /// A field's name to the most characters it may hold.
+    static var textLimits: [String: Int] { get }
 }
 
 /// How the model chooses each token.

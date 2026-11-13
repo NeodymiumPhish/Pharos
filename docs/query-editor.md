@@ -22,7 +22,7 @@ The query editor provides SQL editing with syntax highlighting, auto-completion,
 
 ## Editor Toolbar
 
-The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), **Describe the query…** (see [Apple Intelligence](apple-intelligence.md)), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of three icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Session, Connections (opens the Connections Manager), a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
+The editor toolbar is the row above the cards. It starts with the tab's [context row](#the-context-row): its connection › schema, the connection's state and the transaction chip. After it come **Format** (SQL formatter), a **Save** dropdown (Save / Save As… / Export as SQL File…) and **New Card**. Pinned to the right are the **Filter Cards** search field, the error badge and the **Collapse All Cards / Expand All Cards** button. The window toolbar above holds only window-wide items: the **navigator selector** (a grouped set of three icons over the sidebar) and the inspector toggle. To run and cancel queries, use each card's **Run** and **Cancel** buttons or the **Query** menu (see [Query Execution](query-execution.md)); choose **View > Customize Toolbar…** to add Format, New Tab, Save Session, Connections (opens the Connections Manager), a sidebar filter field or a plain sidebar toggle to the window toolbar. A contextual **Format as SQL list** button appears after pasting a bare list of values (see below).
 
 ### The context row
 
@@ -49,6 +49,7 @@ Each card has a name row above its SQL. From left to right it shows:
 - a large **View Results** button. It reads **Showing Results · N rows**, and is filled, while that card's results are on screen;
 - **Run**, and **Run and Replace Results** (shown only after you edit a card that has results). Both are greyed out while the tab has no connected database. Rest the pointer on a greyed-out button, or click it, to see why and how to connect;
 - **Cancel**, while the card runs;
+- the **Describe** button, while [Draft SQL](apple-intelligence.md#draft-sql) is on: it opens a strip in the card where you describe the query and read the draft. With the strip hidden it reads **Drafting…**, **Draft Ready** or **Draft Failed**;
 - the **Notes** button (see [Notes](#notes));
 - the **⋯** menu.
 
@@ -97,7 +98,7 @@ Other actions also add a card to the active tab:
 
 - Select part of a card's SQL and press **Cmd+Return**: with **⌘↩ runs** set to **The selection, else the statement** in [Settings > Query](settings.md#query-pane), the selection runs as a new, generated card (see [Running Cards](query-execution.md#running-cards)).
 - **View All Contents** and **View Contents (Limit…)** in the [schema browser](schema-browser.md#table-context-menu), and the drill-down of a server-aggregated [chart](charts.md#committing-a-selection), add a new card.
-- A draft from **Describe the query…** goes into the focused card when it is empty, otherwise into a new card (see [Draft SQL](apple-intelligence.md#draft-sql)).
+- A draft from a card's **Describe** button goes into that card: **Insert** when the card is empty, **Replace SQL** when it has text (see [Draft SQL](apple-intelligence.md#draft-sql)).
 
 ### Filtering cards
 

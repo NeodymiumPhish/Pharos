@@ -678,7 +678,7 @@ struct IntelligenceEndpointSettings: Codable, Equatable {
 /// `useAppleIntelligence` allowed them — so an existing user sees no change
 /// until they clear one.
 struct IntelligenceSettings: Codable, Equatable {
-    /// The editor toolbar's "Describe the query…" button.
+    /// The Describe button in each query card's name row.
     var describeQuery: Bool = true
     /// The explanation block on the query-error sheet.
     var explainErrors: Bool = true
@@ -695,8 +695,12 @@ struct IntelligenceSettings: Codable, Equatable {
     var suggestCharts: Bool = true
     /// Whether a draft that is not a plain read may be offered at all. Off
     /// refuses it outright; on offers it behind the existing confirmation,
-    /// which is what the popover did before this switch existed.
+    /// which is what the feature did before this switch existed.
     var allowDraftingWriteStatements: Bool = true
+    /// How long one "Describe the query" draft may take before Pharos stops
+    /// it, in seconds. Counted from when the draft starts, not while it
+    /// waits behind another card's draft.
+    var draftTimeoutSeconds: UInt32 = 300
     /// Apple's on-device model unless the user chooses otherwise: it is what
     /// answered before there was a choice.
     var provider: IntelligenceProvider = .apple

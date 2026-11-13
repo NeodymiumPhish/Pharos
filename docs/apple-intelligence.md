@@ -83,9 +83,10 @@ entered or nowhere.
 
 **What is sent.** The same text the on-device model is given, described
 feature by feature below: the SQL you wrote, the names and types of the tables
-and columns it mentions, error messages and query plans. SQL and plans can
-contain values you typed, such as a name in a `WHERE` clause. No feature sends
-the rows of a result.
+and columns it mentions, error messages and query plans. Describing a query
+also sends the definitions (DDL) of the tab's tables, which include column
+defaults and check constraints. SQL and plans can contain values you typed,
+such as a name in a `WHERE` clause. No feature sends the rows of a result.
 
 {: .warning }
 With an endpoint on another machine, that text leaves this Mac. Naming a
@@ -120,8 +121,25 @@ refused, the model name is not known, the endpoint is busy or did not answer.
   failure, not guessed at. Everything Pharos does to an answer afterwards — a
   name sanitised, a chart checked against its columns, a draft's names
   checked — is done to an endpoint's answer in the same way.
-- **Describe the query** budgets its tables against the context size you
-  entered, since an endpoint cannot count tokens for Pharos. How well it
+- Each answer's fields are asked for in the order they are meant to be
+  written — a draft's plan before its SQL, a table's name before its columns —
+  because an endpoint that holds its answer to the schema writes them in the
+  order the schema lists them.
+- Each free-text field of an answer is given a maximum length: 300 characters
+  for a field that is one line by design (a draft's plan and note, the reason
+  for a choice of tables), 2,000 for a drafted statement, 4,000 for any
+  other. A local model asked for the
+  likeliest token every time, which is how Pharos asks so that a draft can be
+  reproduced, can start repeating itself inside a field and run on until its
+  window is full. An endpoint that enforces the schema (LM Studio, llama.cpp,
+  Ollama, vLLM) closes the field at the limit and finishes the answer. One
+  that does not is stopped when the request has gone 120 seconds without an
+  answer.
+- **Describe the query** budgets its requests against the context size you
+  entered, since an endpoint cannot count tokens for Pharos, and holds each
+  to a fixed ceiling however large that size is: a hosted model with a
+  200,000-token window is sent the same few small requests as the on-device
+  one (see [Draft SQL](#draft-sql)). How well it
   drafts depends on the model: `scripts/eval-sql-draft.sh endpoint` scores an
   endpoint on the same 22 requests the on-device figures below come from.
 
@@ -243,64 +261,243 @@ written against the connected database's real tables and columns. The draft is
 inserted as text: read it, change it, and run it yourself when you are ready.
 The safety instruction keeps the model off statements that modify data.
 
-**Where it is.** The Apple Intelligence button sits next to *Format SQL* in the
-editor's toolbar. It is there only while Apple Intelligence is on, and it is
-greyed out — *Connect this tab to a database to draft a query.* — until the tab
-is connected, because a draft is written against a real schema or not at all.
+**Where it is.** Every query card has a **Describe** button in its name row,
+left of **Notes**, and **Describe the Query…** in its **⋯** menu. Both open a
+description strip inside the card, between the name row and the SQL. The
+button is there only while the feature is on, and only on a card whose SQL can
+change (not a locked version). Each card has its own description and its own
+draft.
 
-**How it works.** Type what the query should return and press **Draft**
-(⌘↩). The on-device model has a 4,096-token window, so Pharos finds the tables
-and the model only writes the SQL. The popover names each step as it runs:
+**The strip stays where it is.** It is part of the card, not a popover:
+clicking elsewhere in Pharos, typing in another card, switching tabs or
+switching to another app leaves it, the words you typed and its draft as they
+were. Only its own two buttons take it away:
+
+- **Hide Description** (the chevron, or **Escape** in the field, or the card's
+  **Describe** button again) hides the strip and stops nothing. While it is
+  hidden the card's **Describe** button says where the draft stands —
+  **Drafting…**, **Draft Ready** or **Draft Failed** — and a click on it
+  shows the strip again, with **Stop**, **Retry** or **Insert** as before. A
+  folded card hides its strip the same way.
+- **Close Description** (the ✕) closes the strip, stops its draft and discards
+  it.
+
+A draft also ends when its card is deleted, its tab is closed, or the feature
+is switched off in Settings.
+
+**How it works.** Type what the query should return and press **Draft**, or
+**Return** (**Option-Return** starts a new line). Until the tab is connected,
+**Draft** is greyed out and the strip says *Connect this tab to a database to
+draft a query.*, because a draft is written against a real schema or not at
+all. You do not have to wait with the strip open: hide it, work in another
+card or another app, and come back when the button reads **Draft Ready**.
+
+Pharos drafts for one card at a time. A second card's draft reads *Waiting
+for another card's draft…* until the first ends, then starts by itself.
+**Stop** ends a draft that waits or runs and keeps your description.
+
+A draft that takes longer than **Stop a draft after** in
+[Settings ▸ Intelligence](settings.md#features) — 300 seconds unless you
+change it — is stopped, and the strip offers **Retry**. The time is counted
+from when the draft starts, not while it waits behind another card.
+
+**Small steps, each inside the model's window.** Pharos does not hand the
+model the schema and hope it fits. It works in steps, does the searching
+itself, and asks the model a small question at a time. Each question is one
+request in a new session, so nothing piles up from step to step: a request
+carries its instructions, the tables for that step and your sentence, and no
+earlier answer. The strip names each step as it runs:
 
 1. **Finding tables.** Pharos matches the words of the request to table,
-   column and comment names, and adds the tables one foreign key away. The
-   strongest matches, plus the tables they reference, are the candidates.
-2. **Choosing tables** (only when there are too many candidates for one
-   request). The model chooses up to six from the list by name. Its answer is
-   held to the names on the list, so it cannot invent a table.
-3. Pharos adds any table that joins two chosen tables, and writes each table
-   as a compact block: columns, types, primary keys, foreign keys (`->`), enum
-   values (`{…}`) and short comments.
-4. **Writing the query.** The model gets the block, the request, and three
-   short worked examples.
+   column and comment names, and adds the tables the strongest matches
+   reference. No request is sent: when your description names its tables,
+   they are found here.
+2. **Choosing tables** (only when the words match more than eight tables, or
+   none). The model is shown a list of table *names* — with their first
+   columns while that fits, the names alone when it does not — and chooses up
+   to six. Its answer is held to the names on the list, so it cannot invent a
+   table.
+3. **Reading the tables.** Pharos reads the `CREATE TABLE` of each candidate
+   from the database — the text **View Table DDL…** shows at **+
+   Constraints**: columns, types, defaults, `NOT NULL`, primary and foreign
+   keys, unique and check constraints, without indexes. What happens next
+   depends on how much there is:
+   - **A few tables' worth** goes to step 4 as it is. The model reads each
+     candidate's DDL there, and writing the query is where it finds out
+     which columns it has to work with.
+   - **More than that** is put to the model first, in a request of its own:
+     which of these tables does the query need, and which of their columns?
+     A table the model finds no use for is dropped. If none of the
+     candidates holds what you asked for, step 2 runs once more over the
+     rest of the schema's names.
+4. **Writing the query.** The model gets the tables from step 3, plus any
+   table that joins two of them, the request, and four short worked
+   examples. The tables are shown as DDL. When their DDL is too large even
+   after step 3 they are shown the short way instead — columns, types, keys
+   and enum values — keeping the columns step 3 named and trimming the rest.
+
+A partitioned table is read and shown once, by the parent's DDL with its
+`PARTITION BY` clause — what **View Table DDL…** shows for the parent. Its
+partitions are never listed, and a partition the request names is read as its
+parent. Under each table's DDL Pharos adds what DDL does not say: the table's
+comment, the values of an enum column, and column comments.
+
+**How the window is kept.** Every request's table text has a budget: a share
+of the model's window, and a fixed ceiling for models whose window is far
+larger. What does not fit is split into another request or made smaller
+before anything is sent.
+
+| Request | Share of the window | Ceiling | On an 8,192-token window |
+|---|---|---|---|
+| The name list (step 2) | one fifth | 2,000 tokens | 1,638 |
+| Candidates' DDL that goes to step 4 as it is | three tenths | 2,500 tokens | 2,457 |
+| The DDL in one reading request (step 3) | two fifths | 4,000 tokens | 3,276 |
+| The tables in the writing request (step 4), at most | two thirds | 6,000 tokens | 5,461 |
+
+The figures are Pharos's own estimate, which counts high, so a request is
+smaller than its budget says. When step 3 asks the model, it puts as many
+tables in a request as fit the budget and sends at most three such requests;
+usually it is one. A table whose DDL alone is over the budget is not asked
+about and goes to step 4 the short way. Before the writing request is sent
+Pharos has the model count it, where the model can count, and makes it
+smaller if the answer would not have room.
+
+A draft is therefore one request when your description names a few tables
+and two when the model has to choose among names or narrow the tables down.
+It is never more than six: one to choose, three to read, one to write and one
+to repair.
+
+The budgets are sized for the on-device model of a Mac that runs **AFM 3 Core
+Advanced** on macOS 27, whose window is 8,192 tokens; Pharos reads the size
+from the model, so a Mac whose on-device model has a 4,096-token window gets
+the same steps with smaller shares. A custom endpoint is budgeted against the
+**Context size** you entered, and never sent more than the ceilings however
+large its window is: a draft costs it the same few small requests.
+
 5. **Checking names.** Pharos reads the draft and checks, on this Mac, that
    every table exists, that every `alias.column` belongs to its table, that
-   mixed-case names keep their double quotes, and that an enum is compared
+   a name which needs double quotes has them, and that an enum is compared
    only with its own values. What the catalogue can answer, Pharos corrects
    itself: a join on columns that do not exist gets the foreign key between
    the two tables (when exactly one key joins them), a column read through
    the wrong alias moves to the one table that has it, and a mixed-case name
-   gets its quotes. Each correction is listed under the draft — *Pharos
-   corrected: …*.
+   or a key word used as a name (`o.order`) gets its quotes. A hint or a
+   correction only names a table the place it is made at can read: a
+   subquery's table is not offered to the query around it, and an alias
+   means the table it was given in the nearest query. The model is
+   asked to write names without quotes and leave them to this step: the
+   on-device model tends to stop writing at a double quote. Each correction
+   is listed under the draft — *Pharos corrected: …*. A statement 2,000
+   characters long is reported as cut off: a draft from a sentence is a few
+   hundred, and one that long is a model repeating itself.
 6. **Fixing names** (only when a problem is left). The model gets the draft
-   and the problems once, in a new session. A problem that is still there is
-   shown under the draft — *Check before running: …* — rather than hidden.
+   and the problems once, in a new session, and what it writes is checked
+   and corrected as in step 5. A problem that is still there is shown under
+   the draft — *Check before running: …* — rather than hidden.
 
 Each model step is a new session with greedy sampling, so the same request
 against the same schema gives the same draft.
 
 **How well it works.** `scripts/eval-sql-draft.sh` grades the feature with the
-real model against a 26-table fixture database and 22 requests. On macOS 27
-(2026-10-05) the earlier design — one session that looked tables up with two
-tools — answered none of them: it ran out of the model's window after more
-than a minute. This design answers 17 with SQL that runs and names the right
-tables, in about 7 seconds. Read closely, about 10 of those answer the request
-exactly; the others join a table the request did not need or choose the wrong
-aggregate. Read the draft before you run it.
+real model against a 26-table fixture database and 22 requests. A draft passes
+when it runs, reads the right tables and has the shape the request asks for
+(an aggregate, a date filter, an anti-join).
+
+On an M5 Pro running macOS 27.2, whose on-device model is AFM 3 Core Advanced
+with an 8,192-token window (2026-11-13):
+
+| | Passes | Runs | Median time | Requests per draft | Largest request |
+|---|---|---|---|---|---|
+| The steps above | 14 of 22 | 17 | 5.3 s | 1.6 | 2,646 tokens, 32% of the window |
+| The same steps, before the writing step was tuned for this model | 13 | 17 | 5.5 s | 1.5 | 2,409 tokens |
+| Every candidate set put to the model in step 3 (before tuning) | 11–12 | 17–18 | 7.3–8.1 s | 2.5 | 1,684 tokens |
+| No DDL: the short table block only, as before | 13 | 15 | 4.8 s | 1.2 | 1,153 tokens |
+
+Twelve of the 22 drafts took one request, eight took two and two took
+three. Showing the model the tables' DDL gave two more drafts that
+run. Asking it about every candidate set first cost a request and about two
+seconds a draft and passed no more, which is why step 3 asks only about a
+set too large to write from as it is. On 22 requests a difference of one or
+two is within what a rerun can change.
+
+**What tuning the writing step changed.** The instructions that go with the
+DDL were measured against this model and rewritten where it misread them:
+
+- *Use GROUP BY only together with an aggregate function.* The earlier
+  wording put a `GROUP BY` on statements that aggregate nothing: 10 of the 22
+  drafts, now 2.
+- *Write names without double quotes.* The model stops writing at a double
+  quote, so a statement that named a mixed-case table ended at
+  `SELECT sales.`. Step 5 adds the quotes a name needs.
+- A column's values are noted as what the column "is one of", with a rule to
+  compare only when the request asks: the earlier note was read as a filter
+  to apply.
+- *More tables are listed than the request needs*, and a fourth example with
+  `NOT EXISTS`: the model was joining spare tables on columns they do not
+  have.
+- The repair's answer now goes through step 5's corrections as the first
+  draft does, which is what turns one more repaired draft into one that runs.
+
+Step 5 itself was corrected afterwards: it read an alias reused inside a
+subquery as the outer table's, and could move a column to a table that only
+the subquery reads. One draft had been passing because that misreading sent
+it to a repair it did not need; read correctly it is not repaired, and fails
+on its `GROUP BY`. The figures above are with the correction.
+
+The same rule changes were tried on the short table block and scored worse
+there (13 passes to 11), so that block keeps its wording.
+
+The drafts that still fail mostly fail in the writing: a column the table
+does not have, which the one repair does not always fix; a count where a sum
+was asked for; a total taken from payments where the grader expects order
+lines. Read the draft before you run it.
+
+The same model with every request budgeted as if its window were 4,096
+tokens passes 14 and runs 16, in 1.6 requests a draft: the larger
+candidate sets are narrowed in step 3 first (2 of the 22 drafts), and no
+request was over 2,252 tokens. Budgeted as if the window were 2,048 tokens,
+smaller than any model Pharos is used with, it passes 12: step 3 asks the
+model for 17 of the 22 drafts, every draft is written from the short table
+block, and none takes more than five requests.
+
+**Through a custom endpoint.** The same 22 requests, sent to LM Studio on the
+same Mac serving a 26-billion-parameter open model (gemma-4-26b, QAT) with an
+8,192-token context: 19 pass and 20 run, with no request refused or unread,
+at a median of 5.9 seconds and 1.6 requests a draft. Some drafts took 20 to
+40 seconds, two in one run and seven in another: the model repeated itself
+inside the statement until the field's limit closed it, the draft was
+reported as cut off, and the repair step wrote it again, correctly in all
+but one case. Before the fields had limits the same model ran on until its
+window was full, and the choice of tables for one request took a minute and
+a half.
+
+Earlier figures for this feature (17 runnable in about 7 seconds, 2026-10-05)
+were measured on a Mac whose on-device model has a 4,096-token window; that
+is a different model, and the two sets of figures are not comparable.
 
 **What the model is given.** Table and column names, types, keys, enum values
 and the first 80 characters of table and column comments, read from the
-schema cache and from one catalogue query per schema when the popover opens.
-There is no way for a row, a cell, a row count, a column default or a CHECK
-expression to enter it, so this feature never asks for consent to read your
-data — it cannot see any. Nothing is sent to the database to test the draft.
+schema cache and from one catalogue query per schema when the description
+opens. When the tables are shown as DDL it is also given each table's
+`CREATE TABLE` text, read from the database when the draft starts. That text
+is the table's definition, so it carries **column defaults and CHECK
+constraints as written** — a default such as `'pending'` or a check such as
+`amount > 0` is in it — and a partitioned table's partition key. It does not
+carry a partition's bounds, an index, or anything read from a row.
+There is no way for a row, a cell or a row count to enter the prompt, so this
+feature never asks for consent to read your data — it cannot see any. Nothing
+is sent to the database to test the draft.
 
-The answer arrives as one statement plus a sentence saying what the model
-assumed, under the *Generated by Apple Intelligence* header. Then:
+The answer arrives in the strip as one statement, shown read-only in the
+editor's colours, under the *Generated by Apple Intelligence* header, with a
+line saying which tables it reads. Then:
 
-- **Insert** puts the statement into the focused card when that card is empty, and otherwise into a new card.
+- **Insert** puts the statement into the card and closes the strip. On a card
+  that already has SQL the button reads **Replace SQL**, and the draft takes
+  the place of that text.
 - **Retry** asks the same question again, of a new session.
-- **Cancel** closes the popover and discards the draft.
+- Editing the description takes the draft off screen: **Insert** never puts in
+  SQL that answers a question you have since rewritten. Press **Draft** again.
 
 **What Pharos does to the answer first.** It trims it, takes off a code fence
 if the model added one, and keeps only the first statement — anything after the
@@ -312,7 +509,11 @@ and **Cancel**.
 
 **After Insert.** The inserted statement is selected and washed with the accent
 colour, so you can see exactly what arrived. The wash goes as soon as you edit
-anything. One ⌘Z removes the whole draft in a single step.
+anything. One ⌘Z in the card removes the whole draft in a single step, and
+puts back the SQL it replaced.
+
+Descriptions and drafts are kept while the tab is open. They are not saved in
+a Session or a `.sql` file.
 
 Nothing runs. Drafting produces no results and writes nothing to your query
 history; the draft is text in the editor until you run it yourself.

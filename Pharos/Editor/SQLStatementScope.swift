@@ -256,8 +256,25 @@ struct SQLStatementScope: Equatable {
         return tokens.count
     }
 
+    /// Every table the statement names, each with the index in `tokens` of
+    /// the first token of its name: where in the statement it is declared.
+    ///
+    /// `tables` is this list without the places. A caller that has to know
+    /// which query a table belongs to — a subquery's table cannot be named
+    /// outside it — asks here, with the tokens it is working from.
+    static func tableReferences(in tokens: [Token]) -> [(ref: TableRef, at: Int)] {
+        scanTables(tokens).placed
+    }
+
     private static func collectTables(_ tokens: [Token]) -> (tables: [TableRef], derived: [String], target: TableRef?) {
-        var tables: [TableRef] = []
+        let scanned = scanTables(tokens)
+        return (scanned.placed.map(\.ref), scanned.derived, scanned.target)
+    }
+
+    private static func scanTables(
+        _ tokens: [Token]
+    ) -> (placed: [(ref: TableRef, at: Int)], derived: [String], target: TableRef?) {
+        var tables: [(ref: TableRef, at: Int)] = []
         var derived: [String] = []
         var target: TableRef?
         var i = 0
@@ -284,6 +301,7 @@ struct SQLStatementScope: Equatable {
                         j += 1
                     }
                 } else if tokens[j].isName, !notAnAlias.contains(tokens[j].upper) {
+                    let declared = j
                     var parts = [tokens[j].text]
                     j += 1
                     while j + 1 < tokens.count, tokens[j].isPunct("."), tokens[j + 1].isName {
@@ -298,7 +316,7 @@ struct SQLStatementScope: Equatable {
                     }
                     let ref = TableRef(schema: parts.count > 1 ? parts.dropLast().joined(separator: ".") : nil,
                                        table: parts[parts.count - 1], alias: alias)
-                    tables.append(ref)
+                    tables.append((ref, declared))
                     if isTarget, target == nil { target = ref }
                 } else {
                     break

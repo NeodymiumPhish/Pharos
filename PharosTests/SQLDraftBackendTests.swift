@@ -348,6 +348,595 @@ private func testTokenCountShrinksTheBlock() async {
     }
 }
 
+// MARK: - Reading the tables' DDL
+
+private let regions = Key(schema: "sales", name: "regions")
+
+/// `smallCatalog` plus a table with no key to or from anything.
+private func threeTables() -> DraftCatalog {
+    let columns: [Key: [Source]] = [
+        orders: [Source(name: "id", type: "bigint", isPrimaryKey: true),
+                 Source(name: "customer_id", type: "bigint", isPrimaryKey: false),
+                 Source(name: "placed_at", type: "timestamp with time zone", isPrimaryKey: false)],
+        customers: [Source(name: "id", type: "bigint", isPrimaryKey: true),
+                    Source(name: "name", type: "text", isPrimaryKey: false)],
+        regions: [Source(name: "code", type: "text", isPrimaryKey: true),
+                  Source(name: "label", type: "text", isPrimaryKey: false)],
+    ]
+    let facts = SchemaDraftFacts(foreignKeys: [
+        .init(table: "orders", columns: ["customer_id"], refSchema: "sales", refTable: "customers", refColumns: ["id"]),
+    ])
+    return DraftCatalog(columns: columns, facts: ["sales": facts])
+}
+
+private func ddl(_ key: Key, _ columns: [String]) -> String {
+    "CREATE TABLE \"\(key.schema)\".\"\(key.name)\" (\n" + columns.map { "    \"\($0)\" bigint" }.joined(separator: ",\n") + "\n);"
+}
+
+/// A definition source over a fixed set, which records what it was asked for.
+@MainActor
+private final class Definitions {
+    var all: [Key: DraftCatalog.Definition]
+    private(set) var asked: [[Key]] = []
+
+    init(_ all: [Key: DraftCatalog.Definition]) { self.all = all }
+
+    var source: SQLDraftPipeline.DefinitionSource {
+        { [self] keys in
+            asked.append(keys)
+            return all.filter { keys.contains($0.key) }
+        }
+    }
+
+    static func plain(_ catalog: DraftCatalog) -> Definitions {
+        var all: [Key: DraftCatalog.Definition] = [:]
+        for table in catalog.tables {
+            all[table.key] = .init(ddl: ddl(table.key, table.columns.map(\.name)), partitionOf: nil)
+        }
+        return Definitions(all)
+    }
+}
+
+/// Runs `body` with every candidate set put to the reading step, as
+/// `scripts/eval-sql-draft.sh` does with EVAL_READ=always. The default asks
+/// only about a set too large to write from as it is.
+@MainActor
+private func askingAlways(_ body: () async -> Void) async {
+    SQLDraftPipeline.readPolicy = .always
+    defer { SQLDraftPipeline.readPolicy = .whenLarge }
+    await body()
+}
+
+private func readJSON(_ uses: [(Key, [String])]) -> String {
+    json(["plan": "p", "tables": uses.map { ["table": $0.0.description, "columns": $0.1] }])
+}
+
+@MainActor
+private func testReadKeepsTheTablesTheModelNames() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.schemaAnswers = [readJSON([(orders, ["ID", "placed_at", "no_such_column"])])]
+    backend.typedAnswers = [draftJSON("SELECT o.id FROM sales.orders o")]
+    let catalog = threeTables()
+    let definitions = Definitions.plain(catalog)
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: definitions.source)
+        var stages: [SQLDraftPipeline.Stage] = []
+        pipeline.onStage = { stages.append($0) }
+        do {
+            let result = try await pipeline.draft("orders of each customer")
+            expectEqual(result.tables, [orders], "read: only the table the model named goes to the draft")
+            expectEqual(result.requests, 2, "read: one reading request and one draft")
+        } catch {
+            expect(false, "draft threw \(error)")
+        }
+        expectEqual(stages, [.finding, .reading, .writing, .checking], "read: named tables need no choosing")
+        expectEqual(backend.requests.map(\.kind), [.schema, .typed], "read: the reading request, then the draft")
+        expectEqual(definitions.asked, [[orders, customers]], "read: each candidate's DDL is asked for once")
+        guard backend.requests.count == 2 else { return }
+        let read = backend.requests[0], draft = backend.requests[1]
+        expect(read.instructions.contains(SQLDraftPrompt.readInstructions), "read: its own instructions")
+        expect(read.sampling == .greedy, "read: greedy")
+        expect(read.prompt.contains("CREATE TABLE \"sales\".\"orders\"") && read.prompt.contains("CREATE TABLE \"sales\".\"customers\""),
+               "read: the candidates' DDL is in the request")
+        expect(read.prompt.contains("orders of each customer"), "read: and the analyst's sentence")
+        expect(draft.instructions.contains(SQLDraftPrompt.ddlDraftInstructions), "draft: the DDL instructions go with a DDL block")
+        expect(draft.prompt.contains("CREATE TABLE \"sales\".\"orders\"") && !draft.prompt.contains("\"customers\""),
+               "draft: the kept table's DDL and not the dropped one's")
+        // No request carries another request's answer.
+        expect(!draft.prompt.contains("no_such_column") && !draft.instructions.contains("no_such_column"),
+               "draft: the reading step's answer is not passed on")
+    }
+}
+
+@MainActor
+private func testSmallSetGoesStraightToTheDraft() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.typedAnswers = [draftJSON("SELECT o.id FROM sales.orders o")]
+    let catalog = threeTables()
+    let definitions = Definitions.plain(catalog)
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: definitions.source)
+        var stages: [SQLDraftPipeline.Stage] = []
+        pipeline.onStage = { stages.append($0) }
+        let result = try? await pipeline.draft("orders of each customer")
+        expectEqual(result?.tables ?? [], [orders, customers], "small: every candidate goes to the draft")
+        expectEqual(backend.requests.map(\.kind), [.typed], "small: one request, the draft")
+        expectEqual(result?.requests ?? 0, 1, "small: and it is counted as one")
+        expectEqual(stages, [.finding, .reading, .writing, .checking], "small: the DDL is still read from the database")
+        expectEqual(definitions.asked, [[orders, customers]], "small: once")
+        let draft = backend.requests.first
+        expect(draft?.instructions.contains(SQLDraftPrompt.ddlDraftInstructions) == true, "small: the DDL instructions")
+        expect(draft?.prompt.contains("CREATE TABLE \"sales\".\"orders\"") == true
+               && draft?.prompt.contains("CREATE TABLE \"sales\".\"customers\"") == true, "small: both tables as DDL")
+    }
+}
+
+@MainActor
+private func testNoCandidateFitsSoTheModelChoosesAgain() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.schemaAnswers = [
+        readJSON([]),                                       // orders and customers: neither
+        json(["reason": "r", "tables": [regions.description]]),   // chosen from the other names
+        readJSON([(regions, ["label"])]),                   // and it holds what was asked for
+    ]
+    backend.typedAnswers = [draftJSON("SELECT r.label FROM sales.regions r")]
+    let catalog = threeTables()
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        var stages: [SQLDraftPipeline.Stage] = []
+        pipeline.onStage = { stages.append($0) }
+        let result = try? await pipeline.draft("orders by sales territory")
+        expectEqual(result?.tables ?? [], [regions], "again: the second choice is what the draft is shown")
+        expectEqual(stages, [.finding, .reading, .choosing, .reading, .writing, .checking], "again: choose and read once more")
+        expectEqual(backend.requests.map(\.kind), [.schema, .schema, .schema, .typed], "again: four requests in all")
+        guard backend.requests.count == 4 else { return }
+        let choose = backend.requests[1]
+        expect(choose.instructions.contains(SQLDraftPrompt.pickInstructions), "again: the choice is by name")
+        expect(choose.prompt.contains("sales.regions") && !choose.prompt.contains("sales.orders:"),
+               "again: from the names not yet read: \(choose.prompt)")
+        expect(!choose.prompt.contains("CREATE TABLE"), "again: names, not DDL")
+    }
+
+    // Nothing anywhere: the best candidates still get a draft, once.
+    let empty = FakeBackend()
+    empty.contextSize = 8192
+    empty.schemaAnswers = [readJSON([]), json(["reason": "r", "tables": [regions.description]]), readJSON([])]
+    empty.typedAnswers = [draftJSON("SELECT o.id FROM sales.orders o")]
+    await withBackend(empty) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        let result = try? await pipeline.draft("orders by sales territory")
+        expect(result?.tables.isEmpty == false, "nothing kept: the draft is still written from the best candidates")
+        expectEqual(empty.requests.count, 4, "nothing kept: and the model is not asked a third time")
+    }
+}
+
+@MainActor
+private func testFailedReadKeepsItsTables() async {
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.schemaAnswers = [nil]
+    backend.typedAnswers = [draftJSON("SELECT o.id FROM sales.orders o")]
+    let catalog = threeTables()
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        do {
+            let result = try await pipeline.draft("orders of each customer")
+            expectEqual(result.tables, [orders, customers], "failed read: the tables it could not ask about are kept")
+            expect(result.trace.contains { $0.hasPrefix("read failed") }, "failed read: and the trace says so")
+        } catch {
+            expect(false, "a failed read must not fail the draft: \(error)")
+        }
+    }
+}
+
+@MainActor
+private func testWideTablesAreReadInSeveralSmallRequests() async {
+    // The smallest budgets: 500 tokens of DDL to a reading request, 600 to
+    // the draft. Each of these tables is about 300.
+    let backend = FakeBackend()
+    backend.contextSize = 0
+    let wide = (1...40).map { "measure_\($0)" }
+    let columns: [Key: [Source]] = [
+        orders: [Source(name: "id", type: "bigint", isPrimaryKey: true)] + wide.map { Source(name: $0, type: "bigint", isPrimaryKey: false) },
+        customers: [Source(name: "id", type: "bigint", isPrimaryKey: true)] + wide.map { Source(name: $0, type: "bigint", isPrimaryKey: false) },
+    ]
+    let catalog = DraftCatalog(columns: columns, facts: [:])
+    let budget = SQLDraftPrompt.Budget(contextSize: 0)
+    backend.schemaAnswers = [readJSON([(orders, ["measure_7"])]), readJSON([(customers, ["measure_9"])])]
+    backend.typedAnswers = [draftJSON("SELECT o.measure_7 FROM sales.orders o")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        let result = try? await pipeline.draft("orders and customers")
+        expectEqual((result?.tables ?? []).sorted(), [customers, orders], "wide: both tables are kept")
+        expectEqual(backend.requests.map(\.kind), [.schema, .schema, .typed], "wide: two reading requests instead of one long one")
+        guard backend.requests.count == 3 else { return }
+        for read in backend.requests.prefix(2) {
+            let block = read.prompt.components(separatedBy: "\n\nRequest:").first ?? ""
+            expect(SQLDraftPrompt.estimateTokens(block) <= budget.readBlock + 10,
+                   "wide: each reading request is inside its budget: \(SQLDraftPrompt.estimateTokens(block))")
+        }
+        let draft = backend.requests[2]
+        expect(draft.instructions.contains(SQLDraftPrompt.draftInstructions) && !draft.prompt.contains("CREATE TABLE"),
+               "wide: the DDL of both is too much for the draft, which gets the compact block")
+        expect(draft.prompt.contains("measure_7") && draft.prompt.contains("measure_9"),
+               "wide: with the columns the reading step named")
+        let block = draft.prompt.components(separatedBy: "\n\nRequest:").first ?? ""
+        expect(SQLDraftPrompt.estimateTokens(block) <= budget.draftBlock + 10,
+               "wide: and inside the draft's budget: \(SQLDraftPrompt.estimateTokens(block))")
+    }
+}
+
+@MainActor
+private func testPartitionIsReadAsItsParent() async {
+    let events = Key(schema: "sales", name: "events")
+    let events2024 = Key(schema: "sales", name: "events_2024")
+    let columns: [Key: [Source]] = [
+        events: [Source(name: "id", type: "bigint", isPrimaryKey: true), Source(name: "at", type: "date", isPrimaryKey: false)],
+        events2024: [Source(name: "id", type: "bigint", isPrimaryKey: true), Source(name: "at", type: "date", isPrimaryKey: false)],
+        regions: [Source(name: "code", type: "text", isPrimaryKey: true)],
+    ]
+    let parentDDL = "CREATE TABLE \"sales\".\"events\" (\n    \"id\" bigint,\n    \"at\" date\n) PARTITION BY RANGE (at);"
+    let childDDL = "CREATE TABLE \"sales\".\"events_2024\" (\n    \"id\" bigint\n);\n\nALTER TABLE \"sales\".\"events\" ATTACH PARTITION \"sales\".\"events_2024\"\n    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');"
+    let definitions = Definitions([
+        events: .init(ddl: parentDDL, partitionOf: nil),
+        events2024: .init(ddl: childDDL, partitionOf: events),
+        regions: .init(ddl: ddl(regions, ["code"]), partitionOf: nil),
+    ])
+
+    // The cache knows it is a partition: it is never a candidate.
+    var flagged = DraftCatalog(columns: columns, facts: [:])
+    flagged.partitions = [events2024]
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.typedAnswers = [draftJSON("SELECT e.id FROM sales.events e")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: flagged, defaultSchema: "sales", definitions: definitions.source)
+        let result = try? await pipeline.draft("events this year")
+        expectEqual(result?.tables ?? [], [events], "partition: the parent stands for its partitions")
+        expectEqual(definitions.asked, [[events]], "partition: a partition's DDL is not even read")
+        let prompt = backend.requests.first?.prompt ?? ""
+        expect(prompt.contains("PARTITION BY RANGE (at)") && !prompt.contains("events_2024"), "partition: the parent's DDL is what is shown")
+    }
+
+    // The cache does not know: the definition says so, and the parent is read in its place.
+    let unflagged = DraftCatalog(columns: [events2024: columns[events2024]!, events: columns[events]!], facts: [:])
+    let second = FakeBackend()
+    second.contextSize = 8192
+    second.typedAnswers = [draftJSON("SELECT e.id FROM sales.events e")]
+    await withBackend(second) {
+        let pipeline = SQLDraftPipeline(catalog: unflagged, defaultSchema: "sales", definitions: definitions.source)
+        let result = try? await pipeline.draft("events_2024 rows")
+        expectEqual(result?.tables ?? [], [events], "partition: one the request names is read as its parent")
+        for request in second.requests {
+            expect(!request.prompt.contains("ATTACH PARTITION") && !request.prompt.contains("2024-01-01"),
+                   "partition: its bounds reach no request")
+        }
+    }
+}
+
+@MainActor
+private func testManyMatchesAreChosenByNameBeforeAnyDDLIsRead() async {
+    // Twelve tables that all match "invoice": more than are read.
+    var columns: [Key: [Source]] = [:]
+    let keys = (1...12).map { Key(schema: "sales", name: "invoice_part_\($0)") }
+    for key in keys { columns[key] = [Source(name: "id", type: "bigint", isPrimaryKey: true)] }
+    let catalog = DraftCatalog(columns: columns, facts: [:])
+    let definitions = Definitions.plain(catalog)
+    let backend = FakeBackend()
+    backend.contextSize = 8192
+    backend.schemaAnswers = [
+        json(["reason": "r", "tables": [keys[2].description, keys[4].description]]),
+        readJSON([(keys[4], ["id"])]),
+    ]
+    backend.typedAnswers = [draftJSON("SELECT p.id FROM sales.invoice_part_5 p")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: definitions.source)
+        let result = try? await pipeline.draft("invoice totals")
+        expectEqual(result?.tables ?? [], [keys[4]], "many: chosen by name, then read")
+        expectEqual(definitions.asked, [[keys[2], keys[4]]], "many: only the chosen tables' DDL is read")
+        let choose = backend.requests.first
+        expect(choose?.prompt.contains("CREATE TABLE") == false, "many: the first request holds names, not DDL")
+        expectEqual(result?.requests ?? 0, 3, "many: choose, read, write")
+    }
+}
+
+@MainActor
+private func testADraftIsSixRequestsAtMost() async {
+    // Five wide tables, each about 300 tokens of DDL against a 500-token
+    // reading budget: one table to a request, and only three requests.
+    let backend = FakeBackend()
+    backend.contextSize = 0
+    let wide = (1...40).map { "measure_\($0)" }
+    var columns: [Key: [Source]] = [:]
+    let keys = (1...5).map { Key(schema: "sales", name: "ledger_\($0)") }
+    for key in keys {
+        columns[key] = [Source(name: "id", type: "bigint", isPrimaryKey: true)]
+            + wide.map { Source(name: $0, type: "bigint", isPrimaryKey: false) }
+    }
+    let catalog = DraftCatalog(columns: columns, facts: [:])
+    backend.schemaAnswers = [readJSON([]), readJSON([]), readJSON([])]
+    backend.typedAnswers = [draftJSON("SELECT l.nothing FROM sales.ledger_4 l"), draftJSON("SELECT l.id FROM sales.ledger_4 l")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        let result = try? await pipeline.draft("ledger totals")
+        expectEqual(backend.requests.map(\.kind), [.schema, .schema, .schema, .typed, .typed],
+                    "limit: three reading requests, the draft and its repair")
+        expectEqual((result?.tables ?? []).count, 2, "limit: the tables past the third request are kept without being asked about")
+        expect((result?.requests ?? 99) <= 6, "limit: never more than six requests")
+    }
+}
+
+// MARK: - Over a custom endpoint
+
+/// An OpenAI-compatible endpoint in memory: records each request's body and
+/// answers from a queue, as HTTP.
+@MainActor
+private final class FakeEndpoint {
+    enum Reply {
+        /// 200 with this JSON object as the message's content.
+        case answer(String)
+        case status(Int)
+    }
+
+    var replies: [Reply] = []
+    private(set) var bodies: [[String: Any]] = []
+    private(set) var texts: [String] = []
+
+    func transport(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let data = request.httpBody ?? Data()
+        texts.append(String(decoding: data, as: UTF8.self))
+        bodies.append((try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
+        let reply = replies.isEmpty ? Reply.status(500) : replies.removeFirst()
+        let (status, body): (Int, String)
+        switch reply {
+        case .answer(let content):
+            status = 200
+            body = json(["choices": [["message": ["role": "assistant", "content": content], "finish_reason": "stop"]]])
+        case .status(let code):
+            (status, body) = (code, "{}")
+        }
+        return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!)
+    }
+
+    func backend(contextSize: Int = 32_768) -> EndpointIntelligenceBackend {
+        EndpointIntelligenceBackend(
+            base: URL(string: "http://localhost:1234/v1")!, model: "local-model", contextSize: contextSize,
+            key: { nil }, transport: { [self] in try await transport($0) })
+    }
+
+    func system(_ index: Int) -> String {
+        ((bodies[index]["messages"] as? [[String: String]]) ?? []).first { $0["role"] == "system" }?["content"] ?? ""
+    }
+
+    func user(_ index: Int) -> String {
+        ((bodies[index]["messages"] as? [[String: String]]) ?? []).first { $0["role"] == "user" }?["content"] ?? ""
+    }
+
+    func schema(_ index: Int) -> [String: Any] {
+        (((bodies[index]["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]) ?? [:]
+    }
+}
+
+/// Twelve tables that all match "invoice", so every step runs: choose by
+/// name, read, write.
+private func invoiceCatalog() -> (catalog: DraftCatalog, keys: [Key]) {
+    var columns: [Key: [Source]] = [:]
+    let keys = (1...12).map { Key(schema: "sales", name: "invoice_part_\($0)") }
+    for key in keys {
+        columns[key] = [Source(name: "id", type: "bigint", isPrimaryKey: true), Source(name: "total", type: "numeric", isPrimaryKey: false)]
+    }
+    return (DraftCatalog(columns: columns, facts: [:]), keys)
+}
+
+@MainActor
+private func testEveryStepGoesOverACustomEndpoint() async {
+    let (catalog, keys) = invoiceCatalog()
+    let endpoint = FakeEndpoint()
+    endpoint.replies = [
+        // A model that shows its reasoning and fences its answer is still read.
+        .answer("<think>which tables?</think>```json\n" + json(["reason": "r", "tables": [keys[2].description, keys[4].description]]) + "\n```"),
+        .answer(readJSON([(keys[4], ["id", "total"])])),
+        .answer(draftJSON("SELECT p.id, p.total FROM sales.invoice_part_5 p")),
+    ]
+    IntelligenceBackends.overrideForTesting = endpoint.backend()
+    defer { IntelligenceBackends.overrideForTesting = nil }
+    await askingAlways {
+        let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        do {
+            let result = try await pipeline.draft("invoice totals")
+            expectEqual(result.sql, "SELECT p.id, p.total FROM sales.invoice_part_5 p", "endpoint: the draft comes back")
+            expectEqual(result.tables, [keys[4]], "endpoint: from the table the endpoint chose and then kept")
+            expectEqual(result.requests, 3, "endpoint: choose, read, write")
+            expect(!result.trace.contains { $0.hasPrefix("prompt tokens") },
+                   "endpoint: it cannot count tokens, so the estimate decides what fits")
+        } catch {
+            expect(false, "endpoint: draft threw \(error)")
+        }
+    }
+    guard endpoint.bodies.count == 3 else {
+        expect(false, "endpoint: three requests were expected, got \(endpoint.bodies.count)")
+        return
+    }
+    for index in 0..<3 {
+        expectEqual(endpoint.bodies[index]["model"] as? String, "local-model", "endpoint: request \(index + 1) names the model")
+        expectEqual(endpoint.bodies[index]["temperature"] as? Int, 0, "endpoint: request \(index + 1) is greedy")
+        expectEqual((endpoint.bodies[index]["response_format"] as? [String: Any])?["type"] as? String, "json_schema",
+                    "endpoint: request \(index + 1) asks for the schema")
+        expect(endpoint.system(index).hasPrefix(IntelligenceInstructions.sqlSafety), "endpoint: request \(index + 1) leads with the safety sentences")
+        expect(endpoint.user(index).contains("invoice totals"), "endpoint: request \(index + 1) carries the analyst's sentence")
+    }
+
+    // Choose: names in the prompt, the same names as the only allowed answers.
+    let pickItems = ((endpoint.schema(0)["properties"] as? [String: Any])?["tables"] as? [String: Any])?["items"] as? [String: Any]
+    expectEqual(Set(pickItems?["enum"] as? [String] ?? []), Set(keys.map(\.description)), "endpoint: the choice is held to the listed names")
+    expect(!endpoint.user(0).contains("CREATE TABLE"), "endpoint: the first request holds names, not DDL")
+
+    // Read: DDL of the two chosen tables; the answer's shape as a definition.
+    expect(endpoint.user(1).contains("CREATE TABLE \"sales\".\"invoice_part_3\"")
+           && endpoint.user(1).contains("CREATE TABLE \"sales\".\"invoice_part_5\""), "endpoint: the reading request holds the chosen tables' DDL")
+    expect(!endpoint.user(1).contains("invoice_part_7"), "endpoint: and no other table's")
+    let use = (endpoint.schema(1)["$defs"] as? [String: Any])?["TableUse"] as? [String: Any]
+    expectEqual(((use?["properties"] as? [String: Any])?["table"] as? [String: Any])?["enum"] as? [String] ?? [],
+                [keys[2].description, keys[4].description], "endpoint: the reading answer is held to those two names")
+    let tableAt = endpoint.texts[1].range(of: "\"table\":")?.lowerBound
+    let columnsAt = endpoint.texts[1].range(of: "\"columns\":")?.lowerBound
+    expect(tableAt != nil && columnsAt != nil && tableAt! < columnsAt!, "endpoint: a table is named before its columns")
+
+    // Write: the kept table's DDL, and plan before sql before note.
+    expect(endpoint.user(2).contains("CREATE TABLE \"sales\".\"invoice_part_5\"") && !endpoint.user(2).contains("invoice_part_3"),
+           "endpoint: the writing request holds only the kept table")
+    expect(endpoint.system(2).contains(SQLDraftPrompt.ddlDraftInstructions), "endpoint: with the DDL instructions")
+    let order = ["plan", "sql", "note"].compactMap { name in endpoint.texts[2].range(of: "\"\(name)\":{").map { (name, $0.lowerBound) } }
+        .sorted { $0.1 < $1.1 }.map(\.0)
+    expectEqual(order, ["plan", "sql", "note"], "endpoint: the draft's fields are asked for in the order they are meant to be written")
+
+    // Each one-line field is held to a line, so a model that starts
+    // repeating itself inside one is stopped after a line's worth.
+    func limit(_ request: Int, _ field: String) -> Int? {
+        ((endpoint.schema(request)["properties"] as? [String: Any])?[field] as? [String: Any])?["maxLength"] as? Int
+    }
+    expectEqual(limit(0, "reason"), SQLDraftPipeline.lineLimit, "endpoint: the choice's reason is held to a line")
+    expectEqual(limit(1, "plan"), SQLDraftPipeline.lineLimit, "endpoint: the reading's plan is held to a line")
+    let columnNames = ((use?["properties"] as? [String: Any])?["columns"] as? [String: Any])?["items"] as? [String: Any]
+    expectEqual(columnNames?["maxLength"] as? Int, SQLDraftPipeline.nameLimit, "endpoint: a column name is held to a name's length")
+    expectEqual(limit(2, "plan"), SQLDraftPipeline.lineLimit, "endpoint: the draft's plan is held to a line")
+    expectEqual(limit(2, "note"), SQLDraftPipeline.lineLimit, "endpoint: and so is its note")
+    expectEqual(limit(2, "sql"), SQLDraftPipeline.statementLimit, "endpoint: the statement is held to a statement's length")
+}
+
+@MainActor
+private func testAStatementThatRanOnGoesToRepair() async {
+    // What an endpoint returns when its model repeats itself inside the
+    // statement: the field, closed at its limit.
+    let looped = "SELECT o.id FROM sales.orders o WHERE o.id IN (" + String(repeating: "1, ", count: 700)
+    let cut = String(looped.prefix(SQLDraftPipeline.statementLimit))
+    let backend = FakeBackend()
+    backend.typedAnswers = [draftJSON(cut), draftJSON("SELECT o.id FROM sales.orders o")]
+    await withBackend(backend) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        var stages: [SQLDraftPipeline.Stage] = []
+        pipeline.onStage = { stages.append($0) }
+        let result = try? await pipeline.draft("orders")
+        expectEqual(result?.sql ?? "", "SELECT o.id FROM sales.orders o", "cut off: the repaired statement replaces the one that ran on")
+        expectEqual(result?.problems ?? ["?"], [], "cut off: and nothing is left to report")
+        expect(stages.contains(.repairing), "cut off: a statement at the limit starts a repair")
+        expect(backend.requests.last?.prompt.contains("probably cut off") == true, "cut off: the repair is told why")
+    }
+
+    // The repair runs on too: the draft is kept, and the analyst is told.
+    let stuck = FakeBackend()
+    stuck.typedAnswers = [draftJSON(cut), draftJSON(cut)]
+    await withBackend(stuck) {
+        let pipeline = SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales")
+        let result = try? await pipeline.draft("orders")
+        expectEqual(result?.problems.first ?? "", SQLDraftPipeline.cutOffProblem, "cut off: a draft still cut off says so")
+        expectEqual(stuck.requests.count, 2, "cut off: one draft and one repair, no more")
+    }
+
+    // A statement of ordinary length is not suspected.
+    let ordinary = FakeBackend()
+    ordinary.typedAnswers = [draftJSON("SELECT o.id FROM sales.orders o")]
+    await withBackend(ordinary) {
+        let result = try? await SQLDraftPipeline(catalog: smallCatalog(), defaultSchema: "sales").draft("orders")
+        expectEqual(ordinary.requests.count, 1, "ordinary: no repair")
+        expectEqual(result?.problems ?? ["?"], [], "ordinary: no problem")
+    }
+}
+
+@MainActor
+private func testAnEndpointThatRefusesSchemasStillDrafts() async {
+    let (catalog, keys) = invoiceCatalog()
+    let endpoint = FakeEndpoint()
+    endpoint.replies = [
+        .status(400),                                                // json_schema refused
+        .answer(json(["reason": "r", "tables": [keys[0].description]])),   // json_object accepted
+        .answer(draftJSON("SELECT p.id FROM sales.invoice_part_1 p")),
+    ]
+    IntelligenceBackends.overrideForTesting = endpoint.backend()
+    defer { IntelligenceBackends.overrideForTesting = nil }
+    let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+    let result = try? await pipeline.draft("invoice totals")
+    expectEqual(result?.sql ?? "", "SELECT p.id FROM sales.invoice_part_1 p", "plainer: the draft still comes back")
+    expectEqual(endpoint.bodies.count, 3, "plainer: one refusal, then choose and write")
+    guard endpoint.bodies.count == 3 else { return }
+    expectEqual((endpoint.bodies[1]["response_format"] as? [String: Any])?["type"] as? String, "json_object", "plainer: the next way down")
+    expect(endpoint.system(1).contains("JSON Schema") && endpoint.system(1).contains(keys[0].description),
+           "plainer: the allowed names are written into the instructions instead")
+    expectEqual((endpoint.bodies[2]["response_format"] as? [String: Any])?["type"] as? String, "json_object",
+                "plainer: and the way that worked is used for the rest of the draft")
+}
+
+@MainActor
+private func testAnEndpointFailureInAStepDoesNotLoseTheDraft() async {
+    let (catalog, keys) = invoiceCatalog()
+
+    // The choice fails (the endpoint is over its limit): the best matches stand in.
+    let busy = FakeEndpoint()
+    busy.replies = [.status(429), .answer(draftJSON("SELECT p.id FROM sales.invoice_part_1 p"))]
+    IntelligenceBackends.overrideForTesting = busy.backend()
+    var result = try? await SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        .draft("invoice totals")
+    expect(result?.sql.isEmpty == false, "busy: a refused choice does not fail the draft")
+    expect(result?.trace.contains { $0.hasPrefix("pick failed") } == true, "busy: and the trace says what happened")
+
+    // The answer is not JSON at all: same.
+    let chatty = FakeEndpoint()
+    chatty.replies = [.answer("I think you want the invoices."), .answer(draftJSON("SELECT p.id FROM sales.invoice_part_1 p"))]
+    IntelligenceBackends.overrideForTesting = chatty.backend()
+    result = try? await SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+        .draft("invoice totals")
+    expect(result?.sql.isEmpty == false, "chatty: an answer that is not JSON does not fail the draft")
+
+    // The writing request fails: that IS the draft, and the error reaches the strip.
+    let down = FakeEndpoint()
+    down.replies = [.answer(json(["reason": "r", "tables": [keys[0].description]])), .status(401)]
+    IntelligenceBackends.overrideForTesting = down.backend()
+    do {
+        _ = try await SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+            .draft("invoice totals")
+        expect(false, "down: a refused key must fail the draft")
+    } catch {
+        expectEqual(error as? IntelligenceEndpointError, .keyRefused, "down: the endpoint's own error is passed on")
+    }
+    IntelligenceBackends.overrideForTesting = nil
+}
+
+@MainActor
+private func testAHugeWindowIsSentNoMoreThanTheCeilings() async {
+    // Eight tables of about 800 tokens of DDL each: far more than a draft
+    // needs, and a 200,000-token window would hold all of it.
+    let wide = (1...100).map { "measurement_value_\($0)" }
+    var columns: [Key: [Source]] = [:]
+    let keys = (1...8).map { Key(schema: "sales", name: "ledger_\($0)") }
+    for key in keys {
+        columns[key] = [Source(name: "id", type: "bigint", isPrimaryKey: true)] + wide.map { Source(name: $0, type: "bigint", isPrimaryKey: false) }
+    }
+    let catalog = DraftCatalog(columns: columns, facts: [:])
+    let endpoint = FakeEndpoint()
+    endpoint.replies = [
+        .answer(readJSON([(keys[0], ["id"])])), .answer(readJSON([])), .answer(readJSON([])),
+        .answer(draftJSON("SELECT l.id FROM sales.ledger_1 l")),
+    ]
+    IntelligenceBackends.overrideForTesting = endpoint.backend(contextSize: 200_000)
+    defer { IntelligenceBackends.overrideForTesting = nil }
+    let pipeline = SQLDraftPipeline(catalog: catalog, defaultSchema: "sales", definitions: Definitions.plain(catalog).source)
+    let result = try? await pipeline.draft("ledger totals")
+    expect(result?.sql.isEmpty == false, "huge: the draft comes back")
+    let budget = SQLDraftPrompt.Budget(contextSize: 200_000)
+    for (index, text) in endpoint.texts.enumerated() {
+        let tokens = SQLDraftPrompt.estimateTokens(endpoint.user(index))
+        expect(tokens <= SQLDraftPrompt.Budget.draftCeiling + 100,
+               "huge: request \(index + 1) is about \(tokens) tokens, under the ceiling, in a window of 200,000")
+        expect(text.utf8.count < 40_000, "huge: and under 40 kB on the wire")
+    }
+    expect(endpoint.bodies.count >= 3, "huge: the tables are read in parts rather than at once: \(endpoint.bodies.count) requests")
+    expect(endpoint.bodies.count <= 6, "huge: and in no more than six requests")
+    expect(budget.readBlock == SQLDraftPrompt.Budget.readBlockCeiling, "huge: the reading budget is its ceiling, not a share of 200,000")
+}
+
 func runTests() {
     Task { @MainActor in
         await testDraftGoesThroughTheBackend()
@@ -361,6 +950,19 @@ func runTests() {
         await testPickIsHeldToTheList()
         await testFailedPickFallsBack()
         await testTokenCountShrinksTheBlock()
+        await askingAlways { await testReadKeepsTheTablesTheModelNames() }
+        await testSmallSetGoesStraightToTheDraft()
+        await askingAlways { await testNoCandidateFitsSoTheModelChoosesAgain() }
+        await askingAlways { await testFailedReadKeepsItsTables() }
+        await testWideTablesAreReadInSeveralSmallRequests()
+        await testPartitionIsReadAsItsParent()
+        await testADraftIsSixRequestsAtMost()
+        await testEveryStepGoesOverACustomEndpoint()
+        await testAStatementThatRanOnGoesToRepair()
+        await testAnEndpointThatRefusesSchemasStillDrafts()
+        await testAnEndpointFailureInAStepDoesNotLoseTheDraft()
+        await testAHugeWindowIsSentNoMoreThanTheCeilings()
+        await askingAlways { await testManyMatchesAreChosenByNameBeforeAnyDDLIsRead() }
         print("\(passes) passed, \(failures) failed")
         exit(failures > 0 ? 1 : 0)
     }

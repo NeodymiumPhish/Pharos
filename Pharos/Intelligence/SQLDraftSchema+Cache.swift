@@ -13,14 +13,18 @@ extension DraftCatalog {
     /// be ranked and named.
     static func from(_ cache: MetadataCache.ConnectionMetadata, facts: [String: SchemaDraftFacts]) -> DraftCatalog {
         var columns: [TableKey: [SourceColumn]] = [:]
+        var partitions: Set<TableKey> = []
         for schema in cache.schemas {
             for table in cache.tables[schema.name] ?? [] {
+                if table.isPartition { partitions.insert(TableKey(schema: schema.name, name: table.name)) }
                 let source = cache.columnsByTable["\(schema.name).\(table.name)"] ?? []
                 columns[TableKey(schema: schema.name, name: table.name)] = source
                     .sorted { $0.ordinalPosition < $1.ordinalPosition }
                     .map { SourceColumn(name: $0.name, type: $0.dataType, isPrimaryKey: $0.isPrimaryKey) }
             }
         }
-        return DraftCatalog(columns: columns, facts: facts)
+        var catalog = DraftCatalog(columns: columns, facts: facts)
+        catalog.partitions = partitions
+        return catalog
     }
 }

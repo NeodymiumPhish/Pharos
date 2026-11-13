@@ -16,16 +16,17 @@ import Foundation
 /// 2. A column read through an alias whose table lacks it moves to the one
 ///    other alias in scope that has it. Not inside an ON condition: there it
 ///    could turn a join into `x = x`.
-/// 3. An unquoted mixed-case name gets its double quotes.
+/// 3. An unquoted mixed-case name gets its double quotes, and so does a
+///    key word used as a name after a dot (`o.order`).
 ///
-/// Every fix is reported, and the popover says what was changed. What none
+/// Every fix is reported, and the card's strip says what was changed. What none
 /// of these can fix is left to the model's repair and then to the analyst.
 /// Pure Foundation; asserted in `PharosTests/SQLDraftPipelineTests.swift`.
 enum SQLDraftFixer {
 
     struct Outcome: Equatable {
         let sql: String
-        /// One sentence per fix, for the popover.
+        /// One sentence per fix, for the card's strip.
         let fixes: [String]
     }
 
@@ -52,8 +53,10 @@ enum SQLDraftFixer {
     private struct Bound {
         let scope: SQLStatementScope
         let tokens: [SQLStatementScope.Token]
-        /// Lower-cased qualifier → its table.
-        let byQualifier: [String: DraftCatalog.Table]
+        /// The statement's tables, bound to the catalogue, and which of
+        /// them each place can name: a correction may only name a table
+        /// that the place it is made at can see.
+        let bindings: SQLDraftChecker.Bindings
         /// The ON conditions, as token index ranges.
         let conditions: [Range<Int>]
     }
@@ -65,14 +68,10 @@ enum SQLDraftFixer {
         var path: [String] = []
         if let defaultSchema, !defaultSchema.isEmpty { path.append(defaultSchema) }
         if !path.contains("public") { path.append("public") }
-        var byQualifier: [String: DraftCatalog.Table] = [:]
-        for ref in scope.tables {
-            if let table = catalog.resolve(schema: ref.schema, table: ref.table, searchPath: path) {
-                byQualifier[ref.qualifier.lowercased()] = table
-                if ref.alias == nil { byQualifier[table.key.name.lowercased()] = table }
-            }
+        let bindings = SQLDraftChecker.Bindings(tokens) { ref in
+            catalog.resolve(schema: ref.schema, table: ref.table, searchPath: path)
         }
-        return Bound(scope: scope, tokens: tokens, byQualifier: byQualifier, conditions: onConditions(tokens))
+        return Bound(scope: scope, tokens: tokens, bindings: bindings, conditions: onConditions(tokens))
     }
 
     private static let clauseEnders: Set<String> = [
@@ -143,24 +142,29 @@ enum SQLDraftFixer {
             // Which table does this ON belong to? The reference right before
             // it: `JOIN schema.table [AS] alias ON`.
             let on = condition.lowerBound - 1
-            guard let refIndex = joinedRef(before: on, tokens: tokens, scope: bound.scope),
-                  let joined = bound.byQualifier[bound.scope.tables[refIndex].qualifier.lowercased()] else { continue }
+            let references = bound.bindings.references
+            guard let refIndex = joinedRef(before: on, tokens: tokens, references: references),
+                  let joined = bound.bindings.tables[refIndex] else { continue }
 
             let broken = columnRefs(tokens).filter { condition.contains($0) }.contains { q in
-                guard let table = bound.byQualifier[tokens[q].text.lowercased()] else { return true }
+                guard let table = bound.bindings.table(tokens[q].text, at: q) else { return true }
                 return !has(table, tokens[q + 2].text)
             }
             guard broken else { continue }
 
-            // The keys between the joined table and every table before it.
+            // The keys between the joined table and every table before it
+            // that this ON can name: a table of an earlier subquery is
+            // before it too, and cannot be joined on here.
+            let joinedQualifier = references[refIndex].ref.qualifier
             var candidates: [(DraftCatalog.Link, own: String, other: String)] = []
-            for earlier in bound.scope.tables[..<refIndex] {
-                guard let table = bound.byQualifier[earlier.qualifier.lowercased()], table.key != joined.key else { continue }
+            for index in bound.bindings.visible(from: on) where index < refIndex {
+                guard let table = bound.bindings.tables[index], table.key != joined.key else { continue }
+                let earlier = references[index].ref.qualifier
                 for link in catalog.links {
                     if link.from == joined.key, link.to == table.key {
-                        candidates.append((link, bound.scope.tables[refIndex].qualifier, earlier.qualifier))
+                        candidates.append((link, joinedQualifier, earlier))
                     } else if link.from == table.key, link.to == joined.key {
-                        candidates.append((link, earlier.qualifier, bound.scope.tables[refIndex].qualifier))
+                        candidates.append((link, earlier, joinedQualifier))
                     }
                 }
             }
@@ -178,15 +182,17 @@ enum SQLDraftFixer {
         return Outcome(sql: apply(edits, to: sql), fixes: fixes)
     }
 
-    /// The index in `scope.tables` of the reference an ON at `on` belongs
+    /// The index in `references` of the reference an ON at `on` belongs
     /// to: the alias (or name) right before ON.
-    private static func joinedRef(before on: Int, tokens: [SQLStatementScope.Token], scope: SQLStatementScope) -> Int? {
+    private static func joinedRef(
+        before on: Int, tokens: [SQLStatementScope.Token],
+        references: [(ref: SQLStatementScope.TableRef, at: Int)]
+    ) -> Int? {
         guard on > 0, tokens[on - 1].isName else { return nil }
         let name = tokens[on - 1].text.lowercased()
-        // The last reference with that qualifier before this point: aliases
-        // are unique in a well-formed statement, and a repeated one resolves
-        // to the latest.
-        return scope.tables.lastIndex { $0.qualifier.lowercased() == name }
+        // The last reference with that qualifier declared before this ON:
+        // the same alias in a later subquery is another table.
+        return references.lastIndex { $0.at < on && $0.ref.qualifier.lowercased() == name }
     }
 
     // MARK: - 2. Qualifiers
@@ -197,16 +203,23 @@ enum SQLDraftFixer {
         var edits: [(NSRange, String)] = []
         var fixes: [String] = []
         for q in columnRefs(tokens) where !bound.conditions.contains(where: { $0.contains(q) }) {
-            guard let table = bound.byQualifier[tokens[q].text.lowercased()], !table.columns.isEmpty else { continue }
+            guard let table = bound.bindings.table(tokens[q].text, at: q), !table.columns.isEmpty else { continue }
             let column = tokens[q + 2].text
             guard !has(table, column) else { continue }
-            let owners = bound.scope.tables.filter { ref in
-                guard let other = bound.byQualifier[ref.qualifier.lowercased()] else { return false }
-                return other.key != table.key && has(other, column)
+            // The tables that have the column AND can be named here. One in
+            // a subquery has it too, but the query around the subquery
+            // cannot read through it: moving the column there would trade a
+            // column that does not exist for a table that is not in FROM.
+            var owners: [String] = []
+            for index in bound.bindings.visible(from: q) {
+                let qualifier = bound.bindings.references[index].ref.qualifier
+                guard let other = bound.bindings.tables[index], other.key != table.key,
+                      has(other, column), !owners.contains(qualifier) else { continue }
+                owners.append(qualifier)
             }
             guard owners.count == 1 else { continue }
-            edits.append((tokens[q].range, owners[0].qualifier))
-            let fix = "\(column) is read through \(owners[0].qualifier), the table that has it."
+            edits.append((tokens[q].range, owners[0]))
+            let fix = "\(column) is read through \(owners[0]), the table that has it."
             if !fixes.contains(fix) { fixes.append(fix) }
         }
         guard !edits.isEmpty else { return nil }
@@ -227,7 +240,6 @@ enum SQLDraftFixer {
                 }
             }
         }
-        guard !mixed.isEmpty else { return nil }
         let scope = SQLStatementScope.analyze(sql, caret: (sql as NSString).length)
         let aliases = Set(scope.tables.compactMap { $0.alias?.lowercased() } + scope.selectAliases.map { $0.lowercased() })
         let snapshot = SQLLexSnapshot.shared(for: sql)
@@ -239,6 +251,13 @@ enum SQLDraftFixer {
             guard let real = mixed[lower], !plain.contains(lower), !aliases.contains(lower) else { continue }
             edits.append((token.range, DraftCatalog.quoted(real)))
             let fix = "\(real) is written with its double quotes."
+            if !fixes.contains(fix) { fixes.append(fix) }
+        }
+        // A key word used as a name, where it can only be a name.
+        for index in SQLDraftChecker.reservedNames(in: tokens, catalog: catalog) {
+            let name = tokens[index].text.lowercased()
+            edits.append((tokens[index].range, DraftCatalog.quoted(name)))
+            let fix = "\(name) is written with its double quotes."
             if !fixes.contains(fix) { fixes.append(fix) }
         }
         guard !edits.isEmpty else { return nil }

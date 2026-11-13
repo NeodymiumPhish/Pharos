@@ -95,6 +95,7 @@
   "intelligence": {
     "allowDraftingWriteStatements": true,
     "describeQuery": true,
+    "draftTimeoutSeconds": 300,
     "endpoint": {
       "allowedHost": "",
       "baseUrl": "",

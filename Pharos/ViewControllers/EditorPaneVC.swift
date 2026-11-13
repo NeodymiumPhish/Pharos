@@ -48,11 +48,17 @@ class EditorPaneVC: NSViewController {
     /// bar so the two read as one strip of chrome, not two surfaces.
     private let editorToolbar = EditorHeaderRowView()
     private let formatButton = NSButton()
-    /// "Describe the query…" — hidden entirely unless Apple Intelligence is
-    /// available, and disabled until the tab has a live connection to read a
-    /// schema from.
-    private let describeQueryButton = NSButton()
-    private var describeQueryPopover: NSPopover?
+    /// Whether the cards offer "Describe the query". Kept here, from the
+    /// availability sink, for the `@Published` `willSet` reason spelled out
+    /// in `ModelAvailability.publisher(for:)`.
+    private var describeQueryAvailable = ModelAvailability.shared.isAvailable(for: .describeQuery)
+    /// The keys, enum labels and comments last fetched for a draft, so the
+    /// fetch that starts when a description opens is the one its draft uses.
+    private var draftFacts: (key: String, started: Date, task: Task<[String: SchemaDraftFacts], Never>)?
+    /// The table definitions read for drafts, by connection and table, with
+    /// when each was read: a retry, or the next card's draft, does not ask
+    /// the database for the same DDL again.
+    private var draftDefinitions: [String: (read: Date, definition: DraftCatalog.Definition)] = [:]
     /// "Format as SQL list" — hidden until a paste qualifies for the offer.
     private let formatListButton = NSButton()
     private let saveDropdown = NSPopUpButton(frame: .zero, pullsDown: true)
@@ -220,23 +226,33 @@ class EditorPaneVC: NSViewController {
             self.metadataCache.prioritize(schema: schema, connectionId: connectionId)
         }
 
-        // "Describe the query…" appears and disappears with Apple
-        // Intelligence, and takes its enabled state from whether the tab has
-        // a connection whose schema the model could read.
+        // The cards' Describe buttons appear and disappear with the
+        // feature. Switched off, every description closes and every draft
+        // stops: a strip must not outlive the feature it belongs to.
         ModelAvailability.shared.publisher(for: .describeQuery)
             .receive(on: RunLoop.main)
             .sink { [weak self] available in
-                self?.updateDescribeQueryButton(available: available)
+                guard let self else { return }
+                self.describeQueryAvailable = available
+                if available { self.cardStack.refreshStatus() } else { self.cardStack.closeAllDescriptions() }
             }
             .store(in: &cancellables)
-        // Its badge follows the model that would write the draft. Switching
-        // between two usable models changes no availability, so the choice
-        // is followed in its own right.
+        // The buttons' badge follows the model that would write the draft.
+        // Switching between two usable models changes no availability, so
+        // the choice is followed in its own right.
         AppStateManager.shared.$settings
             .map(\.intelligence.provider)
             .removeDuplicates()
+            .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in self?.updateDescribeQueryBadge() }
+            .sink { [weak self] _ in self?.cardStack.refreshStatus() }
+            .store(in: &cancellables)
+        // A closed tab takes its cards' drafts with it.
+        session.$tabs
+            .map { Set($0.map(\.id)) }
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] ids in self?.cardStack.drafts.closeAll(exceptTabs: ids) }
             .store(in: &cancellables)
 
         // The status, not the tab's `connectionId`: a tab can name a
@@ -249,7 +265,6 @@ class EditorPaneVC: NSViewController {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.updateDescribeQueryButton()
                 self?.cardStack.refreshStatus()
                 self?.refreshTabContext()
                 self?.refreshEngineVocabulary()
@@ -366,6 +381,7 @@ class EditorPaneVC: NSViewController {
                 error: connectionId.flatMap { self.stateManager.connectionError(for: $0) })
         }
         cardStack.validationSchema = { [weak self] in self?.session.activeTab?.schemaName }
+        wireCardDrafts()
     }
 
     override func viewDidLayout() {
@@ -563,24 +579,6 @@ class EditorPaneVC: NSViewController {
         formatButton.action = #selector(formatSQLTapped)
         formatButton.translatesAutoresizingMaskIntoConstraints = false
 
-        // "Describe the query…" — next to Format, same treatment. The Apple
-        // Intelligence glyph where the SDK has it; `systemSymbolName:` answers
-        // nil for a name it does not know, so the fallback is a real check
-        // rather than a version test.
-        describeQueryButton.symbolConfiguration = fmtConfig
-        updateDescribeQueryBadge()
-        describeQueryButton.bezelStyle = .recessed
-        describeQueryButton.isBordered = false
-        describeQueryButton.contentTintColor = .secondaryLabelColor
-        describeQueryButton.target = self
-        describeQueryButton.action = #selector(describeQueryTapped)
-        describeQueryButton.translatesAutoresizingMaskIntoConstraints = false
-        describeQueryButton.setAccessibilityIdentifier("editor.describeQuery")
-        describeQueryButton.setAccessibilityLabel(String(localized: "Describe the query\u{2026}"))
-        // Hidden until the availability sink says otherwise: a feature that
-        // cannot run must not leave a disabled stub behind.
-        describeQueryButton.isHidden = true
-
         // Save dropdown (pull-down button)
         saveDropdown.bezelStyle = .recessed
         saveDropdown.isBordered = false
@@ -649,10 +647,10 @@ class EditorPaneVC: NSViewController {
 
         setUpVariablesDropdown()
 
-        // After the tab's context: Format, Describe, Save, Variables, New
-        // Card, Format-as-SQL-list.
+        // After the tab's context: Format, Save, Variables, New Card,
+        // Format-as-SQL-list.
         let toolbarStack = NSStackView(
-            views: [formatButton, describeQueryButton, saveDropdown, variablesDropdown, newCardButton, formatListButton])
+            views: [formatButton, saveDropdown, variablesDropdown, newCardButton, formatListButton])
         toolbarStack.orientation = .horizontal
         toolbarStack.spacing = 4
         toolbarStack.translatesAutoresizingMaskIntoConstraints = false
@@ -705,8 +703,6 @@ class EditorPaneVC: NSViewController {
         NSLayoutConstraint.activate([
             formatButton.widthAnchor.constraint(equalToConstant: 24),
             formatButton.heightAnchor.constraint(equalToConstant: 24),
-            describeQueryButton.widthAnchor.constraint(equalToConstant: 24),
-            describeQueryButton.heightAnchor.constraint(equalToConstant: 24),
             saveDropdown.widthAnchor.constraint(equalToConstant: 32),
             variablesDropdown.widthAnchor.constraint(equalToConstant: 32),
             newCardButton.widthAnchor.constraint(equalToConstant: 24),
@@ -850,101 +846,126 @@ class EditorPaneVC: NSViewController {
         if let saveItem = saveDropdown.menu?.item(at: 1) {
             saveItem.isEnabled = canSaveInPlace
         }
-        updateDescribeQueryButton()
     }
 
     // MARK: - Describe the Query
 
-    /// Show the button only where the feature can run, and enable it only
-    /// where it has a schema to read.
-    ///
-    /// The badge is Apple's glyph only while Apple's model would write the
-    /// draft; a custom endpoint gets the plain one.
-    private func updateDescribeQueryBadge() {
-        let description = String(localized: "Describe the query\u{2026}")
-        describeQueryButton.image = NSImage(
-            systemSymbolName: IntelligenceSource.current().badgeSymbol, accessibilityDescription: description)
-            ?? NSImage(systemSymbolName: "sparkles", accessibilityDescription: description)
+    /// Connect the cards' "Describe the query" to this window: whether it is
+    /// offered, why a draft cannot start, and what a new draft asks with.
+    private func wireCardDrafts() {
+        cardStack.describeAvailable = { [weak self] in self?.describeQueryAvailable ?? false }
+        cardStack.draftUnavailableReason = { [weak self] in
+            guard let self, let tabId = self.cardStack.tabId else { return nil }
+            return self.draftDatabase(forTab: tabId) == nil
+                ? String(localized: "Connect this tab to a database to draft a query.")
+                : nil
+        }
+        cardStack.makeDraftSession = { [weak self] in
+            guard let self, let tabId = self.cardStack.tabId else { return nil }
+            // Start the facts query now, while the analyst types.
+            _ = self.draftContext(forTab: tabId)
+            return CardDraftSession(
+                tabId: tabId,
+                timeout: {
+                    .seconds(Int(max(1, AppStateManager.shared.settings.intelligence.draftTimeoutSeconds)))
+                },
+                timeoutMessage: CardDraftWorker.timeoutMessage,
+                describe: CardDraftWorker.message(for:),
+                worker: CardDraftWorker.make { [weak self] in self?.draftContext(forTab: tabId) })
+        }
     }
 
-    /// `available` is passed in by the availability sink and read from
-    /// `ModelAvailability` by everyone else, for the `@Published` `willSet`
-    /// reason spelled out in `ModelAvailability.publisher(for:)`.
-    private func updateDescribeQueryButton(available: Bool? = nil) {
-        let available = available ?? ModelAvailability.shared.isAvailable(for: .describeQuery)
-        describeQueryButton.isHidden = !available
-        updateDescribeQueryBadge()
-        guard available else {
-            // A popover left open while the feature is switched off would
-            // outlive its own button.
-            closeDescribeQueryPopover()
-            return
-        }
-
-        let connected = tabConnectionId.map { stateManager.status(for: $0) == .connected } ?? false
-        describeQueryButton.isEnabled = connected
-        describeQueryButton.toolTip = connected
-            ? String(localized: "Describe the query\u{2026}")
-            : String(localized: "Connect this tab to a database to draft a query.")
+    /// The connected database and the schema of `tabId`, or nil while the tab
+    /// has none. Asks the database nothing.
+    private func draftDatabase(forTab tabId: String) -> (connectionId: String, schema: String?)? {
+        guard let tab = session.tabs.first(where: { $0.id == tabId }), let connectionId = tab.connectionId,
+              stateManager.status(for: connectionId) == .connected else { return nil }
+        return (connectionId, tab.schemaName)
     }
 
-    @objc private func describeQueryTapped() {
-        guard ModelAvailability.shared.isAvailable(for: .describeQuery),
-              describeQueryButton.isEnabled else { return }
-        if describeQueryPopover != nil {
-            closeDescribeQueryPopover()
-            return
-        }
+    /// How long fetched draft facts are used again: long enough for the
+    /// fetch started when a description opens to serve its draft and a
+    /// retry, short enough that a changed schema is read again.
+    private static let draftFactsLifetime: TimeInterval = 120
 
-        // The keys, enum labels and comments are fetched now, while the
-        // analyst types; the catalogue itself is read when Draft is pressed,
-        // so it holds whatever the cache has loaded by then.
-        let connectionId = session.activeConnectionId
-        let facts = Self.fetchDraftFacts(
-            metadataCache.metadata(for: connectionId), connectionId: connectionId, defaultSchema: tabSchemaName)
-        let popoverVC = DescribeQueryPopoverVC(
+    /// The database a draft in `tabId` is written against, as the tab stands
+    /// now; nil while the tab has no connected database. The tab need not be
+    /// the one on screen: a draft goes on after a tab switch.
+    private func draftContext(forTab tabId: String) -> CardDraftWorker.Context? {
+        guard let (connectionId, schema) = draftDatabase(forTab: tabId) else { return nil }
+        let key = "\(connectionId)\u{0}\(schema ?? "")"
+        let facts: Task<[String: SchemaDraftFacts], Never>
+        if let cached = draftFacts, cached.key == key, Date().timeIntervalSince(cached.started) < Self.draftFactsLifetime {
+            facts = cached.task
+        } else {
+            facts = Self.fetchDraftFacts(
+                metadataCache.metadata(for: connectionId), connectionId: connectionId, defaultSchema: schema)
+            draftFacts = (key, Date(), facts)
+        }
+        // The catalogue itself is read when the draft starts, so it holds
+        // whatever the cache has loaded by then.
+        return CardDraftWorker.Context(
             catalog: { [metadataCache] in
                 DraftCatalog.from(metadataCache.metadata(for: connectionId), facts: await facts.value)
             },
-            defaultSchema: tabSchemaName,
-            dialect: stateManager.dialectName(for: connectionId))
-        popoverVC.onInsert = { [weak self] sql in
-            guard let self else { return }
-            // Close first: the editor can only take the keyboard back once
-            // the popover's window has given it up.
-            self.closeDescribeQueryPopover()
-            self.insertDraft(sql)
-        }
-        popoverVC.onClose = { [weak self] in self?.closeDescribeQueryPopover() }
-
-        let popover = NSPopover()
-        popover.contentViewController = popoverVC
-        popover.behavior = .transient
-        popover.delegate = self
-        describeQueryPopover = popover
-        popover.show(relativeTo: describeQueryButton.bounds, of: describeQueryButton, preferredEdge: .maxY)
+            defaultSchema: schema,
+            dialect: stateManager.dialectName(for: connectionId),
+            definitions: { [weak self] keys in await self?.draftDefinitions(of: keys, connectionId: connectionId) ?? [:] })
     }
 
-    /// A drafted statement goes into the focused card when it is empty, else
-    /// into a new card below it: one statement per card.
-    private func insertDraft(_ sql: String) {
-        guard let doc = cardStack.document() else { return }
-        if let id = doc.focusedCardId, let card = doc.card(id), !card.isLocked,
-           card.sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let editor = cardStack.editor(for: id) {
-            cardStack.focusCard(id)
-            editor.insertDraft(sql)
-        } else {
-            cardStack.addCard(after: doc.focusedCardId)
-            if let id = cardStack.document()?.focusedCardId, let editor = cardStack.editor(for: id) {
-                editor.insertDraft(sql)
+    /// The most definitions asked of the database at once.
+    private static let draftDefinitionConcurrency = 6
+
+    /// The definitions of `keys`, as View Table DDL's "+ Constraints" level
+    /// shows them: columns, keys and checks, and a partitioned table's
+    /// `PARTITION BY`. No indexes: they say nothing a SELECT needs. A table
+    /// whose DDL cannot be read is left out, and the draft falls back to
+    /// names, types and keys.
+    private func draftDefinitions(
+        of keys: [DraftCatalog.TableKey], connectionId: String
+    ) async -> [DraftCatalog.TableKey: DraftCatalog.Definition] {
+        func cacheKey(_ key: DraftCatalog.TableKey) -> String { "\(connectionId)\u{0}\(key.schema)\u{0}\(key.name)" }
+        let now = Date()
+        draftDefinitions = draftDefinitions.filter { now.timeIntervalSince($0.value.read) < Self.draftFactsLifetime }
+        var out: [DraftCatalog.TableKey: DraftCatalog.Definition] = [:]
+        var missing: [DraftCatalog.TableKey] = []
+        for key in keys {
+            if let cached = draftDefinitions[cacheKey(key)] { out[key] = cached.definition } else { missing.append(key) }
+        }
+        guard !missing.isEmpty else { return out }
+
+        let read = await withTaskGroup(of: (DraftCatalog.TableKey, DraftCatalog.Definition?).self) { group in
+            var pending = missing.makeIterator()
+            var results: [DraftCatalog.TableKey: DraftCatalog.Definition] = [:]
+            func addNext() {
+                guard !Task.isCancelled, let key = pending.next() else { return }
+                group.addTask {
+                    do {
+                        let ddl = try await PharosCore.generateTableDDL(
+                            connectionId: connectionId, schema: key.schema, table: key.name)
+                        return (key, DraftCatalog.Definition(
+                            ddl: ddl.withConstraints,
+                            partitionOf: ddl.shape.partitionOf.map {
+                                DraftCatalog.TableKey(schema: $0.schema, name: $0.table)
+                            }))
+                    } catch {
+                        Log.intelligence.error("draft-sql: a table's DDL could not be read")
+                        return (key, nil)
+                    }
+                }
             }
+            for _ in 0..<Self.draftDefinitionConcurrency { addNext() }
+            for await (key, definition) in group {
+                if let definition { results[key] = definition }
+                addNext()
+            }
+            return results
         }
-    }
-
-    private func closeDescribeQueryPopover() {
-        describeQueryPopover?.performClose(nil)
-        describeQueryPopover = nil
+        for (key, definition) in read {
+            draftDefinitions[cacheKey(key)] = (now, definition)
+            out[key] = definition
+        }
+        return out
     }
 
     /// The completion list's engine half: the schema the engine searches
@@ -972,7 +993,7 @@ class EditorPaneVC: NSViewController {
         session.activeTab
     }
 
-    /// The most schemas whose draft facts are fetched for one popover. Keys
+    /// The most schemas whose draft facts are fetched for one draft. Keys
     /// are stored on the referencing side, so a schema left out still shows
     /// the keys that point INTO it from the schemas fetched.
     private static let draftFactsSchemaLimit = 12
@@ -1027,17 +1048,9 @@ class EditorPaneVC: NSViewController {
 
 extension EditorPaneVC: NSPopoverDelegate {
 
-    /// A transient popover closes itself when the analyst clicks elsewhere,
-    /// and nothing else would tell the pane about it — leaving a stale
-    /// reference that makes the next press on the button a no-op toggle.
     /// The schema popover's close releases the schema pop-up's pressed look.
     func popoverDidClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover else { return }
-        if popover === describeQueryPopover {
-            describeQueryPopover = nil
-        } else {
-            tabContextBar.schemaButton.isPresenting = false
-        }
+        tabContextBar.schemaButton.isPresenting = false
     }
 }
 

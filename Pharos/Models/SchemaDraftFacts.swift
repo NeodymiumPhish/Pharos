@@ -8,7 +8,8 @@ import Foundation
 /// serde names are camelCase with `type` for the type fields. Rust always
 /// writes every key, so the synthesized decoder is enough. Names, types,
 /// keys and comments only: the query that fills it reads no column default
-/// and no CHECK clause, because both can hold literal values.
+/// and no CHECK clause. Those reach a draft only through the tables' DDL
+/// (`DraftCatalog.Definition`), when that is what the model is shown.
 struct SchemaDraftFacts: Codable, Equatable, Sendable {
 
     struct Column: Codable, Equatable, Sendable {

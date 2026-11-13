@@ -1,12 +1,15 @@
 import Foundation
 
-/// What the drafting model is allowed to know about the connected database.
+/// What Pharos knows about the connected database when it drafts: names,
+/// types, keys, enum labels and short comments. No row, no cell and no row
+/// count is in it, so none can reach a prompt built from it.
 ///
-/// Names, types, keys, enum labels and short comments. Nothing else: no row,
-/// no cell, no row count, no column default and no CHECK clause. Every
-/// string the model receives is built from this value by `SQLDraftPrompt`,
-/// so "the model never sees your data" is a property of the TYPE rather than
-/// a promise about the prompt text.
+/// It is what tables are found, picked and checked with, and what the
+/// compact schema block is written from. The draft step is shown the
+/// tables' own `CREATE TABLE` text instead when that fits (`Definition`,
+/// handed to `SQLDraftPrompt.ddlBlock`); that text is the table's
+/// definition as View Table DDL shows it, so it does carry column defaults
+/// and CHECK clauses. It still carries no row.
 ///
 /// Pure Foundation on purpose: the session that reads the prompts lives in
 /// `SQLDraft.swift` and cannot be unit-tested, while every string the model
@@ -63,6 +66,16 @@ struct DraftCatalog: Sendable, Equatable {
         let toColumns: [String]
     }
 
+    /// A table's definition as View Table DDL shows it.
+    struct Definition: Equatable, Sendable {
+        /// `CREATE TABLE …;` with its constraints and, for a partitioned
+        /// table, its `PARTITION BY` clause.
+        let ddl: String
+        /// The parent this table is a partition of. The model is shown the
+        /// parent's definition, never a partition's.
+        let partitionOf: TableKey?
+    }
+
     /// One column as the metadata cache holds it.
     struct SourceColumn: Equatable, Sendable {
         let name: String
@@ -76,6 +89,10 @@ struct DraftCatalog: Sendable, Equatable {
     let tables: [Table]
     /// Every foreign key whose both ends are in `tables`.
     let links: [Link]
+    /// The tables that are partitions of another table. They stay in
+    /// `tables`, so a draft that names one still checks; they are left out
+    /// of what the model is shown as DDL, where the parent stands for them.
+    var partitions: Set<TableKey> = []
 
     private let index: [TableKey: Int]
 
@@ -89,7 +106,7 @@ struct DraftCatalog: Sendable, Equatable {
     }
 
     static func == (a: DraftCatalog, b: DraftCatalog) -> Bool {
-        a.tables == b.tables && a.links == b.links
+        a.tables == b.tables && a.links == b.links && a.partitions == b.partitions
     }
 
     /// The cache's tables and columns, with each schema's facts laid over

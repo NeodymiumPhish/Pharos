@@ -8,6 +8,8 @@ swiftc -o /tmp/pharos-card-views-tests \
   Pharos/ViewControllers/Cards/CardViews.swift \
   Pharos/Editor/FindHighlights.swift \
   Pharos/ViewControllers/Cards/CardNotesView.swift \
+  Pharos/ViewControllers/Cards/CardDraftView.swift \
+  Pharos/Core/Cards/CardDraftSession.swift \
   Pharos/ViewControllers/Cards/CardResultsHeaderView.swift \
   Pharos/Editor/SQLSyntaxHighlighter.swift \
   Pharos/Editor/SQLLexer.swift \

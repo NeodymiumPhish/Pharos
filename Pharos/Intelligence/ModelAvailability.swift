@@ -248,7 +248,7 @@ extension ModelAvailability {
     /// Every feature site asks `isAvailable(for:)` rather than `isAvailable`,
     /// so turning one feature off cannot be mistaken for turning the model off.
     enum Feature: String, CaseIterable {
-        /// The editor toolbar's "Describe the query…" button.
+        /// The Describe button in each query card's name row.
         case describeQuery
         /// The explanation block on the query-error sheet.
         case explainErrors

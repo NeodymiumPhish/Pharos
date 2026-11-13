@@ -11,7 +11,8 @@ import Foundation
 /// - every `qualifier.column` names a column of the table the qualifier
 ///   stands for;
 /// - a mixed-case name is written with its double quotes, because
-///   PostgreSQL folds an unquoted name to lower case;
+///   PostgreSQL folds an unquoted name to lower case, and so is a name that
+///   is a key word (`o.order`), because PostgreSQL reads it as the key word;
 /// - an enum column compared with `=`, `<>` or `IN` uses listed labels.
 ///
 /// An unqualified column is not checked: the instructions ask for every
@@ -22,7 +23,7 @@ import Foundation
 enum SQLDraftChecker {
 
     struct Problem: Equatable, CustomStringConvertible {
-        /// One sentence for the repair prompt and the popover.
+        /// One sentence for the repair prompt and the card's strip.
         let description: String
     }
 
@@ -44,11 +45,16 @@ enum SQLDraftChecker {
         // CTEs and derived tables have columns the catalogue cannot know,
         // and so does an alias given to a CTE.
         var tableLike = Set((scope.cteNames + scope.derivedAliases).map { $0.lowercased() })
-        var byQualifier: [String: DraftCatalog.Table] = [:]
-        for ref in scope.tables {
+
+        let snapshot = SQLLexSnapshot.shared(for: sql)
+        let tokens = SQLStatementScope.tokens(in: snapshot, range: NSRange(location: 0, length: snapshot.length))
+        let schemas = Set(catalog.schemas.map { $0.lowercased() })
+        // Each table the statement names, bound to the catalogue table it
+        // means. One that is a CTE or does not exist is bound to nothing.
+        let bindings = Bindings(tokens) { ref in
             if ref.schema == nil, tableLike.contains(ref.table.lowercased()) {
                 if let alias = ref.alias { tableLike.insert(alias.lowercased()) }
-                continue
+                return nil
             }
             guard let table = catalog.resolve(schema: ref.schema, table: ref.table, searchPath: searchPath) else {
                 let name = ref.schema.map { "\($0).\(ref.table)" } ?? ref.table
@@ -56,27 +62,28 @@ enum SQLDraftChecker {
                 // Its alias is still an alias: one wrong table name is one
                 // problem, not one more for every column read through it.
                 tableLike.insert(ref.qualifier.lowercased())
-                continue
+                return nil
             }
-            byQualifier[ref.qualifier.lowercased()] = table
-            if ref.alias == nil {
-                // `sales.orders` with no alias is also reachable as `orders`.
-                byQualifier[table.key.name.lowercased()] = table
-            }
+            return table
         }
+        let references = bindings.references
+        let queries = bindings.queries
 
-        let snapshot = SQLLexSnapshot.shared(for: sql)
-        let tokens = SQLStatementScope.tokens(in: snapshot, range: NSRange(location: 0, length: snapshot.length))
-        let schemas = Set(catalog.schemas.map { $0.lowercased() })
-
-        checkQuoting(tokens, scope: scope, byQualifier: byQualifier, catalog: catalog, add: add)
+        checkQuoting(tokens, scope: scope, catalog: catalog, add: add)
 
         if tokens.contains(where: { $0.isPunct("{") || $0.isPunct("}") }) {
             add("PostgreSQL has no { } lists; write IN ('a', 'b').")
         }
 
-        // The names the statement may qualify with, for the hints below.
-        let qualifiers = scope.tables.map(\.qualifier) + scope.derivedAliases
+        // The names a place in the statement may qualify with, for the
+        // hint below: the tables it can see, and the derived tables.
+        func qualifiers(at place: Int) -> [String] {
+            var names: [String] = []
+            for placed in references where queries.sees(placed.at, from: place) && !names.contains(placed.ref.qualifier) {
+                names.append(placed.ref.qualifier)
+            }
+            return names + scope.derivedAliases.filter { !names.contains($0) }
+        }
 
         var i = 0
         while i + 2 < tokens.count {
@@ -99,16 +106,24 @@ enum SQLDraftChecker {
             let notAColumn = previous?.isPunct("::") == true || previous?.isPunct(".") == true
                 || next?.isPunct("(") == true || next?.isPunct(".") == true
 
-            if !notAColumn, !member.isPunct("*"), let table = byQualifier[qualifier] {
+            // What the qualifier means HERE: the same alias can name another
+            // table inside a subquery.
+            let bound = bindings.table(qualifier, at: q)
+            if !notAColumn, !member.isPunct("*"), let table = bound {
                 if !table.columns.isEmpty,
                    let column = table.columns.first(where: { $0.name.lowercased() == member.text.lowercased() }) {
                     checkEnum(column: column, table: table, after: q + 3, tokens: tokens, sql: sql, add: add)
                 } else if !table.columns.isEmpty {
                     let wanted = member.text.lowercased()
-                    let owners = scope.tables.filter { ref in
-                        guard let other = byQualifier[ref.qualifier.lowercased()], other.key != table.key else { return false }
-                        return other.columns.contains { $0.name.lowercased() == wanted }
-                    }.map(\.qualifier)
+                    // Only a table this place can name: a subquery's table
+                    // has the column, and is no use to the query around it.
+                    var owners: [String] = []
+                    for index in bindings.visible(from: q) {
+                        guard let other = bindings.tables[index], other.key != table.key,
+                              other.columns.contains(where: { $0.name.lowercased() == wanted }),
+                              !owners.contains(references[index].ref.qualifier) else { continue }
+                        owners.append(references[index].ref.qualifier)
+                    }
                     if !owners.isEmpty {
                         add("Column \(tokens[q].text).\(member.text) does not exist; \(member.text) is a column of \(owners.joined(separator: " and ")).")
                     } else {
@@ -116,14 +131,127 @@ enum SQLDraftChecker {
                         add("Column \(tokens[q].text).\(member.text) does not exist; \(table.key) has: \(known).")
                     }
                 }
-            } else if !notAColumn, byQualifier[qualifier] == nil, !tableLike.contains(qualifier),
+            } else if !notAColumn, bound == nil, !tableLike.contains(qualifier),
                       !schemas.contains(qualifier) {
-                let list = qualifiers.isEmpty ? "" : "; the aliases are: " + qualifiers.joined(separator: ", ")
+                let known = qualifiers(at: q)
+                let list = known.isEmpty ? "" : "; the aliases are: " + known.joined(separator: ", ")
                 add("\(tokens[q].text) is not a table or alias in the FROM clause\(list).")
             }
             i = q + 3
         }
         return problems
+    }
+
+    // MARK: - Which query a token is in
+
+    /// The queries of a statement: its own, each parenthesised SELECT inside
+    /// it (a subquery, a derived table, the body of a WITH) and each side of
+    /// a UNION, INTERSECT or EXCEPT.
+    ///
+    /// A table can be named where it is declared and in the queries inside
+    /// that one, and nowhere else: the query around a subquery cannot read
+    /// the subquery's tables. A hint or a correction that names a table has
+    /// to respect that, or it turns one mistake into another.
+    struct Queries {
+        /// The query each token is in. 0 is the statement's own.
+        let query: [Int]
+        /// The query that encloses each query; -1 for one that has none.
+        let parent: [Int]
+
+        init(_ tokens: [SQLStatementScope.Token]) {
+            var query = [Int](repeating: 0, count: tokens.count)
+            var parent = [-1]
+            // The query at each depth of parentheses.
+            var open = [0]
+            for (index, token) in tokens.enumerated() {
+                if token.isPunct(")"), open.count > 1 {
+                    open.removeLast()
+                } else if token.isKeyword("UNION") || token.isKeyword("INTERSECT") || token.isKeyword("EXCEPT") {
+                    // The next SELECT is beside this one, not inside it.
+                    parent.append(parent[open[open.count - 1]])
+                    open[open.count - 1] = parent.count - 1
+                }
+                query[index] = open[open.count - 1]
+                if token.isPunct("(") {
+                    let next = index + 1 < tokens.count ? tokens[index + 1] : nil
+                    if next?.isKeyword("SELECT") == true || next?.isKeyword("WITH") == true || next?.isKeyword("VALUES") == true {
+                        parent.append(open[open.count - 1])
+                        open.append(parent.count - 1)
+                    } else {
+                        // Brackets round an expression or a call: same query.
+                        open.append(open[open.count - 1])
+                    }
+                }
+            }
+            self.query = query
+            self.parent = parent
+        }
+
+        /// Whether a table declared at token `declared` can be named at
+        /// token `place`: its query is the one `place` is in, or one that
+        /// encloses it.
+        func sees(_ declared: Int, from place: Int) -> Bool {
+            guard query.indices.contains(declared), query.indices.contains(place) else { return false }
+            var current = query[place]
+            while current >= 0 {
+                if current == query[declared] { return true }
+                current = parent[current]
+            }
+            return false
+        }
+    }
+
+    /// The tables a statement names, each bound to the catalogue table it
+    /// means, and which of them a place in the statement can name.
+    struct Bindings {
+        /// Every table the statement names, with the token it is declared
+        /// at, in the order they are named.
+        let references: [(ref: SQLStatementScope.TableRef, at: Int)]
+        /// The catalogue table each reference means; nil for a CTE, a
+        /// derived table's alias, or a name the catalogue does not have.
+        let tables: [DraftCatalog.Table?]
+        let queries: Queries
+
+        init(_ tokens: [SQLStatementScope.Token], resolve: (SQLStatementScope.TableRef) -> DraftCatalog.Table?) {
+            references = SQLStatementScope.tableReferences(in: tokens)
+            tables = references.map { resolve($0.ref) }
+            queries = Queries(tokens)
+        }
+
+        /// The references token `place` can name, in the order they are
+        /// declared: those of its own query and of the queries around it,
+        /// less any whose name a nearer declaration has taken. An outer `c`
+        /// cannot be named inside a subquery that declares a `c` of its own.
+        func visible(from place: Int) -> [Int] {
+            references.indices.filter { index in
+                guard queries.sees(references[index].at, from: place) else { return false }
+                return nearest(references[index].ref.qualifier, at: place) == index
+            }
+        }
+
+        /// The table `qualifier` means at token `place`: the nearest
+        /// declaration of that name, looking from the query `place` is in
+        /// outwards. `o` inside a subquery that declares its own `o` is the
+        /// subquery's; outside it, it is the outer one.
+        func table(_ qualifier: String, at place: Int) -> DraftCatalog.Table? {
+            nearest(qualifier, at: place).flatMap { tables[$0] }
+        }
+
+        /// The reference `qualifier` names at `place`, or nil when nothing
+        /// in reach is called that. `sales.orders` with no alias is called
+        /// `orders`.
+        private func nearest(_ qualifier: String, at place: Int) -> Int? {
+            guard queries.query.indices.contains(place) else { return nil }
+            let name = qualifier.lowercased()
+            var current = queries.query[place]
+            while current >= 0 {
+                for index in references.indices where queries.query[references[index].at] == current {
+                    if references[index].ref.qualifier.lowercased() == name { return index }
+                }
+                current = queries.parent[current]
+            }
+            return nil
+        }
     }
 
     // MARK: - What it reads
@@ -155,7 +283,6 @@ enum SQLDraftChecker {
     private static func checkQuoting(
         _ tokens: [SQLStatementScope.Token],
         scope: SQLStatementScope,
-        byQualifier: [String: DraftCatalog.Table],
         catalog: DraftCatalog,
         add: (String) -> Void
     ) {
@@ -176,6 +303,29 @@ enum SQLDraftChecker {
             guard let real = mixed[lower], !plain.contains(lower), !aliases.contains(lower) else { continue }
             add("\(token.text) must be written \(DraftCatalog.quoted(real)), with the double quotes.")
         }
+        for index in reservedNames(in: tokens, catalog: catalog) {
+            add("\(tokens[index].text) must be written \(DraftCatalog.quoted(tokens[index].text.lowercased())), with the double quotes.")
+        }
+    }
+
+    /// The tokens that are a reserved word used as a name: an unquoted word
+    /// straight after a dot (`o.order`, `public.user`) that is a table or
+    /// column of the catalogue and a PostgreSQL key word. After a dot a word
+    /// can only be a name, so there is nothing to guess; a bare `user` or
+    /// `order` could be the key word, and is left alone.
+    static func reservedNames(in tokens: [SQLStatementScope.Token], catalog: DraftCatalog) -> [Int] {
+        var reserved = Set<String>()
+        for table in catalog.tables {
+            for name in [table.key.name] + table.columns.map(\.name) where DraftCatalog.reservedWords.contains(name) {
+                reserved.insert(name)
+            }
+        }
+        guard !reserved.isEmpty else { return [] }
+        var out: [Int] = []
+        for index in tokens.indices.dropFirst() where tokens[index].kind == .word && tokens[index - 1].isPunct(".") {
+            if reserved.contains(tokens[index].text.lowercased()) { out.append(index) }
+        }
+        return out
     }
 
     // MARK: - Enum values

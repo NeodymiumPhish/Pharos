@@ -322,6 +322,156 @@ private func testRunTimeSchema() async {
     expectEqual(items?["enum"] as? [String] ?? [], ["sales.orders", "sales.customers"], "the allowed names go out as an enum")
 }
 
+/// Fields in the order the answer type declares them, which is the order an
+/// endpoint that holds its answer to the schema will write them in.
+@Generable
+private struct Ordered {
+    var zebra: String
+    var mango: String
+    var apple: String
+}
+
+/// Where each of `names` first appears in `text` as a JSON key, in order of
+/// appearance.
+private func keyOrder(_ names: [String], in text: String) -> [String] {
+    names.compactMap { name in text.range(of: "\"\(name)\":").map { (name, $0.lowerBound) } }
+        .sorted { $0.1 < $1.1 }.map(\.0)
+}
+
+@MainActor
+private func testSchemaKeepsTheDeclaredOrder() async {
+    let wire = Wire()
+    wire.replies = [.http(200, completion(#"{"zebra":"z","mango":"m","apple":"a"}"#))]
+    let answer = try? await backend(wire).respond(instructions: "I", prompt: "P", generating: Ordered.self, sampling: .standard)
+    expectEqual(answer?.apple, "a", "order: the answer is decoded")
+    let sent = String(decoding: wire.requests.first?.httpBody ?? Data(), as: UTF8.self)
+    expectEqual(keyOrder(["zebra", "mango", "apple"], in: sent), ["zebra", "mango", "apple"],
+                "order: the fields go out as declared, not sorted")
+    expect((try? JSONSerialization.jsonObject(with: Data(sent.utf8))) != nil, "order: and the body is still one JSON object")
+    let schema = ((wire.body(0)["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]
+    expectEqual(Set((schema?["properties"] as? [String: Any])?.keys.map { $0 } ?? []), ["zebra", "mango", "apple"],
+                "order: every field is there")
+    expect(!sent.contains("x-order") && !sent.contains("PHAROS-ANSWER-SCHEMA"), "order: no keyword of ours and no placeholder goes out")
+
+    // The plainer ways write the schema into the instructions: same order.
+    let plain = Wire()
+    plain.replies = [.http(400, "{}"), .http(200, completion(#"{"zebra":"z","mango":"m","apple":"a"}"#))]
+    _ = try? await backend(plain).respond(instructions: "I", prompt: "P", generating: Ordered.self, sampling: .standard)
+    expectEqual(keyOrder(["zebra", "mango", "apple"], in: plain.systemMessage(1)), ["zebra", "mango", "apple"],
+                "order: the schema in the instructions is in declared order too")
+
+    // A prompt that spells the placeholder cannot stand in for the schema.
+    let tricky = Wire()
+    tricky.replies = [.http(200, completion(#"{"zebra":"z","mango":"m","apple":"a"}"#))]
+    let hostile = #""schema":"@@PHAROS-ANSWER-SCHEMA@@""#
+    _ = try? await backend(tricky).respond(instructions: hostile, prompt: hostile, generating: Ordered.self, sampling: .standard)
+    let messages = tricky.body(0)["messages"] as? [[String: String]] ?? []
+    expectEqual(messages.map { $0["content"] ?? "" }, [hostile, hostile], "order: instructions and prompt arrive as written")
+    let stillThere = ((tricky.body(0)["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]
+    expectEqual(stillThere?["type"] as? String, "object", "order: and the schema is where it belongs")
+}
+
+/// A free-text field is given a length the endpoint can enforce, so a model
+/// that starts repeating itself inside a string is stopped there.
+@MainActor
+private func testFreeTextIsGivenALimit() async {
+    let table = DynamicGenerationSchema(name: "TableName", anyOf: ["sales.orders", "sales.customers"])
+    let root = DynamicGenerationSchema(name: "TablePick", properties: [
+        .init(name: "reason", description: "why", schema: DynamicGenerationSchema(type: String.self)),
+        .init(name: "tables", schema: DynamicGenerationSchema(arrayOf: table, minimumElements: 1, maximumElements: 6)),
+    ])
+    guard let schema = try? GenerationSchema(root: root, dependencies: []) else {
+        expect(false, "the pick schema must build")
+        return
+    }
+    let wire = Wire()
+    wire.replies = [.http(200, completion(#"{"reason":"r","tables":["sales.orders"]}"#))]
+    _ = try? await backend(wire).respond(instructions: "I", prompt: "P", schema: schema, sampling: .greedy)
+    let sent = ((wire.body(0)["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]
+    let properties = sent?["properties"] as? [String: Any]
+    expectEqual((properties?["reason"] as? [String: Any])?["maxLength"] as? Int, EndpointIntelligenceBackend.textLimit,
+                "limit: a free-text field is held to a length")
+    let items = (properties?["tables"] as? [String: Any])?["items"] as? [String: Any]
+    expect(items?["maxLength"] == nil, "limit: a name held to a list needs none")
+    expect((properties?["tables"] as? [String: Any])?["maxLength"] == nil, "limit: and an array is not a string")
+
+    // The typed answers get it too, optional fields included.
+    let typed = Wire()
+    typed.replies = [.http(200, completion(goodAnswer))]
+    _ = try? await ask(backend(typed))
+    let typedSchema = ((typed.body(0)["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]
+    let cause = (typedSchema?["properties"] as? [String: Any])?["cause"] as? [String: Any]
+    expectEqual(cause?["maxLength"] as? Int, EndpointIntelligenceBackend.textLimit, "limit: a typed answer's text field has it")
+    let sentText = String(decoding: typed.requests.first?.httpBody ?? Data(), as: UTF8.self)
+    expect(sentText.components(separatedBy: "\"maxLength\"").count - 1 >= 2, "limit: every free-text field, at every depth: \(sentText)")
+
+    // A feature can say that a field is a line, and that a list holds names.
+    let use = DynamicGenerationSchema(name: "TableUse", properties: [
+        .init(name: "table", schema: DynamicGenerationSchema(name: "TableName", anyOf: ["sales.orders"])),
+        .init(name: "columns", schema: DynamicGenerationSchema(
+            arrayOf: DynamicGenerationSchema(type: String.self), minimumElements: 1, maximumElements: 12)),
+    ])
+    let reading = DynamicGenerationSchema(name: "TableReading", properties: [
+        .init(name: "plan", schema: DynamicGenerationSchema(type: String.self)),
+        .init(name: "notes", schema: DynamicGenerationSchema(type: String.self)),
+        .init(name: "tables", schema: DynamicGenerationSchema(arrayOf: use, minimumElements: 0, maximumElements: 1)),
+    ])
+    guard let nested = try? GenerationSchema(root: reading, dependencies: []) else {
+        expect(false, "the reading schema must build")
+        return
+    }
+    let named = Wire()
+    named.replies = [.http(200, completion(#"{"plan":"p","notes":"n","tables":[]}"#))]
+    _ = try? await backend(named).respond(
+        instructions: "I", prompt: "P", schema: nested, textLimits: ["plan": 300, "columns": 128], sampling: .greedy)
+    let namedSchema = ((named.body(0)["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]
+    let namedProperties = namedSchema?["properties"] as? [String: Any]
+    expectEqual((namedProperties?["plan"] as? [String: Any])?["maxLength"] as? Int, 300, "limit: a field the feature names gets its own")
+    expectEqual((namedProperties?["notes"] as? [String: Any])?["maxLength"] as? Int, EndpointIntelligenceBackend.textLimit,
+                "limit: one it does not name gets the general one")
+    let definition = (namedSchema?["$defs"] as? [String: Any])?["TableUse"] as? [String: Any]
+    let columns = (definition?["properties"] as? [String: Any])?["columns"] as? [String: Any]
+    expectEqual((columns?["items"] as? [String: Any])?["maxLength"] as? Int, 128, "limit: a list's strings take the list's limit, inside a definition too")
+}
+
+/// The reading step's answer: an object inside an array, which
+/// FoundationModels encodes as a definition and a reference to it.
+@MainActor
+private func testNestedSchemaKeepsItsOrderAndItsDefinitions() async {
+    let use = DynamicGenerationSchema(name: "TableUse", properties: [
+        .init(name: "table", schema: DynamicGenerationSchema(name: "TableName", anyOf: ["sales.orders", "sales.customers"])),
+        .init(name: "columns", schema: DynamicGenerationSchema(
+            arrayOf: DynamicGenerationSchema(type: String.self), minimumElements: 1, maximumElements: 12)),
+    ])
+    let root = DynamicGenerationSchema(name: "TableReading", properties: [
+        .init(name: "plan", schema: DynamicGenerationSchema(type: String.self)),
+        .init(name: "tables", schema: DynamicGenerationSchema(arrayOf: use, minimumElements: 0, maximumElements: 2)),
+    ])
+    guard let schema = try? GenerationSchema(root: root, dependencies: []) else {
+        expect(false, "the reading schema must build")
+        return
+    }
+    let wire = Wire()
+    wire.replies = [.http(200, completion(#"{"plan":"p","tables":[{"table":"sales.orders","columns":["id","placed_at"]}]}"#))]
+    let content = try? await backend(wire).respond(instructions: "I", prompt: "P", schema: schema, sampling: .greedy)
+    let uses = (try? content?.value([GeneratedContent].self, forProperty: "tables")) ?? []
+    expectEqual(uses.count, 1, "nested: the array of objects is read")
+    expectEqual((try? uses.first?.value(String.self, forProperty: "table")) ?? "", "sales.orders", "nested: an object's field")
+    expectEqual((try? uses.first?.value([String].self, forProperty: "columns")) ?? [], ["id", "placed_at"], "nested: and its list")
+
+    let sent = String(decoding: wire.requests.first?.httpBody ?? Data(), as: UTF8.self)
+    expectEqual(keyOrder(["table", "columns"], in: sent), ["table", "columns"],
+                "nested: the table is named before its columns are listed")
+    let body = ((wire.body(0)["response_format"] as? [String: Any])?["json_schema"] as? [String: Any])?["schema"] as? [String: Any]
+    let definition = (body?["$defs"] as? [String: Any])?["TableUse"] as? [String: Any]
+    expectEqual(definition?["type"] as? String, "object", "nested: the definition goes out")
+    expect(definition?["title"] == nil && definition?["x-order"] == nil, "nested: without our keywords, at depth too")
+    let items = ((body?["properties"] as? [String: Any])?["tables"] as? [String: Any])?["items"] as? [String: Any]
+    expectEqual(items?["$ref"] as? String, "#/$defs/TableUse", "nested: and the reference to it")
+    expectEqual(((definition?["properties"] as? [String: Any])?["table"] as? [String: Any])?["enum"] as? [String] ?? [],
+                ["sales.orders", "sales.customers"], "nested: the names are still an enum")
+}
+
 @MainActor
 private func testStreamDeliversTheWholeAnswerOnce() async {
     let wire = Wire()
@@ -387,6 +537,9 @@ func runTests() {
         await testARefusalOfEveryWayIsAnError()
         await testAFailureDoesNotChangeTheMode()
         await testRunTimeSchema()
+        await testSchemaKeepsTheDeclaredOrder()
+        await testFreeTextIsGivenALimit()
+        await testNestedSchemaKeepsItsOrderAndItsDefinitions()
         await testStreamDeliversTheWholeAnswerOnce()
         await testWindowAndCounting()
         testErrorKinds()

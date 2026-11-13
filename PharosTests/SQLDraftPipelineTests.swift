@@ -298,6 +298,170 @@ private func testPromptsCarryCatalogueOnly() {
     expectEqual(unexplained, [], "every word in the prompts comes from the catalogue")
 }
 
+// MARK: - The tables' DDL
+
+private let ordersDDL = """
+    CREATE TABLE "sales"."orders" (
+        "id" bigint NOT NULL,
+        "status" sales.order_status DEFAULT 'pending'::sales.order_status,
+        CONSTRAINT "orders_pkey" PRIMARY KEY (id, placed_at)
+    ) PARTITION BY RANGE (placed_at);
+    """
+
+private func testDDLBlock() {
+    var catalog = fixture()
+    let partition = Key(schema: "sales", name: "shipments")
+    catalog.partitions = [partition]
+
+    expectEqual(SQLDraftPrompt.ddlKeys([orders, partition, orders, Key(schema: "sales", name: "nope"), customers], in: catalog),
+                [orders, customers], "DDL keys: no partition, no unknown table, no table twice")
+
+    let customersDDL = "CREATE TABLE \"sales\".\"customers\" (\n    \"id\" bigint NOT NULL\n);\n"
+    let block = SQLDraftPrompt.ddlBlock(
+        [orders, partition, customers, items],
+        definitions: [orders: ordersDDL, customers: customersDDL,
+                      partition: "CREATE TABLE \"sales\".\"shipments\" ();\n\nALTER TABLE \"sales\".\"orders\" ATTACH PARTITION \"sales\".\"shipments\"\n    FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');"],
+        in: catalog)
+    let expected = ordersDDL + """
+
+        -- sales.orders: one row per customer order
+        -- status is one of ('pending','paid','shipped','cancelled')
+
+        CREATE TABLE "sales"."customers" (
+            "id" bigint NOT NULL
+        );
+        """
+    expectEqual(block.text, expected, "DDL block: the definition as given, then what DDL does not say")
+    expectEqual(block.tables, [orders, customers], "DDL block: a table with no definition is left out, and so is a partition")
+    expect(!block.text.contains("ATTACH PARTITION") && !block.text.contains("2024-01-01"),
+           "DDL block: a partition's bounds never reach the prompt")
+    expect(block.text.contains("PARTITION BY RANGE (placed_at)"), "DDL block: the parent keeps its PARTITION BY")
+
+    expectEqual(SQLDraftPrompt.ddlNotes(for: catalog.table(items)!), ["-- unit_price: price at time of sale"],
+                "DDL notes: a column comment")
+    expectEqual(SQLDraftPrompt.ddlNotes(for: catalog.table(customers)!), [], "DDL notes: none for a plain table")
+
+    expect(SQLDraftPrompt.ddlDraftInstructions.contains("PARTITION BY")
+           && SQLDraftPrompt.ddlDraftInstructions.contains("FOREIGN KEY"),
+           "DDL instructions: say how to read keys and a partitioned table")
+}
+
+// MARK: - Budgets and the steps' requests
+
+private func testBudget() {
+    let advanced = SQLDraftPrompt.Budget(contextSize: 8192)
+    let core = SQLDraftPrompt.Budget(contextSize: 4096)
+    let hosted = SQLDraftPrompt.Budget(contextSize: 200_000)
+
+    expectEqual(advanced.pickList, 1638, "8k: the name list gets a fifth of the window")
+    expectEqual(advanced.readBlock, 3276, "8k: a read request's DDL gets two fifths")
+    expectEqual(advanced.draftUnread, 2457, "8k: three tenths of the window goes to the draft unread")
+    expect(core.draftUnread < core.draftDefinitions && advanced.draftUnread < advanced.draftDefinitions,
+           "what goes unread is less than what may go at all")
+    expectEqual(hosted.draftUnread, SQLDraftPrompt.Budget.draftUnreadCeiling, "hosted: and stops at its ceiling")
+    expectEqual(advanced.draftBlock, 5461, "8k: the draft's tables get two thirds of the window")
+    expect(advanced.draftDefinitions < advanced.draftBlock && advanced.draftDefinitions > 4500,
+           "8k: the DDL gets the block's room less its longer instructions: \(advanced.draftDefinitions)")
+
+    expectEqual(core.draftBlock, 2596, "4k: the compact block's budget is what it was")
+    expect(core.draftDefinitions < core.draftBlock && core.draftDefinitions >= 600, "4k: DDL gets less: \(core.draftDefinitions)")
+    expect(core.pickList < advanced.pickList && core.readBlock < advanced.readBlock, "4k: every share is smaller")
+
+    // A window fifty times larger is sent no more than the ceilings.
+    expectEqual(hosted.pickList, SQLDraftPrompt.Budget.pickListCeiling, "hosted: the name list stops at its ceiling")
+    expectEqual(hosted.readBlock, SQLDraftPrompt.Budget.readBlockCeiling, "hosted: a read request stops at its ceiling")
+    expectEqual(hosted.draftBlock, SQLDraftPrompt.Budget.draftCeiling, "hosted: the draft's tables stop at the ceiling")
+    expect(hosted.draftDefinitions <= SQLDraftPrompt.Budget.draftCeiling && hosted.draftDefinitions > 5000,
+           "hosted: and so does their DDL: \(hosted.draftDefinitions)")
+
+    // No request can reach its window: the largest table text, the
+    // instructions that go with it and the room kept for the answer.
+    for budget in [(4096, core), (8192, advanced)] {
+        let read = budget.1.readBlock + SQLDraftPrompt.estimateTokens(SQLDraftPrompt.readInstructions) + 700
+        expect(read < budget.0, "\(budget.0): a full read request leaves room: \(read)")
+        let pick = 2 * budget.1.pickList + SQLDraftPrompt.estimateTokens(SQLDraftPrompt.pickInstructions) + 400
+        expect(pick < budget.0, "\(budget.0): a full name list, sent twice, leaves room: \(pick)")
+        let draft = budget.1.draftDefinitions + SQLDraftPrompt.estimateTokens(SQLDraftPrompt.ddlDraftInstructions) + 700
+        expect(draft <= budget.0, "\(budget.0): a full DDL draft request leaves room: \(draft)")
+    }
+}
+
+private func testPickListToBudget() {
+    let catalog = fixture()
+    let all = [orders, customers, items, products, shipments, returns]
+
+    let roomy = SQLDraftPrompt.pickList(all, in: catalog, budget: 10_000)
+    expectEqual(roomy.listed, all, "name list: everything listed when it fits")
+    expect(roomy.text.contains("sales.orders: id, customer_id"), "name list: with columns when they fit")
+
+    let columns = SQLDraftPrompt.estimateTokens(roomy.text)
+    let tighter = SQLDraftPrompt.pickList(all, in: catalog, budget: columns - 1)
+    expectEqual(tighter.listed, all, "name list: still every table one step down")
+    expect(!tighter.text.contains("customer_id") && tighter.text.contains("sales.orders -- one row per customer order"),
+           "name list: the columns go first, the comment stays: \(tighter.text)")
+
+    let comment = SQLDraftPrompt.estimateTokens(tighter.text)
+    let names = SQLDraftPrompt.pickList(all, in: catalog, budget: comment - 1)
+    expectEqual(names.text.split(separator: "\n").first.map(String.init), "sales.orders", "name list: then names alone")
+    expectEqual(names.listed, all, "name list: still every table")
+
+    let tiny = SQLDraftPrompt.pickList(all, in: catalog, budget: 14)
+    expectEqual(tiny.listed, [orders, customers], "name list: too many names keeps the best first: \(tiny.listed)")
+    expect(SQLDraftPrompt.estimateTokens(tiny.text) <= 14, "name list: and is inside the budget")
+    expectEqual(SQLDraftPrompt.pickList(all, in: catalog, budget: 1).listed, [orders], "name list: never empty")
+}
+
+private func testReadPacks() {
+    var catalog = fixture()
+    catalog.partitions = [shipments]
+    func ddl(_ key: Key, columns: Int) -> String {
+        "CREATE TABLE \(key.sql) (\n" + (0..<columns).map { "    \"column_\($0)\" bigint" }.joined(separator: ",\n") + "\n);"
+    }
+    let definitions: [Key: String] = [
+        orders: ddl(orders, columns: 6), customers: ddl(customers, columns: 6), items: ddl(items, columns: 6),
+        products: ddl(products, columns: 200), shipments: ddl(shipments, columns: 2),
+    ]
+    let one = SQLDraftPrompt.estimateTokens(SQLDraftPrompt.ddlBlock([orders], definitions: definitions, in: catalog).text)
+
+    let together = SQLDraftPrompt.readPacks([orders, customers, items], definitions: definitions, in: catalog,
+                                            budget: 10 * one, limit: 3)
+    expectEqual(together.packs, [[orders, customers, items]], "read: one request when everything fits")
+    expectEqual(together.unread, [], "read: and nothing left unread")
+
+    let split = SQLDraftPrompt.readPacks([orders, customers, items], definitions: definitions, in: catalog,
+                                         budget: 2 * one + 10, limit: 3)
+    expectEqual(split.packs, [[orders, customers], [items]], "read: a second request rather than a longer one")
+    for pack in split.packs {
+        let text = SQLDraftPrompt.ddlBlock(pack, definitions: definitions, in: catalog).text
+        expect(SQLDraftPrompt.estimateTokens(text) <= 2 * one + 10, "read: each request is inside the budget")
+    }
+
+    let capped = SQLDraftPrompt.readPacks([orders, customers, items], definitions: definitions, in: catalog,
+                                          budget: one + 2, limit: 2)
+    expectEqual(capped.packs, [[orders], [customers]], "read: no more requests than the limit")
+    expectEqual(capped.unread, [items], "read: what is over the limit is not asked about")
+
+    let mixed = SQLDraftPrompt.readPacks([orders, products, shipments, returns, orders], definitions: definitions,
+                                         in: catalog, budget: 4 * one, limit: 3)
+    expectEqual(mixed.packs, [[orders]], "read: a table is asked about once")
+    expectEqual(mixed.unread, [products, shipments, returns],
+                "read: too wide, a partition, and with no DDL are kept without being asked about")
+}
+
+private func testReadAnswerColumns() {
+    let catalog = fixture()
+    let table = catalog.table(returns)!
+    expectEqual(SQLDraftPrompt.columns(["\"orderId\"", "REQUESTEDAT", "ReturnRequests.id", "nope", "orderid"], of: table),
+                ["orderId", "requestedAt", "id"], "read answer: columns as the catalogue spells them, once each, real ones only")
+
+    // A column the reading step named survives the hardest trim.
+    let needed = SQLDraftPrompt.render([products], in: catalog, terms: [], otherColumnCap: 0, needed: [products: ["sku"]])
+    expect(needed.contains("sku text") && !needed.contains("discontinued"), "needed columns are kept: \(needed)")
+    let block = SQLDraftPrompt.block([products, customers], in: catalog, request: "", budget: 40,
+                                     needed: [products: ["sku"], customers: ["name"]])
+    expect(block.text.contains("sku text"), "and kept through the block's trimming: \(block.text)")
+}
+
 // MARK: - Checker
 
 private func problems(_ sql: String, schema: String = "sales") -> [String] {
@@ -405,6 +569,150 @@ private func testFixerQuoting() {
     expectEqual(problems(quoted.sql), [], "and then pass the check")
 }
 
+// MARK: - Which query a table belongs to
+
+private func lexed(_ sql: String) -> [SQLStatementScope.Token] {
+    let snapshot = SQLLexSnapshot.shared(for: sql)
+    return SQLStatementScope.tokens(in: snapshot, range: NSRange(location: 0, length: snapshot.length))
+}
+
+/// The index of the `nth` token spelled `text`.
+private func index(of text: String, nth: Int = 0, in tokens: [SQLStatementScope.Token]) -> Int {
+    tokens.indices.filter { tokens[$0].text == text }[nth]
+}
+
+private func testQueriesOfAStatement() {
+    // A subquery sees the tables around it; they do not see its own.
+    let nested = lexed("SELECT c.name FROM sales.customers c WHERE c.id IN (SELECT o.customer_id FROM sales.orders o WHERE count(o.id) > (1 + 2))")
+    let queries = SQLDraftChecker.Queries(nested)
+    let references = SQLStatementScope.tableReferences(in: nested)
+    expectEqual(references.map { nested[$0.at].text + "." + nested[$0.at + 2].text }, ["sales.customers", "sales.orders"],
+                "references: each table with the token it is declared at")
+    expectEqual(references.map(\.ref.qualifier), ["c", "o"], "references: in the order they are named")
+    let customersAt = references[0].at, ordersAt = references[1].at
+    let outerColumn = index(of: "c", nth: 0, in: nested)          // c.name, in the outer SELECT
+    let innerColumn = index(of: "o", nth: 0, in: nested)          // o.customer_id, in the subquery
+    let deepColumn = index(of: "o", nth: 2, in: nested)           // o.id, inside count( )
+    expect(queries.sees(customersAt, from: outerColumn), "queries: a table is seen in its own query")
+    expect(queries.sees(customersAt, from: innerColumn), "queries: and in a subquery of it")
+    expect(queries.sees(ordersAt, from: innerColumn), "queries: a subquery's table is seen inside the subquery")
+    expect(queries.sees(ordersAt, from: deepColumn), "queries: brackets round an expression or a call open no query")
+    expect(!queries.sees(ordersAt, from: outerColumn), "queries: a subquery's table is not seen by the query around it")
+    expectEqual(Set(queries.query).count, 2, "queries: two in all")
+
+    // The two sides of a UNION are beside each other.
+    let union = lexed("SELECT o.id FROM sales.orders o UNION ALL SELECT c.id FROM sales.customers c")
+    let sides = SQLDraftChecker.Queries(union)
+    let unionRefs = SQLStatementScope.tableReferences(in: union)
+    expect(!sides.sees(unionRefs[1].at, from: index(of: "o", in: union)), "queries: the second side's table is not seen by the first")
+    expect(!sides.sees(unionRefs[0].at, from: index(of: "c", in: union)), "queries: nor the first side's by the second")
+    expect(sides.sees(unionRefs[1].at, from: index(of: "c", in: union)), "queries: each side sees its own")
+
+    // A WITH body and a derived table are queries of their own.
+    let with = lexed("WITH recent AS (SELECT o.id FROM sales.orders o) SELECT r.id FROM recent r JOIN (SELECT s.order_id FROM sales.shipments s) d ON d.order_id = r.id")
+    let parts = SQLDraftChecker.Queries(with)
+    let withRefs = SQLStatementScope.tableReferences(in: with)
+    let main = index(of: "r", nth: 0, in: with)
+    expectEqual(withRefs.map(\.ref.table), ["orders", "recent", "shipments"], "references: every FROM, wherever it is")
+    expect(!parts.sees(withRefs[0].at, from: main), "queries: the main query does not see a WITH body's table")
+    expect(parts.sees(withRefs[1].at, from: main), "queries: it sees what it names itself")
+    expect(!parts.sees(withRefs[2].at, from: main), "queries: and not a derived table's table")
+    expect(!parts.sees(0, from: 999) && !parts.sees(999, from: 0), "queries: a token that is not there is seen by nothing")
+}
+
+private func testNoCorrectionThroughATableThatCannotBeNamed() {
+    // The column is in a table of the subquery; the query around it cannot
+    // read through that table. This used to be "corrected" into
+    // `order_items.order_id NOT IN (…)`, which names a table not in FROM.
+    let draft = "SELECT c.id, c.name FROM sales.customers c JOIN sales.orders o ON c.id = o.customer_id WHERE o.order_id NOT IN (SELECT order_id FROM sales.order_items)"
+    expectEqual(problems(draft), ["Column o.order_id does not exist; sales.orders has: id, customer_id, status, placed_at, sales_rep_id."],
+                "subquery: the hint names the table's own columns, not a table out of reach")
+    let unchanged = fixed(draft)
+    expectEqual(unchanged.sql, draft, "subquery: the column is not moved to a table the outer query cannot name")
+    expectEqual(unchanged.fixes, [], "subquery: and no correction is claimed")
+
+    // Inside the subquery the same table CAN be named, and still is.
+    let inner = fixed("SELECT c.name FROM sales.customers c WHERE c.id IN (SELECT o.customer_id FROM sales.orders o JOIN sales.order_items oi ON oi.order_id = o.id WHERE o.quantity > 3)")
+    expectEqual(inner.sql, "SELECT c.name FROM sales.customers c WHERE c.id IN (SELECT o.customer_id FROM sales.orders o JOIN sales.order_items oi ON oi.order_id = o.id WHERE oi.quantity > 3)",
+                "subquery: a column is still moved to the table beside it")
+
+    // A subquery may name the tables around it: a correlated reference.
+    let correlated = "SELECT c.id FROM sales.customers c WHERE EXISTS (SELECT 1 FROM sales.orders o WHERE o.customer_id = c.id AND o.signed_up_at > now())"
+    expectEqual(problems(correlated), ["Column o.signed_up_at does not exist; signed_up_at is a column of c."],
+                "correlated: the outer table is in reach, and the hint says so")
+    expectEqual(fixed(correlated).sql,
+                "SELECT c.id FROM sales.customers c WHERE EXISTS (SELECT 1 FROM sales.orders o WHERE o.customer_id = c.id AND c.signed_up_at > now())",
+                "correlated: a column is moved to an outer table, which the subquery can read")
+
+    // The other side of a UNION is out of reach too.
+    let union = "SELECT o.name FROM sales.orders o UNION SELECT c.name FROM sales.customers c"
+    expectEqual(fixed(union).sql, union, "union: a column is not moved to the other side's table")
+    expect(problems(union).first?.contains("sales.orders has:") == true, "union: and the hint does not name it: \(problems(union))")
+
+    // An outer table whose alias the subquery has taken for another table
+    // cannot be named there: `c` inside means orders.
+    let shadowed = "SELECT c.id FROM sales.customers c WHERE EXISTS (SELECT 1 FROM sales.orders c WHERE c.name = 'x')"
+    expectEqual(fixed(shadowed).fixes, [], "shadowed: no correction through a name that means another table here")
+    expectEqual(problems(shadowed), ["Column c.name does not exist; sales.orders has: id, customer_id, status, placed_at, sales_rep_id."],
+                "shadowed: the column is checked against the table the alias means in the subquery")
+    expectEqual(problems("SELECT c.name FROM sales.customers c WHERE EXISTS (SELECT 1 FROM sales.orders c WHERE c.status = 'paid')"), [],
+                "shadowed: and each use of the alias is checked against its own table")
+
+    // The alias hint lists the aliases this place can use.
+    let alias = problems("SELECT x.id FROM sales.orders o WHERE o.id IN (SELECT oi.order_id FROM sales.order_items oi)")
+    expectEqual(alias, ["x is not a table or alias in the FROM clause; the aliases are: o."],
+                "alias hint: a subquery's alias is not offered to the query around it")
+}
+
+private func testJoinIsNotRewrittenOntoATableOutOfReach() {
+    // The key between employees and employee_skills is real, but
+    // employee_skills is inside the derived table: its alias means nothing
+    // in this ON. This used to become `ON es.employee_id = e.id`.
+    let draft = "SELECT e.first_name FROM (SELECT es.employee_id FROM hr.employee_skills es) x JOIN hr.employees e ON e.employee_id = x.employee_id"
+    let outcome = fixed(draft, schema: "hr")
+    expectEqual(outcome.sql, draft, "join: not rewritten with an alias from inside a derived table")
+    expectEqual(outcome.fixes, [], "join: and no correction is claimed")
+
+    // Beside each other, the key is still used.
+    let beside = fixed("SELECT e.first_name FROM hr.employee_skills es JOIN hr.employees e ON e.employee_id = es.employee_id", schema: "hr")
+    expectEqual(beside.sql, "SELECT e.first_name FROM hr.employee_skills es JOIN hr.employees e ON es.employee_id = e.id",
+                "join: two tables of one query still get their foreign key")
+
+    // The same alias in a later subquery is another table: the ON belongs
+    // to the one declared before it.
+    let reused = fixed("SELECT e.first_name FROM hr.employee_skills es JOIN hr.employees e ON e.employee_id = es.employee_id WHERE e.id IN (SELECT e.id FROM hr.skills e)", schema: "hr")
+    expect(reused.sql.hasPrefix("SELECT e.first_name FROM hr.employee_skills es JOIN hr.employees e ON es.employee_id = e.id WHERE"),
+           "join: an alias reused later does not hide the table being joined: \(reused.sql)")
+}
+
+/// A table and a column whose names are PostgreSQL key words.
+private func reservedCatalog() -> DraftCatalog {
+    DraftCatalog(columns: [
+        Key(schema: "public", name: "user"): cols([("id", "bigint", true), ("order", "integer", false), ("name", "text", false)]),
+        Key(schema: "public", name: "visits"): cols([("id", "bigint", true), ("user_id", "bigint", false)]),
+    ], facts: [:])
+}
+
+private func testReservedNamesGetQuotes() {
+    let catalog = reservedCatalog()
+    let draft = "SELECT u.order, u.name FROM public.user u JOIN public.visits v ON v.user_id = u.id ORDER BY u.order"
+    let found = SQLDraftChecker.check(draft, in: catalog, defaultSchema: "public").map(\.description)
+    expect(found.contains { $0.contains("order must be written \"order\"") }, "reserved: a key word used as a column is reported: \(found)")
+    expect(found.contains { $0.contains("user must be written \"user\"") }, "reserved: and one used as a table: \(found)")
+
+    let fixed = SQLDraftFixer.fix(draft, in: catalog, defaultSchema: "public")
+    expectEqual(fixed.sql,
+                "SELECT u.\"order\", u.name FROM public.\"user\" u JOIN public.visits v ON v.user_id = u.id ORDER BY u.\"order\"",
+                "reserved: a key word after a dot gets its quotes; ORDER BY itself does not")
+    expectEqual(SQLDraftChecker.check(fixed.sql, in: catalog, defaultSchema: "public").map(\.description), [],
+                "reserved: and then passes the check")
+    expect(fixed.fixes.contains("order is written with its double quotes."), "reserved: the fix is said: \(fixed.fixes)")
+
+    // Nothing to do where no name is a key word.
+    let plain = SQLDraftFixer.fix("SELECT o.id FROM sales.orders o ORDER BY o.id", in: fixture(), defaultSchema: "sales")
+    expectEqual(plain.fixes, [], "reserved: an ordinary catalogue is left alone")
+}
+
 func runTests() {
     testShortTypes()
     testQuoting()
@@ -418,12 +726,21 @@ func runTests() {
     testBridges()
     testPickList()
     testPromptsCarryCatalogueOnly()
+    testDDLBlock()
+    testBudget()
+    testPickListToBudget()
+    testReadPacks()
+    testReadAnswerColumns()
     testCheckerAcceptsGoodSQL()
     testCheckerFindsProblems()
     testTablesRead()
     testFixerJoins()
     testFixerQualifiers()
     testFixerQuoting()
+    testReservedNamesGetQuotes()
+    testQueriesOfAStatement()
+    testNoCorrectionThroughATableThatCannotBeNamed()
+    testJoinIsNotRewrittenOntoATableOutOfReach()
     print("\(passes) passed, \(failures) failed")
     if failures > 0 { exit(1) }
 }

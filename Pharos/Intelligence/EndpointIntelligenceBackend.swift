@@ -87,7 +87,8 @@ final class EndpointIntelligenceBackend: IntelligenceBackend {
         generating type: Answer.Type, sampling: IntelligenceSampling
     ) async throws -> Answer {
         let content = try await respond(
-            instructions: instructions, prompt: prompt, schema: type.generationSchema, sampling: sampling)
+            instructions: instructions, prompt: prompt, schema: type.generationSchema,
+            textLimits: (type as? TextLimitedAnswer.Type)?.textLimits ?? [:], sampling: sampling)
         do {
             return try Answer(content)
         } catch {
@@ -99,7 +100,14 @@ final class EndpointIntelligenceBackend: IntelligenceBackend {
         instructions: String, prompt: String,
         schema: GenerationSchema, sampling: IntelligenceSampling
     ) async throws -> GeneratedContent {
-        let schemaJSON = try Self.jsonSchema(for: schema)
+        try await respond(instructions: instructions, prompt: prompt, schema: schema, textLimits: [:], sampling: sampling)
+    }
+
+    func respond(
+        instructions: String, prompt: String,
+        schema: GenerationSchema, textLimits: [String: Int], sampling: IntelligenceSampling
+    ) async throws -> GeneratedContent {
+        let schemaJSON = try Self.schemaText(for: schema, textLimits: textLimits)
         var attempt = mode
         while true {
             let request = try Self.request(
@@ -129,7 +137,8 @@ final class EndpointIntelligenceBackend: IntelligenceBackend {
             let task = Task { @MainActor in
                 do {
                     let content = try await self.respond(
-                        instructions: instructions, prompt: prompt, schema: type.generationSchema, sampling: .standard)
+                        instructions: instructions, prompt: prompt, schema: type.generationSchema,
+                        textLimits: (type as? TextLimitedAnswer.Type)?.textLimits ?? [:], sampling: .standard)
                     do {
                         continuation.yield(try Answer.PartiallyGenerated(content))
                     } catch {
@@ -166,44 +175,117 @@ final class EndpointIntelligenceBackend: IntelligenceBackend {
 
     // MARK: - The request
 
-    /// The answer type's schema as plain JSON Schema.
+    /// The answer type's schema as JSON Schema text.
     ///
-    /// FoundationModels adds `x-order` and `title`, which mean nothing to an
-    /// endpoint and which a strict one refuses. They are removed at every
-    /// depth; the rest is passed on as it is.
-    static func jsonSchema(for schema: GenerationSchema) throws -> Any {
+    /// Two things are done to what FoundationModels encodes.
+    ///
+    /// `x-order` and `title` mean nothing to an endpoint, and a strict one
+    /// refuses them. They are removed at every depth.
+    ///
+    /// Each object's `properties` are written in the order its `x-order`
+    /// gives, which is the order the answer type declares them in. An
+    /// endpoint that holds its answer to the schema writes the fields in the
+    /// order the schema lists them, as the on-device model does, and the
+    /// features rely on that order: a draft's `plan` comes before its `sql`
+    /// so that the model decides before it writes, and a reading step names
+    /// a table before it lists that table's columns. Every other key is
+    /// sorted, so the same schema is always the same text.
+    ///
+    /// A third thing is added: every free-text string is given a
+    /// `maxLength`: the limit `textLimits` names for its field, else
+    /// `textLimit`. A local model sampled greedily can fall into repeating
+    /// itself inside a string — measured with LM Studio, 2026-11-13: a table
+    /// choice whose `reason` ran on until the window was full, about a
+    /// minute and a half later. An endpoint that holds its answer to the
+    /// schema closes the string at the limit and goes on to the rest of the
+    /// answer, so the step still answers, a few seconds late.
+    static func schemaText(for schema: GenerationSchema, textLimits: [String: Int] = [:]) throws -> String {
         let data = try JSONEncoder().encode(schema)
-        return stripped(try JSONSerialization.jsonObject(with: data))
+        var text = ""
+        try write(schema: JSONSerialization.jsonObject(with: data), into: &text, limits: textLimits, limit: textLimit)
+        return text
     }
 
-    private static func stripped(_ value: Any) -> Any {
-        if let object = value as? [String: Any] {
-            var result: [String: Any] = [:]
-            for (key, child) in object where key != "x-order" && key != "title" {
-                // The names under `properties` are the answer's own fields,
-                // not schema keywords: a field called "title" stays.
-                if key == "properties", let fields = child as? [String: Any] {
-                    result[key] = fields.mapValues(stripped)
+    /// The most characters a free-text field of an answer may hold. Longer
+    /// than anything a feature shows — a drafted statement is a few hundred
+    /// characters, an explanation a paragraph — and far shorter than a
+    /// model's window.
+    static let textLimit = 4_000
+
+    /// The keys whose value maps the answer's own names to schemas. Those
+    /// names are not schema keywords: a field called "title" stays.
+    private static let nameMaps: Set<String> = ["properties", "$defs", "definitions"]
+
+    /// `limit` is what a free-text string written here is held to: its
+    /// field's own limit, which a list's strings inherit, else `textLimit`.
+    private static func write(
+        schema value: Any, into text: inout String, limits: [String: Int], limit: Int
+    ) throws {
+        if var object = value as? [String: Any] {
+            let order = object["x-order"] as? [String] ?? []
+            // Free text: a string that is not held to a list, a constant or
+            // a pattern, and has no limit of its own.
+            if object["type"] as? String == "string",
+               object["enum"] == nil, object["const"] == nil, object["pattern"] == nil, object["maxLength"] == nil {
+                object["maxLength"] = limit
+            }
+            text += "{"
+            var first = true
+            for key in object.keys.sorted() where key != "x-order" && key != "title" {
+                if !first { text += "," }
+                first = false
+                text += try scalar(key) + ":"
+                if nameMaps.contains(key), let named = object[key] as? [String: Any] {
+                    // Declared order first; a name `x-order` does not list
+                    // (a definition, say) follows in sorted order.
+                    let listed = key == "properties" ? order.filter { named[$0] != nil } : []
+                    let names = listed + named.keys.sorted().filter { !listed.contains($0) }
+                    text += "{"
+                    for (index, name) in names.enumerated() {
+                        if index > 0 { text += "," }
+                        text += try scalar(name) + ":"
+                        // A field starts again from its own limit; a
+                        // definition is not a field and has none.
+                        let own = key == "properties" ? (limits[name] ?? textLimit) : textLimit
+                        try write(schema: named[name] as Any, into: &text, limits: limits, limit: own)
+                    }
+                    text += "}"
                 } else {
-                    result[key] = stripped(child)
+                    try write(schema: object[key] as Any, into: &text, limits: limits, limit: limit)
                 }
             }
-            return result
+            text += "}"
+        } else if let array = value as? [Any] {
+            text += "["
+            for (index, element) in array.enumerated() {
+                if index > 0 { text += "," }
+                try write(schema: element, into: &text, limits: limits, limit: limit)
+            }
+            text += "]"
+        } else {
+            text += try scalar(value)
         }
-        if let array = value as? [Any] { return array.map(stripped) }
-        return value
     }
+
+    /// A string, number, boolean or null as JSON.
+    private static func scalar(_ value: Any) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]), as: UTF8.self)
+    }
+
+    /// Stands where the schema goes while the rest of the body is
+    /// serialized. `JSONSerialization` writes a dictionary's keys in an
+    /// order of its own, so the schema, whose order matters, is written by
+    /// hand and put in afterwards.
+    private static let schemaPlaceholder = "@@PHAROS-ANSWER-SCHEMA@@"
 
     /// `POST <base>/chat/completions`.
     static func request(
         base: URL, model: String, key: String?, instructions: String, prompt: String,
-        schema: Any, sampling: IntelligenceSampling, mode: StructuredMode
+        schema: String, sampling: IntelligenceSampling, mode: StructuredMode
     ) throws -> URLRequest {
         var system = instructions
         if mode != .jsonSchema {
-            let text = String(
-                decoding: try JSONSerialization.data(withJSONObject: schema, options: [.sortedKeys]), as: UTF8.self)
-            system += "\n\nAnswer with one JSON object and nothing else. It must match this JSON Schema:\n" + text
+            system += "\n\nAnswer with one JSON object and nothing else. It must match this JSON Schema:\n" + schema
         }
         var body: [String: Any] = [
             "model": model,
@@ -217,7 +299,7 @@ final class EndpointIntelligenceBackend: IntelligenceBackend {
         case .jsonSchema:
             body["response_format"] = [
                 "type": "json_schema",
-                "json_schema": ["name": "answer", "schema": schema],
+                "json_schema": ["name": "answer", "schema": schemaPlaceholder],
             ]
         case .jsonObject:
             body["response_format"] = ["type": "json_object"]
@@ -235,7 +317,15 @@ final class EndpointIntelligenceBackend: IntelligenceBackend {
         if let key, !key.isEmpty {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        var json = String(decoding: try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]), as: UTF8.self)
+        // Only the placeholder written above can match: a quote inside the
+        // instructions or the prompt is escaped by the serializer, so no
+        // text of theirs can spell `"schema":"…"`.
+        if mode == .jsonSchema,
+           let range = json.range(of: "\"schema\":" + (try scalar(schemaPlaceholder))) {
+            json.replaceSubrange(range, with: "\"schema\":" + schema)
+        }
+        request.httpBody = Data(json.utf8)
         return request
     }
 
